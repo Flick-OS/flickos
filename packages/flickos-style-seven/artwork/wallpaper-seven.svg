@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Seven's wallpaper (tools/make-seven.py): FlickOS's halo, as on Dark's
+       and Light's, over a sky. Rendered to the style's wallpaper.png. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1080" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b3f86"/>
+      <stop offset="0.55" stop-color="#1f73c9"/>
+      <stop offset="1" stop-color="#7ab8ee"/>
+    </linearGradient>
+    <radialGradient id="light" cx="1300" cy="560" r="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ray" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1300" cy="560" r="760" fill="url(#light)"/>
+  <g transform="rotate(-24 960 540)">
+    <rect x="-200" y="430" width="2400" height="70" fill="url(#ray)"/>
+    <rect x="-200" y="560" width="2400" height="26" fill="url(#ray)"/>
+    <rect x="-200" y="640" width="2400" height="140" fill="url(#ray)" opacity="0.6"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="1.5">
+    <circle cx="1300" cy="560" r="470" stroke-opacity="0.16"/>
+    <circle cx="1300" cy="560" r="640" stroke-opacity="0.11"/>
+    <circle cx="1300" cy="560" r="860" stroke-opacity="0.07"/>
+  </g>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+</svg>

@@ -1,0 +1,110 @@
+# Review checklist
+
+Every **Must** rule of the HIG, one line each, for reviewing a change or a new
+package. Tick what applies, and link the rule when something doesn't pass.
+Should rules aren't listed. Read the pages for those.
+
+## Fitting into the desktop ([02](02-desktop-integration.md))
+
+- [ ] **INT-1** A program people open has a desktop file with the standard keys.
+- [ ] **INT-3** A labwc menu change is in both the installed and the live menu (`tools/check-menus.py`).
+- [ ] **INT-4** A user-facing setting has a Settings row or tile, and search keywords for a new page or tile.
+- [ ] **INT-5** A new keybinding has a description on the shortcut sheet and doesn't take an app's key.
+- [ ] **INT-6** Tested in Redmond, Cupertino and Traditional, in Dark and Light.
+- [ ] **INT-7** Hidden in the live session if it only makes sense installed, and the reverse.
+- [ ] **INT-8** Nothing new opens at first login besides `flickos-welcome`.
+- [ ] **INT-9** A new feature is opt-in and runs, generates and binds nothing while off. Only a record that runs nothing (History) may be on by default, with a switch that also deletes it, or a safety net that runs only inside an existing operation and briefly at start (restore points), through an ADR that states its cost; a shipped feature becomes the default only through an ADR that states its cost (the start menu); a tool that runs only when asked may bind its keys by default, through an ADR that names them (Screenshot), and anything of it that shows unasked needs its own ADR (the hidden recording button).
+- [ ] **INT-10** A login program starts from FlickOS's autostart, runs once per session and doesn't hold up the others.
+
+## Settings and files ([03](03-settings-and-files.md))
+
+- [ ] **SET-1** The setting has one owner, and nothing else writes its files.
+- [ ] **SET-2** It works on the command line (`list`/`current`/`set` or `get`/`set`) before any page.
+- [ ] **SET-4** System default in a conffile in `/etc/xdg/flickos/`, user choice in `~/.config/flickos/`, a broken file means defaults.
+- [ ] **SET-5** Nothing written into the user's own config, and nothing copied into `$HOME`. Generated files go in the overlay.
+- [ ] **SET-6** Files are written atomically.
+- [ ] **SET-7** A change applies at once, or the row says when it will.
+- [ ] **SET-8** Every setting can go back to its default.
+- [ ] **SET-9** A shared setting (GTK theme, button layout) changes only while it holds FlickOS's value.
+- [ ] **SET-10** System changes go through a polkit-aware service or a checked pkexec helper verb.
+
+## Windows and layout ([04](04-windows.md))
+
+- [ ] **WIN-1** labwc draws the title bar: no header bar.
+- [ ] **WIN-2** A second start doesn't open a second window.
+- [ ] **WIN-3** Default size at most 1280×680, everything reachable at that size.
+- [ ] **WIN-4** The title is (or starts with) the desktop file's `Name`. Dialog titles name their job.
+- [ ] **WIN-6** Settings are rows in framed lists under headings, built with `Ui`.
+- [ ] **WIN-10** Results and errors show in the window, selectable, never only on stderr.
+- [ ] **WIN-11** Anything slower than about 100 ms shows a spinner or "…ing…".
+- [ ] **WIN-13** Only actions that can't be undone ask first: named object, verb button, destructive style, Cancel as default (in a pop-up: a second click on the reddened button).
+- [ ] **WIN-14** Dialog buttons are Cancel and a verb, the verb suggested and default. Escape cancels.
+
+## Writing ([05](05-writing.md))
+
+- [ ] **TXT-1** Plain words about what the user wants, with no program names in the interface.
+- [ ] **TXT-2** Title Case for names (titles, pages, buttons, menu items), sentence case for everything else.
+- [ ] **TXT-3** An ellipsis (`…`, one character) only where more input is needed before the action completes.
+- [ ] **TXT-5** The words from the terminology table (Restart, Sleep, Shut Down, Lock Screen, Settings, …).
+- [ ] **TXT-6** Errors say what happened and what to do, with no traces or codes.
+- [ ] **TXT-7** CLI output: `NAME: message` on stderr, tab-separated lines on stdout, exit codes 0/1/2.
+- [ ] **TXT-8** Sentences are whole strings. Plurals are two strings.
+- [ ] **TXT-9** No words in images, room for longer text, locale formatting for dates and numbers.
+
+## Visual style ([06](06-visual-style.md))
+
+- [ ] **VIS-1** Only palette colors, and `tools/check-palette.py` passes. The brand amber only on brand surfaces (logo, boot menus, splash, installer, artwork).
+- [ ] **VIS-2** It follows the style in use: no CSS in GTK windows, named colors only in CSS. Hard-coded Arc-Dark only on boot, splash, installer, login screen and the lock and wallpaper background color.
+- [ ] **VIS-3** Never forces dark or light.
+- [ ] **VIS-6** Icons by freedesktop name, first one the theme has. `-symbolic` in rows.
+- [ ] **VIS-8** The system font with relative sizes. `monospace` only for keys and code.
+- [ ] **VIS-9** Artwork regenerated by its tool, and outside images have a copyright stanza.
+- [ ] **VIS-10** No palette key renamed or removed without the old name kept for two releases; a new key added to Dark, Light and the base configs at once.
+- [ ] **VIS-11** No shared panel module, placeholder, signal, group or button class renamed or removed without the old name kept for two releases.
+
+## Accessibility ([07](07-accessibility.md))
+
+- [ ] **A11Y-1** Everything works from the keyboard. Right-click and hover actions have a key. Gestures have an alternative.
+- [ ] **A11Y-2** Escape closes dialogs, popovers, menus and sheets, and clears a search first.
+- [ ] **A11Y-3** Buttons and form labels have unique mnemonics.
+- [ ] **A11Y-5** The focus ring is visible and kept in view.
+- [ ] **A11Y-6** WCAG AA contrast in both styles. Color is never the only signal.
+- [ ] **A11Y-7** Usable at text scale 1.5 and screen scale 2: labels wrap, no fixed text heights.
+- [ ] **A11Y-8** Icon-only buttons have a tooltip and an accessible name. Controls are named by their row or label.
+
+## Performance ([08](08-performance.md))
+
+- [ ] **PERF-1** Within the time budgets (window ≤ 1 s, daemon surface ≤ 100 ms, keystroke ≤ 16 ms, `list` ≤ 200 ms, nothing added to login).
+- [ ] **PERF-2** Nothing blocks the main loop: threads for reading, `Gio.Subprocess` for changing.
+- [ ] **PERF-3** Constructors only build. Pages read when shown. GTK is imported only for a window.
+- [ ] **PERF-4** Nothing runs while the feature is off.
+- [ ] **PERF-5** No polling, and no timers while nothing is on screen.
+- [ ] **PERF-6** A daemon is justified by a measured time budget and is signalled with `pkill`.
+- [ ] **PERF-7** Memory, disk, time and idle CPU are measured and written down.
+- [ ] **PERF-8** No web engine, second toolkit or JS runtime. New Python dependencies and anything over about 10 MB are justified.
+
+## Packaging ([09](09-packaging.md))
+
+- [ ] **PKG-1** Desktop changes ship in a package, not in `config/includes.*`.
+- [ ] **PKG-2** No file another package owns. FlickOS paths only.
+- [ ] **PKG-3** Version bumped with `dch -i -D trixie`, dependents bumped, `Breaks` when files move.
+- [ ] **PKG-4** Depends for needs (Recommends never reach installs), must-haves in `REQUIRED`, a comment on every dependency.
+- [ ] **PKG-5** `debian/copyright` covers every file.
+- [ ] **PKG-6** Native, `Architecture: all`, declarative debhelper files, conffiles, lintian without errors.
+- [ ] **PKG-8** Unit tests in `tests/`, run at build time without display, network or root.
+- [ ] **PKG-9** A boot-test check for every user-visible feature.
+- [ ] **PKG-10** A new package is in `flickos-desktop`, docs/04 and docs/01, and has a design doc if it's big.
+
+## Code ([10](10-code.md))
+
+- [ ] **CODE-1** One Python file, standard library plus `gi`.
+- [ ] **CODE-2** The docstring covers what it owns, its commands and exit codes, and is up to date.
+- [ ] **CODE-3** What it supports is a table of constants at the top, each commented.
+- [ ] **CODE-4** argparse subcommands, and `main(argv=None)` returns the exit code.
+- [ ] **CODE-6** Expected failures become messages, bugs print a traceback and show an error. No bare `except:`.
+- [ ] **CODE-7** Argument lists only, secrets on stdin, started apps detached, timeouts on commands that can hang.
+- [ ] **CODE-8** XDG paths, atomic writes, `flock` in `$XDG_RUNTIME_DIR/flickos/`.
+- [ ] **CODE-9** GTK 3 loaded late with `init_check`. gtk-layer-shell for desktop surfaces.
+- [ ] **CODE-10** None of the known GTK traps (GLib priority, icon lists, clipboard, …).
+- [ ] **CODE-11** No X11. labwc limits respected (no placing, no embedding, unknown keys checked, defaults written).
+- [ ] **CODE-13** Shell is POSIX sh, quoted, `set -e` where a failure must stop it.

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FlickOS's custom actions for Thunar's right-click menu, in place of Debian's
+  /etc/xdg/Thunar/uca.xml, whose Open Terminal Here needs Xfce's helpers
+  (exo-open launching TerminalEmulator). Thunar reads only the first uca.xml it
+  finds (~/.config/Thunar first, written when the user edits custom actions),
+  so this file has all of FlickOS's actions. Every action needs a
+  unique-id: for one without, Thunar makes one up and saves a copy of the
+  whole file there, which then hides any later change to this one.
+
+  Open Terminal Here: the user's default terminal (xdg-terminal-exec, as
+  Super+Enter). Send to Phone: flickos-phone. Thunar can't hide an action
+  while a program is off, so it is always there and says in a notification
+  when the phone connection is off.
+-->
+<actions>
+  <action>
+    <icon>utilities-terminal</icon>
+    <name>Open Terminal Here</name>
+    <unique-id>flickos-terminal-here</unique-id>
+    <command>xdg-terminal-exec --dir=%f</command>
+    <description>Open a terminal in this folder</description>
+    <patterns>*</patterns>
+    <range/>
+    <startup-notify/>
+    <directories/>
+  </action>
+  <action>
+    <icon>phone</icon>
+    <name>Send to Phone</name>
+    <unique-id>flickos-phone-send</unique-id>
+    <command>flickos-phone send --notify %F</command>
+    <description>Send the selected files to the phone paired with this computer</description>
+    <patterns>*</patterns>
+    <range/>
+    <audio-files/>
+    <image-files/>
+    <other-files/>
+    <text-files/>
+    <video-files/>
+  </action>
+</actions>

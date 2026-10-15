@@ -1,0 +1,17 @@
+#Api2
+
+Private {
+
+  include("battery.source")
+
+  export label {
+    style = If(!Ident($XBatteryState) & !Ident(BSDCtl), "hidden", "battery")
+    interval = 60000
+    value = Str(Level) + '% ' +
+      if(Discharging, Lookup(Level,80,"",60,"",40,"",20,"",""), "")
+    tooltip = GT("Battery") + ": " + Str(Level) + "%" + If(Time, " " +
+          Str(Time/60 - Time%60/60) + GT("h") +
+          Str(Time%60) + GT("m"), "")
+    action[0] = XBatteryInit()
+  }
+}

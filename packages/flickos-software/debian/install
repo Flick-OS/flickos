@@ -1,0 +1,5 @@
+usr/bin/flickos-software        usr/bin/
+usr/libexec/flickos/*           usr/libexec/flickos/
+usr/share/applications/*        usr/share/applications/
+etc/apt/apt.conf.d/*            etc/apt/apt.conf.d/
+usr/share/flickos/software/*    usr/share/flickos/software/

@@ -1,0 +1,47 @@
+Source: flickos-menu
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-menu
+Architecture: all
+# python3-gi, gir1.2-gtk-3.0, gir1.2-gtklayershell-0.1: the menu, GTK 3 so it
+# follows the Arc theme. labwc: a tap of Super is labwc's onRelease keybind,
+# and the daemon sees Super because labwc sends modifiers to every client.
+# procps: pkill, how the panel button and labwc reach the daemon.
+# Quick Settings runs the programs that own its settings (nmcli,
+# flickos-control, flick-tiler, flickos-phone, wpctl, brightnessctl); a
+# control whose program is missing is left out, so none is a Depends here.
+# The phone popup reads flickos-phone actions (1.16) and mute, and state
+# ringing (1.17). Older than that, the popup can't draw.
+# python3-gi-cairo: a window fading out passes clicks to the one below (an
+# empty input region); flickos-shortcuts has it already.
+Depends: python3,
+         python3-gi,
+         python3-gi-cairo,
+         gir1.2-gtk-3.0,
+         gir1.2-gtklayershell-0.1,
+         labwc,
+         procps,
+         ${misc:Depends}
+Breaks: flickos-phone (<< 1.17)
+Description: start menu and Quick Settings for the FlickOS labwc session
+ A two-column start menu for the panel's apps button: pinned apps, all apps
+ by category, search, the user's folders, Settings, and lock, log out,
+ restart and shut down. A tap of the Super (Windows) key opens it too.
+ .
+ It is the apps button's default. Settings > Desktop Layout & Style can
+ switch the button back to the fuzzel launcher. While it is off, nothing of
+ it runs.
+ .
+ Quick Settings, off by default, opens from the panel's volume and battery
+ icons and Super+A: switches for Wi-Fi, Do Not Disturb, night light, tiling
+ and the phone, sliders for volume and brightness, and the battery.
+ .
+ The phone popup opens from the panel's phone button while the phone
+ connection is on: the phone, what can be sent, a ringing call, and what
+ recently arrived. The button keeps its menu when this package is removed.

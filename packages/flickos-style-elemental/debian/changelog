@@ -1,0 +1,8 @@
+flickos-style-elemental (1.0) trixie; urgency=medium
+
+  * Elemental, a light style and its layout (ricing ADR-017): a see-
+    through top bar with Applications and the date and time, a light
+    dock, title bars in the window's own grey with close on the left and
+    maximize on the right, the elementary icons, a seashore wallpaper.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 15 Oct 2026 00:24:16 +0800

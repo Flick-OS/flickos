@@ -1,0 +1,25 @@
+/* FlickOS login screen (gtkgreet in cage), Arc-Dark colors. The fields and
+   buttons come from the Arc-Dark GTK theme (GTK_THEME in the greeter script).
+   The wallpaper is set here rather than with gtkgreet's --background, which
+   doesn't scale the image to the screen. */
+
+window {
+    background-color: #383c4a;
+    background-image: url("file:///usr/share/backgrounds/flickos/default.jpg");
+    background-size: cover;
+    background-position: center;
+}
+
+#body {
+    background-color: alpha(#2f343f, 0.92);
+    border: 1px solid #2b2e39;
+    border-radius: 6px;
+    padding: 24px 32px;
+}
+
+/* Above the login box, straight on the wallpaper. */
+#clock {
+    color: #ffffff;
+    font-size: 32pt;
+    text-shadow: 0 1px 3px #000000;
+}

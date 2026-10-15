@@ -1,0 +1,44 @@
+flickos-archive-keyring (1.6) trixie; urgency=medium
+
+  * Turn on the community repository (trixie-community): apps by other
+    developers, built by FlickOS from their public source and reviewed,
+    which the Software app shows.
+  * Automatic updates install community apps too (51flickos-origins).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 09 Oct 2026 11:07:18 +0800
+
+flickos-archive-keyring (1.5) trixie; urgency=medium
+
+  * Automatic updates install FlickOS's packages too:
+    /etc/apt/apt.conf.d/51flickos-origins adds the repository to the
+    origins Debian's unattended-upgrades allows. A choice in Settings >
+    Updates still replaces the whole list.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 18:31:23 +0800
+
+flickos-archive-keyring (1.4) trixie; urgency=medium
+
+  * Add debian/copyright: GPL-3.0-or-later.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:45:23 +0800
+
+flickos-archive-keyring (1.3) trixie; urgency=medium
+
+  * Enable the apt source for release.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 18 Sep 2026 21:45:44 +0800
+
+flickos-archive-keyring (1.2) trixie; urgency=medium
+
+  * Move the apt repository to GitHub Pages
+    (https://dvbondoy.github.io/flickos-apt).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 18 Sep 2026 20:19:24 +0800
+
+flickos-archive-keyring (1.1) trixie; urgency=medium
+
+  * Ship the repository configuration (/etc/apt/sources.list.d/flickos.sources,
+    https://flickos.sourceforge.io/apt) instead of adding it at ISO build time.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 16 Sep 2026 21:30:00 +0800
+

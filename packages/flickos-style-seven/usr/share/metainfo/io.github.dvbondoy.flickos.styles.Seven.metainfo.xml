@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS style is an AppStream add-on of the layout chooser
+     (docs/design/flickos-ricing.md, ADR-006 and ADR-013): Software lists
+     add-ons that extend flickos-layout.desktop under Styles, and
+     FlickOS::style names the style's folder in /usr/share/flickos/styles. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.styles.Seven</id>
+  <extends>flickos-layout.desktop</extends>
+  <name>Seven</name>
+  <summary>Light windows, see-through blue title bars and panel</summary>
+  <description>
+    <p>
+      A light style for the FlickOS desktop: windows in the Arc theme, sky blue
+      title bars you can see through, a see-through dark blue panel, a black
+      terminal and a sky wallpaper. It suits the Redmond layout best.
+    </p>
+    <p>
+      After installing it, try it until you log out, or use it. It is listed
+      with Dark and Light in Desktop Layout &amp; Style.
+    </p>
+  </description>
+  <icon type="stock">preferences-desktop-theme</icon>
+  <url type="homepage">https://github.com/dvbondoy/FlickOS</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::style">seven</value>
+  </custom>
+</component>

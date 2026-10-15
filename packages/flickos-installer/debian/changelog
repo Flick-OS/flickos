@@ -1,0 +1,237 @@
+flickos-installer (1.30) trixie; urgency=medium
+
+  * FlickOS 2.2.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 21:37:29 +0800
+
+flickos-installer (1.29) trixie; urgency=medium
+
+  * Brand amber: the current step in the sidebar is dark text on amber;
+    logo and welcome images with the halo logo.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 11:24:58 +0800
+
+flickos-installer (1.28) trixie; urgency=medium
+
+  * btrfs is the default filesystem, ext4 still offered: new installs
+    get restore points (restore points design, phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 10 Oct 2026 15:23:31 +0800
+
+flickos-installer (1.27) trixie; urgency=medium
+
+  * Mount options move to mount.conf, where Calamares 3.3 reads them:
+    installs get noatime again, and btrfs gets noatime,compress=zstd:1
+    (restore points design, phase 1a).
+  * btrfs installs get the restore points layout: subvolumes @, @home,
+    @log, @cache and @snapshots (ADR-001).
+  * requiredStorage 15 -> 10, so a 15 GB disk gets its swap partition.
+  * partition.conf: a swap choice (none, without and with Hibernate, the
+    default) and ext4 or btrfs when erasing a disk; ext4 stays the
+    default.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 10 Oct 2026 10:57:26 +0800
+
+flickos-installer (1.26) trixie; urgency=medium
+
+  * Live menu: Software opens flickos-software, which replaces gpk-
+    application (Software design ADR-010).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 22:08:39 +0800
+
+flickos-installer (1.25) trixie; urgency=medium
+
+  * Remove the weekly count page (packagechooser@countme and
+    contextualprocess@countme); the first install slide says the count
+    is on and how to turn it off.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 01 Oct 2026 21:48:09 +0800
+
+flickos-installer (1.24) trixie; urgency=medium
+
+  * Live menu: pin Thunar instead of pcmanfm.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 01 Oct 2026 18:51:57 +0800
+
+flickos-installer (1.23) trixie; urgency=medium
+
+  * Installer page Counting: whether to send the anonymous weekly count
+    (flickos-countme; on by default). The answer and the install date go
+    into the installed system's /etc/flickos/countme.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 30 Sep 2026 19:44:29 +0800
+
+flickos-installer (1.22) trixie; urgency=medium
+
+  * Live menu: Displays runs flickos-control displays arrange, as in the
+    installed menu.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 30 Sep 2026 07:55:15 +0800
+
+flickos-installer (1.21) trixie; urgency=medium
+
+  * Live menu: Screenshot, as in the installed menu (flickos-settings
+    1.31).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 20:17:05 +0800
+
+flickos-installer (1.20) trixie; urgency=medium
+
+  * Task Manager (lxtask) in the live root menu, like flickos-settings'.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 28 Sep 2026 15:21:50 +0800
+
+flickos-installer (1.19) trixie; urgency=medium
+
+  * FlickOS 2.1.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 20:02:02 +0800
+
+flickos-installer (1.18) trixie; urgency=medium
+
+  * Live session menu: Sleep and Restart instead of Suspend and Reboot,
+    as in flickos-settings.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 01:28:22 +0800
+
+flickos-installer (1.17) trixie; urgency=medium
+
+  * Live menu: Lock Screen runs flickos-settings' lock script, like the
+    installed menu. Depends on flickos-settings (>= 1.23).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 00:06:53 +0800
+
+flickos-installer (1.16) trixie; urgency=medium
+
+  * Branding: the new donation address,
+    https://flickos.vercel.app/donate.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 25 Sep 2026 22:16:37 +0800
+
+flickos-installer (1.15) trixie; urgency=medium
+
+  * Add a donation address to the installer branding.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 23:17:32 +0800
+
+flickos-installer (1.14) trixie; urgency=medium
+
+  * debian/copyright: FlickOS's own files are GPL-3.0-or-later, not ISC.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:45:25 +0800
+
+flickos-installer (1.13) trixie; urgency=medium
+
+  * Live session: the start menu (flickos-menu, optional) pins Install
+    FlickOS first (/etc/xdg/flickos-live/flickos/menu.conf).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 13:04:37 +0800
+
+flickos-installer (1.12) trixie; urgency=medium
+
+  * Live Settings menu: All Settings (flickos-control) first, as in
+    flickos-settings.
+  * Live menu: Terminal, Web Browser and Files start the user's
+    defaults, as in flickos-settings.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 22 Sep 2026 20:18:14 +0800
+
+flickos-installer (1.11) trixie; urgency=medium
+
+  * Added gnome-packagekit
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 22 Sep 2026 15:41:26 +0800
+
+flickos-installer (1.10) trixie; urgency=medium
+
+  * Live menu: Software and Settings → Software Updates, as in flickos-
+    settings.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 22 Sep 2026 15:30:58 +0800
+
+flickos-installer (1.9) trixie; urgency=medium
+
+  * Live menu: Settings has Keyboard Shortcuts, as in flickos-settings.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 22 Sep 2026 14:35:16 +0800
+
+flickos-installer (1.8) trixie; urgency=medium
+
+  * Disable the libpwquality dictionary check: the cracklib dictionary
+    isn't installed, so every password failed with "error loading
+    dictionary".
+  * Depend on squashfs-tools: calamares only Recommends it, and the
+    image has no Recommends, so unpackfs failed with "Failed to find
+    unsquashfs".
+  * Depend on dosfstools: without mkfs.fat the EFI system partition
+    can't be formatted.
+  * Install GRUB from the pool on the ISO medium: the ISO had no pool,
+    so bootloader-config failed with "Package grub-pc has no
+    installation candidate" offline. Also install efibootmgr on UEFI.
+  * Offline installs: remove only live packages that are in the image
+    (apt-get failed with "Unable to locate package live-task-
+    localisation"), install cryptsetup-initramfs for encrypted installs
+    from the medium's pool, and keep os-prober installed so later
+    update-grub runs still find other systems.
+  * Final apt sources: same components as the image (contrib and non-
+    free too), without backports.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 14:02:47 +0800
+
+flickos-installer (1.7) trixie; urgency=medium
+
+  * Calamares no longer runs its displaymanager module: flickos-greeter
+    sets up the login screen, and "Log in automatically" adds the user
+    to the group autologin.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 12:18:47 +0800
+
+flickos-installer (1.6) trixie; urgency=medium
+
+  * Live menu: Settings > Wallpaper (waypaper), as in flickos-settings
+    1.10.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 18 Sep 2026 14:16:11 +0800
+
+flickos-installer (1.5) trixie; urgency=medium
+
+  * New FlickOS logo in the installer (sidebar, welcome image) and on
+    the Install FlickOS launcher.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 20:50:24 +0800
+
+flickos-installer (1.4) trixie; urgency=medium
+
+  * Live session menu: Settings → Desktop Layout & Style and Appearance,
+    as in flickos-settings 1.8.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 19:04:42 +0800
+
+flickos-installer (1.3) trixie; urgency=medium
+
+  * Live session menu: Settings → Desktop Layout, as in flickos-settings
+    1.7.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 18:49:56 +0800
+
+flickos-installer (1.2) trixie; urgency=medium
+
+  * Installer sidebar and images in Arc-Dark colors; live menu lock-screen
+    color matches flickos-settings 1.5.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 14:22:52 +0800
+
+flickos-installer (1.1) trixie; urgency=medium
+
+  * FlickOS 2.0 branding; welcome page links to the SourceForge project and
+    GitHub issues.
+  * Live menu: Office submenu and Media Player, matching flickos-settings 1.3.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 16 Sep 2026 21:30:00 +0800
+
+flickos-installer (1.0) trixie; urgency=medium
+
+  * Initial release, based on calamares-settings-debian 13.0.13-1:
+    FlickOS branding, sudo-based launcher for Wayland, live-only menu.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 16 Sep 2026 20:40:00 +0800

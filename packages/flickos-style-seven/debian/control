@@ -1,0 +1,26 @@
+Source: flickos-style-seven
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-style-seven
+Architecture: all
+# flickos-layouts 1.53: check tests a see-through panel color; arc-theme and
+# numix-icon-theme: the GTK and icon themes Seven names (on every FlickOS
+# system already, so installing it adds only its own files).
+Depends: flickos-layouts (>= 1.53),
+         arc-theme,
+         numix-icon-theme,
+         ${misc:Depends}
+Description: Seven style for the FlickOS desktop
+ A light style for FlickOS: windows in the Arc theme with the Numix icons,
+ see-through sky blue title bars and frames, a see-through dark blue
+ panel, a black terminal, a light app launcher and notifications, and a
+ sky wallpaper with FlickOS's halo. It suits the Redmond layout.
+ .
+ Installing it adds Seven to Desktop Layout & Style, next to Dark and
+ Light; "flickos-layout try seven" shows it until the next login.

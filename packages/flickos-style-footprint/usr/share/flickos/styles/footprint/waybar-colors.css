@@ -1,0 +1,13 @@
+/* Footprint: a black top bar (tools/make-footprint.py). Same names as
+ * the Dark style's waybar-colors.css. */
+@define-color wm_bg #000000;
+@define-color bg_color #353535;
+@define-color base_color #2d2d2d;
+@define-color fg_color #eeeeec;
+@define-color selected_bg_color #3584e4;
+@define-color selected_fg_color #ffffff;
+@define-color borders #1b1b1b;
+@define-color warning_color #f57900;
+@define-color error_color #cc0000;
+/* FlickOS's brand amber: only the start button's logo (base.css). */
+@define-color brand_color #ffb13d;

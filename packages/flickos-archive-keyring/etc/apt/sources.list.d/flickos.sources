@@ -1,0 +1,14 @@
+# FlickOS package repository: updates for FlickOS's own packages (trixie) and
+# apps by other developers that FlickOS builds from their public source and
+# reviews (trixie-community; the Software app shows them, see
+# docs/design/flickos-software.md, ADR-004).
+# Debian's repositories are configured in /etc/apt/sources.list.
+#
+# Shipped by flickos-archive-keyring, so the repository address can be changed
+# for every installed system by publishing a new version of that package
+# (planned: https://flickos.net once the site is online).
+Types: deb
+URIs: https://dvbondoy.github.io/flickos-apt
+Suites: trixie trixie-community
+Components: main
+Signed-By: /usr/share/keyrings/flickos-archive-keyring.asc

@@ -1,0 +1,42 @@
+#! /bin/sh
+# flickos-recovery: the boot menu's "Restore points" submenu (ADR-004) and the
+# start counter (ADR-005), docs/design/flickos-recovery.md.
+#
+# The entries are in /boot/grub/flickos-recovery.cfg, which flickos-recovery
+# writes after every change. The counter is /.snapshots/.flickos-start.cfg,
+# outside @ so putting back never puts it back. GRUB can't write on btrfs, but
+# it reads both at every start, so update-grub isn't needed when they change:
+#
+#   failed >= 2, auto-recover yes   start the newest good restore point (Option B)
+#   failed >= 2, auto-recover no    highlight it and wait (Option A)
+#   recovering                      keep starting it until the user decides; if
+#                                   starts from it fail too, wait (never twice)
+#
+# At those times the counter file also holds that restore point's own menu
+# entry (id flickos-recover). Nothing is added unless /.snapshots is the
+# @snapshots subvolume of FlickOS's btrfs layout.
+set -e
+if [ "$(findmnt -no FSTYPE,FSROOT /.snapshots 2>/dev/null | tr -s ' ')" != "btrfs /@snapshots" ]; then
+    exit 0
+fi
+cat <<'GRUB'
+if [ -f "${prefix}/flickos-recovery.cfg" ]; then
+  submenu 'Restore points' --class os --id restore-points {
+    source "${prefix}/flickos-recovery.cfg"
+  }
+fi
+insmod regexp
+regexp --set=1:flickos_dev '^(\([^)]*\))' "$prefix"
+if [ -f "${flickos_dev}/@snapshots/.flickos-start.cfg" ]; then
+  source "${flickos_dev}/@snapshots/.flickos-start.cfg"
+  if [ -n "$flickos_start_rp" ]; then
+    if [ "$flickos_start_mode" = recovering ]; then
+      set default=flickos-recover
+      if [ "$flickos_start_failed" -ge 2 ]; then set timeout=-1; fi
+    elif [ "$flickos_start_failed" -ge 2 ]; then
+      set default=flickos-recover
+      if [ "$flickos_start_auto" != yes ]; then set timeout=-1; fi
+    fi
+  fi
+fi
+GRUB

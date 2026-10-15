@@ -1,0 +1,60 @@
+sfwbar (1.0~beta17+git20260910+flickos7) trixie; urgency=medium
+
+  * FlickOS patch: a full-length bar takes the length the compositor
+    gives it, so a left dock below a top bar no longer runs past the
+    bottom of the screen.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 20:38:01 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos6) trixie; urgency=medium
+
+  * FlickOS patch: start the scanner thread after expr_init() and
+    scanner_init() (upstream 88c83b9). It could lock the still NULL
+    scan_list first and crash at start, seen now and then when a layout
+    switch started the dock.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 13:28:25 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos5) trixie; urgency=medium
+
+  * FlickOS patch: follow GSettings' enable-animations instead of
+    forcing animations on; a bar whose revealer hides without an
+    animation still gets its sensor back.
+  * FlickOS patch: WindowInfo() of a taskbar group button (group =
+    popup) reads the action's window, so a click on the dock minimizes
+    the focused app and raises it again.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 06 Oct 2026 15:37:18 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos4) trixie; urgency=medium
+
+  * FlickOS patch: the pager marks the active workspace focused
+    (workspace_mod_state compared all state flags instead of the changed
+    ones).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 12:39:23 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos3) trixie; urgency=medium
+
+  * FlickOS patch: bar property sensor_maximized: a bar with a sensor
+    hides only while the focused window is maximized or fullscreen on
+    its output. Window state changes now notify taskbars and bars
+    (wintree_commit).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 21:57:15 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos2) trixie; urgency=medium
+
+  * FlickOS patch: taskbar popup buttons get a .running CSS class while
+    the app has a window (not only its pin), for the dock's open-app
+    indicator.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 20:55:28 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos1) trixie; urgency=medium
+
+  * Upstream git commit d40912d (after release 1.0_beta17), packaged for
+    FlickOS (not in Debian trixie). Used as the Cupertino layout's auto-
+    hide dock.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 20:40:14 +0800

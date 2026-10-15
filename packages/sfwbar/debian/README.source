@@ -1,0 +1,72 @@
+sfwbar for FlickOS
+==================
+
+Upstream: https://github.com/LBCrion/sfwbar (GPL-3). Debian trixie doesn't
+have it (Debian's package stopped at 1.0~beta13 and was removed), so FlickOS
+packages it natively. It is the only compiled FlickOS package
+(Architecture: any, built with meson by debian/rules).
+
+This folder is upstream's source tree at git commit d40912d (main,
+2026-09-10), without .github/, packaging/, .gitattributes and
+doc/sfwbar.rst.bak.
+
+Changes to upstream (marked "FlickOS:" in the code):
+  - src/gui/taskbarpopup.c: taskbar_popup_update() sets the CSS class
+    "running" on an app's button while it has a window, not only its pin.
+    flickos-layouts' Cupertino dock.css draws the open-app line with it.
+  - src/gui/bar.c, bar.h: bar property sensor_maximized (boolean). With a
+    sensor, the bar stays shown and hides only while the focused window is
+    maximized or fullscreen on the bar's output (bar_may_hide). A window
+    listener re-checks all bars after window changes. Not in the man pages
+    (doc/ isn't rebuilt).
+  - src/ipc/foreign-toplevel.c: toplevel_handle_state() calls
+    wintree_commit(), so listeners hear about state changes such as
+    maximizing (upstream only notified them on focus changes).
+  - src/workspace.c: workspace_mod_state() compares only the flags it
+    changes. Upstream compared all state flags, so once one was set (every
+    shown workspace is "visible") no other could be, and the pager never
+    marked the active workspace "focused" (seen with labwc's ext-workspace).
+    flickos-layouts' Traditional desktop switcher highlights it.
+  - src/gui/bar.c: no longer forces gtk-enable-animations on, so a bar
+    follows GSettings' enable-animations (FlickOS's Settings >
+    Accessibility > Animations). bar_sensor_hide() finishes the hide at
+    once when the revealer hid without an animation: upstream connected
+    its notify::child-revealed handler after the revealer had already
+    notified, so the sensor never came back (the reason, it seems, for
+    forcing animations on; transition = 0 hit it too).
+  - src/lib/compositor.c: WindowInfo() takes a taskbar group button's
+    window (group = popup) from the action, as Focus() and Minimize() do.
+    Upstream read the group's app id as a window_t, so
+    WindowInfo('focused') was false and a click on the Cupertino dock never
+    minimized the focused app (TaskbarItemDefault).
+  - src/sfwbar.c: activate() starts the scanner thread after expr_init()
+    and scanner_init(), as upstream does since 88c83b9. Started before
+    them, the thread's first scanner_invalidate() could lock the still
+    NULL scan_list: a segfault at address 8 in thread "scanner" now and
+    then at start, seen when a layout switch started the dock. Drop this
+    entry when updating past 88c83b9.
+  - src/gui/bar.c: bar_resize() asks for no length for a full-length bar
+    (anchored to both ends), so it takes the length the compositor gives
+    it. Upstream asked for the monitor's length, so the Footprint layout's
+    left dock, below the top bar's exclusive zone, ran 30 px past the
+    bottom of the screen and cut off its Show Apps button.
+
+Why a git commit and not a release: the latest release, 1.0_beta17, lacks
+taskbar pins (documented but only implemented for the pager) and its
+size = "auto" bars collapse to 1px. Both work in d40912d. Switch to the
+first release after beta17 once it is out.
+
+Updating to upstream commit or release REF:
+
+  1. git clone https://github.com/LBCrion/sfwbar && cd sfwbar
+  2. Replace everything here except debian/ with
+     git archive REF | tar -x --exclude=.github --exclude=packaging \
+         --exclude=.gitattributes --exclude=doc/sfwbar.rst.bak
+  3. Make the changes above again (git diff d40912d before replacing shows
+     them).
+  4. Compare meson.build's dependency() lines and meson_options.txt with
+     debian/control's Build-Depends and debian/rules' feature options.
+  5. Update the commit above, and debian/copyright if protocols/ changed.
+  6. dch -v VERSION -D trixie "New upstream ...", with VERSION
+     1.0~betaN+flickos1 for a release, or 1.0~betaN+gitYYYYMMDD+flickos1
+     for a commit after release N.

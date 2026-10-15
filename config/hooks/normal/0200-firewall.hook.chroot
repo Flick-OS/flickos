@@ -1,0 +1,16 @@
+#!/bin/sh
+# Turn on the ufw firewall. ufw's defaults block incoming connections, allow
+# all outgoing traffic, and (in /etc/ufw/before.rules) allow DHCP replies plus
+# mDNS and UPnP discovery, so printers and network services are still found.
+#
+# ufw can't load its rules inside the build chroot, so only the setting is
+# changed here; ufw.service applies the rules at boot.
+# Users manage it with: sudo ufw status | allow PORT | disable
+set -e
+
+if [ -f /etc/ufw/ufw.conf ]; then
+    sed -i 's/^ENABLED=.*/ENABLED=yes/' /etc/ufw/ufw.conf
+    # Record the same answer in debconf, which ufw's maintainer scripts use.
+    echo "ufw ufw/enable boolean true" | debconf-set-selections
+    systemctl enable ufw.service
+fi

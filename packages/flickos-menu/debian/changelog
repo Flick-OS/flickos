@@ -1,0 +1,190 @@
+flickos-menu (1.21) trixie; urgency=medium
+
+  * Power buttons: Log Out, Restart and Shut Down now take a second
+    click. The first turns the button red and says to click again; it
+    runs if clicked again within 4 seconds. Lock Screen still runs at
+    once.
+  * Quick Settings: Log Out, Restart and Shut Down next to Settings and
+    Lock Screen, in every layout.
+  * Grid view (Cupertino): the power buttons at the top right while
+    Quick Settings, which has them, is off.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 20:41:06 +0800
+
+flickos-menu (1.20) trixie; urgency=medium
+
+  * Grid view: a click on the background closes the menu when the button
+    is let go, not when it is pressed. Closing on the press left GTK
+    holding the click, and from then on every click on an app only
+    closed the menu.
+  * Grid view: the pointer selects the app it is over, in the same blue
+    as the search's first result, so one app is highlighted at a time
+    and Enter starts it. The faint hover tint is gone.
+  * Grid view: a click or Enter on an app that is already open brings
+    its window forward (through flick-tiler 1.9's focus-app) instead of
+    doing nothing. A middle click, Ctrl+click or Ctrl+Enter starts
+    another copy.
+  * Grid view: its background is drawn again (90% of the theme's
+    background color), so icons and names stay readable over any window;
+    it was fully see-through.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 11 Oct 2026 21:26:47 +0800
+
+flickos-menu (1.19) trixie; urgency=medium
+
+  * Grid view: a hovered app is tinted in the accent color like the
+    other views; the faint text-colored tint was hard to see on the
+    Light style.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 11 Oct 2026 19:58:53 +0800
+
+flickos-menu (1.18) trixie; urgency=medium
+
+  * Software in the right column opens flickos-software, which replaces
+    gpk-application.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 22:08:40 +0800
+
+flickos-menu (1.17) trixie; urgency=medium
+
+  * Phone popup: a received address an app registered with flickos-phone
+    (1.27) says For APP and opens in it on a click, as in the Phone
+    window.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 12:22:31 +0800
+
+flickos-menu (1.16) trixie; urgency=medium
+
+  * Grid (Cupertino): a click on an app starts it again; the press
+    closed the full-screen menu before the release that starts the app
+    arrived.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 06 Oct 2026 15:46:06 +0800
+
+flickos-menu (1.15) trixie; urgency=medium
+
+  * The start menu, Quick Settings and the phone popup fade in (100 ms)
+    and out (80 ms) while GSettings' enable-animations is on; the full-
+    screen grid doesn't. A window fading out passes keys and clicks to
+    the one below. Depends on python3-gi-cairo.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 06 Oct 2026 14:55:09 +0800
+
+flickos-menu (1.14) trixie; urgency=medium
+
+  * Phone popup: received rows look like the Phone window's (the item's
+    icon, a click on the row opens or copies it), and the phone's name
+    and status are one line of two.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 21:59:26 +0800
+
+flickos-menu (1.13) trixie; urgency=medium
+
+  * Phone popup: watch lines it doesn't draw (a transfer's progress) no
+    longer re-fit the popup.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 21:50:15 +0800
+
+flickos-menu (1.12) trixie; urgency=medium
+
+  * Phone popup tiles show the actions' short words when flickos-phone
+    sends them.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 20:48:10 +0800
+
+flickos-menu (1.11) trixie; urgency=medium
+
+  * Phone popup: show every action tile (the window kept its empty size
+    and showed one line), as Quick Settings-style tiles with symbolic
+    icons; the Mute row, the media row and the Loading spinner now show;
+    scrolls only when the screen is too short.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 20:40:40 +0800
+
+flickos-menu (1.10) trixie; urgency=medium
+
+  * The phone popup, the daemon's third window: the phone's line, action
+    tiles from flickos-phone actions, Mute while a phone rings, the
+    newest received items, Open Phone and Phone Settings. Loaded only
+    while the phone connection is on.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 19:53:56 +0800
+
+flickos-menu (1.9) trixie; urgency=medium
+
+  * The apps list is read again when the phone connection starts or
+    stops, so Phone appears and disappears without logging out.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 19:20:34 +0800
+
+flickos-menu (1.8) trixie; urgency=medium
+
+  * Search: find word starts in one string test, about five times
+    faster; the speed test takes each query's fastest of five runs.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 03 Oct 2026 13:13:54 +0800
+
+flickos-menu (1.7) trixie; urgency=medium
+
+  * Pin Thunar instead of pcmanfm by default.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 01 Oct 2026 18:51:57 +0800
+
+flickos-menu (1.6) trixie; urgency=medium
+
+  * Quick Settings, the daemon's second window: switches for Wi-Fi, Do
+    Not Disturb, night light, tiling and the phone, sliders for volume
+    and brightness, the battery, Settings and Lock Screen; each control
+    runs the program that owns its setting. flickos-menu quick opens and
+    closes it. The daemon runs while the start menu or Quick Settings is
+    on and builds only what is on.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 30 Sep 2026 08:52:16 +0800
+
+flickos-menu (1.5) trixie; urgency=medium
+
+  * Describe the start menu as the default apps button, which it is from
+    flickos-layouts 1.23 on.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 10:57:14 +0800
+
+flickos-menu (1.4) trixie; urgency=medium
+
+  * The Menu key and Shift+F10 open the pin menu of the focused app (HIG
+    A11Y-1).
+  * Tooltips show an app's whole name, which narrow columns and large
+    text cut short.
+  * "Lock Screen", "All Apps", "Pin to Start Menu" (FlickOS wording).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 01:28:21 +0800
+
+flickos-menu (1.3) trixie; urgency=medium
+
+  * Lock runs flickos-settings' lock script (the background chosen in
+    Settings), else swaylock -f -c 383c4a.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 00:06:53 +0800
+
+flickos-menu (1.2) trixie; urgency=medium
+
+  * Menu styles, one per layout (the second line of menu/anchor, from
+    flickos-layouts' MenuStyle=): classic (Windows 7), categories (GNOME
+    2/Whisker: categories on the left, their apps on the right as you
+    point at them) and grid (Launchpad: all apps as big icons, full
+    screen). The daemon builds only the current style's window, ahead of
+    time, and a new one when the layout changes.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 18:09:50 +0800
+
+flickos-menu (1.1) trixie; urgency=medium
+
+  * Add debian/copyright: GPL-3.0-or-later.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:45:24 +0800
+
+flickos-menu (1.0) trixie; urgency=medium
+
+  * Initial release: an optional classic start menu, off by default
+    (flickos-layout launcher set menu turns it on).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 12:54:03 +0800

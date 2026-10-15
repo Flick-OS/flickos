@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "shelves": [
+    {
+      "id": "flickos",
+      "name": "Made for FlickOS",
+      "apps": []
+    },
+    {
+      "id": "start",
+      "name": "Apps to start with",
+      "apps": [
+        "org.gimp.GIMP", "org.inkscape.Inkscape", "org.kde.krita", "org.kde.kdenlive",
+        "org.audacityteam.Audacity", "com.obsproject.Studio", "org.mozilla.Thunderbird",
+        "org.blender.Blender", "com.calibre_ebook.calibre", "org.keepassxc.KeePassXC",
+        "org.shotcut.Shotcut", "org.gnome.Boxes"
+      ]
+    },
+    {
+      "id": "styles",
+      "name": "Styles for your desktop",
+      "apps": ["io.github.dvbondoy.flickos.styles.Seven", "io.github.dvbondoy.flickos.styles.Aye3",
+               "io.github.dvbondoy.flickos.styles.Footprint", "io.github.dvbondoy.flickos.styles.Elemental"]
+    }
+  ]
+}

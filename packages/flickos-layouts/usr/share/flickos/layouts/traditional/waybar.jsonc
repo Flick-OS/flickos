@@ -1,0 +1,22 @@
+// Traditional: a top panel (apps menu, clock, tray, status, Show Desktop),
+// run by waybar. The bottom panel (window list and desktop switcher) is
+// sfwbar: Dock= and DockStyle= in layout.ini (windowlist.config,
+// windowlist.css). Module settings: ../common/modules.jsonc.
+[
+    {
+        "name": "toppanel",
+        "layer": "top",
+        "position": "top",
+        "height": 28,
+        "spacing": 4,
+        "include": "../common/modules.jsonc",
+
+        "modules-left": ["custom/launcher"],
+        "modules-center": ["clock", "custom/recording"],
+        "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/desktop"],
+
+        "custom/launcher": {
+            "format": "Applications"
+        }
+    }
+]

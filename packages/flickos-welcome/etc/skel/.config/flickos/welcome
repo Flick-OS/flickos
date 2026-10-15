@@ -1,0 +1,6 @@
+# Copied into new accounts. flickos-welcome first-run (autostart) opens the
+# welcome window at every login while this file exists; the window's "Do not
+# show on startup" check box deletes it (flickos-welcome startup set off). It
+# also deletes flickos-layouts' choose-layout, whose chooser the window
+# replaces. Remove this file from /etc/skel to stop new accounts from seeing
+# the window.

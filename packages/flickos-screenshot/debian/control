@@ -1,0 +1,71 @@
+Source: flickos-screenshot
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-screenshot
+Architecture: all
+# python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-gtklayershell-0.1,
+# gir1.2-gdkpixbuf-2.0, gir1.2-pango-1.0: the capture bar and the frozen screen
+# (layer-shell surfaces drawn with cairo) and the markup window, GTK 3 so they
+# follow the Arc theme.
+# grim: takes the pictures. wl-clipboard: every screenshot is copied.
+# libnotify-bin: the notification that opens the picture. xdg-user-dirs: the
+# Pictures and Videos folders. xdg-utils: a click on the notification opens
+# the picture or the recording.
+# Recording (docs/design/flickos-screenshot.md, ADR-006): the screen from
+# xdg-desktop-portal(-wlr) over PipeWire (gstreamer1.0-pipewire), encoded by
+# GStreamer in the same process (gir1.2-gstreamer-1.0): x264enc is in
+# plugins-ugly, mp4mux, videocrop and pulsesrc in plugins-good, opusenc and
+# audiomixer in plugins-base. wlr-randr: which screen an area is on.
+# After a screenshot: sound-theme-freedesktop's shutter sound, played by
+# pw-play (pipewire-bin) or paplay (pulseaudio-utils).
+Depends: python3,
+         python3-gi,
+         python3-gi-cairo,
+         gir1.2-gtk-3.0,
+         gir1.2-gtklayershell-0.1,
+         gir1.2-gdkpixbuf-2.0,
+         gir1.2-pango-1.0,
+         grim,
+         wl-clipboard,
+         libnotify-bin,
+         xdg-user-dirs,
+         xdg-utils,
+         xdg-desktop-portal,
+         xdg-desktop-portal-wlr,
+         gir1.2-gstreamer-1.0,
+         gstreamer1.0-pipewire,
+         gstreamer1.0-plugins-base,
+         gstreamer1.0-plugins-good,
+         gstreamer1.0-plugins-ugly,
+         wlr-randr,
+         sound-theme-freedesktop,
+         pipewire-bin | pulseaudio-utils,
+         ${misc:Depends}
+# tesseract-ocr: Text, which copies the text in an area or on the screen. It
+# is offered only while tesseract is installed (ADR-011): 23.6 MB with its
+# English data, too much for every computer (HIG PERF-8).
+Suggests: tesseract-ocr
+Description: screenshots and screen recordings for the FlickOS desktop
+ Take a picture of the whole screen or of an area of it, with a delay if
+ wanted, or record a video of it. The area is chosen on a frozen picture
+ of the screen, so an open menu or tooltip stays in the shot, with the
+ mouse or from the keyboard.
+ .
+ Every screenshot is saved in Pictures/Screenshots and copied to the
+ clipboard, with a shutter sound and a short flash, and a notification
+ opens it in a window to draw arrows, boxes and text on it, hide what
+ shouldn't be seen, or crop it. Print, Shift+Print and Ctrl+Print
+ take one at once; Super+Shift+S opens a small bar with the choices.
+ .
+ With tesseract-ocr installed, the bar also offers Text: the text in the
+ area or on the screen is read and copied to the clipboard.
+ .
+ Recordings are MP4 files (H.264 with Opus sound) in Videos/Screen
+ Recordings. Super+Shift+R starts one, and the panel shows the time and
+ stops it.

@@ -1,0 +1,10 @@
+# FlickOS release information: the single source of the FlickOS version.
+# - flickos-branding generates /usr/lib/os-release (/etc/os-release),
+#   /etc/issue and /etc/issue.net from this file and Debian's originals.
+# - auto/config uses it for the ISO volume name.
+# - tools/build-iso.sh uses it for the ISO file name (FlickOS-64bit-vVERSION.iso)
+#   and checks that the installer branding (branding.desc) matches.
+# Bump FLICKOS_VERSION for each FlickOS release.
+# History: 1.0-1.1 were based on Ubuntu 20.04/LXLE; 2.0 is based on Debian 13.
+FLICKOS_NAME="FlickOS"
+FLICKOS_VERSION="2.2"

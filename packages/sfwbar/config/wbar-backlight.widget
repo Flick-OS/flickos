@@ -1,0 +1,20 @@
+#Api2
+
+Private {
+
+  include("backlight.source")
+
+  Var format = "{percent}% {icon}";
+  Var icon = "";
+
+  export label {
+    style = if(BacklightPresent, "backlight", "hidden")
+    action[0] = BacklightInit()
+    action[ScrollUp] = SetBacklight(BacklightPct+step)
+    action[ScrollDown] = SetBacklight(BacklightPct-step)
+    action[LeftClick] = PopUp("BacklightPopup")
+    value = ReplaceAll(format, "{percent}", Str(BacklightPct), "{icon}", icon);
+    tooltip = ReplaceAll(format, "{percent}", Str(BacklightPct), "{icon}", icon);
+    trigger = "backlight"
+  }
+}

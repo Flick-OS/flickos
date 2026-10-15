@@ -1,0 +1,204 @@
+#Api2
+
+module("wifi-nm")
+module("wifi-iwd")
+
+include("wifi-secret.widget");
+
+Private {
+  TriggerAction "wifi-conf", XWifiUpdate()
+  TriggerAction "wifi-conf-removed", XWifiRemove()
+  TriggerAction "wifi-scan", Config("label 'XWifiScanButton' { value = GT('Scanning') + ' ...' }")
+  TriggerAction "wifi-scan-complete", Config("label 'XWifiScanButton' { value = GT('Scan') }")
+
+  Var XWifiNetTmpl = "
+    Grid 'XWifiGrid@WIFI_KNOWN@' {
+      grid '@WIFI_PATH@_grid@WIFI_KNOWN@' {
+        style = 'XWifiGrid'
+        action = XWifiConnect()
+        action[RightClick] = Menu('XWifiItemMenu')
+        image '@WIFI_PATH@_icon' {
+          value = '@WIFI_ICON@'
+          style = 'XWifiIcon@WIFI_CONNECTED@'
+        }
+        label '@WIFI_PATH@_label' {
+          value = Markup('@WIFI_SSID@')
+          style = 'XWifiName'
+        }
+        label '@WIFI_PATH@_type' {
+          value = '@WIFI_TYPE@'
+          style = 'XWifiType'
+        }
+      }
+    }"
+
+  Function XWifiUpdate() {
+    If WifiGet(id, "SSID")+"" = ""
+      Return;
+    Config(ReplaceAll( XWifiNetTmpl,
+        "@WIFI_PATH@", Replace(id, "'", ""),
+        "@WIFI_TYPE@", WifiGet(id, "Type"),
+        "@WIFI_SSID@", Replace(WifiGet(id, "SSID"), "'", "\""),
+        "@WIFI_ICON@", ArrayLookup(WifiGet(id, "Strength"), wifi_thresholds, wifi_icons),
+        "@WIFI_KNOWN@",If(WifiGet(id, "Known"), "Known", "Other"),
+        "@WIFI_CONNECTED@", If(WifiGet(id, "Connected"), "Connected", "")))
+  }
+
+  Function XWifiRemove() {
+    ClearWidget(Replace(id, "'", "") + "_gridKnown")
+    ClearWidget(Replace(id, "'", "") + "_gridOther")
+  }
+
+  Function XWifiConnect() {
+    Config("label '" + Extract(WidgetId(),'(.*)_grid') +
+        "_type' { value = 'connecting' }")
+    WifiConnect(Extract(WidgetId(),'(.*)_grid'))
+  }
+
+  Menu("XWifiItemMenu") {
+    item(GT("Connect"), XWifiConnect() );
+    item(GT("Disconnect"), WifiDisconnect(Extract(WidgetId(),"(.*)_grid")) );
+    item(GT("Forget"), WifiForget(Extract(WidgetId(),"(.*)_grid")) );
+  }
+
+  PopUp "XWifiWindow" {
+    style = "XWifiPopup"
+    grid "XWifiFrame" {
+      style = "XWifiFrame"
+      label {
+        value = "Wifi"
+        style = "XWifiHeader"
+      }
+      grid "XWifiScroller" {
+        vscroll = TRUE;
+        style = "XWifiScroller"
+        css = "* { -GtkWidget-valign: start; -GtkWidget-vexpand: true; }"
+
+        label {
+          value = GT("Known networks")
+          style = "XWifiSeparator"
+        }
+        grid "XWifiGridKnown" {
+          style = "XWifiSection"
+        }
+        label {
+          value = GT("Other networks")
+          style = "XWifiSeparator"
+        }
+        grid "XWifiGridOther" {
+          style = "XWifiSection"
+        }
+      }
+      label "XWifiScanButton" {
+        value = GT("Scan")
+        style = "XWifiScan"
+        action = WifiScan()
+      }
+    }
+  }
+}
+
+#CSS
+
+window#XWifiWindow {
+  background: rgba(0,0,0,0);
+  -GtkWidget-direction: right;
+  padding: 5px;
+}
+
+grid#XWifiPopup {
+  -GtkWidget-hexpand: true;
+  min-width: 200px;
+  min-height: 300px;
+  margin: 5px;
+  border-radius: 10px;
+  border: 1px solid @borders;
+  padding: 10px;
+  background-color: @theme_bg_color;
+}
+
+grid#XWifiScroller,
+grid#XWifiFrame {
+  -GtkWidget-direction: bottom;
+  -GtkWidget-vexpand: true;
+  -GtkWidget-hexpand: true;
+}
+
+grid#XWifiSection {
+  -GtkWidget-hexpand: true;
+  -GtkWidget-direction: bottom;
+  min-height: 20px;
+}
+
+grid#XWifiGrid {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  -GtkWidget-hexpand: true;
+  -GtkWidget-direction: right;
+  -GtkWidget-valign: start;
+}
+
+image#XWifiIcon,
+image#XWifiIconConnected {
+  min-height: 16px;
+  min-width: 16px;
+  padding-right: 5px;
+}
+
+image#XWifiIconConnected {
+  color: green;
+}
+
+label#XWifiHeader {
+  font-size: 20px;
+  padding-bottom: 5px;
+  -GtkWidget-hexpand: true;
+}
+
+label#XWifiName {
+  -GtkWidget-halign: start;
+}
+
+label#XWifiType {
+  font-size: 10px;
+  padding-left: 5px;
+  -GtkWidget-halign: end;
+  -GtkWidget-hexpand: true;
+  -GtkWidget-align: 1.0;
+}
+
+label#XWifiScan {
+  -GtkWidget-vexpand: false;
+  -GtkWidget-hexpand: true;
+  -GtkWidget-valign: end;
+  -GtkLabel-align: 0.5;
+  border-top: dashed 1px @border;
+  padding-top: 3px;
+}
+
+label#XWifiSeparator {
+  padding-top: 3px;
+  font-size: 10px;
+  -GtkWidget-align: 0.0;
+  -GtkWidget-hexpand: true;
+  border-bottom: dashed 1px @border;
+}
+
+grid#wifi_dialog_grid {
+  padding: 20px;
+}
+
+label#wifi_dialog_title {
+  padding-bottom: 20px;
+}
+
+#wifi_button_ok,
+#wifi_button_cancel {
+  margin: 10px;
+}
+
+#wifi_button_ok,
+#wifi_user_entry,
+#wifi_passphrase_entry {
+  background-color: @theme_bg_color;
+}

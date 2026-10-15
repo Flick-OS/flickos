@@ -1,0 +1,6 @@
+# FlickOS starts this program itself (/usr/libexec/flickos/autostart), so the
+# package's autostart entry of the same name is hidden: it would start twice.
+[Desktop Entry]
+Type=Application
+Name=NetworkManager Applet
+Hidden=true

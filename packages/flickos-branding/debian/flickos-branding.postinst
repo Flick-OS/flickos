@@ -1,0 +1,83 @@
+#!/bin/sh
+set -e
+
+# Files owned by base-files that FlickOS replaces with generated versions.
+# Debian's originals are diverted to FILE.debian.
+BRANDED_FILES="/usr/lib/os-release /etc/issue /etc/issue.net"
+
+divert_files() {
+    for file in $BRANDED_FILES; do
+        # --no-rename: these files belong to base-files, which is Essential, and
+        # dpkg-divert warns that renaming such files is dangerous. So dpkg only
+        # records the diversion (future base-files upgrades write to FILE.debian)
+        # and we keep a copy of Debian's current version ourselves.
+        dpkg-divert --package flickos-branding --add --no-rename \
+            --divert "$file.debian" "$file" >/dev/null
+        if [ ! -e "$file.debian" ] && [ -e "$file" ]; then
+            cp -a "$file" "$file.debian"
+        fi
+    done
+}
+
+generate_files() {
+    # Nothing to generate before the diversion has stored Debian's originals.
+    [ -e /usr/lib/os-release.debian ] || return 0
+
+    . /usr/lib/flickos-release    # FLICKOS_NAME, FLICKOS_VERSION
+
+    # Debian's values, for the "based on" text and the banner.
+    debian_pretty="$(. /usr/lib/os-release.debian; echo "$PRETTY_NAME")"
+    debian_version="$(. /usr/lib/os-release.debian; echo "$VERSION_ID")"
+
+    # os-release: keep every Debian field (ID, VERSION_ID, ...) so tools that
+    # detect Debian keep working; change only the display name and add VARIANT.
+    {
+        echo "PRETTY_NAME=\"$FLICKOS_NAME $FLICKOS_VERSION (based on $debian_pretty)\""
+        grep -v -E '^(PRETTY_NAME|VARIANT|VARIANT_ID)=' /usr/lib/os-release.debian
+        echo "VARIANT=\"$FLICKOS_NAME $FLICKOS_VERSION\""
+        echo "VARIANT_ID=flickos"
+    } > /usr/lib/os-release.flickos-new
+    chmod 644 /usr/lib/os-release.flickos-new
+    mv /usr/lib/os-release.flickos-new /usr/lib/os-release
+
+    # live-build replaces the /etc/os-release symlink with a copy of Debian's
+    # file (plus IMAGE_ID=live), which hides ours on the live image and on
+    # systems installed from it. Restore base-files' symlink.
+    if [ -f /etc/os-release ] && [ ! -L /etc/os-release ] \
+            && grep -qx 'IMAGE_ID=live' /etc/os-release; then
+        ln -sf ../usr/lib/os-release /etc/os-release
+    fi
+
+    # Console login banner. \n = hostname, \l = terminal (see man agetty).
+    printf '%s %s (Debian %s) \\n \\l\n\n' "$FLICKOS_NAME" "$FLICKOS_VERSION" "$debian_version" > /etc/issue
+    printf '%s %s (Debian %s)\n' "$FLICKOS_NAME" "$FLICKOS_VERSION" "$debian_version" > /etc/issue.net
+}
+
+# Apply the boot menu's theme (/etc/default/grub.d/flickos-theme.cfg). Only
+# where GRUB is set up: not in the ISO's build chroot, whose boot menus are
+# live-build's. A failure keeps the old grub.cfg, so it must not fail apt.
+update_boot_menu() {
+    if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null; then
+        update-grub || echo "flickos-branding: update-grub failed; the boot menu keeps its old look" >&2
+    fi
+}
+
+case "$1" in
+    configure)
+        divert_files
+        generate_files
+        # Make FlickOS the boot splash on first install. Later upgrades keep
+        # whatever theme the administrator chose.
+        if [ -z "$2" ] && command -v plymouth-set-default-theme >/dev/null; then
+            plymouth-set-default-theme flickos
+        fi
+        update_boot_menu
+        ;;
+    triggered)
+        generate_files
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Add the Flathub remote so users can install Flatpak apps right away
+# (flatpak install flathub org.example.App).
+#
+# This downloads https://dl.flathub.org/repo/flathub.flatpakrepo, so it needs
+# network. A failure only warns, so that a build without network still finishes;
+# the boot test's "Flathub remote configured" check catches the missing remote
+# before a release.
+set -e
+
+if command -v flatpak >/dev/null; then
+    if ! flatpak remote-add --system --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo; then
+        echo "W: could not add the Flathub remote (no network?); continuing without it" >&2
+    fi
+    # ostree checks the remote's key with a gpg-agent it starts in a temporary
+    # homedir and never stops. Left running in the chroot, it keeps chroot/sys
+    # busy and lb build fails at "umount: .../chroot/sys: target is busy".
+    pkill -f '^gpg-agent --homedir /tmp/ostree-gpg-' || true
+fi

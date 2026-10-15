@@ -1,0 +1,70 @@
+/* FlickOS waybar style (Arc-Dark). Reference: man waybar-styles.
+ * Colors are defined once below, using arc-theme's Arc-Dark names, and
+ * referenced as @name elsewhere. tools/check-palette.py verifies them. */
+@define-color wm_bg #2f343f;
+@define-color bg_color #383c4a;
+@define-color base_color #404552;
+@define-color fg_color #d3dae3;
+@define-color selected_bg_color #5294e2;
+@define-color borders #2b2e39;
+@define-color warning_color #f27835;
+@define-color error_color #fc4138;
+
+* {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 13px;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+
+/* Translucent panel: the wallpaper shows through (no blur; labwc has none). */
+window#waybar {
+    background: alpha(@wm_bg, 0.85);
+    color: @fg_color;
+}
+
+#taskbar button {
+    padding: 0 6px;
+    color: @fg_color;
+}
+
+#taskbar button:hover {
+    background: alpha(@base_color, 0.8);
+}
+
+#taskbar button.active {
+    background: @base_color;
+    border-bottom: 2px solid @selected_bg_color;
+}
+
+#clock,
+#wireplumber,
+#network,
+#battery,
+#tray {
+    padding: 0 10px;
+}
+
+#wireplumber.muted,
+#network.disconnected {
+    color: alpha(@fg_color, 0.5);
+}
+
+#battery.warning {
+    color: @warning_color;
+}
+
+#battery.critical:not(.charging) {
+    color: @error_color;
+}
+
+tooltip {
+    background: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 6px;
+}
+
+tooltip label {
+    color: @fg_color;
+}

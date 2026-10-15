@@ -1,0 +1,7 @@
+usr/lib/flickos-release         usr/lib/
+usr/share/plymouth/themes/*     usr/share/plymouth/themes/
+usr/share/icons/hicolor/*       usr/share/icons/hicolor/
+usr/share/flickos/grub/*        usr/share/flickos/grub/
+etc/default/grub.d/*            etc/default/grub.d/
+usr/share/flickos/fastfetch/*   usr/share/flickos/fastfetch/
+etc/xdg/fastfetch/*             etc/xdg/fastfetch/

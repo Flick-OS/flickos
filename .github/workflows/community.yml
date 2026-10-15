@@ -1,0 +1,107 @@
+name: Community apps
+
+# Builds every community app whose file in repo/community/apps/ a push or pull
+# request adds or changes, from its developer's public source, checks it and
+# prints the source diff since the published commit (Software design,
+# ADR-004; repo/community/build.py). The maintainer publishes what a run on
+# main built (repo/community/publish.sh); this workflow never signs anything
+# and has no secrets: the build runs the developer's debian/rules.
+
+on:
+  push:
+    branches: [main]
+    paths: ['repo/community/**', 'packages/flickos-archive-keyring/**', '.github/workflows/community.yml']
+  pull_request:
+    paths: ['repo/community/**', 'packages/flickos-archive-keyring/**', '.github/workflows/community.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changed:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    outputs:
+      apps: ${{ steps.apps.outputs.apps }}
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates python3 \
+            dpkg-dev appstream lintian
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Test the checks
+        run: python3 -m unittest discover -s repo/community/tests -v
+      - name: Apps added or changed
+        id: apps
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "apps=$(python3 repo/community/build.py --changed "$BASE")" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changed
+    if: needs.changed.outputs.apps != '[]' && needs.changed.outputs.apps != ''
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+      # Only for iptables in the container's own network namespace (below).
+      options: --cap-add=NET_ADMIN
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.changed.outputs.apps) }}
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates python3 \
+            build-essential dpkg-dev debhelper devscripts fakeroot appstream lintian iptables
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add FlickOS's repositories
+        # Dependencies may come from Debian or FlickOS (check.py asks apt),
+        # and an app already in the community repository is an update.
+        run: |
+          cp packages/flickos-archive-keyring/keyrings/flickos-archive-keyring.asc /usr/share/keyrings/
+          cp packages/flickos-archive-keyring/etc/apt/sources.list.d/flickos.sources /etc/apt/sources.list.d/
+          apt-get update
+      - name: A build user without network
+        # The developer's debian/rules runs as builder, which can't reach the
+        # network, DNS included: everything built is in the reviewed source.
+        # Cloning and build dependencies come first, as root. build.py stops
+        # when builder can still reach deb.debian.org.
+        run: |
+          useradd --system --create-home --shell /usr/sbin/nologin builder
+          for tables in iptables ip6tables; do
+            "$tables" -A OUTPUT -m owner --uid-owner builder -p udp --dport 53 -j REJECT
+            "$tables" -A OUTPUT -m owner --uid-owner builder -p tcp --dport 53 -j REJECT
+            "$tables" -A OUTPUT -o lo -j ACCEPT
+            "$tables" -A OUTPUT -m owner --uid-owner builder -j REJECT
+          done
+      - name: Build, check and diff ${{ matrix.app }}
+        id: build
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+          APP: ${{ matrix.app }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "commit=$(sed -n 's/^[[:space:]]*commit[[:space:]]*=[[:space:]]*//p' "repo/community/apps/$APP" | tr -dc '0-9a-f')" >> "$GITHUB_OUTPUT"
+          python3 repo/community/build.py --install-build-deps --build-user builder --base "$BASE" --out out "$APP"
+      # publish.sh downloads this by name: only from runs on main.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: community-${{ matrix.app }}-${{ steps.build.outputs.commit }}
+          path: out/${{ matrix.app }}/
+          retention-days: 90
+      - name: Keep the result of a failed build for the pull request
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-${{ matrix.app }}
+          path: out/${{ matrix.app }}/

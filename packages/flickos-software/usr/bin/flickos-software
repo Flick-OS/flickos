@@ -1,0 +1,2868 @@
+#!/usr/bin/python3
+"""Software: find, install and remove apps from Debian, FlickOS and Flathub.
+
+The window shows apps, not packages: every program that publishes AppStream
+data as a desktop app. The apt sources' apps come from the DEP-11 catalogs
+that the `appstream` package's apt hook keeps in /var/lib/swcatalog (read
+through libappstream and its system cache): Debian's, and FlickOS's
+repository's two distributions, told apart by the catalog's origin
+(APT_ORIGINS): FlickOS's own apps, and the community apps other developers
+publish there, which FlickOS builds from their public source and reviews
+(design ADR-004). Flathub's come from the appstream.xml that flatpak keeps
+for the remote (read with the standard library). An app that is in more
+than one shows once, and an apt source is the default: it shares libraries
+with the system, takes less disk and memory, and the automatic updates
+already cover it. Flathub is offered next to it, for the newer version.
+Design and measurements: docs/design/flickos-software.md.
+
+The front page's shelves (Made for FlickOS, Apps to start with) are
+featured.json: the package's copy (FEATURED_FILE), replaced by the newest
+one from FEATURED_URL, fetched at most every FEATURED_HOURS and kept in
+the cache folder. That request carries nothing about its user (ADR-009).
+
+The window never reads the catalogs itself (libappstream needs seconds and
+hundreds of MB for that): `index` turns them into two files in
+~/.cache/flickos/software/, index.json (one row per app, with every alias,
+for the lists and the search) and pages-N.jsonl (descriptions, screenshots,
+versions, read one line at a time). The window runs `index` in a child when
+a catalog is newer than the index and shows the old one meanwhile. When
+Debian's catalog is missing (the live image has no apt lists) or Flathub's
+is missing or wasn't checked for REFRESH_DAYS, it runs `refresh`, which
+asks PackageKit for apt's lists (that also runs the appstream hook) and
+libflatpak for Flathub's catalog; polkit lets an active session do both
+without a password.
+
+Installing and removing run as child commands (`install`, `remove`) that
+print one JSON line per step, so the window never loads PackageKit or
+libflatpak itself and a second window can't race the first. Apt sources'
+apps go through PackageKit, which asks for the password (installing keeps it for a
+while, removing asks every time; Q8 in the design keeps it that way). Flathub
+apps go through libflatpak into the system installation, which needs no
+password for an administrator (flatpak's own polkit rule). Before either,
+`plan` simulates the change without a password: what comes with an app
+(Flathub's runtimes, with their sizes) or what goes with it. Nothing that
+FlickOS's desktop needs is ever removed (PROTECTED_PREFIXES and
+flickos-desktop's Depends): `remove` and `install` refuse such a change
+themselves, not only the window.
+
+Styles for the desktop are apps here too (docs/design/flickos-ricing.md,
+ADR-006, ADR-013): an apt package whose metainfo is an add-on extending
+flickos-layout.desktop (STYLE_EXTENDS) and names its style folder
+(STYLE_KEY) shows under Styles only; installed, its page offers Try (until
+logout) and Use instead of Open, through flickos-layout. FlickOS's own
+style packages (STYLE_PREFIX) can be removed, unlike FlickOS's others.
+Flatpak apps update with the automatic updates (ADR-008):
+flickos-software-update.timer runs /usr/libexec/flickos/software-update once
+a day, which follows apt's own settings (Update-Package-Lists for Flathub's
+catalog, Unattended-Upgrade for the apps), so flickos-control's Updates page
+turns both on and off. It does nothing in the live session.
+
+This program owns no settings. It sends nothing about its user (ADR-009):
+icons and screenshots are fetched from the addresses in the catalogs and
+kept in ~/.cache/flickos/software/images/ for IMAGE_DAYS.
+
+Commands:
+  (none), show [--search WORDS | --app ID | --installed]
+                    open the window (one per session)
+  search WORDS...   print matching apps: id, sources, installed, name, summary
+  list [--installed | --category ID | --shelves]
+                    print apps like search, or the categories: id, name, apps,
+                    or the front page's shelves: shelf, app id, name
+  info ID           print an app's page: field, value
+  index [--force]   rebuild the index when a catalog changed (or always)
+  refresh [--force] fetch catalogs and featured.json when missing or old (or
+                    all), then index
+  plan [--json] [--source SOURCE] [--remove] ID
+                    what installing (removing) the app would bring (take)
+  install [--json] [--source SOURCE] ID
+  remove [--json] [--source SOURCE] ID
+                    install or remove an app; --json prints one JSON object
+                    per line ({"event": "progress"|"done"|"error"|"cancelled"})
+                    and SIGTERM cancels. SOURCE: debian, flickos, community
+                    or flathub (SOURCES)
+
+Exit codes: 0 ok, 1 error (or cancelled), 2 usage error.
+"""
+
+import argparse
+import contextlib
+import fcntl
+import gzip
+import hashlib
+import json
+import locale
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+import traceback
+import unicodedata
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+
+NAME = "flickos-software"
+APP_ID = "flickos-software"         # Wayland app id, matches flickos-software.desktop
+TITLE = "Software"                  # the desktop file's Name (HIG WIN-4)
+ICON = "system-software-install"
+# Testing hook (unit tests): a root to read /var below.
+PREFIX = os.environ.get("FLICKOS_SOFTWARE_PREFIX", "")
+
+# --- Sources -------------------------------------------------------------------------
+
+# In the order a page prefers them (ADR-002: the apt sources first).
+SOURCES = ("debian", "flickos", "community", "flathub")
+SOURCE_NAMES = {"debian": "Debian", "flickos": "FlickOS", "community": "FlickOS Community",
+                "flathub": "Flathub"}
+APT_SOURCES = ("debian", "flickos", "community")    # installed through PackageKit
+# A catalog's origin (DEP-11's Origin; FlickOS's repo/conf/dep11.py writes
+# flickos-DISTRIBUTION-COMPONENT) -> source; any other origin is Debian's.
+APT_ORIGINS = ((re.compile(r"^flickos-[a-z]+-community-"), "community"), (re.compile(r"^flickos-"), "flickos"))
+# Said on a page from that source.
+SOURCE_NOTES = {
+    # Honest about what the review doesn't change: no sandbox (design ADR-004).
+    "community": "Made by another developer. FlickOS builds every version from the developer's "
+                 "public source code and reviews it before publishing it. Like any app installed "
+                 "from Debian, it can use your files.",
+}
+# What is installed: status, name, version, and Depends (flickos-desktop's).
+DPKG_QUERY = ["dpkg-query", "-W", "-f", "${db:Status-Abbrev}\t${Package}\t${Version}\t${Depends}\n"]
+# The appstream package's apt hook links apt's DEP-11 lists here and builds the
+# system cache (as root) that libappstream reads in 0.6 s.
+SWCATALOG_YAML = PREFIX + "/var/lib/swcatalog/yaml"
+SWCATALOG_CACHE = PREFIX + "/var/cache/swcatalog/cache"
+FLATPAK_SYSTEM = PREFIX + "/var/lib/flatpak"
+FLATHUB = "flathub"                 # the remote flickos's 0150-flathub hook adds
+FLATPAK_ARCH = "x86_64"
+FLATHUB_CATALOG = f"{FLATPAK_SYSTEM}/appstream/{FLATHUB}/{FLATPAK_ARCH}/active"
+# Flathub's catalog is fetched again when the window opens after this long
+# without a check (installed systems check every day: flickos-software-update.timer).
+REFRESH_DAYS = 7
+# Never removed, by remove or by an install that would remove packages: the
+# desktop itself (also everything flickos-desktop Depends on, read from dpkg).
+PROTECTED_PREFIXES = ("flickos-", "flick-")
+# ... except FlickOS's style packages: a style is the user's choice to keep.
+STYLE_PREFIX = "flickos-style-"
+DESKTOP_PACKAGE = "flickos-desktop"
+
+# AppStream component types that are apps.
+APP_TYPES = ("desktop-application", "desktop")
+# The same app under different IDs in the two sources, where no ID or
+# launchable matches: Flathub ID -> Debian component ID.
+SAME_APPS = {
+    "org.mozilla.firefox": "firefox-esr.desktop",
+    # Flathub has one LibreOffice; Debian one component per program.
+    "org.libreoffice.LibreOffice": "libreoffice-writer.desktop",
+}
+
+# Categories on the front page: (id, name, icon, freedesktop categories).
+# A style (ADR-006): an AppStream add-on of the layout chooser, whose custom
+# value STYLE_KEY names its folder in /usr/share/flickos/styles. Styles get
+# only Software's own category, so they never show among the apps.
+STYLE_EXTENDS = "flickos-layout.desktop"
+STYLE_KEY = "FlickOS::style"
+# A FlickOS style package may bring a layout too (ADR-014 of
+# docs/design/flickos-ricing.md: Aye3's bar): Use then sets both. Never a
+# community package's: layouts are code (ADR-006).
+LAYOUT_KEY = "FlickOS::layout"
+STYLE_CATEGORY = "X-FlickOS-Style"
+LAYOUT = "flickos-layout"
+CATEGORIES = (
+    ("audio-video", "Audio & Video", "applications-multimedia", ("AudioVideo", "Audio", "Video")),
+    ("development", "Development", "applications-development", ("Development",)),
+    ("education", "Education", "applications-education", ("Education",)),
+    ("games", "Games", "applications-games", ("Game",)),
+    ("graphics", "Graphics & Photography", "applications-graphics", ("Graphics", "Photography")),
+    ("internet", "Internet", "applications-internet", ("Network",)),
+    ("office", "Office", "applications-office", ("Office",)),
+    ("science", "Science", "applications-science", ("Science",)),
+    ("system", "System", "applications-system", ("System", "Settings")),
+    ("utilities", "Utilities", "applications-utilities", ("Utility",)),
+    ("styles", "Styles", "preferences-desktop-theme", (STYLE_CATEGORY,)),
+)
+# The front page's shelves (design Q7): the maintainer's list on the store's
+# Worker (server/store/, which serves this package's copy), fetched again
+# after FEATURED_HOURS; the package's copy until one came, or offline.
+# {"v": 1, "shelves": [{"id", "name", "apps": [app ID or {"id": …}, …]}, …]};
+# an app ID is any alias (Debian, FlickOS or Flathub ID, desktop ID).
+FEATURED_FILE = PREFIX + "/usr/share/flickos/software/featured.json"
+# Testing hook: another address (a local server).
+FEATURED_URL = os.environ.get("FLICKOS_SOFTWARE_FEATURED_URL",
+                              "https://flickos-store.dvbondoy.workers.dev/v1/featured.json")
+FEATURED_VERSION = 1
+FEATURED = "featured.json"          # the fetched copy, in the cache folder
+FEATURED_HOURS = 24
+FEATURED_BYTES = 256_000
+SHELF_APPS = 12                     # tiles a shelf shows at most
+
+# Friendly names for what a Flathub app brings along (ref name prefix -> words).
+RUNTIME_NAMES = (
+    ("org.gnome.Platform", "the GNOME runtime"),
+    ("org.kde.Platform", "the KDE runtime"),
+    ("org.freedesktop.Platform.GL", "graphics drivers"),
+    ("org.freedesktop.Platform.VAAPI", "video drivers"),
+    ("org.freedesktop.Platform.codecs", "video codecs"),
+    ("org.freedesktop.Platform.ffmpeg", "video codecs"),
+    ("org.freedesktop.Platform.openh264", "video codecs"),
+    ("org.freedesktop.Platform", "the Freedesktop runtime"),
+    ("org.gtk.Gtk3theme", "the window theme"),
+    ("io.qt.", "Qt"),
+)
+
+# --- The index -----------------------------------------------------------------------
+
+INDEX_VERSION = 4                   # bump when the row format changes (2: FlickOS's sources, 3: styles,
+                                    # 4: a style's layout)
+INDEX = "index.json"
+PAGES = "pages-{}.jsonl"            # {} = the build's time: a new file for each build
+LOCK = "software.lock"              # in $XDG_RUNTIME_DIR/flickos: one window per session
+INDEX_LOCK = "index.lock"           # in the cache folder: one index build at a time
+KEYWORDS = 10                       # keywords kept per app (search)
+SHOTS = 6                           # screenshots kept per app
+SHOT_WIDTH = 752                    # the screenshot width picked (closest; AppStream's sizes)
+SEARCH_LIMIT = 200                  # rows the window shows for a search
+IMAGE_DAYS = 30                     # downloaded icons and screenshots are fetched again after
+IMAGE_BYTES = 8_000_000             # larger downloads are refused
+FETCH_SECONDS = 20
+QUERY_SECONDS = 30                  # dpkg-query is given up after
+PLAN_SECONDS = 120                  # a plan child is stopped after (PackageKit waiting for a lock)
+
+# --- The window ----------------------------------------------------------------------
+
+DEFAULT_SIZE = (1000, 680)          # HIG WIN-3: at most 1280x680
+LIST_ICON = 48
+TILE_ICON = 48
+PAGE_ICON = 96
+SHOT_HEIGHT = 340
+# PackageKit and libflatpak status words -> what the window says.
+STATUS_TEXT = {
+    "waiting-for-auth": "Waiting for your password…",
+    "waiting-for-lock": "Waiting for another installation to finish…",
+    "download": "Downloading…",
+    "install": "Installing…",
+    "remove": "Removing…",
+    "cleanup": "Finishing…",
+    "commit": "Installing…",
+    "finished": "Finishing…",
+}
+
+LANG_ATTR = "{http://www.w3.org/XML/1998/namespace}lang"
+
+
+class SoftwareError(Exception):
+    """An expected failure, with a message for the user."""
+
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+# --- Files ---------------------------------------------------------------------------
+
+def cache_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "flickos", "software")
+
+
+def runtime_dir():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        raise SoftwareError("XDG_RUNTIME_DIR is not set")
+    return os.path.join(base, "flickos")
+
+
+def write_atomic(path, data):
+    """Write text or bytes to path through a temporary file and a rename."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(temp, "wb" if isinstance(data, bytes) else "w",
+                  **({} if isinstance(data, bytes) else {"encoding": "utf-8"})) as f:
+            f.write(data)
+        os.replace(temp, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temp)
+
+
+@contextlib.contextmanager
+def single_instance():
+    """Yields True for the first window of the session, False while one is open."""
+    folder = runtime_dir()
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, LOCK), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+def mtime(path):
+    try:
+        return int(os.stat(path).st_mtime)
+    except OSError:
+        return 0
+
+
+def newest(folder):
+    """The newest mtime in a folder (following links), 0 when it is empty or missing."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return 0
+    return max((mtime(os.path.join(folder, name)) for name in names), default=0)
+
+
+# --- Text ----------------------------------------------------------------------------
+
+def languages():
+    """The user's languages for catalog text, best first, as ll_CC and ll
+    (LANGUAGE, then LC_ALL, LC_MESSAGES or LANG)."""
+    found = []
+    values = (os.environ.get("LANGUAGE") or "").split(":")
+    values.append(os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "")
+    for value in values:
+        value = value.split(".")[0].split("@")[0].replace("-", "_")
+        if not value or value in ("C", "POSIX"):
+            continue
+        for name in (value, value.split("_")[0]):
+            if name not in found:
+                found.append(name)
+    return found
+
+
+def best(elements, langs):
+    """Of elements that are translations of each other, the one in the best of
+    langs, else the untranslated one (no xml:lang), else None."""
+    chosen, rank = None, len(langs) + 1
+    for element in elements:
+        lang = element.get(LANG_ATTR)
+        if lang is None:
+            r = len(langs)
+        else:
+            lang = lang.replace("-", "_")
+            if lang not in langs:
+                continue
+            r = langs.index(lang)
+        if r < rank:
+            chosen, rank = element, r
+    return chosen
+
+
+def tidy(text):
+    return " ".join((text or "").split())
+
+
+def paragraphs(element):
+    """An AppStream <description> as plain paragraphs; list items as "• item"
+    (numbered for <ol>). Untranslated children only: the caller picked the
+    description element in the right language."""
+    out = []
+    for child in element:
+        if child.get(LANG_ATTR) is not None:
+            continue
+        if child.tag == "p":
+            text = tidy("".join(child.itertext()))
+            if text:
+                out.append(text)
+        elif child.tag in ("ul", "ol"):
+            items = [tidy("".join(li.itertext())) for li in child if li.tag == "li" and li.get(LANG_ATTR) is None]
+            for number, item in enumerate((i for i in items if i), 1):
+                out.append(f"{number}. {item}" if child.tag == "ol" else f"• {item}")
+    return out
+
+
+def description_paragraphs(markup):
+    """paragraphs() for a description given as markup (libappstream's)."""
+    if not markup:
+        return []
+    try:
+        return paragraphs(ET.fromstring(f"<description>{markup}</description>"))
+    except ET.ParseError:
+        return [tidy(re.sub(r"<[^>]+>", " ", markup))]
+
+
+def fold(text):
+    """Text for search: case and accents folded."""
+    text = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
+def human_size(count):
+    """Bytes in the decimal units GLib and Debian use (CLI only; the window uses GLib)."""
+    for unit, size in (("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
+        if count >= size:
+            return f"{count / size:.1f} {unit}"
+    return f"{count} bytes"
+
+
+def runtime_name(ref):
+    """What a Flathub ref brings, in words ("the GNOME runtime"); None for the
+    app itself, translations and debug parts."""
+    parts = ref.split("/")
+    if len(parts) < 2 or parts[0] != "runtime":
+        return None
+    name = parts[1]
+    if name.endswith((".Locale", ".Debug", ".Sources")):
+        return None
+    for prefix, words in RUNTIME_NAMES:
+        if name.startswith(prefix):
+            return words
+    return name
+
+
+# --- Reading the catalogs ------------------------------------------------------------
+
+def flathub_catalog():
+    """Path of Flathub's catalog (the unpacked one when there), or None."""
+    for name in ("appstream.xml", "appstream.xml.gz"):
+        path = os.path.join(FLATHUB_CATALOG, name)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def flathub_configured():
+    """True while the system installation has the Flathub remote (and flatpak)."""
+    try:
+        with open(os.path.join(FLATPAK_SYSTEM, "repo", "config"), encoding="utf-8") as f:
+            return f'[remote "{FLATHUB}"]' in f.read()
+    except OSError:
+        return False
+
+
+def pick_image(images, width=SHOT_WIDTH):
+    """The image URL whose width is closest to width; source images last."""
+    def distance(image):
+        try:
+            w = int(image[0])
+        except (TypeError, ValueError):
+            return 100_000
+        return abs(w - width)
+    usable = [i for i in images if i[1]]
+    return min(usable, key=distance)[1] if usable else None
+
+
+def flathub_apps(path, langs):
+    """(row, page) for each desktop app in Flathub's catalog. Rows have no
+    "src" key yet: flathub_source() is merged in by merge()."""
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rb") as f:
+        for _event, el in ET.iterparse(f, events=("end",)):
+            if el.tag != "component":
+                continue
+            if el.get("type") in APP_TYPES:
+                with contextlib.suppress(ValueError):
+                    yield flathub_component(el, langs)
+            el.clear()
+
+
+def flathub_component(el, langs):
+    app_id = tidy(el.findtext("id"))
+    bundle = el.find("bundle")
+    if not app_id or bundle is None or not (bundle.text or "").startswith("app/"):
+        raise ValueError(app_id)
+    name = best(el.findall("name"), langs)
+    summary = best(el.findall("summary"), langs)
+    # The theme's icon by name, then the catalog's own file ("flathub:" is
+    # relative to its icons folder), then a download only when there is none.
+    icons, stock = [], None
+    for icon in el.findall("icon"):
+        kind, text = icon.get("type"), tidy(icon.text)
+        if not text or icon.get("scale") not in (None, "1"):
+            continue
+        if kind == "stock":
+            stock = text
+        elif kind == "cached" and icon.get("width") in ("64", "128"):
+            icons.append((0 if icon.get("width") == "64" else 1, f"flathub:{icon.get('width')}x{icon.get('height')}/{text}"))
+        elif kind == "remote":
+            icons.append((2, f"url:{text}"))
+    icons = sorted(icons)[:1]
+    icons = ([f"stock:{stock}"] if stock else []) + [i for _, i in icons]
+    # Keywords come as one <keywords> per language, or (older catalogs) one
+    # <keywords> whose <keyword>s each have a language.
+    keywords = best(el.findall("keywords"), langs)
+    words = []
+    if keywords is not None:
+        ranked = {}
+        for k in keywords.findall("keyword"):
+            lang = (k.get(LANG_ATTR) or "").replace("-", "_")
+            rank = len(langs) if not lang else langs.index(lang) if lang in langs else None
+            if rank is not None:
+                ranked.setdefault(rank, []).append(tidy(k.text))
+        words = ranked[min(ranked)] if ranked else []
+    launch = [tidy(l.text) for l in el.findall("launchable") if l.get("type") == "desktop-id" and l.text]
+    provides = [tidy(p.text) for p in el.findall("provides/id") if p.text]
+    description = best(el.findall("description"), langs)
+    shots = []
+    for shot in el.findall("screenshots/screenshot"):
+        images = [(i.get("width"), tidy(i.text)) for i in shot.findall("image")
+                  if i.get("type") == "thumbnail" and i.get("scale") in (None, "1")]
+        images = images or [(i.get("width"), tidy(i.text)) for i in shot.findall("image")]
+        url = pick_image(images)
+        if url:
+            caption = best(shot.findall("caption"), langs)
+            shots.append({"url": url, "caption": tidy(caption.text) if caption is not None else ""})
+        if len(shots) >= SHOTS:
+            break
+    developer = best(el.findall("developer/name"), langs)
+    releases = [r for r in el.findall("releases/release") if r.get("type") in (None, "stable")]
+    release = max(releases, key=lambda r: int(r.get("timestamp") or 0), default=None)
+    row = {
+        "id": app_id,
+        "name": tidy(name.text) if name is not None else app_id,
+        "summary": tidy(summary.text) if summary is not None else "",
+        "icons": icons,
+        "cats": [tidy(c.text) for c in el.findall("categories/category") if c.text],
+        "kw": [w for w in words if w][:KEYWORDS],
+        "launch": launch,
+        "provides": provides,
+        "ref": tidy(bundle.text),
+        "runtime": bundle.get("runtime") or "",
+    }
+    page = {
+        "desc": paragraphs(description) if description is not None else [],
+        "shots": shots,
+        "dev": tidy(developer.text) if developer is not None else tidy(el.findtext("developer_name")),
+        "license": tidy(el.findtext("project_license")),
+        "home": next((tidy(u.text) for u in el.findall("url") if u.get("type") == "homepage"), ""),
+        "version": release.get("version", "") if release is not None else "",
+        "date": int(release.get("timestamp") or 0) if release is not None else 0,
+    }
+    return row, page
+
+
+def apt_source(origin):
+    """The apt source (APT_SOURCES) of a catalog origin."""
+    return next((source for pattern, source in APT_ORIGINS if pattern.match(origin or "")), "debian")
+
+
+def debian_apps():
+    """(row, page) for each desktop app in the apt sources' catalogs (Debian's
+    and FlickOS's), through libappstream and the system cache; each row's
+    "origin" names its catalog. Nothing (and a warning) without libappstream."""
+    try:
+        import gi
+        gi.require_version("AppStream", "1.0")
+        from gi.repository import AppStream, GLib
+    except (ImportError, ValueError) as error:
+        warn(f"Debian's apps are left out: libappstream is not available ({error})")
+        return
+    pool = AppStream.Pool()
+    pool.set_flags(AppStream.PoolFlags.LOAD_OS_CATALOG)
+    try:
+        pool.load(None)
+    except GLib.Error as error:
+        warn(f"Debian's apps are left out: {error.message}")
+        return
+    seen = set()
+    found = [(c, None) for c in pool.get_components_by_kind(AppStream.ComponentKind.DESKTOP_APP).as_array()]
+    for component in pool.get_components_by_kind(AppStream.ComponentKind.ADDON).as_array():
+        style = style_of(component)
+        if style and own_style(component, style):
+            found.append((component, style))
+    for component, style in found:
+        app_id = component.get_id()
+        package = component.get_pkgname()
+        key = (apt_source(component.get_origin()), app_id)
+        if not app_id or not package or key in seen:
+            continue
+        seen.add(key)
+        yield debian_component(AppStream, component, style)
+
+
+def style_of(addon):
+    """The style folder an add-on component names, or None: only add-ons of
+    the layout chooser with a style id (ADR-006) are styles."""
+    style = addon.get_custom_value(STYLE_KEY)
+    if STYLE_EXTENDS in (addon.get_extends() or []) and style and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", style):
+        return style
+    return None
+
+
+def layout_of(component):
+    """The layout a FlickOS style package brings too, or None (LAYOUT_KEY)."""
+    layout = component.get_custom_value(LAYOUT_KEY)
+    if layout and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", layout) and apt_source(component.get_origin()) != "community":
+        return layout
+    return None
+
+
+def own_style(component, style):
+    """Is the style an add-on names its own package's? A community package's
+    style folder is its package's name (repo/community/check.py), so one that
+    names another style (dark, another developer's) would get Try and Use for
+    that style under its own name. FlickOS's packages name their own."""
+    return apt_source(component.get_origin()) != "community" or style == component.get_pkgname()
+
+
+def debian_component(AppStream, c, style=None):
+    """(row, page) from one libappstream component (also called by the tests
+    with a stand-in). style: the style folder of a style's add-on."""
+    icons, later = [], []
+    for icon in c.get_icons() or []:
+        kind = icon.get_kind()
+        if kind == AppStream.IconKind.STOCK and icon.get_name():
+            icons.append(f"stock:{icon.get_name()}")
+        elif kind == AppStream.IconKind.CACHED and icon.get_filename():
+            later.insert(0, f"file:{icon.get_filename()}")
+        elif kind == AppStream.IconKind.REMOTE and icon.get_url():
+            later.append(f"url:{icon.get_url()}")
+    launchable = c.get_launchable(AppStream.LaunchableKind.DESKTOP_ID)
+    shots = []
+    for shot in c.get_screenshots_all() or []:
+        images = [(image.get_width(), image.get_url()) for image in shot.get_images_all() or []
+                  if image.get_scale() in (0, 1)]
+        url = pick_image(images)
+        if url:
+            shots.append({"url": url, "caption": tidy(shot.get_caption())})
+        if len(shots) >= SHOTS:
+            break
+    releases = c.get_releases_plain()
+    release = None
+    if releases is not None:
+        entries = [releases.index_safe(i) for i in range(releases.get_size())]
+        entries = [r for r in entries if r is not None]
+        release = max(entries, key=lambda r: r.get_timestamp() or 0, default=None)
+    developer = c.get_developer()
+    row = {
+        "id": c.get_id(),
+        "name": tidy(c.get_name()) or c.get_id(),
+        "summary": tidy(c.get_summary()),
+        "icons": icons + later,
+        "cats": list(c.get_categories() or []),
+        "kw": [tidy(k) for k in (c.get_keywords() or []) if k][:KEYWORDS],
+        "launch": list(launchable.get_entries() or []) if launchable is not None else [],
+        "provides": [],
+        "pkg": c.get_pkgname(),
+        "origin": c.get_origin() or "",
+    }
+    if style:
+        row["cats"], row["style"] = [STYLE_CATEGORY], style
+        layout = layout_of(c)
+        if layout:
+            row["layout"] = layout
+    page = {
+        "desc": description_paragraphs(c.get_description()),
+        "shots": shots,
+        "dev": tidy(developer.get_name()) if developer is not None else "",
+        "license": tidy(c.get_project_license()),
+        "home": tidy(c.get_url(AppStream.UrlKind.HOMEPAGE)),
+        "version": release.get_version() or "" if release is not None else "",
+        "date": int(release.get_timestamp() or 0) if release is not None else 0,
+    }
+    return row, page
+
+
+def keys_of(row):
+    """Every name an app is known by, folded: its ID and desktop IDs, with and
+    without ".desktop"."""
+    keys = set()
+    for name in [row["id"], *row.get("launch", ()), *row.get("provides", ())]:
+        name = name.casefold()
+        keys.add(name)
+        if name.endswith(".desktop"):
+            keys.add(name[:-len(".desktop")])
+    return keys
+
+
+def merge(sources):
+    """One list of apps from each source's (row, page offset) pairs, {source:
+    [...]}: an app in more than one gets each of them (ADR-002), the first in
+    SOURCES names it. Each app is {id, name, summary, icons, cats, kw, keys,
+    src: {source: {pkg or id and ref, launch, page}}}."""
+    apps, by_key = [], {}
+    for name in SOURCES:
+        for row, at in sources.get(name, ()):
+            if name == "flathub":
+                source = {"id": row["id"], "ref": row["ref"], "launch": row["launch"][:1], "page": at}
+            else:
+                source = {"pkg": row["pkg"], "launch": row["launch"][:1], "page": at}
+            wanted = ([SAME_APPS[row["id"]].casefold()] if name == "flathub" and row["id"] in SAME_APPS
+                      else sorted(keys_of(row)))
+            match = next((by_key[k] for k in wanted if k in by_key and name not in by_key[k]["src"]), None)
+            if match is not None:
+                match["src"][name] = source
+                match["cats"] = match["cats"] + [c for c in row["cats"] if c not in match["cats"]]
+                match["keys"] = sorted(set(match["keys"]) | keys_of(row))
+                match["kw"] = list(dict.fromkeys(match["kw"] + row["kw"]))[:2 * KEYWORDS]
+                # Another source's icon file before any download: trixie's catalog
+                # names icons appstream.debian.org has since replaced (404, 2026-10).
+                local = [i for i in match["icons"] + row["icons"] if not i.startswith("url:")]
+                match["icons"] = list(dict.fromkeys(local + [i for i in match["icons"] if i.startswith("url:")]))
+                continue
+            app = {k: row[k] for k in ("id", "name", "summary", "icons", "cats", "kw")}
+            if row.get("style"):
+                app["style"] = row["style"]
+            if row.get("layout"):
+                app["layout"] = row["layout"]
+            app["src"] = {name: source}
+            app["keys"] = sorted(keys_of(row))
+            apps.append(app)
+            for key in app["keys"]:
+                by_key.setdefault(key, app)
+    apps.sort(key=lambda a: fold(a["name"]))
+    return apps
+
+
+def stamps():
+    """What the index was built from: changes when a catalog or the language does."""
+    return {
+        "lang": languages()[:1],
+        "debian": max(newest(SWCATALOG_YAML), newest(SWCATALOG_CACHE)),
+        "flathub": mtime(os.path.join(FLATHUB_CATALOG, "appstream.xml.gz")) if flathub_usable() else 0,
+    }
+
+
+def flathub_usable():
+    """Flathub is a source while flatpak is installed and has the remote."""
+    return bool(shutil.which("flatpak")) and flathub_configured()
+
+
+def fetch_needed():
+    """The catalogs `refresh` should fetch: Debian's while there is none
+    (installed systems get apt's lists every day; the live image has none),
+    Flathub's while there is none or it wasn't checked for REFRESH_DAYS."""
+    needed = []
+    if not newest(SWCATALOG_YAML):
+        needed.append("debian")
+    if flathub_usable():
+        # flatpak touches .timestamp at every check, also when nothing changed.
+        checked = max(mtime(os.path.join(os.path.dirname(FLATHUB_CATALOG), ".timestamp")),
+                      mtime(os.path.join(FLATHUB_CATALOG, "appstream.xml.gz")))
+        if not flathub_catalog() or checked < time.time() - REFRESH_DAYS * 86400:
+            needed.append("flathub")
+    return needed
+
+
+def build_index(folder=None, debian=None, flathub=None):
+    """Read the catalogs and write index.json and a new pages file into folder
+    (the cache). debian: the apt sources' (row, page) iterable, rows with
+    their "origin"; flathub: Flathub's (for the tests). Returns the number of
+    apps per source."""
+    folder = folder or cache_dir()
+    os.makedirs(folder, exist_ok=True)
+    langs = languages()
+    if debian is None:
+        debian = debian_apps()
+    if flathub is None:
+        path = flathub_catalog() if flathub_usable() else None
+        flathub = flathub_apps(path, langs) if path else ()
+    pages_name = PAGES.format(time.time_ns())
+    pages_path = os.path.join(folder, pages_name)
+    temp = pages_path + ".tmp"
+    sources = {source: [] for source in SOURCES}
+    with open(temp, "w", encoding="utf-8") as pages:
+        for apt, items in ((True, debian), (False, flathub)):
+            for row, page in items:
+                source = apt_source(row.get("origin")) if apt else "flathub"
+                sources[source].append((row, pages.tell()))
+                pages.write(json.dumps(page, ensure_ascii=False, separators=(",", ":")) + "\n")
+    os.replace(temp, pages_path)
+    counts = {source: len(rows) for source, rows in sources.items()}
+    apps = merge(sources)
+    index = {"v": INDEX_VERSION, "stamps": stamps(), "pages": pages_name, "apps": apps}
+    write_atomic(os.path.join(folder, INDEX), json.dumps(index, ensure_ascii=False, separators=(",", ":")))
+    # Older pages files go: a window that still reads one keeps it open, and
+    # an open file stays readable after it is deleted.
+    for name in os.listdir(folder):
+        if name.startswith("pages-") and name.endswith((".jsonl", ".tmp")) and name != pages_name:
+            with contextlib.suppress(OSError):
+                os.unlink(os.path.join(folder, name))
+    prune_images(os.path.join(folder, "images"))
+    counts["apps"] = len(apps)
+    return counts
+
+
+def prune_images(folder, days=IMAGE_DAYS):
+    """Delete downloaded icons and screenshots older than days."""
+    limit = time.time() - days * 86400
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(folder, name)
+        with contextlib.suppress(OSError):
+            if os.stat(path).st_mtime < limit:
+                os.unlink(path)
+
+
+# --- The front page's shelves (featured.json) -----------------------------------------
+
+def parse_featured(text):
+    """[{id, name, apps: [{id, …}]}] from featured.json's text; ValueError when
+    it isn't one of this version's. Unknown keys are ignored (phase 4 of the
+    design adds a paid app's price and buy address to its entry)."""
+    data = json.loads(text)
+    if not isinstance(data, dict) or data.get("v") != FEATURED_VERSION or not isinstance(data.get("shelves"), list):
+        raise ValueError("not a featured.json of this version")
+    shelves = []
+    for shelf in data["shelves"]:
+        if not isinstance(shelf, dict) or not isinstance(shelf.get("id"), str) \
+                or not isinstance(shelf.get("name"), str) or not isinstance(shelf.get("apps", []), list):
+            raise ValueError(f"a shelf isn't {{id, name, apps}}: {shelf!r:.80}")
+        apps = []
+        for entry in shelf.get("apps", []):
+            entry = {"id": entry} if isinstance(entry, str) else entry
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]:
+                apps.append(entry)
+        shelves.append({"id": shelf["id"], "name": tidy(shelf["name"]), "apps": apps})
+    return shelves
+
+
+def read_featured(folder=None):
+    """The newest usable shelves: the fetched copy in the cache, else the
+    package's. [] when neither can be read."""
+    for path in (os.path.join(folder or cache_dir(), FEATURED), FEATURED_FILE):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return parse_featured(f.read())
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError) as error:
+            warn(f"{path} is left out: {error}")
+    return []
+
+
+def featured_stale(folder=None):
+    """True when featured.json wasn't fetched for FEATURED_HOURS (or ever)."""
+    path = os.path.join(folder or cache_dir(), FEATURED)
+    return mtime(path) < time.time() - FEATURED_HOURS * 3600
+
+
+def fetch_featured(folder=None, url=None):
+    """Download featured.json into the cache (only a usable one replaces the
+    copy there); True when the shelves changed. A plain GET with nothing about
+    the user (ADR-009). Raises OSError or ValueError."""
+    url = url or FEATURED_URL
+    request = urllib.request.Request(url, headers={"User-Agent": "FlickOS-Software"})
+    with urllib.request.urlopen(request, timeout=FETCH_SECONDS) as response:
+        data = response.read(FEATURED_BYTES + 1)
+    if len(data) > FEATURED_BYTES:
+        raise ValueError(f"{url} is larger than {FEATURED_BYTES} bytes")
+    text = data.decode("utf-8")
+    parse_featured(text)
+    path = os.path.join(folder or cache_dir(), FEATURED)
+    try:
+        with open(path, encoding="utf-8") as f:
+            changed = f.read() != text
+    except OSError:
+        changed = True
+    # Written also when it is the same: its time says when it was checked.
+    write_atomic(path, text)
+    return changed
+
+
+# --- The catalog the window and the commands read ------------------------------------
+
+class Catalog:
+    """The index in memory, what is installed, and the search."""
+
+    def __init__(self, folder=None):
+        self.folder = folder or cache_dir()
+        self.apps = []
+        self.by_key = {}
+        self.searchable = False
+        self.pages_file = None
+        self.stamps = None
+        self.packages = {}          # installed Debian package -> version
+        self.flatpaks = set()       # installed Flathub app IDs (system installation)
+        self.protected = set()      # packages never removed
+        self.featured = []          # read_featured()'s shelves (the window reads them with the index)
+
+    def close(self):
+        if self.pages_file:
+            self.pages_file.close()
+            self.pages_file = None
+
+    @property
+    def loaded(self):
+        return self.stamps is not None
+
+    def load(self):
+        """Read index.json (raises SoftwareError when there is none or it's broken)."""
+        path = os.path.join(self.folder, INDEX)
+        try:
+            with open(path, encoding="utf-8") as f:
+                index = json.load(f)
+            if index.get("v") != INDEX_VERSION:
+                raise SoftwareError("the index is from another version")
+            pages = open(os.path.join(self.folder, index["pages"]), encoding="utf-8")
+        except FileNotFoundError:
+            raise SoftwareError("there is no index yet") from None
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise SoftwareError(f"the index can't be read ({error})") from None
+        self.close()
+        self.pages_file = pages
+        self.apps = index["apps"]
+        self.stamps = index.get("stamps")
+        self.by_key = {}
+        self.searchable = False
+        for number, app in enumerate(self.apps):
+            for key in app.get("keys", ()):
+                self.by_key.setdefault(key, number)
+            app["number"] = number
+
+    def prepare_search(self):
+        """The folded text search() looks in (about 100 ms: the window does it
+        in its loading thread, `list` never)."""
+        if self.searchable:
+            return
+        for app in self.apps:
+            app["hay"] = fold(" ".join([app["name"], app["summary"], " ".join(app["kw"]), app["id"],
+                                        " ".join(s.get("pkg", "") for s in app["src"].values())]))
+            app["fname"] = fold(app["name"])
+        self.searchable = True
+
+    def stale(self):
+        """True when a catalog (or the language) changed since the index was built."""
+        return not self.loaded or self.stamps != stamps()
+
+    def find(self, name):
+        """The app with this ID, package or desktop ID (folded), or None."""
+        number = self.by_key.get(name.casefold())
+        if number is None:
+            number = self.by_key.get(name.casefold() + ".desktop")
+        if number is None:
+            for app in self.apps:
+                if any(s.get("pkg") == name for s in app["src"].values()):
+                    return app
+            return None
+        return self.apps[number]
+
+    def page(self, app, source):
+        """An app's page from one source: {desc, shots, dev, license, home, version, date}."""
+        at = app["src"][source]["page"]
+        self.pages_file.seek(at)
+        try:
+            return json.loads(self.pages_file.readline())
+        except ValueError:
+            return {"desc": [], "shots": [], "dev": "", "license": "", "home": "", "version": "", "date": 0}
+
+    def search(self, words):
+        """Apps matching every word, best first: the name as typed, a name that
+        starts with it, every word in the name, the rest by name."""
+        query = fold(" ".join(words).strip())
+        parts = query.split()
+        if not parts:
+            return []
+        self.prepare_search()
+        found = []
+        for app in self.apps:
+            hay = app["hay"]
+            if not all(p in hay for p in parts):
+                continue
+            name = app["fname"]
+            if name == query:
+                rank = 0
+            elif name.startswith(query):
+                rank = 1
+            elif all(p in name for p in parts):
+                rank = 2
+            else:
+                rank = 3
+            found.append((rank, app["number"]))
+        found.sort()
+        return [self.apps[number] for _, number in found]
+
+    def category(self, category_id):
+        wanted = next((c[3] for c in CATEGORIES if c[0] == category_id), None)
+        if wanted is None:
+            raise SoftwareError(f"no category {category_id}")
+        return [app for app in self.apps if any(c in wanted for c in app["cats"])]
+
+    def category_counts(self):
+        """{category ID: number of apps}, in one pass."""
+        counts = dict.fromkeys((c[0] for c in CATEGORIES), 0)
+        wanted = {name: c[0] for c in CATEGORIES for name in c[3]}
+        for app in self.apps:
+            for category_id in {wanted[c] for c in app["cats"] if c in wanted}:
+                counts[category_id] += 1
+        return counts
+
+    def shelves(self, featured):
+        """[(shelf ID, name, [app, …])] for read_featured()'s shelves: the apps
+        this catalog has, each once, at most SHELF_APPS; empty shelves left out."""
+        found = []
+        for shelf in featured:
+            apps = []
+            for entry in shelf["apps"]:
+                app = self.find(entry["id"])
+                if app is not None and app not in apps:
+                    apps.append(app)
+            if apps:
+                found.append((shelf["id"], shelf["name"], apps[:SHELF_APPS]))
+        return found
+
+    def read_installed(self):
+        """What is installed now (dpkg's status, the system Flatpak folder)."""
+        self.packages, depends = installed_packages()
+        self.flatpaks = installed_flatpaks()
+        self.protected = depends
+
+    def installed_from(self, app):
+        """The source app is installed from, or None."""
+        for source in APT_SOURCES:
+            apt = app["src"].get(source)
+            if apt and apt["pkg"] in self.packages:
+                return source
+        flathub = app["src"].get("flathub")
+        if flathub and flathub["id"] in self.flatpaks:
+            return "flathub"
+        return None
+
+    def installed(self):
+        return [app for app in self.apps if self.installed_from(app)]
+
+    def is_protected(self, package):
+        """Never removed here: FlickOS's packages but its styles, and what the desktop needs."""
+        return (package.startswith(PROTECTED_PREFIXES) and not package.startswith(STYLE_PREFIX)) \
+            or package in self.protected
+
+
+def use_args(app, how):
+    """flickos-layout's arguments to try (until logout) or use a style's app;
+    Use also sets the layout its package brings (ADR-014)."""
+    if how == "try":
+        return ("try", app["style"])
+    if app.get("layout"):
+        return ("set", app["layout"], "--style", app["style"])
+    return ("style", "set", app["style"])
+
+
+def run_layout(*args):
+    """flickos-layout's output; SoftwareError with its last line when it fails."""
+    try:
+        done = subprocess.run([LAYOUT, *args], capture_output=True, text=True, timeout=QUERY_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SoftwareError(str(error)) from None
+    if done.returncode != 0:
+        lines = [line.removeprefix(f"{os.path.basename(LAYOUT)}: ") for line in done.stderr.strip().splitlines()]
+        raise SoftwareError(lines[-1] if lines else f"{LAYOUT} failed")
+    return done.stdout
+
+
+def installed_packages():
+    """({installed package: version}, packages flickos-desktop Depends on), from
+    dpkg-query (about 30 ms)."""
+    packages, depends = {}, set()
+    try:
+        result = subprocess.run(DPKG_QUERY, capture_output=True, text=True, timeout=QUERY_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        warn(f"can't read the installed packages ({error})")
+        return packages, depends
+    for line in result.stdout.splitlines():
+        status, _, rest = line.partition("\t")
+        name, _, rest = rest.partition("\t")
+        version, _, needs = rest.partition("\t")
+        if status[1:2] != "i":          # "ii", "hi": installed; "rc", "un": not
+            continue
+        packages[name] = version
+        if name == DESKTOP_PACKAGE:
+            for alternative in re.split(r"[,|]", needs):
+                needed = re.sub(r"[\s(:].*", "", alternative.strip())
+                if needed:
+                    depends.add(needed)
+    return packages, depends
+
+
+def installed_flatpaks(folder=None):
+    """IDs of the apps in the system Flatpak installation."""
+    folder = os.path.join(folder or FLATPAK_SYSTEM, "app")
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return set()
+    return {name for name in names if os.path.exists(os.path.join(folder, name, "current"))}
+
+
+def choose_source(catalog, app, wanted=None):
+    """The source to use for app: wanted when it has it, else the one it is
+    installed from, else the first in SOURCES."""
+    if wanted:
+        if wanted not in app["src"]:
+            raise SoftwareError(f"{app['name']} isn't on {SOURCE_NAMES[wanted]}")
+        return wanted
+    return catalog.installed_from(app) or next(s for s in SOURCES if s in app["src"])
+
+
+# --- Changing the system: PackageKit and libflatpak (child commands only) -------------
+
+class Output:
+    """Prints a change's steps: JSON lines (the window) or plain lines."""
+
+    def __init__(self, as_json):
+        self.as_json = as_json
+        self.lock = threading.Lock()
+        self.last = None
+
+    def emit(self, event, **fields):
+        line = json.dumps({"event": event, **fields}) if self.as_json else self.plain(event, fields)
+        if line is None or line == self.last:
+            return
+        self.last = line
+        with self.lock, contextlib.suppress(OSError):
+            # The window may have gone; the change goes on regardless.
+            print(line, flush=True)
+
+    @staticmethod
+    def plain(event, fields):
+        if event == "progress":
+            percent = fields.get("percent")
+            words = STATUS_TEXT.get(fields.get("status"), "Preparing…")
+            return f"{words} {percent}%" if percent is not None else words
+        if event == "done":
+            return "Done."
+        if event == "cancelled":
+            return "Cancelled."
+        if event == "error":
+            return None             # main() prints it on stderr
+        return None
+
+
+def run_cancellable(work):
+    """Run work(cancellable) in a thread while the main thread waits for
+    SIGTERM or SIGINT, which cancel it. Returns work's result or raises its error."""
+    import gi
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio, GLib
+    cancellable = Gio.Cancellable()
+    loop = GLib.MainLoop()
+    result = {}
+
+    def worker():
+        try:
+            result["value"] = work(cancellable)
+        except BaseException as error:      # handed to the main thread below
+            result["error"] = error
+        finally:
+            GLib.idle_add(loop.quit)
+
+    def cancel():
+        cancellable.cancel()
+        return True
+
+    for number in (signal.SIGTERM, signal.SIGINT):
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, number, cancel)
+    threading.Thread(target=worker, daemon=True).start()
+    loop.run()
+    if "error" in result:
+        raise result["error"]
+    if cancellable.is_cancelled():
+        raise Cancelled()
+    return result.get("value")
+
+
+class Cancelled(Exception):
+    pass
+
+
+def packagekit():
+    try:
+        import gi
+        gi.require_version("PackageKitGlib", "1.0")
+        from gi.repository import GLib, PackageKitGlib
+    except (ImportError, ValueError) as error:
+        raise SoftwareError(f"Debian apps can't be installed here: PackageKit is not available ({error})") from None
+    return PackageKitGlib, GLib
+
+
+class PackageKitFailed(SoftwareError):
+    """PackageKit's own error message (pk_message() turns it into words)."""
+
+
+def pk_message(error, verb, name):
+    """A PackageKit failure in plain words (HIG TXT-6)."""
+    text = str(error)
+    if re.search(r"not.?authori[sz]ed|authentication|dismissed", text, re.I):
+        return f"{name} wasn't {verb}: the password wasn't given."
+    if re.search(r"lock|another", text, re.I):
+        return f"{name} wasn't {verb}: another installation is running. Try again when it has finished."
+    if re.search(r"network|download|resolve|fetch|connect", text, re.I):
+        return f"{name} wasn't {verb}: a download failed ({text}). Check the network connection and try again."
+    return f"{name} wasn't {verb}: {text}"
+
+
+def pk_run(Pk, GLib, call, *args, progress=None, cancellable=None):
+    """Call a PackageKit client method; raises PackageKitFailed with its error."""
+    client = Pk.Client()
+    try:
+        result = getattr(client, call)(*args, cancellable, progress or (lambda *_: None), None)
+    except GLib.Error as error:
+        if cancellable is not None and cancellable.is_cancelled():
+            raise Cancelled() from None
+        raise PackageKitFailed(error.message) from None
+    code = result.get_error_code()
+    if code is not None:
+        raise PackageKitFailed(code.get_details() or Pk.error_enum_to_string(code.get_code()))
+    return result
+
+
+def pk_resolve(Pk, GLib, package, installed):
+    flags = "installed;arch" if installed else "newest;arch;~installed"
+    result = pk_run(Pk, GLib, "resolve", Pk.filter_bitfield_from_string(flags), [package])
+    return [p.get_id() for p in result.get_package_array()]
+
+
+def apt_plan(catalog, app, remove, source="debian"):
+    """What installing or removing app's package from an apt source changes
+    (a simulation, no password)."""
+    Pk, GLib = packagekit()
+    package = app["src"][source]["pkg"]
+    simulate = Pk.transaction_flag_bitfield_from_string("simulate")
+    verb = "removed" if remove else "installed"
+    try:
+        ids = pk_resolve(Pk, GLib, package, installed=remove)
+    except PackageKitFailed as error:
+        raise SoftwareError(pk_message(error, verb, app["name"])) from None
+    if not ids:
+        if remove:
+            raise SoftwareError(f"{app['name']} isn't installed from {SOURCE_NAMES[source]}.")
+        if package in catalog.packages:
+            raise SoftwareError(f"{app['name']} is already installed.")
+        raise SoftwareError(f"{app['name']} isn't in {SOURCE_NAMES[source]}'s package lists for this computer.")
+    try:
+        if remove:
+            # allow dependents, and take the packages only this app needed (autoremove)
+            result = pk_run(Pk, GLib, "remove_packages", simulate, ids, True, True)
+        else:
+            result = pk_run(Pk, GLib, "install_packages", simulate, ids)
+    except PackageKitFailed as error:
+        raise SoftwareError(pk_message(error, verb, app["name"])) from None
+    changes = {}
+    for item in result.get_package_array():
+        info = Pk.info_enum_to_string(item.get_info())
+        changes.setdefault(info, []).append(item.get_id())
+    removing = changes.get("removing", [])
+    installing = changes.get("installing", [])
+    plan = {"source": source, "action": "remove" if remove else "install", "app": app["name"],
+            "package": package, "items": [], "packages": sorted({i.split(";")[0] for i in (removing if remove else installing)}),
+            "removes": sorted({i.split(";")[0] for i in removing})}
+    plan["protected"] = [p for p in plan["removes"] if catalog.is_protected(p)]
+    sized = removing if remove else installing
+    size = download = 0
+    if sized:
+        with contextlib.suppress(PackageKitFailed):
+            for details in pk_run(Pk, GLib, "get_details", sized).get_details_array():
+                size += details.get_size() or 0
+                download += details.get_download_size() or 0
+    plan["size"] = size
+    plan["download"] = 0 if remove else download
+    return plan
+
+
+def apt_change(catalog, app, remove, out, source="debian"):
+    plan = apt_plan(catalog, app, remove, source)
+    refuse_protected(plan)
+    Pk, GLib = packagekit()
+    package = plan["package"]
+    verb = "removed" if remove else "installed"
+
+    def progress(status, _kind, *_):
+        percent = status.get_percentage()
+        out.emit("progress", status=Pk.status_enum_to_string(status.get_status()),
+                 percent=percent if 0 <= percent <= 100 else None, cancel=bool(status.get_allow_cancel()))
+
+    def work(cancellable):
+        ids = pk_resolve(Pk, GLib, package, installed=remove)
+        if remove:
+            pk_run(Pk, GLib, "remove_packages", 0, ids, True, True, progress=progress, cancellable=cancellable)
+        else:
+            trusted = Pk.transaction_flag_bitfield_from_string("only-trusted")
+            pk_run(Pk, GLib, "install_packages", trusted, ids, progress=progress, cancellable=cancellable)
+
+    try:
+        run_cancellable(work)
+    except PackageKitFailed as error:
+        raise SoftwareError(pk_message(error, verb, app["name"])) from None
+    # PackageKit reports a cancelled transaction as a success: check the result.
+    packages, _ = installed_packages()
+    if (package in packages) == remove:
+        raise Cancelled()
+
+
+def refuse_protected(plan):
+    if plan["protected"]:
+        raise SoftwareError(f"{plan['app']} is part of the FlickOS desktop, so it can't be "
+                            f"{'removed' if plan['action'] == 'remove' else 'installed'} here: "
+                            f"{', '.join(plan['protected'])} would be removed.")
+
+
+def libflatpak():
+    try:
+        import gi
+        gi.require_version("Flatpak", "1.0")
+        from gi.repository import Flatpak, Gio, GLib
+    except (ImportError, ValueError) as error:
+        raise SoftwareError(f"Flathub apps can't be installed here: libflatpak is not available ({error})") from None
+    return Flatpak, Gio, GLib
+
+
+def flatpak_ref(app):
+    return app["src"]["flathub"]["ref"]
+
+
+def flatpak_installed_ref(Flatpak, GLib, installation, ref):
+    _kind, name, arch, branch = ref.split("/")
+    try:
+        return installation.get_installed_ref(Flatpak.RefKind.APP, name, arch, branch, None)
+    except GLib.Error:
+        return None
+
+
+def flatpak_transaction(Flatpak, installation):
+    transaction = Flatpak.Transaction.new_for_installation(installation, None)
+    # A runtime that more than one remote has comes from Flathub.
+    transaction.connect("choose-remote-for-ref",
+                        lambda _t, _ref, _runtime, remotes: remotes.index(FLATHUB) if FLATHUB in remotes else 0)
+    return transaction
+
+
+def flatpak_plan(catalog, app, remove):
+    """What installing app from Flathub brings (a transaction stopped before it
+    starts, no password), or what removing it frees."""
+    Flatpak, _Gio, GLib = libflatpak()
+    ref = flatpak_ref(app)
+    plan = {"source": "flathub", "action": "remove" if remove else "install", "app": app["name"],
+            "ref": ref, "packages": [], "removes": [], "protected": [], "items": [], "size": 0, "download": 0}
+    try:
+        installation = Flatpak.Installation.new_system(None)
+    except GLib.Error as error:
+        raise SoftwareError(f"Flathub apps can't be installed here: {error.message}") from None
+    installed = flatpak_installed_ref(Flatpak, GLib, installation, ref)
+    if remove:
+        if installed is None:
+            raise SoftwareError(f"{app['name']} isn't installed from Flathub.")
+        plan["size"] = installed.get_installed_size()
+        return plan
+    if installed is not None:
+        raise SoftwareError(f"{app['name']} is already installed.")
+    transaction = flatpak_transaction(Flatpak, installation)
+
+    def ready(transaction):
+        for op in transaction.get_operations():
+            item = {"ref": op.get_ref(), "type": op.get_operation_type().value_nick,
+                    "download": op.get_download_size(), "size": op.get_installed_size(),
+                    "name": runtime_name(op.get_ref())}
+            # A translations runtime reports its full size (the GNOME one 386 MB
+            # and 1.6 GB), but only the configured languages come: 32 kB in a
+            # VM, 2026-10-08. Left out of the totals.
+            if item["ref"].split("/")[1].endswith(".Locale"):
+                item["download"] = item["size"] = 0
+            plan["items"].append(item)
+            plan["download"] += item["download"]
+            plan["size"] += item["size"]
+        return False                # stop here: nothing is downloaded
+
+    transaction.connect("ready", ready)
+    try:
+        transaction.add_install(FLATHUB, ref, None)
+        transaction.run(None)
+    except GLib.Error as error:
+        if not error.matches(Flatpak.error_quark(), Flatpak.Error.ABORTED):
+            raise SoftwareError(flatpak_message(error, "installed", app["name"])) from None
+    return plan
+
+
+def flatpak_message(error, verb, name):
+    text = error.message
+    if re.search(r"not.?authori[sz]ed|authentication|dismissed", text, re.I):
+        return f"{name} wasn't {verb}: the password wasn't given."
+    if re.search(r"resolve|network|connect|timed? ?out|summary", text, re.I):
+        return f"{name} wasn't {verb}: Flathub couldn't be reached ({text}). Check the network connection and try again."
+    if re.search(r"space|ENOSPC", text, re.I):
+        return f"{name} wasn't {verb}: the disk is full."
+    return f"{name} wasn't {verb}: {text}"
+
+
+def flatpak_change(catalog, app, remove, out):
+    Flatpak, Gio, GLib = libflatpak()
+    ref = flatpak_ref(app)
+    verb = "removed" if remove else "installed"
+    try:
+        installation = Flatpak.Installation.new_system(None)
+    except GLib.Error as error:
+        raise SoftwareError(f"Flathub apps can't be installed here: {error.message}") from None
+
+    def work(cancellable):
+        transaction = flatpak_transaction(Flatpak, installation)
+        done = {"ops": -1, "count": 1}     # operations finished: one less than started
+
+        def ready(transaction):
+            done["count"] = max(1, len(transaction.get_operations()))
+            return True
+
+        def new_operation(_transaction, op, progress):
+            # Counted here: libflatpak's operation-done hands PyGObject a
+            # result it can't read (a GLib warning on every operation).
+            done["ops"] += 1
+            progress.set_update_frequency(300)
+            words = runtime_name(op.get_ref())
+            status = "remove" if remove else "download"
+
+            def changed(progress):
+                percent = (done["ops"] * 100 + progress.get_progress()) // done["count"]
+                out.emit("progress", status=status, percent=min(100, percent), cancel=not remove,
+                         detail=words or "")
+
+            progress.connect("changed", changed)
+
+        transaction.connect("ready", ready)
+        transaction.connect("new-operation", new_operation)
+        if remove:
+            transaction.add_uninstall(ref)
+        else:
+            transaction.add_install(FLATHUB, ref, None)
+        try:
+            transaction.run(cancellable)
+        except GLib.Error as error:
+            if cancellable.is_cancelled() or error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+                raise Cancelled() from None
+            raise SoftwareError(flatpak_message(error, verb, app["name"])) from None
+
+    if not remove and flatpak_installed_ref(Flatpak, GLib, installation, ref) is not None:
+        raise SoftwareError(f"{app['name']} is already installed.")
+    run_cancellable(work)
+
+
+def refresh(force=False):
+    """Fetch the catalogs fetch_needed() names (all with force): apt's lists
+    through PackageKit, which runs the appstream hook, and Flathub's through
+    libflatpak. Polkit allows both without a password in an active session.
+    Returns the sources fetched; a failure is only a warning."""
+    needed = ["debian", "flathub"] if force else fetch_needed()
+    fetched = []
+    if "debian" in needed:
+        try:
+            Pk, GLib = packagekit()
+            pk_run(Pk, GLib, "refresh_cache", False)
+            fetched.append("debian")
+        except SoftwareError as error:
+            warn(f"Debian's package lists weren't updated: {error}")
+    if "flathub" in needed and flathub_usable():
+        try:
+            Flatpak, _Gio, GLib = libflatpak()
+            try:
+                installation = Flatpak.Installation.new_system(None)
+                installation.update_appstream_sync(FLATHUB, None, None)
+                fetched.append("flathub")
+            except GLib.Error as error:
+                warn(f"Flathub's catalog wasn't updated: {error.message}")
+        except SoftwareError as error:
+            warn(str(error))
+    if force or featured_stale():
+        try:
+            fetch_featured()
+            fetched.append("featured")
+        except (OSError, ValueError) as error:
+            warn(f"The front page's shelves weren't updated: {error}")
+    return fetched
+
+
+# --- Commands ------------------------------------------------------------------------
+
+def open_catalog(installed=True):
+    """The Catalog for a command, built first when there is none or it is
+    stale; installed: also read what is installed."""
+    catalog = Catalog()
+    with contextlib.suppress(SoftwareError):
+        catalog.load()
+    if catalog.stale():
+        with index_lock():
+            build_index()
+        catalog.load()
+    if installed:
+        catalog.read_installed()
+    return catalog
+
+
+@contextlib.contextmanager
+def index_lock():
+    """One index build at a time; a second waits for the first."""
+    folder = cache_dir()
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, INDEX_LOCK), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def app_or_error(catalog, name):
+    app = catalog.find(name)
+    if app is None:
+        raise SoftwareError(f"no app {name} (try: {NAME} search WORDS)")
+    return app
+
+
+def print_apps(catalog, apps):
+    for app in apps:
+        installed = catalog.installed_from(app) or ""
+        print("\t".join([app["id"], ",".join(s for s in SOURCES if s in app["src"]), installed,
+                         app["name"], app["summary"]]))
+
+
+def cmd_search(opts):
+    catalog = open_catalog()
+    print_apps(catalog, catalog.search(opts.words))
+    return 0
+
+
+def cmd_list(opts):
+    catalog = open_catalog(installed=bool(opts.installed or opts.category))
+    if opts.shelves:
+        for shelf_id, _name, apps in catalog.shelves(read_featured()):
+            for app in apps:
+                print(f"{shelf_id}\t{app['id']}\t{app['name']}")
+    elif opts.installed:
+        print_apps(catalog, catalog.installed())
+    elif opts.category:
+        print_apps(catalog, catalog.category(opts.category))
+    else:
+        counts = catalog.category_counts()
+        for category_id, name, _icon, _names in CATEGORIES:
+            print(f"{category_id}\t{name}\t{counts[category_id]}")
+    return 0
+
+
+def cmd_info(opts):
+    catalog = open_catalog()
+    app = app_or_error(catalog, opts.app)
+    source = choose_source(catalog, app, opts.source)
+    page = catalog.page(app, source)
+    lines = [("id", app["id"]), ("name", app["name"]), ("summary", app["summary"]),
+             ("sources", ",".join(s for s in SOURCES if s in app["src"])), ("source", source),
+             ("installed", catalog.installed_from(app) or ""),
+             ("package" if source in APT_SOURCES else "ref",
+              app["src"][source].get("pkg") or app["src"][source].get("ref")),
+             ("developer", page["dev"]), ("license", page["license"]), ("homepage", page["home"]),
+             ("version", page["version"])]
+    lines += [("screenshot", shot["url"]) for shot in page["shots"]]
+    lines += [("description", text) for text in page["desc"]]
+    for key, value in lines:
+        print(f"{key}\t{value}")
+    return 0
+
+
+def cmd_index(opts):
+    catalog = Catalog()
+    with contextlib.suppress(SoftwareError):
+        catalog.load()
+    if not opts.force and not catalog.stale():
+        return 0
+    with index_lock():
+        counts = build_index()
+    for key, value in counts.items():
+        print(f"{key}\t{value}")
+    return 0
+
+
+def cmd_refresh(opts):
+    for source in refresh(opts.force):
+        print(f"fetched\t{source}")
+    return cmd_index(argparse.Namespace(force=False))
+
+
+def cmd_plan(opts):
+    catalog = open_catalog()
+    app = app_or_error(catalog, opts.app)
+    source = choose_source(catalog, app, opts.source)
+    if source in APT_SOURCES:
+        plan = apt_plan(catalog, app, opts.remove, source)
+    else:
+        plan = flatpak_plan(catalog, app, opts.remove)
+    if opts.json:
+        print(json.dumps(plan))
+        return 0
+    action = "remove" if opts.remove else "install"
+    print(f"{action}\t{plan['app']}\t{SOURCE_NAMES[source]}")
+    for package in plan["packages"]:
+        print(f"package\t{package}")
+    for item in plan["items"]:
+        print(f"{item['type']}\t{item['ref']}\t{human_size(item['download'])}\t{human_size(item['size'])}")
+    if plan["download"]:
+        print(f"download\t{human_size(plan['download'])}")
+    print(f"{'frees' if opts.remove else 'size'}\t{human_size(plan['size'])}")
+    for package in plan["protected"]:
+        print(f"refused\t{package} is part of the FlickOS desktop")
+    return 1 if plan["protected"] else 0
+
+
+def cmd_change(opts):
+    remove = opts.command == "remove"
+    out = Output(opts.json)
+    try:
+        catalog = open_catalog()
+        app = app_or_error(catalog, opts.app)
+        source = choose_source(catalog, app, opts.source)
+        if source in APT_SOURCES:
+            apt_change(catalog, app, remove, out, source)
+        else:
+            flatpak_change(catalog, app, remove, out)
+    except Cancelled:
+        out.emit("cancelled")
+        return 1
+    except SoftwareError as error:
+        out.emit("error", message=str(error))
+        raise
+    out.emit("done")
+    return 0
+
+
+def cmd_show(opts):
+    try:
+        with single_instance() as first:
+            if not first:
+                print(f"{TITLE} is already open.")
+                return 0
+            return window(opts)
+    except SoftwareError as error:
+        warn(str(error))
+        return 1
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="Find, install and remove apps.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    show = commands.add_parser("show", help="open the window")
+    show_what = show.add_mutually_exclusive_group()
+    show_what.add_argument("--search", metavar="WORDS", help="start with a search")
+    show_what.add_argument("--app", metavar="ID", help="start on an app's page")
+    show_what.add_argument("--installed", action="store_true", help="start on the installed apps")
+    show.set_defaults(func=cmd_show)
+    search = commands.add_parser("search", help="print matching apps")
+    search.add_argument("words", nargs="+")
+    search.set_defaults(func=cmd_search)
+    listing = commands.add_parser("list", help="print the categories, or apps")
+    which = listing.add_mutually_exclusive_group()
+    which.add_argument("--installed", action="store_true")
+    which.add_argument("--category", choices=[c[0] for c in CATEGORIES])
+    which.add_argument("--shelves", action="store_true", help="the front page's shelves")
+    listing.set_defaults(func=cmd_list)
+    info = commands.add_parser("info", help="print an app's page")
+    info.add_argument("--source", choices=SOURCES)
+    info.add_argument("app", metavar="ID")
+    info.set_defaults(func=cmd_info)
+    index = commands.add_parser("index", help="rebuild the index when a catalog changed")
+    index.add_argument("--force", action="store_true")
+    index.set_defaults(func=cmd_index)
+    fetch = commands.add_parser("refresh", help="fetch missing or old catalogs, then index")
+    fetch.add_argument("--force", action="store_true")
+    fetch.set_defaults(func=cmd_refresh)
+    plan = commands.add_parser("plan", help="what installing or removing an app changes")
+    plan.add_argument("--remove", action="store_true")
+    plan.set_defaults(func=cmd_plan)
+    install = commands.add_parser("install", help="install an app")
+    install.set_defaults(func=cmd_change)
+    remove = commands.add_parser("remove", help="remove an app")
+    remove.set_defaults(func=cmd_change)
+    for sub in (plan, install, remove):
+        sub.add_argument("--json", action="store_true", help="print JSON")
+        sub.add_argument("--source", choices=SOURCES)
+        sub.add_argument("app", metavar="ID")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # No command, or only show's options: show.
+    if not argv or argv[0].startswith("--") and argv[0] not in ("-h", "--help"):
+        argv.insert(0, "show")
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except SoftwareError as error:
+        warn(str(error))
+        return 1
+
+
+# --- The window ----------------------------------------------------------------------
+
+def load_gtk():
+    """(GLib, Gio, Gtk, Gdk, GdkPixbuf, Pango), or None without GTK 3 or a display."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GdkPixbuf", "2.0")
+        gi.require_version("Pango", "1.0")
+        from gi.repository import GLib
+        GLib.set_prgname(APP_ID)
+        from gi.repository import Gdk, GdkPixbuf, Gio, Gtk, Pango
+    except (ImportError, ValueError) as error:
+        warn(f"GTK 3 is not available ({error})")
+        return None
+    if not Gtk.init_check(sys.argv[:1])[0]:
+        warn("cannot open a window (no display)")
+        return None
+    return GLib, Gio, Gtk, Gdk, GdkPixbuf, Pango
+
+
+def image_path(url):
+    """Where a downloaded icon or screenshot is kept."""
+    digest = hashlib.sha256(url.encode()).hexdigest()[:32]
+    return os.path.join(cache_dir(), "images", digest)
+
+
+def fetch(url):
+    """Download url into the image cache (once); returns the file's path.
+    Raises OSError or ValueError."""
+    path = image_path(url)
+    if os.path.exists(path):
+        return path
+    if not url.startswith(("https://", "http://")):
+        raise ValueError(f"not a web address: {url}")
+    request = urllib.request.Request(url, headers={"User-Agent": "FlickOS-Software"})
+    with urllib.request.urlopen(request, timeout=FETCH_SECONDS) as response:
+        data = response.read(IMAGE_BYTES + 1)
+    if len(data) > IMAGE_BYTES:
+        raise ValueError(f"{url} is larger than {IMAGE_BYTES} bytes")
+    write_atomic(path, data)
+    return path
+
+
+def window(opts):
+    gtk = load_gtk()
+    if gtk is None:
+        return 1
+    with contextlib.suppress(locale.Error):
+        locale.setlocale(locale.LC_ALL, "")
+    app = Software(gtk, opts)
+    app.run()
+    return 0
+
+
+class Software:
+    """The window: Explore (categories and picks), a list (a category, a
+    search, the installed apps) and an app's page, with Back between them."""
+
+    def __init__(self, gtk, opts):
+        self.GLib, self.Gio, self.Gtk, self.Gdk, self.GdkPixbuf, self.Pango = gtk
+        Gtk = self.Gtk
+        self.opts = opts
+        self.catalog = Catalog()
+        self.history = []           # views to go back to: (kind, argument)
+        self.view = None
+        self.icons = {}             # (icon specs, size) -> GdkPixbuf or None while fetching
+        self.fetching = set()
+        self.fetch_lock = threading.Lock()
+        self.fetch_queue = []
+        self.fetchers = 0
+        self.child = None           # the running install/remove: (process, app, action)
+        self.child_can_cancel = False
+        self.page_app = None
+        self.page_source = None
+        self.featured = []          # read_featured()'s shelves
+        self.reads = {}
+        self.theme = Gtk.IconTheme.get_default()
+
+        win = self.win = Gtk.Window(title=TITLE, icon_name=ICON)
+        win.set_default_size(*DEFAULT_SIZE)
+        win.connect("delete-event", self.on_delete)
+        win.connect("destroy", lambda _w: Gtk.main_quit())
+        win.connect("key-press-event", self.on_key)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        win.add(outer)
+        bar = Gtk.Box(spacing=6, margin=6)
+        outer.pack_start(bar, False, False, 0)
+        outer.pack_start(Gtk.Separator(), False, False, 0)
+
+        self.back = Gtk.Button.new_from_icon_name("go-previous-symbolic", Gtk.IconSize.BUTTON)
+        self.back.set_tooltip_text("Back (Alt+Left)")
+        self.back.get_accessible().set_name("Back")
+        self.back.connect("clicked", lambda _b: self.go_back())
+        self.back.set_sensitive(False)
+        bar.pack_start(self.back, False, False, 0)
+
+        sections = Gtk.Box()
+        sections.get_style_context().add_class("linked")
+        self.explore_button = Gtk.RadioButton.new_with_mnemonic(None, "_Explore")
+        self.installed_button = Gtk.RadioButton.new_with_mnemonic_from_widget(self.explore_button, "Installe_d")
+        for button, kind in ((self.explore_button, "explore"), (self.installed_button, "installed")):
+            button.set_mode(False)
+            button.connect("toggled", self.on_section, kind)
+            sections.pack_start(button, False, False, 0)
+        bar.set_center_widget(sections)
+
+        self.search = Gtk.SearchEntry(placeholder_text="Search apps")
+        self.search.set_tooltip_text("Search (Ctrl+F)")
+        self.search.get_accessible().set_name("Search apps")
+        self.search.set_width_chars(24)
+        self.search.connect("search-changed", self.on_search)
+        self.search.connect("stop-search", lambda _e: self.search.set_text(""))
+        bar.pack_end(self.search, False, False, 0)
+
+        self.notice = Gtk.InfoBar(message_type=Gtk.MessageType.ERROR, no_show_all=True, show_close_button=True)
+        self.notice.connect("response", lambda bar, _r: bar.hide())
+        self.notice_text = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.notice.get_content_area().add(self.notice_text)
+        self.notice_text.show()
+        outer.pack_start(self.notice, False, False, 0)
+
+        self.stack = Gtk.Stack(homogeneous=False, transition_type=Gtk.StackTransitionType.CROSSFADE)
+        outer.pack_start(self.stack, True, True, 0)
+        self.stack.add_named(self.build_loading(), "loading")
+        self.stack.add_named(self.build_explore(), "explore")
+        self.stack.add_named(self.build_list(), "list")
+        self.stack.add_named(self.build_page(), "app")
+
+        self.status = Gtk.Label(xalign=0, margin=6, wrap=True, selectable=True, no_show_all=True)
+        self.status.get_style_context().add_class("dim-label")
+        outer.pack_start(self.status, False, False, 0)
+
+    # --- Starting -------------------------------------------------------------------
+
+    def run(self):
+        self.win.show_all()
+        self.stack.set_visible_child_name("loading")
+        self.background(self.read_catalog, self.catalog_read, key="catalog")
+        self.Gtk.main()
+
+    def read_catalog(self):
+        """In a thread: the index, what is installed and the shelves. Returns a
+        new Catalog (or the error when there is no usable index)."""
+        catalog = Catalog()
+        with contextlib.suppress(SoftwareError):    # no index yet: update_catalogs() makes one
+            catalog.load()
+            catalog.prepare_search()
+        catalog.read_installed()
+        catalog.featured = read_featured()
+        return catalog
+
+    def catalog_read(self, catalog, error, updated=False):
+        """The catalog read in a thread: show it. updated: after update_catalogs()."""
+        if error:
+            self.show_error(f"The list of apps couldn't be read: {error}")
+            return
+        first = not self.catalog.loaded
+        if self.catalog is not catalog:
+            self.catalog.close()
+        self.catalog = catalog
+        self.featured = catalog.featured
+        if catalog.loaded and catalog.apps:
+            self.show_catalog(first)
+        elif updated:
+            self.loading_spinner.hide()
+            self.loading_text.set_text("No apps are known yet: the lists of apps couldn't be fetched. "
+                                       "Check the network connection and open Software again.")
+        if first and not updated and self.update_catalogs() != "refresh":
+            self.update_featured()      # refresh fetches it too
+
+    def update_catalogs(self):
+        """Fetch missing or old catalogs, or rebuild a stale index, in a child.
+        Returns the command it runs, or None."""
+        if fetch_needed():
+            command, words = "refresh", "Getting the list of apps…"
+        elif self.catalog.stale():
+            command, words = "index", "Updating the list of apps…"
+        else:
+            return None
+        if not self.catalog.loaded:
+            self.loading_text.set_text(words)
+        else:
+            self.set_status(words)
+
+        def done(ok, _stdout, stderr):
+            self.set_status("")
+            if not ok and not self.catalog.loaded:
+                self.loading_spinner.hide()
+                self.loading_text.set_text("The list of apps couldn't be made. " + last_line(stderr)
+                                           + " Check the network connection and open Software again.")
+                return
+            self.background(self.read_catalog, lambda c, e: self.catalog_read(c, e, updated=True), key="catalog")
+
+        self.run_child([command], done)
+        return command
+
+    def update_featured(self):
+        """Fetch featured.json in a thread when the copy is old; show the new
+        shelves when they changed."""
+        if not featured_stale():
+            return
+
+        def done(changed, error):
+            if error:
+                warn(f"The front page's shelves weren't updated: {error}")
+            elif changed:
+                self.featured = read_featured()
+                if self.catalog.loaded:
+                    self.fill_explore()
+
+        self.background(fetch_featured, done, key="featured")
+
+    def show_catalog(self, first):
+        self.fill_explore()
+        if first:
+            if self.opts.app and self.catalog.find(self.opts.app):
+                self.go("explore", None, remember=False)
+                self.go("app", self.catalog.find(self.opts.app)["id"])
+            elif self.opts.search:
+                self.go("explore", None, remember=False)
+                self.search.set_text(self.opts.search)
+            elif self.opts.installed:
+                self.installed_button.set_active(True)
+            else:
+                self.go("explore", None, remember=False)
+            self.search.grab_focus()
+        else:
+            self.refresh_view()
+
+    # --- Helpers --------------------------------------------------------------------
+
+    def background(self, work, done, key=None):
+        """work() in a thread, then done(result, error) in the main loop; of
+        calls with the same key only the newest one's done() runs."""
+        number = self.reads[key] = self.reads.get(key, 0) + 1
+
+        def finish(result, error):
+            if self.reads[key] == number:
+                done(result, error)
+            return False
+
+        def thread():
+            try:
+                result, error = work(), None
+            except (SoftwareError, OSError, ValueError) as failure:
+                result, error = None, str(failure)
+            except Exception as failure:    # a bug: say so instead of loading forever
+                traceback.print_exc()
+                result, error = None, f"{type(failure).__name__}: {failure}"
+            self.GLib.idle_add(finish, result, error)
+
+        threading.Thread(target=thread, daemon=True).start()
+
+    def run_child(self, args, done, lines=None):
+        """Run this program with args, without blocking the window; lines(line)
+        for each line of its output when given; then done(ok, stdout, stderr)."""
+        Gio, GLib = self.Gio, self.GLib
+        command = [sys.executable, os.path.abspath(sys.argv[0])] if os.path.exists(sys.argv[0]) else [NAME]
+        flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        try:
+            process = Gio.Subprocess.new(command + list(args), flags)
+        except GLib.Error as error:
+            done(False, "", error.message)
+            return None
+        if lines is None:
+            def finished(process, result):
+                try:
+                    _, stdout, stderr = process.communicate_utf8_finish(result)
+                    ok = process.get_successful()
+                except GLib.Error as error:
+                    stdout, stderr, ok = "", error.message, False
+                done(ok, stdout or "", stderr or "")
+            process.communicate_utf8_async(None, None, finished)
+            return process
+        stream = Gio.DataInputStream.new(process.get_stdout_pipe())
+        errors = []
+
+        def read_errors(stream_, result):
+            try:
+                data = stream_.read_bytes_finish(result)
+            except GLib.Error:
+                return
+            if data.get_size():
+                errors.append(data.get_data().decode("utf-8", "replace"))
+                stream_.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, read_errors)
+
+        process.get_stderr_pipe().read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, read_errors)
+
+        def wait_done(process, result):
+            try:
+                process.wait_finish(result)
+                ok = process.get_successful()
+            except GLib.Error:
+                ok = False
+            done(ok, "", "".join(errors))
+
+        def read_line(stream_, result):
+            try:
+                line, _length = stream_.read_line_finish_utf8(result)
+            except GLib.Error:
+                line = None
+            if line is None:
+                process.wait_async(None, wait_done)
+                return
+            lines(line)
+            stream_.read_line_async(GLib.PRIORITY_DEFAULT, None, read_line)
+
+        stream.read_line_async(GLib.PRIORITY_DEFAULT, None, read_line)
+        return process
+
+    def label(self, text="", dim=False, wrap=True, markup=False, selectable=False):
+        label = self.Gtk.Label(xalign=0, wrap=wrap, selectable=selectable)
+        if wrap:
+            label.set_line_wrap_mode(self.Pango.WrapMode.WORD_CHAR)
+        if markup:
+            label.set_markup(text)
+        else:
+            label.set_text(text)
+        if dim:
+            label.get_style_context().add_class("dim-label")
+        return label
+
+    def heading(self, text):
+        return self.label(f"<b>{self.GLib.markup_escape_text(text)}</b>", markup=True)
+
+    def spinner(self):
+        """A spinner that turns while it is on screen (shown, its page shown).
+        GTK 3 keeps animating an active spinner on a stack page that isn't
+        shown, 60 redraws a second (HIG CODE-10)."""
+        spinner = self.Gtk.Spinner()
+        spinner.connect("map", lambda s: s.start())
+        spinner.connect("unmap", lambda s: s.stop())
+        return spinner
+
+    def scrolled(self, child):
+        scrolled = self.Gtk.ScrolledWindow(hscrollbar_policy=self.Gtk.PolicyType.NEVER)
+        scrolled.add(child)
+        return scrolled
+
+    def set_status(self, text):
+        self.status.set_text(text)
+        self.status.set_visible(bool(text))
+
+    def show_error(self, text):
+        self.notice_text.set_text(text)
+        self.notice.show()
+
+    # --- Icons ----------------------------------------------------------------------
+
+    def icon(self, specs, size, redraw):
+        """A pixbuf for an app's icon specs at size: the theme's icon by name,
+        then a catalog file, then a download (started here; redraw() runs when
+        it arrives). The generic app icon meanwhile and when none works."""
+        key = (tuple(specs), size)
+        if key not in self.icons:
+            self.icons[key] = self.find_icon(list(specs), size, redraw, key)
+        return self.icons[key] or self.generic_icon(size)
+
+    def find_icon(self, specs, size, redraw, key):
+        """The first of specs that gives a pixbuf; None while one downloads."""
+        GdkPixbuf, GLib = self.GdkPixbuf, self.GLib
+        while specs:
+            kind, _, value = specs.pop(0).partition(":")
+            try:
+                if kind == "stock" and self.theme.has_icon(value):
+                    return self.theme.load_icon(value, size, self.Gtk.IconLookupFlags.FORCE_SIZE)
+                if kind == "flathub":
+                    kind, value = "file", os.path.join(FLATHUB_CATALOG, "icons", value)
+                if kind == "file" and os.path.exists(value):
+                    return GdkPixbuf.Pixbuf.new_from_file_at_size(value, size, size)
+                if kind == "url":
+                    path = image_path(value)
+                    if os.path.exists(path):
+                        return GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
+                    rest = list(specs)
+                    self.queue_fetch(value, lambda path, k=key, r=rest: self.icon_fetched(k, path, r, redraw))
+                    return None
+            except GLib.Error:
+                continue
+        return self.generic_icon(size)
+
+    def icon_fetched(self, key, path, rest, redraw):
+        pixbuf = None
+        if path:
+            with contextlib.suppress(self.GLib.Error):
+                pixbuf = self.GdkPixbuf.Pixbuf.new_from_file_at_size(path, key[1], key[1])
+        # Not downloaded: the specs after it (they may download in turn).
+        self.icons[key] = pixbuf or self.find_icon(rest, key[1], redraw, key)
+        redraw()
+
+    def generic_icon(self, size):
+        key = ("generic", size)
+        if key not in self.icons:
+            self.icons[key] = self.theme.load_icon("application-x-executable", size,
+                                                   self.Gtk.IconLookupFlags.FORCE_SIZE)
+        return self.icons[key]
+
+    def queue_fetch(self, url, done):
+        """Download url in one of a few threads, newest request first (the rows
+        just scrolled to); done(path or None) in the main loop."""
+        with self.fetch_lock:
+            if url in self.fetching:
+                return
+            self.fetching.add(url)
+            self.fetch_queue.append((url, done))
+            if self.fetchers >= 4:
+                return
+            self.fetchers += 1
+
+        def thread():
+            while True:
+                with self.fetch_lock:
+                    if not self.fetch_queue:
+                        self.fetchers -= 1
+                        return
+                    url, done = self.fetch_queue.pop()
+                try:
+                    path = fetch(url)
+                except (OSError, ValueError) as error:
+                    warn(f"{url}: {error}")
+                    path = None
+                self.GLib.idle_add(lambda d=done, p=path, u=url: (self.fetching.discard(u), d(p), False)[2])
+
+        threading.Thread(target=thread, daemon=True).start()
+
+    # --- Navigation -----------------------------------------------------------------
+
+    def go(self, kind, argument, remember=True):
+        """Show a view: explore, category ID, search WORDS, installed, app ID."""
+        if remember and self.view is not None and self.view != (kind, argument):
+            if self.view[0] == "search" and kind == "search":
+                pass                # typing doesn't fill the history
+            else:
+                self.history.append(self.view)
+        self.view = (kind, argument)
+        self.back.set_sensitive(bool(self.history))
+        if kind == "explore":
+            self.stack.set_visible_child_name("explore")
+        elif kind == "app":
+            app = self.catalog.find(argument)
+            if app is None:
+                self.go_back()
+                return
+            self.show_page(app)
+            self.stack.set_visible_child_name("app")
+        else:
+            self.fill_list(kind, argument)
+            self.stack.set_visible_child_name("list")
+        section = self.installed_button if kind == "installed" else self.explore_button
+        if not section.get_active() and kind in ("explore", "installed"):
+            section.handler_block_by_func(self.on_section)
+            section.set_active(True)
+            section.handler_unblock_by_func(self.on_section)
+
+    def go_back(self):
+        if not self.history:
+            return
+        kind, argument = self.history.pop()
+        if kind == "search" and self.search.get_text() != argument:
+            self.search.handler_block_by_func(self.on_search)
+            self.search.set_text(argument)
+            self.search.handler_unblock_by_func(self.on_search)
+        elif kind != "search" and self.search.get_text():
+            self.search.handler_block_by_func(self.on_search)
+            self.search.set_text("")
+            self.search.handler_unblock_by_func(self.on_search)
+        self.go(kind, argument, remember=False)
+
+    def refresh_view(self):
+        """Show the current view again (the catalog or what's installed changed)."""
+        if self.view is None:
+            return
+        kind, argument = self.view
+        if kind == "app":
+            app = self.catalog.find(argument)
+            if app is not None:
+                self.show_page(app, keep_source=True)
+        elif kind != "explore":
+            self.fill_list(kind, argument)
+
+    def on_section(self, button, kind):
+        if not button.get_active() or not self.catalog.loaded:
+            return
+        if self.search.get_text():
+            self.search.handler_block_by_func(self.on_search)
+            self.search.set_text("")
+            self.search.handler_unblock_by_func(self.on_search)
+        self.go(kind, None)
+
+    def on_search(self, entry):
+        if not self.catalog.loaded:
+            return
+        text = entry.get_text().strip()
+        if text:
+            self.go("search", text)
+        elif self.view and self.view[0] == "search":
+            self.go_back() if self.history else self.go("explore", None, remember=False)
+
+    def on_key(self, _widget, event):
+        Gdk = self.Gdk
+        state = event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK
+                               | Gdk.ModifierType.SHIFT_MASK)
+        if event.keyval == Gdk.KEY_Escape:
+            # HIG A11Y-2: clear the search first, then go back.
+            if self.search.get_text():
+                self.search.set_text("")
+            else:
+                self.go_back()
+            return True
+        if state == Gdk.ModifierType.MOD1_MASK and event.keyval == Gdk.KEY_Left:
+            self.go_back()
+            return True
+        if state == Gdk.ModifierType.CONTROL_MASK and event.keyval in (Gdk.KEY_f, Gdk.KEY_F):
+            self.search.grab_focus()
+            return True
+        # Typing anywhere searches (like the start menu).
+        if not self.search.has_focus() and self.search.handle_event(event):
+            self.search.grab_focus_without_selecting()
+            return True
+        return False
+
+    def on_delete(self, _win, _event):
+        """Closing while an app installs asks first: closing would stop it."""
+        if self.child is None:
+            return False
+        Gtk = self.Gtk
+        _process, app, action = self.child
+        words = {"install": ("Stop Installing", "installed"), "remove": ("Stop Removing", "removed")}[action]
+        dialog = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                   text=f"{words[0]} {app['name']}?")
+        dialog.format_secondary_text(f"{app['name']} is still being {words[1]}. "
+                                     "Closing Software stops it where it can be stopped.")
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        stop = dialog.add_button("_Stop and Close", Gtk.ResponseType.ACCEPT)
+        stop.get_style_context().add_class("destructive-action")
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        answer = dialog.run()
+        dialog.destroy()
+        if answer != Gtk.ResponseType.ACCEPT:
+            return True
+        with contextlib.suppress(Exception):
+            self.child[0].send_signal(signal.SIGTERM)
+        return False
+
+    # --- Loading view ---------------------------------------------------------------
+
+    def build_loading(self):
+        Gtk = self.Gtk
+        box = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER, margin=24)
+        self.loading_spinner = self.spinner()
+        box.pack_start(self.loading_spinner, False, False, 0)
+        self.loading_text = self.label("Loading apps…", dim=True)
+        self.loading_text.set_max_width_chars(60)
+        box.pack_start(self.loading_text, False, False, 0)
+        return box
+
+    # --- Explore --------------------------------------------------------------------
+
+    def build_explore(self):
+        Gtk = self.Gtk
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=24)
+        box.pack_start(self.heading("Categories"), False, False, 0)
+        categories = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                                 column_spacing=12, row_spacing=12, min_children_per_line=2,
+                                 max_children_per_line=5)
+        for category_id, name, icon, _names in CATEGORIES:
+            button = Gtk.Button()
+            inner = Gtk.Box(spacing=10, margin=6)
+            inner.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DND), False, False, 0)
+            inner.pack_start(self.label(name, wrap=True), False, False, 0)
+            button.add(inner)
+            button.get_accessible().set_name(name)
+            button.connect("clicked", lambda _b, c=category_id: self.go("category", c))
+            categories.add(button)
+        box.pack_start(categories, False, False, 0)
+        # featured.json's shelves (Made for FlickOS, Apps to start with), in its order.
+        self.shelves_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.pack_start(self.shelves_box, False, False, 0)
+        return self.scrolled(box)
+
+    def fill_explore(self):
+        Gtk = self.Gtk
+        for child in self.shelves_box.get_children():
+            child.destroy()
+        for _shelf_id, name, apps in self.catalog.shelves(self.featured):
+            heading = self.heading(name)
+            heading.set_margin_top(6)
+            self.shelves_box.pack_start(heading, False, False, 0)
+            tiles = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                                column_spacing=12, row_spacing=12, min_children_per_line=1,
+                                max_children_per_line=3)
+            self.shelves_box.pack_start(tiles, False, False, 0)
+            self.fill_shelf(tiles, apps)
+        self.shelves_box.show_all()
+
+    def fill_shelf(self, tiles, apps):
+        Gtk = self.Gtk
+        for app in apps:
+            button = Gtk.Button()
+            inner = Gtk.Box(spacing=12, margin=6)
+            image = Gtk.Image()
+
+            def redraw(image=image, specs=app["icons"]):
+                image.set_from_pixbuf(self.icon(specs, TILE_ICON, lambda: None))
+
+            image.set_from_pixbuf(self.icon(app["icons"], TILE_ICON, redraw))
+            inner.pack_start(image, False, False, 0)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.CENTER)
+            text.pack_start(self.label(f"<b>{self.GLib.markup_escape_text(app['name'])}</b>", markup=True),
+                            False, False, 0)
+            summary = self.label(app["summary"], dim=True)
+            summary.set_max_width_chars(30)
+            summary.set_lines(2)
+            summary.set_ellipsize(self.Pango.EllipsizeMode.END)
+            text.pack_start(summary, False, False, 0)
+            inner.pack_start(text, True, True, 0)
+            button.add(inner)
+            button.get_accessible().set_name(app["name"])
+            button.set_tooltip_text(app["summary"])
+            button.connect("clicked", lambda _b, a=app["id"]: self.go("app", a))
+            tiles.add(button)
+
+    # --- Lists ----------------------------------------------------------------------
+
+    def build_list(self):
+        """A category, a search or the installed apps: a heading and a list of
+        rows. A TreeView with fixed row heights, so only the rows on screen
+        are drawn and only their icons are loaded (a category has up to 1,200)."""
+        Gtk = self.Gtk
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=24)
+        self.list_title = self.heading("")
+        box.pack_start(self.list_title, False, False, 0)
+        self.list_store = Gtk.ListStore(str, str)        # app id, text (markup)
+        tree = self.tree = Gtk.TreeView(model=self.list_store, headers_visible=False, fixed_height_mode=True,
+                                        activate_on_single_click=True, enable_search=False)
+        tree.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
+        icon_cell = Gtk.CellRendererPixbuf(xpad=6, ypad=6)
+        column = Gtk.TreeViewColumn("Icon", icon_cell)
+        column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        column.set_fixed_width(LIST_ICON + 24)
+        column.set_cell_data_func(icon_cell, self.draw_list_icon)
+        tree.append_column(column)
+        text_cell = Gtk.CellRendererText(ellipsize=self.Pango.EllipsizeMode.END, xpad=6)
+        column = Gtk.TreeViewColumn("App", text_cell, markup=1)
+        column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        column.set_expand(True)
+        tree.append_column(column)
+        tree.get_accessible().set_name("Apps")
+        tree.connect("row-activated", self.on_row)
+        self.list_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, shadow_type=Gtk.ShadowType.IN)
+        self.list_scroll.add(tree)
+        box.pack_start(self.list_scroll, True, True, 0)
+        self.list_empty = self.label("", dim=True)
+        self.list_empty.set_no_show_all(True)
+        box.pack_start(self.list_empty, False, False, 0)
+        return box
+
+    def draw_list_icon(self, _column, cell, model, it, _data):
+        app = self.catalog.find(model[it][0])
+        specs = app["icons"] if app else []
+        cell.set_property("pixbuf", self.icon(specs, LIST_ICON, self.tree.queue_draw))
+
+    def fill_list(self, kind, argument):
+        GLib = self.GLib
+        if kind == "category":
+            title = next(c[1] for c in CATEGORIES if c[0] == argument)
+            apps = self.catalog.category(argument)
+            empty = "No apps in this category."
+        elif kind == "search":
+            title = f"Results for “{argument}”"
+            apps = self.catalog.search(argument.split())
+            empty = "No apps found. Try other words."
+        else:
+            title = "Installed apps"
+            apps = self.catalog.installed()
+            empty = "None of the apps Software knows is installed."
+        shown = apps[:SEARCH_LIMIT] if kind == "search" else apps
+        self.list_title.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
+        self.tree.set_model(None)       # filling a detached model is much faster
+        self.list_store.clear()
+        for app in shown:
+            status = self.status_word(app, kind == "installed")
+            text = f"<b>{GLib.markup_escape_text(app['name'])}</b>"
+            if status:
+                text += f"   <small>{GLib.markup_escape_text(status)}</small>"
+            text += f"\n<small>{GLib.markup_escape_text(app['summary'])}</small>"
+            self.list_store.append([app["id"], text])
+        self.tree.set_model(self.list_store)
+        self.list_scroll.set_visible(bool(shown))
+        more = len(apps) - len(shown)
+        self.list_empty.set_text(empty if not apps else
+                                 f"{more} more. Type more words to narrow the search." if more > 0 else "")
+        self.list_empty.set_visible(bool(self.list_empty.get_text()))
+        self.list_scroll.get_vadjustment().set_value(0)
+
+    def status_word(self, app, installed_list=False):
+        """Next to a row's name: installed, from which source when the app has
+        more than one, and a source other than Debian (Flathub's apps bring
+        runtimes; community apps are other developers')."""
+        installed = self.catalog.installed_from(app)
+        default = next(s for s in SOURCES if s in app["src"])
+        if installed and installed != default:
+            name = SOURCE_NAMES[installed]
+            return f"From {name}" if installed_list else f"Installed from {name}"
+        if installed:
+            return "" if installed_list else "Installed"
+        return "" if default == "debian" else SOURCE_NAMES[default]
+
+    def on_row(self, _tree, path, _column):
+        self.go("app", self.list_store[path][0])
+
+    # --- An app's page --------------------------------------------------------------
+
+    def build_page(self):
+        Gtk = self.Gtk
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin=24)
+        top = Gtk.Box(spacing=18)
+        self.page_icon = Gtk.Image(valign=Gtk.Align.START)
+        top.pack_start(self.page_icon, False, False, 0)
+        names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.page_name = self.label("", selectable=True)
+        self.page_summary = self.label("", selectable=True)
+        self.page_developer = self.label("", dim=True, selectable=True)
+        for label in (self.page_name, self.page_summary, self.page_developer):
+            names.pack_start(label, False, False, 0)
+        top.pack_start(names, True, True, 0)
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.START)
+        buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        self.install_button = Gtk.Button.new_with_mnemonic("_Install")
+        self.install_button.get_style_context().add_class("suggested-action")
+        self.install_button.connect("clicked", lambda _b: self.change("install"))
+        self.open_button = Gtk.Button.new_with_mnemonic("_Open")
+        self.open_button.connect("clicked", lambda _b: self.open_app())
+        self.remove_button = Gtk.Button.new_with_mnemonic("_Remove")
+        self.remove_button.connect("clicked", lambda _b: self.change("remove"))
+        self.cancel_button = Gtk.Button.new_with_mnemonic("_Cancel")
+        self.cancel_button.connect("clicked", lambda _b: self.cancel_change())
+        # An installed style: Try (until logout) and Use (flickos-layout, ADR-012).
+        self.try_button = Gtk.Button.new_with_mnemonic("_Try")
+        self.try_button.set_tooltip_text("Use it until you log out")
+        self.try_button.connect("clicked", lambda _b: self.use_style("try"))
+        self.use_button = Gtk.Button.new_with_mnemonic("_Use")
+        self.use_button.get_style_context().add_class("suggested-action")
+        self.use_button.connect("clicked", lambda _b: self.use_style("set"))
+        self.style_in_use = None        # flickos-layout's style in use, read when a style's page shows
+        for button in (self.try_button, self.use_button, self.open_button, self.remove_button, self.install_button,
+                       self.cancel_button):
+            button.set_no_show_all(True)
+            buttons.pack_start(button, False, False, 0)
+        actions.pack_start(buttons, False, False, 0)
+        source_row = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        source_label = Gtk.Label.new_with_mnemonic("_Source")
+        self.source_combo = Gtk.ComboBoxText()
+        source_label.set_mnemonic_widget(self.source_combo)
+        self.source_combo.connect("changed", self.on_source)
+        source_row.pack_start(source_label, False, False, 0)
+        source_row.pack_start(self.source_combo, False, False, 0)
+        self.source_row = source_row
+        source_row.set_no_show_all(True)
+        source_label.show()
+        self.source_combo.show()
+        actions.pack_start(source_row, False, False, 0)
+        top.pack_end(actions, False, False, 0)
+        box.pack_start(top, False, False, 0)
+
+        plan = Gtk.Box(spacing=8)
+        self.plan_spinner = self.spinner()
+        self.plan_spinner.set_no_show_all(True)
+        plan.pack_start(self.plan_spinner, False, False, 0)
+        self.plan_text = self.label("", dim=True, selectable=True)
+        plan.pack_start(self.plan_text, True, True, 0)
+        box.pack_start(plan, False, False, 0)
+        self.source_note = self.label("", dim=True, selectable=True)
+        self.source_note.set_no_show_all(True)
+        box.pack_start(self.source_note, False, False, 0)
+        self.progress = Gtk.ProgressBar(show_text=True, no_show_all=True)
+        box.pack_start(self.progress, False, False, 0)
+
+        shots = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.shot_image = Gtk.Image()
+        self.shot_image.set_size_request(-1, SHOT_HEIGHT)
+        shots.pack_start(self.shot_image, False, False, 0)
+        shot_bar = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        self.shot_previous = Gtk.Button.new_from_icon_name("go-previous-symbolic", Gtk.IconSize.BUTTON)
+        self.shot_previous.set_tooltip_text("Previous Screenshot")
+        self.shot_previous.get_accessible().set_name("Previous screenshot")
+        self.shot_previous.connect("clicked", lambda _b: self.show_shot(self.shot_number - 1))
+        self.shot_next = Gtk.Button.new_from_icon_name("go-next-symbolic", Gtk.IconSize.BUTTON)
+        self.shot_next.set_tooltip_text("Next Screenshot")
+        self.shot_next.get_accessible().set_name("Next screenshot")
+        self.shot_next.connect("clicked", lambda _b: self.show_shot(self.shot_number + 1))
+        self.shot_caption = self.label("", dim=True, selectable=True)
+        self.shot_caption.set_justify(self.Gtk.Justification.CENTER)
+        self.shot_caption.set_xalign(0.5)
+        shot_bar.pack_start(self.shot_previous, False, False, 0)
+        shot_bar.pack_start(self.shot_caption, False, False, 0)
+        shot_bar.pack_start(self.shot_next, False, False, 0)
+        shots.pack_start(shot_bar, False, False, 0)
+        self.shots_box = shots
+        shots.show_all()
+        shots.set_no_show_all(True)     # shown while the page has screenshots
+        box.pack_start(shots, False, False, 0)
+        self.shot_number = 0
+        self.shots = []
+
+        self.description = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.pack_start(self.description, False, False, 0)
+        box.pack_start(self.heading("Details"), False, False, 0)
+        self.details = Gtk.Grid(column_spacing=18, row_spacing=6)
+        box.pack_start(self.details, False, False, 0)
+        self.page_scroll = self.scrolled(box)
+        return self.page_scroll
+
+    def show_page(self, app, keep_source=False):
+        Gtk, GLib = self.Gtk, self.GLib
+        same = self.page_app is not None and self.page_app["id"] == app["id"]
+        self.page_app = app
+        if not (keep_source and same and self.page_source in app["src"]):
+            self.page_source = choose_source(self.catalog, app)
+        self.page_icon.set_from_pixbuf(self.icon(app["icons"], PAGE_ICON, lambda: self.refresh_page_icon(app)))
+        self.page_name.set_markup(f"<span size='x-large' weight='bold'>{GLib.markup_escape_text(app['name'])}</span>")
+        self.page_summary.set_text(app["summary"])
+        self.source_combo.handler_block_by_func(self.on_source)
+        self.source_combo.remove_all()
+        for source in SOURCES:
+            if source in app["src"]:
+                self.source_combo.append(source, SOURCE_NAMES[source])
+        self.source_combo.set_active_id(self.page_source)
+        self.source_combo.handler_unblock_by_func(self.on_source)
+        self.source_row.set_visible(len(app["src"]) > 1)
+        self.source_combo.set_sensitive(self.catalog.installed_from(app) is None)
+        if not same or not keep_source:
+            self.page_scroll.get_vadjustment().set_value(0)
+        self.fill_page_source()
+
+    def refresh_page_icon(self, app):
+        if self.page_app is app:
+            self.page_icon.set_from_pixbuf(self.icon(app["icons"], PAGE_ICON, lambda: None))
+
+    def on_source(self, combo):
+        source = combo.get_active_id()
+        if source and self.page_app and source != self.page_source:
+            self.page_source = source
+            self.fill_page_source()
+
+    def fill_page_source(self):
+        """The parts of the page that depend on the source: text, pictures, plan, buttons."""
+        Gtk, GLib = self.Gtk, self.GLib
+        app, source = self.page_app, self.page_source
+        page = self.catalog.page(app, source)
+        self.page_developer.set_text(f"By {page['dev']}" if page["dev"] else "")
+        self.page_developer.set_visible(bool(page["dev"]))
+        for child in self.description.get_children():
+            child.destroy()
+        for text in page["desc"] or [app["summary"]]:
+            label = self.label(text, selectable=True)
+            label.set_max_width_chars(90)
+            self.description.pack_start(label, False, False, 0)
+        self.description.show_all()
+
+        for child in self.details.get_children():
+            child.destroy()
+        info = self.catalog.installed_from(app)
+        rows = [("Source", SOURCE_NAMES[source])]
+        if source in APT_SOURCES:
+            version = self.catalog.packages.get(app["src"][source]["pkg"]) if info == source else None
+            rows.append(("Package", app["src"][source]["pkg"]))
+        else:
+            version = None
+            rows.append(("Flatpak", app["src"]["flathub"]["id"]))
+        if version:
+            rows.append(("Installed version", version))
+        if page["version"]:
+            rows.append(("Version", page["version"]))
+        if page["date"]:
+            rows.append(("Released", time.strftime("%x", time.localtime(page["date"]))))
+        if page["license"]:
+            rows.append(("License", page["license"]))
+        for number, (key, value) in enumerate(rows):
+            self.details.attach(self.label(key, dim=True, wrap=False), 0, number, 1, 1)
+            self.details.attach(self.label(value, selectable=True), 1, number, 1, 1)
+        if page["home"].startswith(("https://", "http://")):
+            host = urllib.parse.urlsplit(page["home"]).hostname or page["home"]
+            link = Gtk.LinkButton.new_with_label(page["home"], host)
+            link.set_halign(Gtk.Align.START)
+            self.details.attach(self.label("Website", dim=True, wrap=False), 0, len(rows), 1, 1)
+            self.details.attach(link, 1, len(rows), 1, 1)
+        self.details.show_all()
+        self.source_note.set_text(SOURCE_NOTES.get(source, ""))
+        self.source_note.set_visible(source in SOURCE_NOTES)
+
+        # trixie's catalog names screenshots that appstream.debian.org has since
+        # replaced (404, 2026-10): an app that is also on Flathub shows Flathub's.
+        self.shots = list(page["shots"])
+        if source == "debian" and "flathub" in app["src"]:
+            self.shots = list(self.catalog.page(app, "flathub")["shots"]) or self.shots
+        self.shots_box.set_visible(bool(self.shots))
+        if self.shots:
+            self.show_shot(0)
+        self.update_actions()
+        self.plan()
+        if app.get("style"):
+            self.read_style_in_use()
+
+    def read_style_in_use(self):
+        """flickos-layout's style in use, so a style's page can say it is in use."""
+        def done(current, _error):
+            self.style_in_use = current
+            if self.page_app and self.page_app.get("style"):
+                self.update_actions()
+                if self.page_app["style"] == current and self.catalog.installed_from(self.page_app):
+                    self.set_status(f"{self.page_app['name']} is the style in use.")
+        self.background(lambda: run_layout("style", "current").strip() or None, done, key="style")
+
+    def use_style(self, how):
+        """Try (until logout) or use the page's style, through flickos-layout.
+        Use also sets the layout a style package brings (ADR-014)."""
+        app = self.page_app
+        args = use_args(app, how)
+        self.set_status(f"Trying {app['name']}…" if how == "try" else f"Using {app['name']}…")
+
+        def done(_output, error):
+            self.set_status("")
+            if error:
+                self.show_error(f"{app['name']} couldn't be {'tried' if how == 'try' else 'used'}: {error}")
+                return
+            self.set_status(f"Trying {app['name']} until you log out. Use keeps it." if how == "try"
+                            else f"{app['name']} is the style and layout in use." if app.get("layout")
+                            else f"{app['name']} is the style in use.")
+            self.read_style_in_use()
+        self.background(lambda: run_layout(*args), done, key="use-style")
+
+    def show_shot(self, number):
+        if not self.shots:
+            return
+        number %= len(self.shots)
+        self.shot_number = number
+        shot = self.shots[number]
+        self.shot_previous.set_visible(len(self.shots) > 1)
+        self.shot_next.set_visible(len(self.shots) > 1)
+        words = shot["caption"] or ""
+        position = f"{number + 1} of {len(self.shots)}"
+        self.shot_caption.set_text(f"{words}\n{position}" if words else position)
+        self.shot_image.set_from_icon_name("image-loading", self.Gtk.IconSize.DIALOG)
+        url = shot["url"]
+        GdkPixbuf, GLib = self.GdkPixbuf, self.GLib
+
+        def load():
+            path = fetch(url)
+            return GdkPixbuf.Pixbuf.new_from_file_at_scale(path, -1, SHOT_HEIGHT, True)
+
+        def loaded(pixbuf, error):
+            if not self.shots or self.shots[self.shot_number]["url"] != url:
+                return
+            if pixbuf is not None:
+                self.shot_image.set_from_pixbuf(pixbuf)
+                return
+            # A screenshot that can't be loaded is left out; none left, no pictures.
+            warn(f"{url}: {error}")
+            del self.shots[self.shot_number]
+            self.shots_box.set_visible(bool(self.shots))
+            if self.shots:
+                self.show_shot(self.shot_number)
+
+        def work():
+            try:
+                return load()
+            except GLib.Error as error:
+                raise ValueError(error.message) from None
+
+        self.background(work, loaded, key="shot")
+        # The next one, so paging is quick.
+        if len(self.shots) > 1:
+            following = self.shots[(number + 1) % len(self.shots)]["url"]
+            self.queue_fetch(following, lambda _p: None)
+
+    def update_actions(self):
+        """The page's buttons for what is installed and what is running."""
+        app, source = self.page_app, self.page_source
+        installed = self.catalog.installed_from(app)
+        busy = self.child is not None
+        mine = busy and self.child[1]["id"] == app["id"]
+        package = app["src"][installed].get("pkg") if installed in APT_SOURCES else None
+        removable = installed and not (package and self.catalog.is_protected(package))
+        self.install_button.set_visible(not installed and not mine)
+        style = app.get("style")
+        self.open_button.set_visible(bool(installed) and not mine and not style
+                                     and bool(self.launch_id(app, installed)))
+        for button in (self.try_button, self.use_button):
+            button.set_visible(bool(installed) and not mine and bool(style) and style != self.style_in_use)
+        self.remove_button.set_visible(bool(removable) and not mine)
+        self.cancel_button.set_visible(mine)
+        self.cancel_button.set_sensitive(mine and self.child_can_cancel)
+        for button in (self.install_button, self.remove_button):
+            button.set_sensitive(not busy)
+            button.set_tooltip_text(f"Wait until {self.child[1]['name']} is done." if busy and not mine else None)
+        self.progress.set_visible(mine)
+        self.source_combo.set_sensitive(not installed and not busy)
+
+    def plan(self):
+        """What installing (removing) would change, from `plan --json` in a child."""
+        app, source = self.page_app, self.page_source
+        if self.child is not None and self.child[1]["id"] == app["id"]:
+            return
+        installed = self.catalog.installed_from(app)
+        if installed in APT_SOURCES and self.catalog.is_protected(app["src"][installed]["pkg"]):
+            self.show_plan(f"{app['name']} is part of the FlickOS desktop, so it can't be removed here.")
+            return
+        if installed and installed != source:
+            self.show_plan(f"Installed from {SOURCE_NAMES[installed]}.")
+            return
+        args = ["plan", "--json", "--source", source] + (["--remove"] if installed else []) + [app["id"]]
+        self.plan_spinner.show()
+        self.plan_text.set_text("Checking what it needs…" if not installed else "")
+        number = self.reads["plan"] = self.reads.get("plan", 0) + 1
+
+        def done(ok, stdout, stderr):
+            if self.reads["plan"] != number:
+                return
+            self.plan_spinner.hide()
+            if not ok:
+                self.show_plan(last_line(stderr) or "What it needs couldn't be checked.")
+                return
+            try:
+                self.show_plan(plan_words(json.loads(stdout), self.GLib.format_size))
+            except ValueError:
+                self.show_plan("")
+
+        process = self.run_child(args, done)
+        if process is not None:
+            # PackageKit can wait for another program's lock for a long time.
+            self.GLib.timeout_add_seconds(PLAN_SECONDS, lambda: (process.force_exit(), False)[1])
+
+    def show_plan(self, text):
+        self.plan_spinner.hide()
+        self.plan_text.set_text(text)
+
+    def launch_id(self, app, installed):
+        launch = app["src"][installed].get("launch") or []
+        return launch[0] if launch else None
+
+    def open_app(self):
+        app = self.page_app
+        installed = self.catalog.installed_from(app)
+        desktop_id = self.launch_id(app, installed)
+        info = self.Gio.DesktopAppInfo.new(desktop_id) if desktop_id else None
+        if info is None:
+            self.show_error(f"{app['name']} couldn't be started from here. Open it from the menu.")
+            return
+        try:
+            info.launch([], None)
+        except self.GLib.Error as error:
+            self.show_error(f"{app['name']} couldn't be started: {error.message}")
+
+    def change(self, action):
+        """Install or remove the page's app in a child (`install --json`)."""
+        app, source = self.page_app, self.page_source
+        self.notice.hide()
+        self.child_can_cancel = action == "install"
+        self.progress.set_fraction(0)
+        self.progress.set_text("Preparing…")
+        args = [action, "--json", "--source", source, app["id"]]
+        outcome = {"event": None, "message": ""}
+
+        def line(text):
+            try:
+                event = json.loads(text)
+            except ValueError:
+                return
+            outcome["event"] = event.get("event")
+            if event.get("event") == "progress":
+                self.child_progress(app, event)
+            elif event.get("event") == "error":
+                outcome["message"] = event.get("message", "")
+
+        def done(ok, _stdout, stderr):
+            self.child = None
+            self.set_status("")
+            if outcome["event"] == "cancelled":
+                self.set_status(f"{app['name']} wasn't {'installed' if action == 'install' else 'removed'}.")
+            elif not ok:
+                self.show_error(outcome["message"] or last_line(stderr) or
+                                f"{app['name']} couldn't be {'installed' if action == 'install' else 'removed'}.")
+            # What's installed changed: read it again, then show the page anew.
+            self.background(self.read_installed, self.installed_read, key="installed")
+
+        process = self.run_child(args, done, lines=line)
+        if process is None:
+            return
+        self.child = (process, app, action)
+        self.set_status(f"Installing {app['name']}…" if action == "install" else f"Removing {app['name']}…")
+        self.update_actions()
+        self.progress.show()
+        self.plan_text.set_text("")
+
+    def child_progress(self, app, event):
+        status = event.get("status")
+        words = STATUS_TEXT.get(status, "Preparing…")
+        if event.get("detail"):
+            words = f"{words[:-1]} {event['detail']}…"
+        percent = event.get("percent")
+        if percent is None:
+            self.progress.pulse()
+        else:
+            self.progress.set_fraction(percent / 100)
+        self.progress.set_text(words if percent is None else f"{words} {percent}%")
+        self.child_can_cancel = bool(event.get("cancel"))
+        if self.page_app is app:
+            self.cancel_button.set_sensitive(self.child_can_cancel)
+
+    def cancel_change(self):
+        if self.child is not None:
+            with contextlib.suppress(Exception):
+                self.child[0].send_signal(signal.SIGTERM)
+            self.cancel_button.set_sensitive(False)
+            self.progress.set_text("Cancelling…")
+
+    def read_installed(self):
+        packages, depends = installed_packages()
+        return packages, depends, installed_flatpaks()
+
+    def installed_read(self, result, error):
+        if error:
+            self.show_error(error)
+            return
+        self.catalog.packages, self.catalog.protected, self.catalog.flatpaks = result
+        self.refresh_view()
+
+
+def plan_words(plan, size=human_size):
+    """A plan (`plan --json`) in sentences for the page (HIG TXT-8: whole
+    sentences, two strings for plurals). size: bytes -> text (GLib.format_size)."""
+    name = plan["app"]
+    if plan["protected"]:
+        return (f"{name} can't be {'removed' if plan['action'] == 'remove' else 'installed'} here: "
+                f"it would remove part of the FlickOS desktop ({', '.join(plan['protected'])}).")
+    others = [p for p in plan["packages"] if p != plan.get("package")]
+    if plan["action"] == "remove":
+        frees = f"Removing it frees {size(plan['size'])}." if plan["size"] else ""
+        if plan["source"] == "flathub":
+            return frees
+        also = ("" if not others else
+                f" It also removes {len(others)} package that only {name} used." if len(others) == 1 else
+                f" It also removes {len(others)} packages that only {name} used.")
+        return (frees + also + " Removing asks for your password.").strip()
+    if plan["source"] in APT_SOURCES:
+        if not others:
+            text = f"Needs {size(plan['size'])} of disk space"
+        elif len(others) == 1:
+            text = f"Needs {size(plan['size'])} of disk space, with 1 other package"
+        else:
+            text = f"Needs {size(plan['size'])} of disk space, with {len(others)} other packages"
+        text += f" ({size(plan['download'])} to download)." if plan["download"] else "."
+        if plan["removes"]:
+            text += f" Installing it removes {', '.join(plan['removes'])}."
+        return text + f" {SOURCE_NAMES[plan['source']]} apps are installed for the whole system and need your password."
+    brings = []
+    for item in plan["items"]:
+        if item["name"] and item["name"] not in brings:
+            brings.append(item["name"])
+    # Runtimes share files between branches, so the sizes are an upper bound.
+    text = f"Needs up to {size(plan['download'])} to download and {size(plan['size'])} of disk space"
+    if brings:
+        text += f", including {join_words(brings)}"
+    return text + "."
+
+
+def join_words(words):
+    """"a, b and c" (English only, like the rest of the window)."""
+    if len(words) < 2:
+        return "".join(words)
+    return ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def last_line(text):
+    """The last line a child printed on stderr, without our name prefix."""
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    line = lines[-1]
+    return line[len(NAME) + 2:] if line.startswith(NAME + ": ") else line
+
+
+if __name__ == "__main__":
+    sys.exit(main())

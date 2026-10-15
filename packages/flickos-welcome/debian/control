@@ -1,0 +1,32 @@
+Source: flickos-welcome
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-welcome
+Architecture: all
+# python3-gi, gir1.2-gtk-3.0: the window, GTK 3 so it follows the Arc theme.
+# flickos-settings 1.19: its autostart runs this window's first-run instead of
+# flickos-layout's chooser, so exactly one window opens at a first login.
+# xdg-utils: the link cards (xdg-open). The cards for the layout chooser,
+# Settings, the shortcut sheet, the network editor and the software manager are
+# left out when those programs are missing, so none of them is a dependency.
+Depends: python3,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         flickos-settings (>= 1.19),
+         xdg-utils,
+         ${misc:Depends}
+Description: welcome window of the FlickOS desktop
+ A window shown once, at the first login of a new account on an installed
+ FlickOS system: choose a desktop layout and style, open Settings, connect
+ to Wi-Fi, see the keyboard shortcuts, install software, read the
+ documentation and find out how to support the project.
+ .
+ Each card runs the program that already owns the job, so nothing here is a
+ second place to change a setting. A card whose program is not installed is
+ left out. The window can be opened again from the menu, under Welcome.

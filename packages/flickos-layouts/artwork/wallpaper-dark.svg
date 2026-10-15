@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <radialGradient id="bg" cx="1300" cy="560" r="1500" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3a3f4d"/>
+      <stop offset="0.55" stop-color="#2f343f"/>
+      <stop offset="1" stop-color="#262a33"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="1300" cy="560" r="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb13d" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#ffb13d" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d3dae3" stop-opacity="0"/>
+      <stop offset="1" stop-color="#d3dae3" stop-opacity="0.85"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <circle cx="1300" cy="560" r="420" fill="url(#glow)"/>
+  <g fill="none" stroke="#d3dae3" stroke-width="1.5">
+    <circle cx="1300" cy="560" r="470" stroke-opacity="0.07"/>
+    <circle cx="1300" cy="560" r="640" stroke-opacity="0.05"/>
+    <circle cx="1300" cy="560" r="860" stroke-opacity="0.035"/>
+  </g>
+  <g fill="#ffb13d" fill-opacity="0.55">
+    <circle cx="858.3" cy="720.7" r="5"/>
+    <circle cx="888.6" cy="69.7" r="4"/>
+    <circle cx="491.9" cy="265.9" r="3.5"/>
+  </g>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+</svg>

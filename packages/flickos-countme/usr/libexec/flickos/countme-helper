@@ -1,0 +1,98 @@
+#!/usr/bin/python3
+"""Change the FlickOS weekly count setting (flickos-countme).
+
+Runs as root: through pkexec for flickos-countme enable|disable (polkit
+/usr/share/polkit-1/actions/org.flickos.countme.policy, one action per verb),
+and by installers up to flickos-installer 1.24, which asked (the installer
+asks nothing since). It edits /etc/flickos/countme, keeping the
+file's other lines:
+
+  on          Enabled=yes: the weekly count is sent
+  off         Enabled=no: nothing is sent
+  installed   Installed=TODAY (UTC): the install date for the age bucket
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import contextlib
+import datetime
+import os
+import re
+import sys
+import tempfile
+
+CONF = "/etc/flickos/countme"
+HEADER = "# FlickOS weekly count (flickos-countme; Settings -> Privacy).\n"
+
+
+def rewrite(text, key, value):
+    """The file with KEY= replaced (or added), other lines kept."""
+    lines, done = [], False
+    for line in text.splitlines():
+        if re.match(rf"^\s*{key}\s*=", line):
+            if done:
+                continue
+            line, done = f"{key}={value}", True
+        lines.append(line)
+    if not done:
+        lines.append(f"{key}={value}")
+    return "\n".join(lines) + "\n"
+
+
+def write_atomic(path, text):
+    folder = os.path.dirname(path)
+    os.makedirs(folder, mode=0o755, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def change(key, value, path=None):
+    path = path or CONF
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = HEADER
+    write_atomic(path, rewrite(text, key, value))
+
+
+def today():
+    return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+
+VERBS = {
+    "on": ("Enabled", lambda: "yes", "This computer is counted once a week."),
+    "off": ("Enabled", lambda: "no", "This computer is not counted any more."),
+    "installed": ("Installed", today, None),
+}
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) != 1 or argv[0] not in VERBS:
+        print(f"usage: countme-helper {{{','.join(VERBS)}}}", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0:
+        print("countme-helper: must run as root (through pkexec)", file=sys.stderr)
+        return 1
+    key, value, message = VERBS[argv[0]]
+    try:
+        change(key, value())
+    except OSError as error:
+        print(f"countme-helper: {error}", file=sys.stderr)
+        return 1
+    if message:
+        print(message)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

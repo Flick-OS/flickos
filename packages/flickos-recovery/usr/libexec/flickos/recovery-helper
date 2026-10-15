@@ -1,0 +1,60 @@
+#!/usr/bin/python3
+"""Change restore points as root, for flickos-recovery run by a user and for
+Settings (docs/design/flickos-recovery.md, ADR-003, ADR-006).
+
+Runs through pkexec, one polkit action per verb
+(/usr/share/polkit-1/actions/org.flickos.recovery.policy). It checks every
+argument, then runs /usr/bin/flickos-recovery, which does the work:
+
+  create [REASON]           a restore point now
+  restore NAME              put NAME back (used from the next start)
+  delete NAME|--all
+  enabled yes|no|default    restore points on or off
+  auto-recover yes|no|default   after failed starts, start the restore point by itself
+  keep                      keep the restore point the system was started from
+  try-again                 after a recovery: the next start uses the system as it is
+
+Exit codes: flickos-recovery's, 2 for a refused argument.
+"""
+import os
+import re
+import sys
+
+PROGRAM = "/usr/bin/flickos-recovery"
+NAME = re.compile(r"^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d(-\d+)?$")
+REASON = re.compile(r"^[^\x00-\x1f\x7f]{1,100}$")
+
+
+def command(argv):
+    """flickos-recovery's arguments for ARGV, or None when anything is off."""
+    if not argv:
+        return None
+    verb, args = argv[0], argv[1:]
+    if verb == "create" and len(args) <= 1 and all(REASON.match(a) and not a.startswith("-") for a in args):
+        return ["create", *args]
+    if verb == "restore" and len(args) == 1 and NAME.match(args[0]):
+        return ["restore", args[0]]
+    if verb == "delete" and len(args) == 1 and (NAME.match(args[0]) or args[0] == "--all"):
+        return ["delete", args[0]]
+    if verb in ("enabled", "auto-recover") and len(args) == 1 and args[0] in ("yes", "no", "default"):
+        return ["set", verb, args[0]]
+    if verb in ("keep", "try-again") and not args:
+        return ["start", verb]
+    return None
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    args = command(argv)
+    if args is None:
+        print("usage: recovery-helper create [REASON] | restore NAME | delete NAME|--all | "
+              "enabled|auto-recover yes|no|default | keep | try-again", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0:
+        print("recovery-helper: must run as root (through pkexec)", file=sys.stderr)
+        return 1
+    os.execv(PROGRAM, [PROGRAM, *args])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

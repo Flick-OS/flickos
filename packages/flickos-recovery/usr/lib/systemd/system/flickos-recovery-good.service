@@ -1,0 +1,15 @@
+# The start counter (ADR-005): once the login screen or the desktop has been
+# up a few seconds, this start worked and the count goes back to 0. Exits
+# then; nothing of it runs afterwards.
+[Unit]
+Description=Notice that this start worked (restore points)
+After=flickos-recovery-start.service greetd.service
+ConditionPathIsMountPoint=/.snapshots
+ConditionKernelCommandLine=!boot=live
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/flickos-recovery start good-watch
+
+[Install]
+WantedBy=graphical.target

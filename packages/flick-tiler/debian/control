@@ -1,0 +1,30 @@
+Source: flick-tiler
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flick-tiler
+Architecture: all
+# flickos-layouts: flickos-layout reconfigure merges the tiling fragment into
+# its labwc rc.xml overlay; 1.8: its panel button needs no process that
+# stays (status once per change). flickos-settings: its rc.xml binds Super+T.
+# fuzzel is only used by the panel's arrangement menu (right click).
+Depends: python3,
+         labwc,
+         flickos-layouts (>= 1.8),
+         flickos-settings (>= 1.11),
+         ${misc:Depends}
+Recommends: fuzzel
+Description: opt-in window tiling for the FlickOS labwc session
+ flick-tiler arranges windows side by side in the FlickOS labwc session:
+ master and stack, columns, grid or one at a time, with gaps. New windows
+ are tiled as they open; keybinds move the focus and the windows, and a
+ panel button turns tiling on and off and chooses the arrangement.
+ .
+ labwc stays the window manager. flick-tiler places windows through
+ labwc's own regions, which it rewrites as windows open and close, so
+ turning it off gives the normal floating desktop back.

@@ -1,0 +1,23 @@
+Source: flickos-archive-keyring
+Section: misc
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-archive-keyring
+Architecture: all
+Depends: ${misc:Depends}
+Description: OpenPGP key and apt source for the FlickOS package repository
+ The public key used to verify packages from the FlickOS apt repository,
+ installed to /usr/share/keyrings and referenced with Signed-By so apt trusts
+ it only for the FlickOS repository.
+ .
+ Also configures the repository itself in
+ /etc/apt/sources.list.d/flickos.sources, so its address can be updated with
+ a new version of this package.
+ .
+ Automatic updates (unattended-upgrades) install FlickOS's packages too:
+ /etc/apt/apt.conf.d/51flickos-origins adds the repository to the origins
+ they allow.

@@ -1,0 +1,61 @@
+Source: flickos-layouts
+Section: misc
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-layouts
+Architecture: all
+# flickos-settings: its rc.xml, foot, fuzzel and mako configs are the base of
+# the overlay, its panel the fallback, and it has the FlickOS-Arc window theme.
+# 1.10: its rc.xml binds the default desktop clicks (DEFAULT_CLICKS). 1.17: the
+# default button-layout that layouts without TitlebarLayout reset to.
+# libglib2.0-bin: gsettings (icon theme for pinned apps, button-layout) and gio
+# launch (dock clicks).
+# python3-gi, gir1.2-gtk-3.0: the chooser window (flickos-layout pick), GTK 3 so
+# it follows the Arc theme.
+# sfwbar: the Cupertino dock and Traditional's window list (Dock=). +flickos3
+# has the .running class dock.css uses and sensor_maximized; +flickos4 marks
+# the current desktop in Traditional's desktop switcher.
+Depends: flickos-branding (>= 1.4),
+         python3,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         libglib2.0-bin,
+         flickos-settings (>= 1.17),
+         sfwbar (>= 1.0~beta17+git20260910+flickos4),
+         ${misc:Depends}
+# flick-tiler 1.1 tells waybar when the tiling state changes (SIGRTMIN+8);
+# 1.7 has show-desktop, the panel's Show Desktop button. flickos-menu 1.6 has
+# Quick Settings (`flickos-menu quick`), which the volume and battery icons
+# and Super+A open while it is on. 1.10 has the phone popup (`flickos-menu
+# phone`), which the phone button opens while the phone connection is on.
+# flickos-shortcuts 1.16 reads the merged files while the labwc-merge marker
+# exists (an older sheet would show only the user's keys).
+Breaks: flick-tiler (<< 1.7),
+        flickos-menu (<< 1.10),
+        flickos-shortcuts (<< 1.16)
+# waypaper: the chooser's Wallpaper button (shown only when it is installed).
+Recommends: waypaper
+Description: FlickOS desktop layouts and styles, and the flickos-layout tool
+ Desktop layouts for the FlickOS labwc session: Redmond (one bottom panel),
+ Cupertino (top bar and an auto-hiding dock) and Traditional (top panel and
+ window list), each with its panel arrangement and window title bar
+ buttons. Dark (Arc-Dark) and Light (Arc) styles recolor GTK apps, icons,
+ window borders, panel, terminal, launcher and notifications, and each has
+ its own wallpaper. A user's own wallpaper (waypaper) is kept. Desktop
+ clicks choose what a left or right click on the empty desktop does. Quick
+ Settings, when turned on, opens from the panel's volume and battery icons
+ and Super+A. The phone button opens the phone popup while the phone
+ connection is on, and the fuzzel menu otherwise.
+ flickos-layout lists the layouts and styles, applies a choice to the
+ running session and starts the panel and notifications at login. The
+ Desktop Layout & Style chooser (Settings menu and app launcher) shows each
+ layout with a preview.
+ .
+ The choice is applied through generated files in $XDG_RUNTIME_DIR, so
+ nothing is copied into the home directory and package updates keep
+ reaching every user.

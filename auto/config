@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+# FLICKOS_NAME, FLICKOS_VERSION (lb config runs this from the repository root).
+. ./packages/flickos-branding/usr/lib/flickos-release
+
+lb config noauto \
+    --distribution           trixie \
+    --architectures          amd64 \
+    --archive-areas          "main contrib non-free non-free-firmware" \
+    --mirror-bootstrap       "http://deb.debian.org/debian/" \
+    --mirror-binary          "http://deb.debian.org/debian/" \
+    --binary-images          iso-hybrid \
+    --bootloaders            "syslinux,grub-efi" \
+    --debian-installer       none \
+    --apt-recommends         false \
+    --apt-indices            false \
+    --firmware-chroot        true \
+    --firmware-binary        false \
+    --memtest                none \
+    --updates                true \
+    --security               true \
+    --backports              false \
+    --iso-application        "FlickOS" \
+    --iso-volume             "FlickOS ${FLICKOS_VERSION} amd64" \
+    --iso-publisher          "FlickOS" \
+    --iso-preparer           "live-build" \
+    --image-name             "flickos" \
+    --bootappend-live        "boot=live components quiet splash username=user hostname=flickos" \
+    --bootappend-live-failsafe "boot=live components memtest noapic noapm nodma nomce nosmp nosplash vga=788 username=user hostname=flickos" \
+    "${@}"

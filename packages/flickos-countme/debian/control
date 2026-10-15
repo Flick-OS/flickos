@@ -1,0 +1,30 @@
+Source: flickos-countme
+Section: admin
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-sequence-installsysusers,
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-countme
+Architecture: all
+# flickos-branding: /usr/lib/flickos-release has the version that is sent.
+# pkexec: enable/disable (countme-helper).
+Depends: python3,
+         flickos-branding,
+         pkexec,
+         ${misc:Depends}
+Description: anonymous weekly count of FlickOS installs
+ Once a week a timer sends one request to the FlickOS counting server with
+ only the FlickOS version and roughly how long ago it was installed (first
+ week, first month, first half year, longer). No machine id, user or
+ computer name, hardware or list of programs is sent, and the server keeps
+ only the weekly counts. It tells the FlickOS developers how many computers
+ run which version.
+ .
+ Nothing is sent in the live session. It is on by default (the installer
+ says so), also on systems installed before it, until it is turned off.
+ Settings -> Privacy or "flickos-countme disable" turns it off, and
+ "flickos-countme show" prints exactly what is sent.

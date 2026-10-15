@@ -1,0 +1,11 @@
+# FlickOS: xdg-desktop-portal-wlr's settings for labwc (man
+# xdg-desktop-portal-wlr). portal-wlr reads the first of
+# ~/.config/xdg-desktop-portal-wlr/{labwc,wlroots,config} and then these
+# folders' files, only when it starts (at login).
+#
+# The chooser answers flickos-screenshot's own recordings with the screen they
+# asked for, and asks as before for everyone else's (slurp: click a screen).
+[screencast]
+chooser_type=dmenu
+chooser_cmd=/usr/libexec/flickos/screencast-chooser
+max_fps=30

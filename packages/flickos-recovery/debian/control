@@ -1,0 +1,28 @@
+Source: flickos-recovery
+Section: admin
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-recovery
+Architecture: all
+# btrfs-progs: the snapshots. On ext4 nothing runs, but the package is a
+# Depends of flickos-desktop so installed systems get it (ADR-006).
+# pkexec: putting back and the other changes from Settings (recovery-helper).
+Depends: python3,
+         btrfs-progs,
+         pkexec,
+         ${misc:Depends}
+Description: restore points of the whole FlickOS system
+ Before every software change (apt, the Software and updates apps, automatic
+ updates) a read-only btrfs snapshot of the system is taken: a restore point.
+ One change gets one restore point, only the newest few are kept, and none is
+ taken while the disk is nearly full. Nothing runs between changes.
+ .
+ It works only on FlickOS's btrfs layout (subvolumes @ and @snapshots), which
+ new installs get. On ext4, and in the live session, it does nothing.
+ .
+ "flickos-recovery list" shows the restore points.

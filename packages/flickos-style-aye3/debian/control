@@ -1,0 +1,30 @@
+Source: flickos-style-aye3
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-style-aye3
+Architecture: all
+# flickos-layouts 1.57: desktop buttons in waybar (flickos/desktops) and
+# layouts read from other packages' folders; arc-theme and numix-icon-theme:
+# the GTK and icon themes Aye3 names (on every FlickOS system already, so
+# installing it adds only its own files).
+Depends: flickos-layouts (>= 1.57),
+         arc-theme,
+         numix-icon-theme,
+         ${misc:Depends}
+Description: Aye3wm style and layout for the FlickOS desktop
+ A dark style for FlickOS in the look of a classic tiling desktop: flat
+ slate blue title bars on the focused window and grey ones on the others,
+ thin borders, a black terminal, a plain grey app launcher, slate blue
+ notifications and a near-black wallpaper with FlickOS's halo.
+ .
+ Its layout is one black bar at the bottom: the desktops as numbered boxes
+ on the left (4 desktops), the status as monospace text on the right.
+ .
+ Installing it adds Aye3wm to Desktop Layout & Style; Software's Use sets the
+ style and the layout together.

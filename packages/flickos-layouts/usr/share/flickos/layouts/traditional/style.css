@@ -1,0 +1,14 @@
+/* Traditional layout: the top panel. The bottom one is sfwbar's
+ * (windowlist.css). Shared rules: ../common/base.css. Named colors only. */
+@import url("../common/base.css");
+
+/* Logo followed by the word "Applications". */
+window#waybar.toppanel #custom-launcher {
+    padding-left: 34px;
+    background-position: 10px center;
+    background-size: 18px 18px;
+}
+
+window#waybar.toppanel {
+    border-bottom: 1px solid alpha(@borders, 0.9);
+}

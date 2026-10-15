@@ -1,0 +1,38 @@
+Source: flickos-style-footprint
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-style-footprint
+Architecture: all
+# flickos-layouts 1.61: the dock's Exec("flickos/launcher") (Show Apps), and
+# 1.62: check --layout takes it as the apps button (the bar has none);
+# sfwbar +flickos7: a full-length dock below the top bar fits the screen;
+# gnome-themes-extra-data, adwaita-icon-theme and fonts-cantarell: the GTK
+# theme (Adwaita-dark), the icons and the font Footprint names;
+# adwaita-icon-theme-legacy: Adwaita's full-color icons for apps that name an
+# older icon (Settings, Software, ...), which otherwise fall back to a dark
+# grey symbolic one that vanishes on the dark apps grid (Adwaita only
+# recommends it, and FlickOS installs no recommends).
+Depends: flickos-layouts (>= 1.62),
+         sfwbar (>= 1.0~beta17+git20260910+flickos7),
+         gnome-themes-extra-data,
+         adwaita-icon-theme,
+         adwaita-icon-theme-legacy,
+         fonts-cantarell,
+         ${misc:Depends}
+Description: Footprint style and layout for the FlickOS desktop
+ A dark style for FlickOS: a black top bar, grey windows with the title in
+ the middle and round buttons, a dark grey terminal and a dusk wallpaper
+ with FlickOS's halo.
+ .
+ Its layout has the top bar, with the desktops as dots on the left and the
+ clock in the middle, and a dock on the left edge with your apps and Show
+ Apps, which opens the full-screen apps menu.
+ .
+ Installing it adds Footprint to Desktop Layout & Style; Software's Use sets
+ the style and the layout together.

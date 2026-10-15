@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Phone
+Comment=Send pages, files and text to and from your phone
+Exec=flickos-phone window
+TryExec=flickos-phone-on
+Icon=phone
+Terminal=false
+Categories=Network;
+Keywords=phone;android;pair;share;send;files;clipboard;
+StartupNotify=false

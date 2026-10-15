@@ -1,0 +1,32 @@
+Source: waypaper
+Section: graphics
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/anufrievroman/waypaper
+
+Package: waypaper
+Architecture: all
+# Upstream's install_requires, from Debian. imageio-ffmpeg only previews videos
+# (mpvpaper backend), so it is a Suggests.
+Depends: python3 (>= 3.11),
+         python3-gi,
+         gir1.2-gtk-3.0,
+         python3-pil,
+         python3-imageio,
+         python3-platformdirs,
+         python3-screeninfo,
+         swaybg,
+         ${misc:Depends}
+Suggests: python3-imageio-ffmpeg
+Description: GUI wallpaper setter for Wayland
+ Waypaper shows the images of a folder as thumbnails and sets the one you
+ click as the wallpaper with swaybg (or swww, hyprpaper, mpvpaper and
+ other backends). It remembers the choice and restores it at login with
+ waypaper --restore.
+ .
+ This is upstream waypaper, packaged for FlickOS. It reads default
+ settings from /etc/xdg/waypaper/config.ini (FlickOS wallpapers, swaybg,
+ Arc-Dark background color) before the user's ~/.config/waypaper/config.ini.

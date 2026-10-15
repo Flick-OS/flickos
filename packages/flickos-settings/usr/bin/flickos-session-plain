@@ -1,0 +1,10 @@
+#!/bin/sh
+# The plain FlickOS session: FlickOS without the user's own changes, to find
+# out whether a problem comes from them (docs/design/flickos-ricing.md,
+# ADR-010). The login screen offers it below flickos-session; on a text
+# login, run it instead of flickos-session. Nothing of the user's is changed:
+# flickos-layout leaves out their own styles, add-ons, panel and notification
+# configs and refuses to change choices, and labwc reads FlickOS's files only.
+FLICKOS_PLAIN=1
+export FLICKOS_PLAIN
+exec flickos-session "$@"

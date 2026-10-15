@@ -1,0 +1,74 @@
+/* Footprint's top bar: FlickOS's shared rules, then a black bar in
+ * Cantarell, the clock bold in the middle, the desktops as dots (the current
+ * one a wider pill) and round hovers. Named colors only. */
+@import url("../common/base.css");
+
+window#waybar.footprint {
+    background: @wm_bg;
+}
+
+window#waybar.footprint * {
+    font-family: Cantarell, sans-serif;
+    font-size: 13px;
+}
+
+window#waybar.footprint #clock {
+    font-weight: bold;
+}
+
+/* The desktop dots open the bar, a little in from the corner. */
+window#waybar.footprint .modules-left {
+    padding-left: 8px;
+}
+
+/* Every button lights as a pill under the pointer. */
+window#waybar.footprint #clock,
+window#waybar.footprint #custom-tiler,
+window#waybar.footprint #custom-phone,
+window#waybar.footprint #custom-recording,
+window#waybar.footprint #tray,
+window#waybar.footprint #wireplumber,
+window#waybar.footprint #battery,
+window#waybar.footprint #quick {
+    margin: 3px 0;
+    border-radius: 12px;
+}
+
+window#waybar.footprint #clock:hover,
+window#waybar.footprint #custom-tiler:hover,
+window#waybar.footprint #custom-phone:hover,
+window#waybar.footprint #custom-recording:hover,
+window#waybar.footprint #wireplumber:hover,
+window#waybar.footprint #battery:hover,
+window#waybar.footprint #quick:hover {
+    background-color: alpha(@fg_color, 0.15);
+}
+
+/* Desktop buttons as dots: the number hidden, a dot drawn behind it, the
+ * current one a wider pill (two dots and a bar between them). The text keeps
+ * its size, so a tweak of the bars' text size still holds. */
+window#waybar.footprint #custom-desk {
+    min-width: 8px;
+    margin: 0 3px;
+    padding: 0;
+    border: none;
+    color: transparent;
+    background-color: transparent;
+    background-image: radial-gradient(circle closest-side, alpha(@fg_color, 0.45) 85%, transparent 100%);
+    background-size: 8px 8px;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+window#waybar.footprint #custom-desk:hover {
+    background-image: radial-gradient(circle closest-side, alpha(@fg_color, 0.8) 85%, transparent 100%);
+}
+
+window#waybar.footprint #custom-desk.active {
+    min-width: 28px;
+    background-image: radial-gradient(circle closest-side, @fg_color 85%, transparent 100%),
+                      radial-gradient(circle closest-side, @fg_color 85%, transparent 100%),
+                      linear-gradient(@fg_color, @fg_color);
+    background-size: 8px 8px, 8px 8px, 20px 8px;
+    background-position: left center, right center, center;
+}

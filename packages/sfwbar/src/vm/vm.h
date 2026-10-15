@@ -1,0 +1,167 @@
+#ifndef __EXPRN_H__
+#define __EXPRN_H__
+
+#include <gtk/gtk.h>
+#include "wintree.h"
+#include "util/datalist.h"
+#include "vm/value.h"
+#include "vm/expr.h"
+
+enum expr_instruction_t {
+  EXPR_OP_IMMEDIATE,
+  EXPR_OP_JZ,
+  EXPR_OP_JMP,
+  EXPR_OP_CACHED,
+  EXPR_OP_VARIABLE,
+  EXPR_OP_FUNCTION,
+  EXPR_OP_DISCARD,
+  EXPR_OP_LOCAL,
+  EXPR_OP_LOCAL_ASSIGN,
+  EXPR_OP_HEAP_ASSIGN,
+  EXPR_OP_RETURN,
+  EXPR_OP_LAST
+};
+
+enum vm_func_flags_t {
+  VM_FUNC_DETERMINISTIC = 1,
+  VM_FUNC_USERDEFINED = 2,
+  VM_FUNC_THREADSAFE = 4,
+};
+
+typedef struct _vm_store_t vm_store_t;
+struct _vm_store_t {
+  datalist_t *vars;
+  GHashTable *widget_map;
+  vm_store_t *parent;
+  gboolean transient;
+  GMutex mutex;
+  gint refcount;
+};
+
+typedef struct _vm_var {
+  GMutex mutex;
+  value_t value;
+  gchar *name;
+  GQuark quark;
+} vm_var_t;
+
+typedef struct _vm_target {
+  vm_store_t *store;
+  gchar *widget;
+  gpointer wid;
+  guint16 state;
+  GdkEvent *event;
+} vm_target_t;
+
+typedef struct {
+  guint8 *ip;
+  GBytes *bytes;
+  gsize fp;
+  GArray *stack;
+  GPtrArray *pstack;
+  gsize max_stack;
+  gboolean use_cached;
+  gboolean vstate;
+  GdkEvent *event;
+  expr_cache_t *expr;
+  GList *tstack;
+  gpointer user_data;
+} vm_t;
+
+typedef value_t (*vm_func_t)(vm_t *vm, value_t params[], gint np);
+
+typedef struct {
+  gint seq;
+  gchar *name;
+  guint8 flags;
+  guint8 arity;
+  GMainContext *context;
+  union {
+    vm_func_t function;
+    GBytes *code;
+  } ptr;
+} vm_function_t;
+
+typedef struct {
+  GBytes *code;
+  vm_store_t *store;
+} vm_closure_t;
+
+typedef struct {
+  vm_func_t func;
+  vm_t *vm;
+  value_t *p;
+  gint np;
+  value_t result;
+  gboolean ready;
+  GMutex mutex;
+  GCond cond;
+} vm_call_t;
+
+#define vm_param_check_np(vm, np, n, fname) { if(np!=n) { return value_na; } }
+#define vm_param_check_np_range(vm, np, min, max, fname) { if(np<min || np>max) { return value_na; } }
+#define vm_param_check_string(vm, p, n, fname) { if(!value_like_string(p[n])) { return value_na; } }
+#define vm_param_check_numeric(vm, p, n, fname) { if(!value_like_numeric(p[n])) { return value_na; } }
+#define vm_param_check_array(vm, p, n, fname) { if(!value_is_array(p[n])) { return value_na; } }
+
+#define VM_WIDGET(vm) (vm->tstack? ((vm_target_t *)(vm->tstack->data))->widget : NULL)
+#define VM_WINDOW(vm) (vm->tstack? ((vm_target_t *)(vm->tstack->data))->wid : NULL)
+#define VM_WSTATE(vm) (vm->tstack? ((vm_target_t *)(vm->tstack->data))->state : 0)
+#define VM_STORE(vm) (vm->tstack? ((vm_target_t *)(vm->tstack->data))->store : NULL)
+
+void parser_init ( void );
+GBytes *parser_expr_compile ( gchar *expr );
+gboolean parser_macro_add ( GScanner *scanner );
+gboolean parser_function_build( GScanner *scanner );
+const gchar *parser_identifier_lookup ( gchar *identifier );
+GBytes *parser_exec_build ( gchar *cmd );
+GBytes *parser_string_build ( gchar *str );
+GBytes *parser_action_build ( GScanner *scanner );
+GBytes *parser_expr_build ( GScanner *scanner );
+GBytes *parser_function_call_build ( gchar *name );
+
+void vm_free ( vm_t *vm );
+value_t vm_run ( vm_t *vm );
+value_t vm_code_eval ( GBytes *code, GtkWidget *widget );
+vm_t *vm_expr_prep ( expr_cache_t *expr );
+gboolean vm_expr_run ( vm_t *vm );
+gboolean vm_expr_eval ( expr_cache_t *expr );
+value_t vm_function_user ( vm_t *vm, vm_function_t *func, guint8 np );
+GThreadPool *vm_pool_new ( gint num );
+void vm_run_action ( GBytes *code, GtkWidget *w, GdkEvent *e,
+    window_t *win, guint16 *s, vm_store_t *store, GThreadPool *pool);
+void vm_run_user_defined ( gchar *action, GtkWidget *widget, GdkEvent *event,
+    window_t *win, guint16 *state, vm_store_t *store );
+value_t vm_exec_sync ( vm_func_t, vm_t *, value_t [], gint );
+void vm_widget_set ( vm_t *vm, GtkWidget *widget );
+void vm_target_push ( vm_t *vm, gchar *widget, gpointer wid, guint16 *state,
+    vm_store_t *store );
+void vm_target_pop ( vm_t *vm );
+GtkWidget *vm_widget_get ( vm_t *vm, gchar *override );
+
+void vm_func_init ( void );
+void vm_func_add_full ( gchar *name, vm_func_t func, gboolean det,
+    gboolean safe, GMainContext *ctx );
+void vm_func_add ( gchar *name, vm_func_t func, gboolean det, gboolean safe);
+void vm_func_add_user ( gchar *name, GBytes *code, guint8 arity );
+vm_function_t *vm_func_lookup ( gchar *name );
+void vm_func_remove ( gchar *name, vm_func_t func );
+vm_function_t *vm_func_copy ( vm_function_t *dest, vm_function_t *src );
+
+vm_var_t *vm_var_new ( gchar *name );
+void vm_var_free ( vm_var_t *var );
+vm_store_t *vm_store_new ( vm_store_t *parent, gboolean transient );
+vm_store_t *vm_store_dup ( vm_store_t *src );
+vm_store_t *vm_store_ref ( vm_store_t *store );
+void vm_store_unref ( vm_store_t *store );
+vm_var_t *vm_store_lookup ( vm_store_t *store, GQuark id );
+vm_var_t *vm_store_lookup_string ( vm_store_t *store, gchar *string );
+gboolean vm_store_insert ( vm_store_t *store, vm_var_t *var );
+gboolean vm_store_insert_full ( vm_store_t *store, gchar *name, value_t v );
+GtkWidget *vm_store_widget_lookup ( vm_store_t *store, gchar *name );
+gboolean vm_store_widget_insert ( vm_store_t *store, gchar *id, GtkWidget *w );
+void vm_store_widget_remove ( vm_store_t *store, gchar *id );
+vm_closure_t *vm_closure_new ( GBytes *code, vm_store_t *store );
+void vm_closure_free ( vm_closure_t *closure );
+
+#endif

@@ -1,0 +1,54 @@
+# The picture keeps its size, centered on its own background color, so the
+# logo isn't stretched on a wide screen.
+desktop-image: "../splash.png"
+desktop-image-scale-method: "padding"
+desktop-color: "#383c4a"
+title-text: ""
+message-font: "Unifont Regular 16"
+message-color: "#d3dae3"
+terminal-font: "Unifont Regular 16"
+
+#help bar at the bottom (Arc-Dark title-bar icon gray)
++ label {
+        top = 100%-50
+        left = 0
+        width = 100%
+        height = 20
+        text = "@KEYMAP_SHORT@"
+        align = "center"
+        color = "#90939b"
+	font = "Unifont Regular 16"
+}
+
+#boot menu (Arc-Dark text, the brand amber for the selection)
++ boot_menu {
+        left = 25%
+        width = 50%
+        top = 50%
+        height = 50%-100
+        item_color = "#d3dae3"
+	item_font = "Unifont Regular 16"
+        selected_item_color= "#ffb13d"
+	selected_item_font = "Unifont Regular 16"
+        item_height = 20
+        item_padding = 0
+        item_spacing = 6
+	icon_width = 0
+	icon_heigh = 0
+	item_icon_space = 0
+}
+
+#progress bar (Arc-Dark content background, borders, the brand amber)
++ progress_bar {
+        id = "__timeout__"
+        left = 25%
+        top = 100%-80
+        height = 16
+        width = 50%
+        font = "Unifont Regular 16"
+        text_color = "#d3dae3"
+        fg_color = "#ffb13d"
+        bg_color = "#404552"
+        border_color = "#2b2e39"
+        text = "@TIMEOUT_NOTIFICATION_LONG@"
+}

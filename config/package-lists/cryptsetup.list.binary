@@ -1,0 +1,4 @@
+# Pool on the ISO medium (see grub-pc.list.binary). For encrypted installs,
+# Calamares' bootloader-config helper installs cryptsetup-initramfs, which
+# unlocks the root partition at boot.
+cryptsetup-initramfs

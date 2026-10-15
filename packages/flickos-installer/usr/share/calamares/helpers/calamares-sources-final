@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# Writes the final sources.list file
+#
+# Same components as the image's sources (auto/config: --archive-areas), since
+# the image has contrib and non-free packages; no backports (--backports false).
+
+CHROOT=$(mount | grep proc | grep calamares | awk '{print $3}' | sed -e "s#/proc##g")
+RELEASE="trixie"
+COMPONENTS="main contrib non-free non-free-firmware"
+
+cat << EOF > $CHROOT/etc/apt/sources.list
+# See https://wiki.debian.org/SourcesList for more information.
+# FlickOS's own repository is in /etc/apt/sources.list.d/flickos.sources.
+deb http://deb.debian.org/debian $RELEASE $COMPONENTS
+deb-src http://deb.debian.org/debian $RELEASE $COMPONENTS
+
+deb http://deb.debian.org/debian $RELEASE-updates $COMPONENTS
+deb-src http://deb.debian.org/debian $RELEASE-updates $COMPONENTS
+
+deb http://security.debian.org/debian-security/ $RELEASE-security $COMPONENTS
+deb-src http://security.debian.org/debian-security/ $RELEASE-security $COMPONENTS
+EOF
+
+exit 0

@@ -1,0 +1,36 @@
+Source: flickos-style-elemental
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-style-elemental
+Architecture: all
+# flickos-layouts 1.53: check tests a see-through panel color; sfwbar: the
+# dock (a Depends of flickos-layouts too); gnome-themes-extra-data: the
+# Adwaita folder with gtk-3.0 that flickos-layout looks for (the theme itself
+# is built into GTK 3); elementary-icon-theme and fonts-inter-variable: the
+# icons Elemental names and the font of its bar and dock (1.7 MB, not the
+# 21 MB fonts-inter).
+Depends: flickos-layouts (>= 1.53),
+         sfwbar,
+         gnome-themes-extra-data,
+         elementary-icon-theme,
+         fonts-inter-variable,
+         ${misc:Depends}
+Description: Elemental style for the FlickOS desktop
+ A light style for FlickOS: windows in one light grey (GTK's Adwaita)
+ with the elementary icons, the title in the middle and plain buttons, a
+ see-through dark top bar with white text, a dark slate terminal, a light
+ app launcher and notifications, and a seashore seen from above with
+ FlickOS's halo.
+ .
+ Its layout has a thin top bar with Applications on the left and the date
+ and time in the middle, a light dock at the bottom, and the close button
+ on the left of the title bar and maximize on the right.
+ .
+ Installing it adds Elemental to Desktop Layout & Style; Software's Use sets
+ the style and the layout together.

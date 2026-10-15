@@ -1,0 +1,25 @@
+#!/bin/sh
+# flickos-software-update.service: Flathub's catalog and Flatpak apps follow
+# apt's automatic update settings, which flickos-control's Updates page
+# writes (design ADR-008). Runs as root, once a day, never in the live session.
+set -e
+
+LISTS=0
+UPGRADE=0
+eval "$(apt-config shell LISTS APT::Periodic::Update-Package-Lists UPGRADE APT::Periodic::Unattended-Upgrade)"
+
+on() {
+    case "$1" in ''|0|false|no) return 1 ;; esac
+}
+
+# The catalog only once something fetched it (Software, the first time it
+# opens): a computer whose user never opens Software downloads nothing.
+if on "$LISTS" && [ -d /var/lib/flatpak/appstream/flathub ]; then
+    flatpak update --system --appstream flathub || echo "software-update: Flathub's catalog wasn't updated" >&2
+fi
+
+# The apps (and the runtimes they use) only while there are any: without apps
+# `flatpak update` would fetch the catalog as well.
+if on "$UPGRADE" && [ -n "$(flatpak list --system --app --columns=application)" ]; then
+    flatpak update --system --noninteractive --assumeyes
+fi

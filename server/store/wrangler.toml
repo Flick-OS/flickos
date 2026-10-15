@@ -1,0 +1,9 @@
+# The FlickOS store's Worker: so far the Software app's front page shelves
+# (featured.json). Deploy: README.md.
+name = "flickos-store"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# No request logs: Software's design (ADR-009) promises the Worker keeps none.
+[observability]
+enabled = false

@@ -1,0 +1,75 @@
+flickos-screenshot (1.7) trixie; urgency=medium
+
+  * Text from the screen (ADR-011): shot --text and the capture bar's
+    Text read the area or the screen with tesseract, copy the text and
+    print it. Offered only while tesseract is installed: tesseract-ocr
+    is a Suggests. English first, at most three installed languages; a
+    small area is read at twice its size.
+  * A picture tesseract finds no text in is read again with a local
+    threshold: a dark window with black around it read as nothing.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 07 Oct 2026 11:57:21 +0800
+
+flickos-screenshot (1.6) trixie; urgency=medium
+
+  * Settings (phase 4): where screenshots and recordings are saved, the
+    pointer in screenshots, and a recording's sound (get/set/state,
+    conffile /etc/xdg/flickos/screenshot.conf). Changes are recorded for
+    History. The capture bar's sound is this setting; only the delay
+    stays remembered.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 13:40:09 +0800
+
+flickos-screenshot (1.5) trixie; urgency=medium
+
+  * Area with a delay: the area is chosen first and taken when the delay
+    is over, so a menu opened meanwhile is in it.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 30 Sep 2026 21:25:55 +0800
+
+flickos-screenshot (1.4) trixie; urgency=medium
+
+  * Send to Phone in the markup window while flickos-phone runs: the
+    picture as shown goes to the phone with flickos-phone send.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 22:35:28 +0800
+
+flickos-screenshot (1.3) trixie; urgency=medium
+
+  * The markup window: a click on a screenshot's notification, or
+    `flickos-screenshot edit FILE`, opens it to draw on it (pen,
+    highlighter, arrow, box, text), hide something with a solid box, or
+    crop it, with undo and redo and zoom, then copy it or save it. One
+    window per session. New Screenshot in it runs the bar with only
+    Photo (`bar --photo`).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 22:27:34 +0800
+
+flickos-screenshot (1.2) trixie; urgency=medium
+
+  * After a screenshot, the shutter sound plays and what was taken
+    flashes white, unless the desktop's event sounds or animations are
+    off; Do Not Disturb silences the sound. The flash's child starts
+    before the grab, so it is ready when the picture is, and the next
+    grab waits for its flash.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 21:55:52 +0800
+
+flickos-screenshot (1.1) trixie; urgency=medium
+
+  * Screen recording (phase 3): record an area or a screen through xdg-
+    desktop-portal and GStreamer (H.264 and Opus in fragmented MP4) into
+    Videos/Screen Recordings, with a countdown and the time in the panel
+    (flickos-layouts' custom/recording), stop, status, Photo/Video and
+    sound in the bar, FlickOS's portal-wlr screen chooser, and a restart
+    for portal-wlr's stuck first frame.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 20:54:41 +0800
+
+flickos-screenshot (1.0) trixie; urgency=medium
+
+  * Initial release: screenshots of the whole screen or of an area
+    chosen on a frozen screen, with a delay; saved, copied and shown in
+    a notification. The capture bar opens with Super+Shift+S.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 20:14:33 +0800

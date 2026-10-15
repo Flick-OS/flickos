@@ -1,0 +1,20 @@
+#!/bin/sh
+# The FlickOS login screen: gtkgreet in the cage kiosk compositor, run by
+# greetd as the user _greetd. A successful login starts flickos-session.
+
+# cage ignores the system keyboard layout; pass it on explicitly.
+# /etc/default/keyboard is written by the installer.
+if [ -r /etc/default/keyboard ]; then
+    XKB_DEFAULT_MODEL="$(. /etc/default/keyboard; echo "${XKBMODEL:-}")"
+    XKB_DEFAULT_LAYOUT="$(. /etc/default/keyboard; echo "${XKBLAYOUT:-}")"
+    XKB_DEFAULT_VARIANT="$(. /etc/default/keyboard; echo "${XKBVARIANT:-}")"
+    XKB_DEFAULT_OPTIONS="$(. /etc/default/keyboard; echo "${XKBOPTIONS:-}")"
+    export XKB_DEFAULT_MODEL XKB_DEFAULT_LAYOUT XKB_DEFAULT_VARIANT XKB_DEFAULT_OPTIONS
+fi
+
+export GTK_THEME=Arc-Dark
+
+# -d: no client-side decorations, -s: allow switching VTs (Ctrl+Alt+F1).
+exec cage -d -s -- gtkgreet \
+    --command flickos-session \
+    --style /usr/share/flickos/greeter/gtkgreet.css

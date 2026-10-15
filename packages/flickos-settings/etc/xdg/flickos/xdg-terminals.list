@@ -1,0 +1,4 @@
+# FlickOS's default terminal for xdg-terminal-exec (Super+Enter, the menu,
+# apps that open a terminal). Users choose another in Settings > Default
+# Applications, which writes ~/.config/xdg-terminals.list.
+foot.desktop

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Install FlickOS
+GenericName=System Installer
+Comment=Install FlickOS to this computer
+Exec=flickos-install
+Icon=flickos-install
+Terminal=false
+Categories=System;
+Keywords=install;installer;calamares;
+StartupWMClass=calamares

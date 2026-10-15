@@ -1,0 +1,32 @@
+Source: sfwbar
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               meson,
+               pkgconf,
+               gettext,
+               libgtk-3-dev,
+               libgtk-layer-shell-dev,
+               libjson-c-dev,
+               libwayland-dev,
+               wayland-protocols
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/LBCrion/sfwbar
+
+Package: sfwbar
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+# Upstream's battery and start menu widgets run python3 scripts.
+Suggests: python3
+Description: taskbar, dock and panel for Wayland stacking compositors
+ SFWBar is a GTK 3 layer-shell panel for Wayland compositors with a
+ stacking layout, such as labwc. It has a taskbar with pinned apps and
+ grouped windows, a pager, tray, window switcher and a scripting
+ language for custom widgets. A bar can auto-hide and show again when
+ the pointer touches the screen edge.
+ .
+ This is upstream sfwbar, packaged for FlickOS, which uses it as the
+ dock of the Cupertino desktop layout. The pulse, pipewire, alsa and
+ xkbmap modules are not built.

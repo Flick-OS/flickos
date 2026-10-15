@@ -1,0 +1,17 @@
+# The start counter (docs/design/flickos-recovery.md, ADR-005): early in every
+# start, one more that hasn't worked yet. flickos-recovery-good.service sets it
+# back once the login screen or the desktop is up. Only on FlickOS's btrfs
+# layout (/.snapshots a mount point), never in the live session.
+[Unit]
+Description=Count this start (restore points)
+RequiresMountsFor=/.snapshots
+ConditionPathIsMountPoint=/.snapshots
+ConditionKernelCommandLine=!boot=live
+Before=greetd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flickos-recovery start begin
+
+[Install]
+WantedBy=multi-user.target

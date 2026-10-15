@@ -1,0 +1,77 @@
+/* Cupertino dock (sfwbar, dock.config). Named colors only: flickos-layout puts
+ * the style's palette (waybar-colors.css) before this file. window#sfwbar is
+ * the dock's window, grid#dock the box of apps, button#taskbar_popup an app
+ * (.focused, and .running while it has a window, a FlickOS patch to sfwbar),
+ * window#taskbar_popup the list of an app's windows, shown on hover. */
+
+window#sfwbar {
+    background: transparent;
+}
+
+grid#dock {
+    background-color: alpha(@wm_bg, 0.85);
+    border: 1px solid alpha(@borders, 0.9);
+    border-radius: 14px;
+    padding: 4px 6px;
+    margin-bottom: 8px;
+}
+
+button#taskbar_popup {
+    min-width: 44px;
+    min-height: 44px;
+    margin: 0 2px;
+    padding: 2px;
+    border: none;
+    border-radius: 10px;
+    background: none;
+    box-shadow: none;
+    transition: background-color 150ms ease-in-out;
+}
+
+button#taskbar_popup image {
+    min-width: 40px;
+    min-height: 40px;
+}
+
+button#taskbar_popup:hover {
+    background-color: alpha(@base_color, 0.9);
+}
+
+/* Open apps: a line under the icon, in the accent color for the active one. */
+button#taskbar_popup.running {
+    box-shadow: inset 0 -3px alpha(@fg_color, 0.5);
+}
+
+button#taskbar_popup.focused {
+    background-color: alpha(@base_color, 0.6);
+    box-shadow: inset 0 -3px @selected_bg_color;
+}
+
+window#taskbar_popup {
+    background-color: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+window#taskbar_popup button#taskbar_item {
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: @fg_color;
+}
+
+window#taskbar_popup button#taskbar_item:hover {
+    background-color: alpha(@base_color, 0.9);
+}
+
+window#taskbar_popup button#taskbar_item.focused {
+    background-color: alpha(@selected_bg_color, 0.3);
+}
+
+/* An app's windows one under another: sfwbar lays this list out from its
+ * grid's direction (default right, side by side) and ignores group cols. */
+grid#taskbar_popup_grid {
+    -GtkWidget-direction: bottom;
+}

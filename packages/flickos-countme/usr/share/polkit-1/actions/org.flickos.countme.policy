@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- The weekly count (flickos-countme enable|disable, Settings -> Privacy)
+     through pkexec /usr/libexec/flickos/countme-helper on|off: one action per
+     verb. Turning it off sends less, so the user at the computer needs no
+     password for that. -->
+<policyconfig>
+  <vendor>FlickOS</vendor>
+  <vendor_url>https://github.com/dvbondoy/FlickOS</vendor_url>
+
+  <action id="org.flickos.countme.on">
+    <description>Count this computer once a week</description>
+    <message>Authentication is required to send the anonymous weekly FlickOS count from this computer.</message>
+    <icon_name>preferences-system-privacy</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/countme-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">on</annotate>
+  </action>
+
+  <action id="org.flickos.countme.off">
+    <description>Stop counting this computer</description>
+    <message>Authentication is required to stop the anonymous weekly FlickOS count.</message>
+    <icon_name>preferences-system-privacy</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/countme-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">off</annotate>
+  </action>
+</policyconfig>

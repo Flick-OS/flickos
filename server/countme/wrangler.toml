@@ -1,0 +1,14 @@
+# FlickOS weekly count (flickos-countme). Deploy: README.md.
+name = "flickos-countme"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# No request logs: the Worker keeps only the counts in D1.
+[observability]
+enabled = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "flickos-countme"
+# Set by `wrangler d1 create flickos-countme` (README.md).
+database_id = "c0bfe883-c4c7-4065-995b-e7dcf9c5459b"

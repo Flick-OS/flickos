@@ -1,0 +1,161 @@
+Source: flickos-desktop
+Section: metapackages
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-desktop
+Architecture: all
+# Depends: the session breaks without these.
+Depends: flickos-archive-keyring (>= 1.1),
+         flickos-settings (>= 1.31),
+         flickos-layouts (>= 1.6),
+         flickos-branding (>= 1.3),
+         labwc,
+         xwayland,
+         waybar,
+         swaybg,
+         mako-notifier,
+         xdg-desktop-portal,
+         xdg-desktop-portal-wlr,
+         xdg-desktop-portal-gtk,
+         mate-polkit,
+         polkitd,
+         dbus-user-session,
+         pipewire,
+         pipewire-audio,
+         pipewire-pulse,
+         wireplumber,
+         network-manager,
+         network-manager-applet,
+         udisks2,
+         gvfs,
+         adwaita-icon-theme,
+         fonts-dejavu-core,
+         unattended-upgrades,
+         waypaper,
+         flick-tiler,
+         flickos-shortcuts,
+         flickos-control,
+         systemd-timesyncd,
+         xdg-terminal-exec,
+         flickos-greeter,
+# flickos-menu: the start menu, the apps button's default (flickos-layouts
+# >= 1.23); nothing of it runs while a user has it off. A Depends so
+# installed systems get it: FlickOS doesn't install new Recommends.
+         flickos-menu (>= 1.0),
+# flickos-welcome: the window a new account sees once at its first login. A
+# Depends so installed systems get it; nothing of it runs afterwards.
+         flickos-welcome,
+# flickos-phone: pages, files and text from and to a phone. Off by default,
+# and nothing of it runs while off. A Depends so installed systems get it
+# (docs/design/flickos-phone.md, ADR-002).
+         flickos-phone,
+# flickos-screenshot: screenshots (the Print keys, Super+Shift+S, the menus).
+# Nothing of it runs until a key is pressed (docs/design/flickos-screenshot.md,
+# ADR-002). A Depends so installed systems get it; flickos-settings (>= 1.31)'s
+# keys run it.
+         flickos-screenshot,
+# flickos-countme: the anonymous weekly count (PRIVACY.md). A Depends so
+# installed systems get it: new installs are asked in the installer, systems
+# installed before it are counted until they turn it off in Settings ->
+# Privacy (opt-out).
+         flickos-countme,
+# brightness-udev: brightnessctl's udev rule, which lets the video group
+# (every FlickOS account and the live user) set the backlight. Without it the
+# brightness keys and Quick Settings' slider do nothing: Debian's brightnessctl
+# doesn't go through logind. A Depends so installed systems get it.
+         brightness-udev,
+# flickos-software: Software, the window that installs and removes Debian's
+# and Flathub's apps; it replaces gnome-packagekit's gpk-application (design
+# ADR-010). A Depends so installed systems get it; nothing of it runs while
+# the window is closed, except a daily timer that updates Flatpak apps.
+         flickos-software,
+# flickos-recovery: a restore point before every software change, on the btrfs
+# layout new installs get; on ext4 nothing of it runs (the apt hook leaves at
+# once). A Depends so installed systems get it (docs/design/flickos-recovery.md,
+# ADR-006).
+         flickos-recovery,
+# zstd: initramfs-tools' COMPRESS=zstd needs the zstd program; without it
+# update-initramfs falls back to gzip, which makes a larger initramfs that
+# GRUB reads and the kernel unpacks more slowly at every start
+# (docs/design/flickos-recovery.md, phase 1a). A Depends so installed systems
+# get it; their next initramfs rebuild uses it.
+         zstd,
+         ${misc:Depends}
+# Recommends: removable apps and tools. Users can uninstall any of these
+# without apt also removing flickos-desktop.
+Recommends: foot,
+            fuzzel,
+            thunar,
+# thunar-archive-plugin: Extract Here and Create Archive in Thunar's menu,
+# through xarchiver (which ships the plugin's xarchiver.tap).
+            thunar-archive-plugin,
+            gvfs-backends,
+            firefox-esr,
+            webext-ublock-origin-firefox,
+            mousepad,
+            ristretto,
+# tumbler: ristretto's thumbnail bar (it warns at every start without it).
+# D-Bus activated, runs only while an app asks for thumbnails.
+            tumbler,
+            evince,
+            vlc,
+            libreoffice-writer,
+            libreoffice-calc,
+            libreoffice-impress,
+            libreoffice-draw,
+            libreoffice-gtk3,
+            hunspell-en-us,
+            hyphen-en-us,
+            xarchiver,
+            pavucontrol,
+            nm-connection-editor,
+            wpasupplicant,
+            intel-microcode,
+            amd64-microcode,
+            wdisplays,
+            bluez,
+            blueman,
+            cups,
+            system-config-printer,
+            swayidle,
+            swaylock,
+            wlr-randr,
+            grim,
+            slurp,
+            wl-clipboard,
+            cliphist,
+            wlsunset,
+            playerctl,
+            libnotify-bin,
+            xdg-utils,
+            brightnessctl,
+            gnome-themes-extra,
+            nwg-look,
+            fonts-noto-color-emoji,
+            zram-tools,
+            flatpak,
+            gnome-package-updater,
+            ufw,
+            sudo,
+            locales,
+            console-setup,
+            ca-certificates,
+            curl,
+            lxtask,
+# fastfetch: system info with the FlickOS logo (flickos-branding's
+# /etc/xdg/fastfetch/config.jsonc), the tool users show in screenshots of
+# their desktop. 2 MB with libyyjson0; runs only when typed.
+            fastfetch,
+            nano,
+            less,
+            pciutils,
+            usbutils
+Description: FlickOS desktop environment (metapackage)
+ Installs the complete FlickOS labwc desktop: compositor, panel,
+ notifications, portals, PipeWire audio, networking, Bluetooth, printing,
+ automatic security updates and default applications (Firefox ESR,
+ LibreOffice, VLC, Mousepad, Ristretto, Evince, Xarchiver, GNOME PackageKit).

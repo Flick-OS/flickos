@@ -1,0 +1,93 @@
+/* Footprint's dock (sfwbar, dock.config). Named colors only: flickos-layout
+ * puts the style's palette (waybar-colors.css) before this file.
+ * window#sfwbar is the dock's window, grid#dock the box of apps,
+ * button#taskbar_popup an app (.focused, and .running while it has a window,
+ * a FlickOS patch to sfwbar), button#showapps Show Apps, window#taskbar_popup
+ * the list of an app's windows, shown on hover. */
+
+window#sfwbar {
+    background-color: alpha(@wm_bg, 0.9);
+    font-family: Cantarell, sans-serif;
+}
+
+grid#dock {
+    padding: 6px 4px;
+}
+
+button#taskbar_popup,
+button#showapps {
+    min-width: 48px;
+    min-height: 48px;
+    margin: 2px 0;
+    padding: 2px;
+    border: none;
+    border-radius: 12px;
+    background: none;
+    box-shadow: none;
+    transition: background-color 150ms ease-in-out;
+}
+
+/* Show Apps at the bottom: sfwbar gives the bar's start and end parts half
+ * the dock each, so the button grows into its half and sits at its end. */
+button#showapps {
+    margin-bottom: 8px;
+    color: @fg_color;
+    -GtkWidget-vexpand: true;
+    -GtkWidget-valign: end;
+}
+
+button#taskbar_popup image,
+button#showapps image {
+    min-width: 40px;
+    min-height: 40px;
+}
+
+button#showapps image {
+    -gtk-icon-style: symbolic;
+}
+
+button#taskbar_popup:hover,
+button#showapps:hover {
+    background-color: alpha(@fg_color, 0.12);
+}
+
+/* Open apps: a dot under the icon. GTK 3 draws it as a radial gradient. */
+button#taskbar_popup.running {
+    background-image: radial-gradient(circle closest-side, @fg_color 85%, transparent 100%);
+    background-size: 5px 5px;
+    background-position: center bottom;
+    background-repeat: no-repeat;
+}
+
+button#taskbar_popup.focused {
+    background-color: alpha(@fg_color, 0.08);
+}
+
+/* An app's windows one under another: sfwbar lays this list out from its
+ * grid's direction (default right, side by side) and ignores group cols. */
+grid#taskbar_popup_grid {
+    -GtkWidget-direction: bottom;
+}
+
+window#taskbar_popup {
+    background-color: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 12px;
+    padding: 6px;
+}
+
+window#taskbar_popup button#taskbar_item {
+    padding: 6px 10px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: @fg_color;
+}
+
+window#taskbar_popup button#taskbar_item:hover {
+    background-color: alpha(@fg_color, 0.1);
+}
+
+window#taskbar_popup button#taskbar_item.focused {
+    background-color: alpha(@selected_bg_color, 0.3);
+}

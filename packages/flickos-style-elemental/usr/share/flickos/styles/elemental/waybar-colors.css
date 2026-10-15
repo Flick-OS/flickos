@@ -1,0 +1,14 @@
+/* Elemental: a see-through dark top bar
+ * (tools/make-elemental.py). Same names as the Dark style's
+ * waybar-colors.css. */
+@define-color wm_bg rgba(0, 0, 0, 0.65);
+@define-color bg_color #333333;
+@define-color base_color #4d4d4d;
+@define-color fg_color #ffffff;
+@define-color selected_bg_color #3689e6;
+@define-color selected_fg_color #ffffff;
+@define-color borders #1a1a1a;
+@define-color warning_color #f37329;
+@define-color error_color #c6262e;
+/* FlickOS's brand amber: only the start button's logo (base.css). */
+@define-color brand_color #ffb13d;

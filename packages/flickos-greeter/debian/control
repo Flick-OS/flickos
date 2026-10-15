@@ -1,0 +1,32 @@
+Source: flickos-greeter
+Section: misc
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13), dh-sequence-installsysusers
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-greeter
+Architecture: all
+# flickos-session and the default wallpaper are in flickos-settings 1.12;
+# flickos-session-plain, which /etc/greetd/environments offers below it (every
+# line of that file is a session in gtkgreet's list, so it has no comments),
+# in 1.42, and the plain session's folder comes from flickos-layouts 1.47.
+Depends: greetd,
+         gtkgreet,
+         cage,
+         arc-theme,
+         flickos-settings (>= 1.42),
+         flickos-layouts (>= 1.47),
+         ${misc:Depends}
+Description: FlickOS graphical login screen
+ Sets up greetd with gtkgreet (in the cage kiosk compositor) as the login
+ screen of installed FlickOS systems, in the Arc-Dark colors and with the
+ system keyboard layout. It starts the FlickOS session (flickos-session).
+ .
+ Members of the group "autologin" are logged in automatically (the first
+ one, if there are several). The installer adds the user to it when
+ "Log in automatically" is chosen.
+ .
+ The login screen does not run in the live session, which keeps its
+ automatic login on tty1.

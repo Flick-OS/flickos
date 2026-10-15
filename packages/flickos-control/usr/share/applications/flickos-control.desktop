@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+Comment=Desktop layout, tiling, keyboard shortcuts and all other settings
+Exec=flickos-control
+Icon=preferences-system
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=preferences;control;center;configuration;layout;tiling;users;accounts;
+StartupNotify=false

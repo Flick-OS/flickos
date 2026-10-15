@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=FlickOS
+Comment=The FlickOS labwc desktop
+Exec=flickos-session
+Type=Application
+DesktopNames=labwc;wlroots

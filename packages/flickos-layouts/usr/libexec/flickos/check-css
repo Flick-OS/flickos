@@ -1,0 +1,61 @@
+#!/usr/bin/python3 -I
+"""Parse CSS files with GTK 3's own parser, the one waybar loads, which
+exits on any error (docs/design/flickos-ricing.md, ADR-015). flickos-layout
+runs this before a CSS file of the user's reaches the panel; it is a
+program of its own so flickos-layout never imports GTK.
+
+  check-css FILE...
+
+One JSON line per file, in order: {"path": FILE} when GTK accepts it and
+what it imports, else {"path": FILE, "error": {"file", "line", "column",
+"message"}}, the first error, in the file where it is (maybe an import).
+No display is needed."""
+
+import json
+import os
+import re
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import GLib, Gtk  # noqa: E402
+
+# GTK's message starts with the base name, line and column: "style.css:1:19'x' is …"
+LOCATION = re.compile(r"(\d+):(\d+)(.*)", re.S)
+
+
+def check(path):
+    provider = Gtk.CssProvider()
+    found = []
+
+    def on_error(_provider, section, error):
+        where = section.get_file() if section is not None else None
+        found.append((where.get_path() if where is not None else None,
+                      section.get_start_line() + 1 if section is not None else 0, error.message))
+    provider.connect("parsing-error", on_error)
+    try:
+        provider.load_from_path(path)
+    except GLib.Error as error:
+        if not found:
+            found.append((path, 0, error.message))
+        where, line, message = found[0]
+        column = 0
+        prefix = os.path.basename(where or path) + ":"
+        full = error.message
+        if full.startswith(prefix):
+            match = LOCATION.fullmatch(full[len(prefix):])
+            if match:
+                line, column = int(match.group(1)), int(match.group(2))
+        return {"path": path, "error": {"file": where or path, "line": line, "column": column, "message": message}}
+    return {"path": path}
+
+
+def main():
+    for path in sys.argv[1:]:
+        print(json.dumps(check(path)), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

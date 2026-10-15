@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Screenshot
+Comment=Take a picture of the screen or of an area of it
+Exec=flickos-screenshot
+Icon=applets-screenshooter
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=screenshot;screen shot;print screen;snip;snipping;capture;picture;record;recording;screencast;video;
+StartupNotify=false

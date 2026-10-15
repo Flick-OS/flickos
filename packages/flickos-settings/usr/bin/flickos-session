@@ -1,0 +1,66 @@
+#!/bin/sh
+# Start the FlickOS labwc session. Run by the login screen (flickos-greeter's
+# greetd) and by /etc/profile.d/95-flickos-session.sh after a login on tty1
+# (the live session's autologin, or the text login).
+
+# FlickOS defaults in /etc/xdg/flickos and /usr/share/flickos take priority
+# over Debian's defaults. User config in ~/.config still wins.
+XDG_CONFIG_DIRS="/etc/xdg/flickos:${XDG_CONFIG_DIRS:-/etc/xdg}"
+XDG_DATA_DIRS="/usr/share/flickos:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# Live session only: flickos-installer adds a menu with "Install FlickOS".
+# The installer removes that package, so installed systems never see it.
+if [ -d /etc/xdg/flickos-live ]; then
+    XDG_CONFIG_DIRS="/etc/xdg/flickos-live:$XDG_CONFIG_DIRS"
+fi
+
+# Mouse, touchpad and keyboard settings (flickos-control): labwc fragments
+# for this login in $XDG_RUNTIME_DIR/flickos/control, merged into the overlay
+# by flickos-layout prepare below.
+if command -v flickos-control >/dev/null && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    timeout 10 flickos-control prepare
+fi
+
+# Desktop layout (flickos-layouts): files generated for this login in
+# $XDG_RUNTIME_DIR/flickos/xdg (e.g. rc.xml with the layout's window
+# buttons) come first. The folder is added even when empty, so
+# `flickos-layout set` can apply a layout without logging out.
+if command -v flickos-layout >/dev/null && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    if timeout 10 flickos-layout prepare; then
+        XDG_CONFIG_DIRS="$XDG_RUNTIME_DIR/flickos/xdg:$XDG_CONFIG_DIRS"
+    fi
+fi
+export XDG_CONFIG_DIRS XDG_DATA_DIRS
+
+# Programs that exist only while a feature is on: flickos-phone keeps
+# flickos-phone-on there while the phone connection runs, and
+# flickos-screenshot offers Send to Phone while it finds it. Last on PATH, so
+# nothing there can stand in for a system program.
+if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}:$XDG_RUNTIME_DIR/flickos/bin"
+    export PATH
+fi
+
+# labwc ignores the system keyboard layout; pass it on explicitly.
+# /etc/default/keyboard is written by the installer and by live-config.
+if [ -r /etc/default/keyboard ]; then
+    XKB_DEFAULT_MODEL="$(. /etc/default/keyboard; echo "${XKBMODEL:-}")"
+    XKB_DEFAULT_LAYOUT="$(. /etc/default/keyboard; echo "${XKBLAYOUT:-}")"
+    XKB_DEFAULT_VARIANT="$(. /etc/default/keyboard; echo "${XKBVARIANT:-}")"
+    XKB_DEFAULT_OPTIONS="$(. /etc/default/keyboard; echo "${XKBOPTIONS:-}")"
+    export XKB_DEFAULT_MODEL XKB_DEFAULT_LAYOUT XKB_DEFAULT_VARIANT XKB_DEFAULT_OPTIONS
+fi
+
+# The plain session (flickos-session-plain): labwc reads only FlickOS's own
+# files, linked by flickos-layout prepare above, not ~/.config/labwc.
+if [ "${FLICKOS_PLAIN:-}" = 1 ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR/flickos/plain/labwc" ]; then
+    exec labwc -C "$XDG_RUNTIME_DIR/flickos/plain/labwc"
+fi
+# The user's own labwc files are merged over FlickOS's (labwc -m) while
+# flickos-layout prepare left this marker: not when merging would break
+# FlickOS (a copy of its rc.xml, <default />, FlickOS's menu ids, an own
+# autostart, the live session). `flickos-layout explain labwc` says which.
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -e "$XDG_RUNTIME_DIR/flickos/labwc-merge" ]; then
+    exec labwc -m
+fi
+exec labwc

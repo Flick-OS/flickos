@@ -1,0 +1,212 @@
+# Swfbar pot file
+# Copyright (C) 2024
+# This file is distributed under the same license as the sfwbar package.
+# FIRST AUTHOR <sfslinux@gmail.com>, 2024.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: sfwbar\n"
+"Report-Msgid-Bugs-To: https://github.com/LBCrion/sfwbar/issues\n"
+"POT-Creation-Date: 2024-12-26 21:07+1000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: sfs linux <sfslinux@gmail.com>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/config/startmenu.widget
+msgid "Application menu"
+msgstr ""
+
+#: src/config/alsa-module.widget
+msgid "Volume"
+msgstr ""
+
+msgid "muted"
+msgstr ""
+
+msgid "h"
+msgstr ""
+
+msgid "m"
+msgstr ""
+
+msgid "Connecting"
+msgstr ""
+
+msgid "January"
+msgstr ""
+
+msgid "February"
+msgstr ""
+
+msgid "March"
+msgstr ""
+
+msgid "April"
+msgstr ""
+
+msgid "May"
+msgstr ""
+
+msgid "June"
+msgstr ""
+
+msgid "July"
+msgstr ""
+
+msgid "August"
+msgstr ""
+
+msgid "September"
+msgstr ""
+
+msgid "October"
+msgstr ""
+
+msgid "November"
+msgstr ""
+
+msgid "December"
+msgstr ""
+
+msgid "Mo"
+msgstr ""
+
+msgid "Tu"
+msgstr ""
+
+msgid "We"
+msgstr ""
+
+msgid "Th"
+msgstr ""
+
+msgid "Fr"
+msgstr ""
+
+msgid "Sa"
+msgstr ""
+
+msgid "Su"
+msgstr ""
+
+msgid "Memory"
+msgstr ""
+
+msgid "Notification Center"
+msgstr ""
+
+msgid "Show Desktop"
+msgstr ""
+
+msgid "Set As Default Device"
+msgstr ""
+
+msgid "set as default"
+msgstr ""
+
+msgid "expand/collapse channels"
+msgstr ""
+
+msgid "route to sink"
+msgstr ""
+
+msgid "Scanning"
+msgstr ""
+
+msgid "Scan"
+msgstr ""
+
+msgid "Other"
+msgstr ""
+
+msgid "Known"
+msgstr ""
+
+msgid "Connected"
+msgstr ""
+
+msgid "Connect"
+msgstr ""
+
+msgid "Disconnect"
+msgstr ""
+
+msgid "Forget"
+msgstr ""
+
+msgid "Known networks"
+msgstr ""
+
+msgid "Other networks"
+msgstr ""
+
+msgid "focus"
+msgstr ""
+
+msgid "close"
+msgstr ""
+
+msgid "(un)minimize"
+msgstr ""
+
+msgid "(un)maximize"
+msgstr ""
+
+msgid "Form"
+msgstr ""
+
+msgid "Port"
+msgstr ""
+
+msgid "Monitor"
+msgstr ""
+
+msgid "sinks"
+msgstr ""
+
+msgid "clients"
+msgstr ""
+
+msgid  "Pair"
+msgstr ""
+
+msgid  "Remove"
+msgstr ""
+
+msgid  "Available devices"
+msgstr ""
+
+msgid  "Paired devices"
+msgstr ""
+
+msgid  "Battery"
+msgstr ""
+
+msgid  "Set As Default Control Interface"
+msgstr ""
+
+msgid  "Power"
+msgstr ""
+
+msgid  "On"
+msgstr ""
+
+msgid  "Off"
+msgstr ""
+
+msgid  "Hidden"
+msgstr ""
+
+msgid  "Bluetooth"
+msgstr ""
+
+msgid  "Connecting ..."
+msgstr ""
+
+msgid  "Name"
+msgstr ""

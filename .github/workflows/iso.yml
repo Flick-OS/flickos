@@ -1,0 +1,100 @@
+name: Build ISO
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    # A community app's file changes nothing in the ISO (community.yml builds it).
+    paths-ignore: ['repo/community/apps/**']
+  pull_request:
+    paths-ignore: ['repo/community/apps/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create releases on tags
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # live-build needs root, mount and chroot, and should match the target
+    # release, so build inside a privileged Debian container.
+    container:
+      image: debian:trixie
+      options: --privileged
+    env:
+      # Repository secrets (Settings → Secrets and variables → Actions).
+      # Without them, tagged builds skip the SourceForge upload.
+      SF_USER: ${{ secrets.SF_USER }}
+      SF_SSH_PRIVATE_KEY: ${{ secrets.SF_SSH_PRIVATE_KEY }}
+    steps:
+      # live-build only Recommends apt-utils (apt-ftparchive for the medium's
+      # pool), bzip2, file and xz-utils, but runs them.
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates wget live-build apt-utils bzip2 file xz-utils dpkg-dev debhelper build-essential \
+            qemu-system-x86 xorriso python3 rsync openssh-client \
+            meson pkgconf gettext libgtk-3-dev \
+            libgtk-layer-shell-dev libjson-c-dev libwayland-dev wayland-protocols
+
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches FlickOS version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          . packages/flickos-branding/usr/lib/flickos-release
+          if [ "${GITHUB_REF_NAME}" != "v${FLICKOS_VERSION}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match FLICKOS_VERSION ${FLICKOS_VERSION} in packages/flickos-branding/usr/lib/flickos-release"
+            exit 1
+          fi
+
+      - name: Build ISO
+        run: tools/build-iso.sh --purge
+
+      - name: Boot test
+        run: tools/boot-test.py
+
+      - name: Upload boot test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-test
+          path: |
+            boot-test/
+            build.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flickos-iso
+          path: |
+            FlickOS-64bit-v*.iso
+            SHA256SUMS
+          retention-days: 7
+          compression-level: 0
+
+      # Release files go to SourceForge, where FlickOS is distributed
+      # (GitHub release assets are limited to 2 GB).
+      - name: Upload release to SourceForge
+        if: startsWith(github.ref, 'refs/tags/v') && env.SF_SSH_PRIVATE_KEY != ''
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SF_SSH_PRIVATE_KEY" > ~/.ssh/id_sourceforge
+          chmod 600 ~/.ssh/id_sourceforge
+          ssh-keyscan frs.sourceforge.net >> ~/.ssh/known_hosts
+          printf 'Host frs.sourceforge.net\n  IdentityFile ~/.ssh/id_sourceforge\n' > ~/.ssh/config
+          tools/upload-release.sh
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            Download the ISO from SourceForge:
+            https://sourceforge.net/projects/flickos/files/${{ github.ref_name }}/
+
+            Verify it with the attached SHA256SUMS: `sha256sum -c SHA256SUMS`
+          files: SHA256SUMS

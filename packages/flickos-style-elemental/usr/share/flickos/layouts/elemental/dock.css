@@ -1,0 +1,97 @@
+/* Elemental's dock (sfwbar, ../cupertino/dock.config): light frosted glass
+ * with large icons and a dark dot under each open app. Named colors only:
+ * flickos-layout puts the style's palette (waybar-colors.css) before this
+ * file, whose fg_color is white and bg_color a dark grey. window#sfwbar is
+ * the dock's window, grid#dock the box of apps, button#taskbar_popup an app
+ * (.focused, and .running while it has a window, a FlickOS patch to sfwbar),
+ * window#taskbar_popup the list of an app's windows, shown on hover. The
+ * icon under the pointer grows (below), so the button itself doesn't light. */
+
+window#sfwbar {
+    background: transparent;
+    font-family: "Inter Variable", Inter, sans-serif;
+}
+
+grid#dock {
+    background-color: alpha(@fg_color, 0.6);
+    border: 1px solid alpha(@fg_color, 0.75);
+    border-radius: 16px;
+    padding: 6px 8px 8px 8px;
+    margin-bottom: 8px;
+}
+
+button#taskbar_popup {
+    min-width: 56px;
+    min-height: 56px;
+    margin: 0 1px;
+    padding: 0;
+    border: none;
+    border-radius: 12px;
+    background: none;
+    box-shadow: none;
+}
+
+/* sfwbar draws an app's icon (its own image widget) to fill the box inside
+ * the image's padding and margin, so the icon is 42 px in a 56 px button and
+ * grows to 50 px under the pointer as the padding goes; the button keeps its
+ * size, so the other icons don't move. The margin leaves room for the icon's
+ * soft shadow and, below it, the open app's dot (sfwbar's ScaleImage style properties; GTK's own icon
+ * transform doesn't reach sfwbar's icons). Without animations (GSettings
+ * enable-animations) the icon grows at once. */
+button#taskbar_popup image {
+    min-width: 40px;
+    min-height: 40px;
+    margin: 1px 3px 5px 3px;
+    padding: 4px;
+    transition: padding 150ms ease-out;
+    -ScaleImage-shadow-radius: 3;
+    -ScaleImage-shadow-y-offset: 1;
+    -ScaleImage-shadow-color: alpha(@wm_bg, 0.5);
+    -ScaleImage-shadow-clip: false;
+}
+
+button#taskbar_popup:hover image {
+    padding: 0;
+}
+
+/* Open apps: a dot under the icon. GTK 3 draws it as a radial gradient. */
+button#taskbar_popup.running {
+    background-image: radial-gradient(circle closest-side, @bg_color 85%, transparent 100%);
+    background-size: 5px 5px;
+    background-position: center bottom;
+    background-repeat: no-repeat;
+}
+
+button#taskbar_popup.focused {
+    background-color: alpha(@bg_color, 0.08);
+}
+
+/* An app's windows one under another: sfwbar lays this list out from its
+ * grid's direction (default right, side by side) and ignores group cols. */
+grid#taskbar_popup_grid {
+    -GtkWidget-direction: bottom;
+}
+
+/* The list of an app's windows: light, like the dock. */
+window#taskbar_popup {
+    background-color: @fg_color;
+    border: 1px solid alpha(@bg_color, 0.2);
+    border-radius: 10px;
+    padding: 6px;
+}
+
+window#taskbar_popup button#taskbar_item {
+    padding: 6px 10px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: @bg_color;
+}
+
+window#taskbar_popup button#taskbar_item:hover {
+    background-color: alpha(@bg_color, 0.1);
+}
+
+window#taskbar_popup button#taskbar_item.focused {
+    background-color: alpha(@selected_bg_color, 0.25);
+}

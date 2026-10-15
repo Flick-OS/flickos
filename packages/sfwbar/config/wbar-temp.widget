@@ -1,0 +1,26 @@
+Private {
+
+  Var thresholds = [40,20];
+  Var icons = ["","",""];
+  Var format = "{temperatureC}°C {icon}"
+
+  Function IconLookup ( x, thresholds, icons ) {
+    Var result = icons[arraysize(icons)-1];
+
+    for(Var i=0; i<arraysize(thresholds); i=i+1)
+      if x>thresholds[i]
+        result = icons[i];
+    Return result;
+  }
+
+  include("cpu-temp.source")
+
+  layout {
+    label {
+      style = if(XCpuTempPresent,"temperature","hidden")
+      value = ReplaceAll(format, "{temperatureC}", Str(XCpuTemp),
+          "{icon}", ArrayLookup(XCpuTemp, thresholds, icons))
+      interval = 10000
+    }
+  }
+}

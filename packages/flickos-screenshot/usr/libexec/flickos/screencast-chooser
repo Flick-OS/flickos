@@ -1,0 +1,39 @@
+#!/bin/sh
+# FlickOS's screen chooser for xdg-desktop-portal-wlr (chooser_type=dmenu, in
+# /etc/xdg/xdg-desktop-portal-wlr/labwc): the screens' names come on stdin,
+# and the one to share goes to stdout; nothing declines.
+#
+# flickos-screenshot writes the screen it records to REQUEST right before it
+# asks the portal. That answer is used only if it is at most MAX_AGE seconds
+# old and names one of the screens, and the file is deleted either way. Every
+# other request (a browser sharing the screen) is asked, as portal-wlr's own
+# default does: slurp (click a screen), else fuzzel, else the only screen.
+# Design: docs/design/flickos-screenshot.md, ADR-006.
+set -u
+
+REQUEST=${XDG_RUNTIME_DIR:-/nonexistent}/flickos/screenshot/screencast-request
+MAX_AGE=2
+
+outputs=$(cat)
+
+if [ -f "$REQUEST" ]; then
+    name=$(head -n 1 "$REQUEST")
+    age=$(( $(date +%s) - $(stat -c %Y "$REQUEST") ))
+    rm -f "$REQUEST"
+    if [ "$age" -le "$MAX_AGE" ] && [ -n "$name" ] &&
+            printf '%s\n' "$outputs" | grep -qxF -- "$name"; then
+        printf '%s\n' "$name"
+        exit 0
+    fi
+fi
+
+if command -v slurp >/dev/null 2>&1; then
+    exec slurp -f %o -or
+fi
+if command -v fuzzel >/dev/null 2>&1; then
+    printf '%s\n' "$outputs" | exec fuzzel --dmenu --prompt "Share which screen? "
+fi
+count=$(printf '%s\n' "$outputs" | grep -c .)
+if [ "$count" -eq 1 ]; then
+    printf '%s\n' "$outputs" | grep .
+fi

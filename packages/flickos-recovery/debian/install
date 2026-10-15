@@ -1,0 +1,11 @@
+usr/bin/flickos-recovery                  usr/bin/
+usr/libexec/flickos/recovery-helper       usr/libexec/flickos/
+usr/share/polkit-1/actions/*              usr/share/polkit-1/actions/
+etc/apt/apt.conf.d/80flickos-recovery     etc/apt/apt.conf.d/
+etc/logrotate.d/flickos-recovery          etc/logrotate.d/
+usr/lib/systemd/system/flickos-recovery-settle.service usr/lib/systemd/system/
+etc/grub.d/42_flickos-recovery            etc/grub.d/
+usr/share/initramfs-tools/hooks/flickos-recovery  usr/share/initramfs-tools/hooks/
+usr/share/initramfs-tools/scripts/local-bottom/flickos-recovery  usr/share/initramfs-tools/scripts/local-bottom/
+usr/lib/systemd/system/flickos-recovery-start.service usr/lib/systemd/system/
+usr/lib/systemd/system/flickos-recovery-good.service usr/lib/systemd/system/

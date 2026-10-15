@@ -1,0 +1,17 @@
+// Cupertino: a thin top bar. The dock at the bottom is sfwbar (dock.config,
+// dock.css), because it hides until the pointer touches the bottom edge,
+// which waybar can't do on labwc. Module settings: ../common/modules.jsonc.
+[
+    {
+        "name": "topbar",
+        "layer": "top",
+        "position": "top",
+        "height": 24,
+        "spacing": 4,
+        "include": "../common/modules.jsonc",
+
+        "modules-left": ["custom/launcher"],
+        "modules-center": ["clock", "custom/recording"],
+        "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/desktop"]
+    }
+]

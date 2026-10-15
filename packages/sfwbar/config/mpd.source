@@ -1,0 +1,16 @@
+#Api2
+
+Module("mpd");
+
+Set MpdTitle = MpdInfo("title");
+Set MpdAlbum = MpdInfo("Album");
+Set MpdArtist = MpdInfo("Artist");
+Set MpdState = MpdInfo("state");
+Set MpdRandom = MpdInfo("random");
+Set MpdRepeat = MpdInfo("repeat");
+Set MpdElapsed = MpdInfo("elapsed");
+Set MpdDuration = MpdInfo("duration");
+Set MpdVolume = MpdInfo("volume");
+Set MpdQPos = MpdInfo("song");
+Set MpdQLen = MpdInfo("playlistlength");
+}

@@ -1,0 +1,7 @@
+# Regenerate the FlickOS versions when base-files ships new originals
+# (dpkg writes them to the diverted .debian paths).
+interest-noawait /usr/lib/os-release.debian
+interest-noawait /etc/issue.debian
+interest-noawait /etc/issue.net.debian
+# The boot splash lives in the initramfs; rebuild it when this package changes.
+activate-noawait update-initramfs

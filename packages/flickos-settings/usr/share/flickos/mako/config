@@ -1,0 +1,27 @@
+# FlickOS notification style (Arc-Dark). Reference: man 5 mako.
+# Used only when the user has no ~/.config/mako/config.
+# Styles (flickos-layouts) include this file, then their own colors
+# (/usr/share/flickos/styles/ID/mako.conf): a *-color key added here must be
+# added there too (tools/check-palette.py checks it).
+font=DejaVu Sans 10
+width=360
+padding=10
+margin=10
+background-color=#383c4aee
+text-color=#d3dae3
+border-color=#2b2e39
+border-size=2
+border-radius=8
+default-timeout=5000
+
+[urgency=critical]
+border-color=#fc4138
+default-timeout=0
+
+# Do Not Disturb (Settings > Notifications, or makoctl mode -t do-not-disturb):
+# notifications are kept but not shown, except critical ones.
+[mode=do-not-disturb]
+invisible=1
+
+[mode=do-not-disturb urgency=critical]
+invisible=0

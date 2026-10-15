@@ -1,0 +1,5 @@
+// flickos-software: fetch Debian's 64x64 app icons with the DEP-11 catalog
+// (the appstream package defines the target in 50appstream and leaves it
+// off). Software shows them; the catalog's own icon addresses are not served
+// any more. About 7 MB when Debian changes them, 12 MB unpacked.
+Acquire::IndexTargets::deb::DEP-11-icons::DefaultEnabled "true";

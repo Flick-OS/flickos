@@ -1,0 +1,2369 @@
+#!/usr/bin/python3
+"""The FlickOS start menu: a classic two-column menu for the panel's apps button.
+
+Optional: fuzzel is the apps button by default, and the menu is turned on in
+Settings > Desktop Layout & Style (`flickos-layout launcher set menu`).
+flickos-layout owns that choice. While it is on, it writes the corner the
+layout's button is in to $XDG_RUNTIME_DIR/flickos/menu/anchor, points the
+panel button, a tap of Super and desktop clicks at the menu, and runs
+`flickos-menu daemon` with the panel. While it is off, none of that exists
+and nothing of the menu runs.
+
+The daemon keeps the menu built and hidden, so it opens at once: labwc and
+waybar signal it with pkill (no Python starts per click). SIGUSR1 toggles
+the menu, SIGUSR2 is a tap of Super (labwc's onRelease keybind), SIGWINCH
+hides it (a desktop click). `toggle`, `show`, `hide` and `super` do the same
+from the command line; they start the daemon if the menu is on but it isn't
+running, and run fuzzel if the menu is off.
+
+A tap of Super opens the menu only if Super was pressed alone and let go
+within TAP_MS: labwc's onRelease keybind also fires after Super+click and
+Super+drag, and holding Super shows flickos-shortcuts' sheet instead. The
+daemon sees Super through GDK: labwc sends modifier changes to every client.
+
+Each layout has its own style of menu (MenuStyle= in its layout.ini, the
+second line of the anchor file); the daemon builds only the current one's
+window (VIEWS), ahead of time, and replaces it when the layout changes:
+  classic     Windows 7 (Redmond): pinned apps and All apps on the left,
+              search below; the user, folders, Settings, Software and the
+              power buttons on the right
+  categories  GNOME 2/Whisker (Traditional): search on top, categories on
+              the left (Favorites, All apps, sections, Folders), their apps
+              on the right as you point at them, user and power buttons below
+  grid        Launchpad (Cupertino): all apps as big icons, full screen,
+              the power buttons top right while Quick Settings is off
+Log Out, Restart and Shut Down run on a second click (CONFIRM): the first
+turns the button red and says to click again.
+Pinned apps (classic, and Favorites in categories): Pinned= in the first
+flickos/menu.conf in XDG_CONFIG_DIRS, or the user's list in
+~/.config/flickos/menu once they pin or unpin one (right-click an app, or the Menu key).
+
+Quick Settings is the daemon's second window: switches for Wi-Fi, Do Not
+Disturb, night light, tiling and the phone, sliders for volume and
+brightness, the battery, Settings and the power buttons. It is off by default;
+`flickos-layout quick-settings set on` turns it on, writes its corner to
+$XDG_RUNTIME_DIR/flickos/menu/quick, points the panel's volume and battery
+icons and Super+A at it, and runs the daemon. It owns no settings: each
+control runs the program that owns its setting (nmcli, flickos-control,
+flick-tiler, flickos-phone, wpctl, brightnessctl). The daemon runs while the
+start menu, Quick Settings or the phone popup is on and builds only what is on.
+
+The phone popup is the daemon's third window: the phone's line, the action
+tiles from `flickos-phone actions --json`, Mute while the phone rings, what
+the phone plays, the newest received items, Open Phone and Phone Settings.
+Off with the phone connection. flickos-layout writes its corner to
+$XDG_RUNTIME_DIR/flickos/menu/phone and points the panel's phone button at
+it; the button keeps `flickos-phone menu` when the popup isn't there. It
+owns no settings.
+
+Commands:
+  daemon            keep the menu, Quick Settings and the phone popup ready
+                    (run by flickos-layout with the panel)
+  toggle|show|hide  open or close the menu (hide closes Quick Settings and the phone popup too)
+  super             a tap of Super (labwc)
+  quick             open or close Quick Settings
+  phone             open or close the phone popup
+  list              print the apps by section: section, desktop id, name
+  pinned            print the pinned apps that are installed
+  pin|unpin ID      change the pinned apps
+  bench             time the app index and search
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import os
+import sys
+
+# FLICKOS_MENU_PREFIX: run from a source tree, e.g. packages/flickos-menu.
+PREFIX = os.environ.get("FLICKOS_MENU_PREFIX", "")
+SELF = os.path.abspath(sys.argv[0]) if PREFIX else "/usr/bin/flickos-menu"
+STYLE = PREFIX + "/usr/share/flickos/menu/style.css"
+# Quick Settings' code, loaded only while it is on (load_quick).
+QUICK_CODE = PREFIX + "/usr/share/flickos/menu/quick.py"
+# The phone popup's code, loaded only while the phone connection is on (load_phone).
+PHONE_CODE = PREFIX + "/usr/share/flickos/menu/phone.py"
+APP_ID = "flickos-menu"
+PROCESS_NAME = "flickos-menu"   # /proc/PID/comm of the daemon (the script's name)
+
+# In $XDG_RUNTIME_DIR/flickos: written by flickos-layout while the menu is on.
+ANCHOR = os.path.join("menu", "anchor")
+ANCHORS = ("bottom-left", "top-left")
+# The menu styles, set by the layout (MenuStyle=): the second line of ANCHOR.
+MENU_STYLES = ("classic", "categories", "grid")
+DEFAULT_MENU_STYLE = "classic"
+# Quick Settings: the daemon's second window. flickos-layout writes its corner
+# (the end of the panel with the volume and battery icons) here while it is
+# on (`flickos-layout quick-settings`).
+QUICK = os.path.join("menu", "quick")
+QUICK_ANCHORS = ("bottom-right", "top-right")
+# The phone popup: the daemon's third window. flickos-layout writes the
+# corner of the panel's phone button here while the phone connection is on.
+PHONE = os.path.join("menu", "phone")
+# The daemon's lock; it holds its process id.
+PID_FILE = os.path.join("menu", "daemon.pid")
+# A request that has no signal of its own (show, quick, phone) waits here for SIGUSR1.
+REQUEST_FILE = os.path.join("menu", "request")
+LOG_FILE = os.path.join("menu", "timing.log")
+
+# What the apps button does while the menu is off (flickos-layouts' modules.jsonc).
+FALLBACK_LAUNCHER = ["sh", "-c", "pkill -x fuzzel || fuzzel"]
+
+# A tap of Super: let go within this long. Below flickos-shortcuts' HOLD_MS
+# (700), so a hold shows the shortcut sheet and never the menu.
+TAP_MS = 600
+# flickos-phone's desktop file is TryExec=flickos-phone-on, the link its
+# daemon keeps in $XDG_RUNTIME_DIR/flickos/bin (flickos-phone's ON_LINK).
+# The app index watches desktop files, not that link.
+PHONE_LINK = "flickos-phone-on"
+# A Super release older than this is from an earlier press.
+TAP_STALE_MS = 1000
+# flick-tiler's control socket under runtime_root(): it follows every window,
+# so the grid asks it to bring an open app forward (focus-app, flick-tiler 1.9).
+TILER_CONTROL = os.path.join("tiler", "control")
+TILER_SECONDS = 0.5
+
+WIDTH_LEFT, WIDTH_RIGHT, HEIGHT = 300, 190, 520
+ICON_PINNED, ICON_LIST, ICON_GRID = 32, 24, 48
+MAX_RESULTS = 30
+
+CONF = os.path.join("flickos", "menu.conf")
+CONF_SECTION = "Menu"
+DEFAULT_PINNED = ("firefox-esr.desktop", "thunar.desktop", "foot.desktop")
+
+# Sections of All apps, in order, and the XDG categories (main and some
+# additional ones) that go into them. An app goes into the section of the
+# first of its categories that is listed; Other if none is.
+SECTIONS = (
+    ("Accessories", "applications-accessories", ("Utility", "Accessibility", "Core", "TextEditor", "Archiving",
+                                                 "Calculator", "Clock", "FileTools")),
+    ("Development", "applications-development", ("Development",)),
+    ("Education", "applications-science", ("Education", "Science")),
+    ("Games", "applications-games", ("Game",)),
+    ("Graphics", "applications-graphics", ("Graphics",)),
+    ("Internet", "applications-internet", ("Network", "WebBrowser", "Email")),
+    ("Multimedia", "applications-multimedia", ("AudioVideo", "Audio", "Video")),
+    ("Office", "applications-office", ("Office",)),
+    ("Settings", "preferences-system", ("Settings", "DesktopSettings", "HardwareSettings")),
+    ("System", "applications-system", ("System", "Monitor", "PackageManager", "TerminalEmulator")),
+)
+OTHER = ("Other", "applications-other")
+
+# Right column: (label, icon, command), left out when the program is missing.
+TOOLS = (
+    ("Settings", "preferences-system", ["flickos-control"]),
+    ("Software", "system-software-install", ["flickos-software"]),
+)
+LOCK = "/usr/libexec/flickos/lock"
+# Power row: (id, label, icon, command). Lock is left out in the live session.
+POWER = (
+    # flickos-settings' lock (the background chosen in Settings), else plain swaylock.
+    ("lock", "Lock Screen", "system-lock-screen",
+     [LOCK] if os.access(LOCK, os.X_OK) else ["swaylock", "-f", "-c", "383c4a"]),
+    ("logout", "Log Out", "system-log-out", ["labwc", "--exit"]),
+    ("restart", "Restart", "system-reboot", ["systemctl", "reboot"]),
+    ("shutdown", "Shut Down", "system-shutdown", ["systemctl", "poweroff"]),
+)
+# These close every app and lose what isn't saved, so the first click only
+# arms the button (red, and this line says why) and a second click within
+# CONFIRM_SECONDS runs it (PowerRow). A pop-up that closes when it loses the
+# focus can't hold a dialog (HIG WIN-13).
+CONFIRM = {
+    "logout": "Click again to log out",
+    "restart": "Click again to restart",
+    "shutdown": "Click again to shut down",
+}
+CONFIRM_SECONDS = 4
+# GLib's user directories, in the right column's order; Home comes first.
+PLACES = ("DOCUMENTS", "PICTURES", "MUSIC", "VIDEOS", "DOWNLOAD")
+
+
+class MenuError(Exception):
+    pass
+
+
+def warn(message):
+    print(f"flickos-menu: {message}", file=sys.stderr)
+
+
+# --- Runtime files (the fast path: no imports beyond os and sys) ----------------
+
+def app_tooltip(name, description):
+    """Pango markup for an app's tooltip: the whole name, which the menu may
+    cut short (large text, narrow columns; HIG A11Y-7), then what it does."""
+    def escape(text):
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return f"<b>{escape(name)}</b>" + (f"\n{escape(description)}" if description else "")
+
+
+def runtime_root():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base):
+        return None
+    return os.path.join(base, "flickos")
+
+
+def read_anchor(root):
+    """The corner of the menu, or None while the menu is off."""
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, ANCHOR), encoding="utf-8") as f:
+            value = f.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return value if value in ANCHORS else None
+
+
+def read_menu(root):
+    """(corner, style) while the menu is on, else None. A style this version
+    doesn't know is the default one."""
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, ANCHOR), encoding="utf-8") as f:
+            lines = [line.strip() for line in f.readlines()[:2]]
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not lines or lines[0] not in ANCHORS:
+        return None
+    style = lines[1] if len(lines) > 1 and lines[1] in MENU_STYLES else DEFAULT_MENU_STYLE
+    return lines[0], style
+
+
+def read_quick(root):
+    """The corner of Quick Settings, or None while it is off."""
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, QUICK), encoding="utf-8") as f:
+            value = f.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return value if value in QUICK_ANCHORS else None
+
+
+def read_phone(root):
+    """The corner of the phone popup, or None while the phone connection is off."""
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, PHONE), encoding="utf-8") as f:
+            value = f.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return value if value in QUICK_ANCHORS else None
+
+
+def daemon_pid(root, proc="/proc"):
+    """The running daemon's process id, or None."""
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, PID_FILE), encoding="utf-8") as f:
+            pid = int(f.readline().strip())
+        with open(os.path.join(proc, str(pid), "comm"), encoding="utf-8") as f:
+            if f.read().strip() != PROCESS_NAME:
+                return None
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    return pid
+
+
+# Requests, and the signal that carries each one to the daemon (GLib can
+# watch SIGUSR1, SIGUSR2 and SIGWINCH besides the ones that end a program).
+# show, quick (open or close Quick Settings) and phone (the phone popup) have
+# none of their own: their word goes into REQUEST_FILE, then SIGUSR1.
+REQUESTS = ("toggle", "show", "hide", "super", "quick", "phone")
+FILE_REQUESTS = ("show", "quick", "phone")
+
+
+def request_signals():
+    import signal
+    return {"toggle": signal.SIGUSR1, "super": signal.SIGUSR2, "hide": signal.SIGWINCH}
+
+
+def send(root, pid, request):
+    """Hand a request to the running daemon. False if it is gone."""
+    signals = request_signals()
+    try:
+        if request in FILE_REQUESTS:
+            with open(os.path.join(root, REQUEST_FILE), "w", encoding="utf-8") as f:
+                f.write(f"{request}\n")
+            os.kill(pid, signals["toggle"])
+        else:
+            os.kill(pid, signals[request])
+    except OSError:
+        return False
+    return True
+
+
+def take_request(root):
+    """The request waiting in REQUEST_FILE (show, quick), or None; removes it."""
+    path = os.path.join(root, REQUEST_FILE)
+    try:
+        with open(path, encoding="utf-8") as f:
+            request = f.readline().strip()
+        os.unlink(path)
+    except (OSError, UnicodeDecodeError):
+        return None
+    return request if request in REQUESTS else None
+
+
+def client(request, root=None):
+    """toggle, show, hide, super, quick or phone from the command line."""
+    root = root if root is not None else runtime_root()
+    menu_on, quick_on = read_anchor(root) is not None, read_quick(root) is not None
+    phone_on = read_phone(root) is not None
+    if request == "quick" and not quick_on:
+        return 0        # Quick Settings is off: the panel's icons don't point here
+    if request == "phone" and not phone_on:
+        return 0        # the phone popup is off: the button keeps flickos-phone menu
+    if request in ("toggle", "show", "super") and not menu_on:
+        # The menu is off (or was just turned off): the apps button is fuzzel.
+        if request in ("toggle", "super"):
+            os.execvp(FALLBACK_LAUNCHER[0], FALLBACK_LAUNCHER)
+        return 0
+    if not menu_on and not quick_on and not phone_on:
+        return 0
+    pid = daemon_pid(root)
+    if pid is not None and send(root, pid, request):
+        return 0
+    if request == "hide":
+        return 0
+    # The menu or Quick Settings is on but the daemon isn't running: become
+    # the daemon, which then answers the request. The panel's Quick Settings
+    # click left its word in REQUEST_FILE before trying the daemon; this
+    # request carries it now, and a later click of the apps button mustn't
+    # find it.
+    take_request(root)
+    os.execv(SELF, [SELF, "daemon", "--request", request])
+    return 1
+
+
+# --- Settings ------------------------------------------------------------------
+
+def config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+
+
+def user_file():
+    return os.path.join(config_home(), "flickos", "menu")
+
+
+def system_file():
+    """The first flickos/menu.conf in XDG_CONFIG_DIRS (the live session's first)."""
+    for folder in (os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(":"):
+        if os.path.isabs(folder) and os.path.isfile(os.path.join(folder, CONF)):
+            return os.path.join(folder, CONF)
+    return None
+
+
+def read_pinned(path):
+    """Pinned= of one settings file as a list, or None if it has none."""
+    import configparser
+    ini = configparser.ConfigParser(interpolation=None)
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return None
+    if not ini.has_option(CONF_SECTION, "Pinned"):
+        return None
+    return split_ids(ini.get(CONF_SECTION, "Pinned"))
+
+
+def split_ids(value):
+    ids = []
+    for item in value.split(";"):
+        item = item.strip()
+        if item and item not in ids:
+            ids.append(item)
+    return ids
+
+
+def pinned_ids():
+    """The user's pinned apps if they changed them, else the system's."""
+    for path in (user_file(), system_file()):
+        if path and os.path.isfile(path):
+            ids = read_pinned(path)
+            if ids is not None:
+                return ids
+    return list(DEFAULT_PINNED)
+
+
+def write_atomic(path, text):
+    import contextlib
+    import tempfile
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def save_pinned(ids):
+    write_atomic(user_file(), f"# FlickOS start menu (flickos-menu pin/unpin).\n[{CONF_SECTION}]\n"
+                              f"Pinned={';'.join(ids)}\n")
+
+
+def pin(desktop_id):
+    ids = pinned_ids()
+    if desktop_id in ids:
+        return False
+    save_pinned(ids + [desktop_id])
+    return True
+
+
+def unpin(desktop_id):
+    ids = pinned_ids()
+    if desktop_id not in ids:
+        return False
+    save_pinned([i for i in ids if i != desktop_id])
+    return True
+
+
+def is_live(cmdline="/proc/cmdline"):
+    try:
+        with open(cmdline, encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    except OSError:
+        return False
+
+
+def places(home, special_dirs, isdir=os.path.isdir):
+    """(label, path) of the right column's folders that exist: Home, then
+    the user directories (special_dirs: {PLACES id: path or None}) other
+    than Home itself."""
+    found = [("Home", home)]
+    for key in PLACES:
+        path = special_dirs.get(key)
+        if path and os.path.normpath(path) != os.path.normpath(home) and isdir(path):
+            found.append((os.path.basename(os.path.normpath(path)), path))
+    return found
+
+
+def available(command):
+    import shutil
+    return shutil.which(command[0]) is not None
+
+
+# --- Apps: sections and search -------------------------------------------------
+
+SECTION_OF = {category: name for name, _icon, categories in SECTIONS for category in categories}
+
+
+def section_for(categories):
+    """The All apps section of an app with these XDG categories."""
+    for category in categories:
+        if category in SECTION_OF:
+            return SECTION_OF[category]
+    return OTHER[0]
+
+
+class App:
+    """An app of the menu: a desktop file's id, texts and search keys."""
+
+    def __init__(self, desktop_id, name, generic="", keywords=(), executable="", categories=(), info=None):
+        self.id = desktop_id
+        self.name = name
+        self.section = section_for(categories)
+        self.info = info
+        self.name_key = name.casefold()
+        # Word starts in the name: "LibreOffice Writer" -> "writer" matches at 1.
+        # A term has no spaces, so " " + term in this is a word start.
+        self.word_starts = " " + " ".join(self.name_key.split())
+        self.other_key = " ".join([generic or "", *keywords, os.path.basename(executable or ""),
+                                   desktop_id.removesuffix(".desktop")]).casefold()
+
+
+def score(app, terms):
+    """How well app matches all terms (lower is better), or None."""
+    best = None
+    for term in terms:
+        if app.name_key.startswith(term):
+            rank = 0
+        elif " " + term in app.word_starts:
+            rank = 1
+        elif term in app.name_key:
+            rank = 2
+        elif term in app.other_key:
+            rank = 3
+        else:
+            return None
+        best = rank if best is None else max(best, rank)
+    return best
+
+
+def search(apps, query, limit=MAX_RESULTS):
+    """The apps matching every word of query, best first, then by name."""
+    terms = query.casefold().split()
+    if not terms:
+        return []
+    found = []
+    for app in apps:
+        rank = score(app, terms)
+        if rank is not None:
+            found.append((rank, app.name_key, app))
+    found.sort(key=lambda item: (item[0], item[1]))
+    return [app for _rank, _name, app in found[:limit]]
+
+
+def by_section(apps):
+    """[(section, icon, [apps A-Z])] for the sections that have apps, in order."""
+    groups = {}
+    for app in apps:
+        groups.setdefault(app.section, []).append(app)
+    result = []
+    for name, icon, _categories in SECTIONS + ((OTHER[0], OTHER[1], ()),):
+        if name in groups:
+            result.append((name, icon, sorted(groups[name], key=lambda a: a.name_key)))
+    return result
+
+
+def phone_link_up():
+    """Whether the phone daemon is running: its TryExec link exists, so
+    Phone is shown in the menu. False without a session folder."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+    # TryExec searches PATH and wants an executable. access follows the link.
+    return bool(runtime) and os.access(os.path.join(runtime, "flickos", "bin", PHONE_LINK), os.X_OK)
+
+
+def window_ids(app):
+    """The app ids an app's windows may have: its desktop id without
+    .desktop (Wayland apps), and StartupWMClass (X11 apps)."""
+    ids = [app.id[:-len(".desktop")] if app.id.endswith(".desktop") else app.id]
+    get_class = getattr(app.info, "get_startup_wm_class", None)
+    if get_class is not None and get_class():
+        ids.append(get_class())
+    # The request is one line of words.
+    return [app_id for app_id in dict.fromkeys(ids) if app_id and not any(c.isspace() for c in app_id)]
+
+
+def focus_open_window(root, app_ids):
+    """Ask flick-tiler's daemon to bring forward the app's window that had the
+    focus last. True if it did; False if none is open, no daemon runs or it
+    is older than focus-app."""
+    import json
+    import socket
+    if root is None or not app_ids:
+        return False
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(TILER_SECONDS)
+            conn.connect(os.path.join(root, TILER_CONTROL))
+            conn.sendall(("focus-app " + " ".join(app_ids) + "\n").encode())
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        reply = json.loads(data)
+    except (OSError, ValueError):
+        return False
+    return isinstance(reply, dict) and reply.get("found") is True
+
+
+def phone_link_stale(known):
+    """True when Phone would appear or disappear since the apps were last read.
+    known is None before the first index."""
+    return phone_link_up() != known
+
+
+def load_apps(Gio):
+    """The apps a menu shows, from the installed desktop files."""
+    apps = []
+    for info in Gio.AppInfo.get_all():
+        if not info.should_show() or not isinstance(info, Gio.DesktopAppInfo):
+            continue
+        apps.append(App(info.get_id(), info.get_name(), info.get_generic_name(),
+                        info.get_keywords() or (), info.get_executable() or "",
+                        (info.get_categories() or "").split(";"), info))
+    return apps
+
+
+def load_gio():
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+    except (ImportError, ValueError) as error:
+        raise MenuError(f"GLib is not available ({error})") from error
+    return Gio
+
+
+# --- Super -------------------------------------------------------------------
+
+class SuperTap:
+    """Tells a tap of Super from a hold or Super with something else, from the
+    modifier state (update) and the time labwc's onRelease keybind fired
+    (is_tap). Times are in milliseconds."""
+
+    def __init__(self):
+        self.down = False       # Super is down now
+        self.pressed = None     # when it went down last
+        self.released = None    # when it went up after that
+        self.alone = False      # no other modifier while it was down
+
+    def update(self, super_down, others_down, now):
+        if super_down and not self.down:
+            self.pressed, self.released, self.alone = now, None, not others_down
+        elif super_down and others_down:
+            self.alone = False
+        elif not super_down and self.down:
+            self.released = now
+        self.down = super_down
+
+    def is_tap(self, now):
+        """True for a tap. Without a Super press to go by (the modifier state
+        never arrived), any request counts."""
+        pressed, released, alone = self.pressed, self.released, self.alone
+        self.pressed = self.released = None
+        if pressed is None:
+            return True
+        end = released if released is not None else now
+        if released is not None and now - released > TAP_STALE_MS:
+            return True
+        return alone and end - pressed <= TAP_MS
+
+
+# --- Power -------------------------------------------------------------------
+
+def power_items(live):
+    """POWER, without Lock Screen in the live session."""
+    return [item for item in POWER if not (item[0] == "lock" and live)]
+
+
+class TwoStep:
+    """Which power button waits for its second click (CONFIRM). GTK-free:
+    PowerRow shows it and disarms it after CONFIRM_SECONDS."""
+
+    def __init__(self):
+        self.armed = None
+
+    def click(self, item_id):
+        """"arm" for the first click of a CONFIRM item, else "run"; a click on
+        any other button disarms the armed one."""
+        if item_id in CONFIRM and item_id != self.armed:
+            self.armed = item_id
+            return "arm"
+        self.armed = None
+        return "run"
+
+    def disarm(self):
+        self.armed = None
+
+
+# --- Fading --------------------------------------------------------------------
+# The start menu, Quick Settings and the phone popup fade in and out
+# (docs/design/flickos-fades.md): the window's own opacity, changed from a
+# tick callback, only while GSettings' enable-animations is on. Never the
+# full-screen grid (ADR-005). Measured cost: about 55 ms of CPU per fade,
+# the daemon and labwc together, and nothing between fades.
+
+FADE_IN_MS = 100
+FADE_OUT_MS = 80
+
+
+def fade_opacity(start, end, elapsed, duration, ease_out):
+    """(opacity, finished) of a fade from start to end, elapsed ms into one of
+    duration ms: cubic, eased out (fast at first) for a fade in, eased in for
+    a fade out."""
+    t = min(max(elapsed / duration, 0.0), 1.0) if duration > 0 else 1.0
+    k = 1 - (1 - t) ** 3 if ease_out else t ** 3
+    return start + (end - start) * k, t >= 1.0
+
+
+class Fader:
+    """Shows and hides one layer-shell window, fading it.
+
+    The window has its input from the first frame of a fade in. During a fade
+    out it takes no keys and no clicks (keyboard mode NONE, an empty input
+    region): they go to the window below at once. Showing it during a fade out
+    maps it again at the opacity it had reached, because labwc gives an
+    on-demand layer surface the keyboard when it is mapped, not when its
+    keyboard mode changes back."""
+
+    def __init__(self, gtk, window, enabled=True):
+        self.Gtk, self.GtkLayerShell = gtk
+        self.window = window
+        self.enabled = enabled
+        self.tick = None
+        self.fading_out = False
+
+    def animate(self):
+        return self.enabled and self.Gtk.Settings.get_default().props.gtk_enable_animations
+
+    # Through Gtk.Widget: PyGObject maps Gtk.Window.set_opacity to the
+    # deprecated gtk_window_set_opacity.
+    def opacity(self):
+        return self.Gtk.Widget.get_opacity(self.window)
+
+    def set_opacity(self, value):
+        self.Gtk.Widget.set_opacity(self.window, value)
+
+    def visible(self):
+        """Shown, and not on its way out."""
+        return self.window.get_visible() and not self.fading_out
+
+    def show(self):
+        if self.fading_out:
+            opacity = self.opacity()
+            self.stop()
+            self.fading_out = False
+            self.window.hide()
+            self.take_input(True)
+            self.set_opacity(opacity)
+            self.window.show()
+            self.fade(1.0, FADE_IN_MS, True)
+        elif self.window.get_visible():
+            return              # shown or fading in already
+        elif self.animate():
+            self.set_opacity(0.0)
+            self.window.show()
+            self.fade(1.0, FADE_IN_MS, True)
+        else:
+            self.set_opacity(1.0)
+            self.window.show()
+
+    def hide(self):
+        if not self.window.get_visible() or self.fading_out:
+            return
+        if not self.animate():
+            self.hide_now()
+            return
+        self.fading_out = True
+        self.take_input(False)
+        self.fade(0.0, FADE_OUT_MS, False, self.hidden)
+
+    def hidden(self):
+        self.fading_out = False
+        self.window.hide()
+        self.take_input(True)
+
+    def hide_now(self):
+        """Without a fade (before the window is destroyed)."""
+        self.stop()
+        if self.fading_out:
+            self.fading_out = False
+            self.take_input(True)
+        self.window.hide()
+        self.set_opacity(1.0)
+
+    def stop(self):
+        if self.tick is not None:
+            self.window.remove_tick_callback(self.tick)
+            self.tick = None
+
+    def take_input(self, on):
+        GtkLayerShell = self.GtkLayerShell
+        mode = GtkLayerShell.KeyboardMode.ON_DEMAND if on else GtkLayerShell.KeyboardMode.NONE
+        GtkLayerShell.set_keyboard_mode(self.window, mode)
+        if on:
+            self.window.input_shape_combine_region(None)
+            return
+        try:
+            import gi
+            gi.require_foreign("cairo")
+            import cairo
+        except (ImportError, ValueError):
+            return              # clicks stay with the window until it is gone
+        self.window.input_shape_combine_region(cairo.Region())
+
+    def fade(self, end, duration, ease_out, done=None):
+        self.stop()
+        start = self.opacity()
+        began = []
+
+        def tick(_widget, clock):
+            now = clock.get_frame_time() / 1000     # µs → ms
+            if not began:
+                began.append(now)
+            value, finished = fade_opacity(start, end, now - began[0], duration, ease_out)
+            self.set_opacity(value)
+            if not finished:
+                return True
+            self.tick = None
+            if done is not None:
+                done()
+            return False
+
+        self.tick = self.window.add_tick_callback(tick)
+
+
+class PowerRow:
+    """The power buttons (power_items) of a view or Quick Settings. box holds
+    the buttons; hint is the line that asks for the second click (CONFIRM),
+    shown only while a button is armed, for the window to put where it fits.
+    The window calls disarm() when it shows and hides."""
+
+    def __init__(self, menu, size, symbolic=False, homogeneous=False):
+        Gtk = menu.Gtk
+        self.menu = menu
+        self.step = TwoStep()
+        self.timer = None
+        self.buttons = {}       # item id -> (button, label)
+        self.box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2, homogeneous=homogeneous)
+        self.box.get_style_context().add_class("power")
+        for item_id, text, icon, command in power_items(menu.live):
+            button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, tooltip_text=text)
+            button.add(Gtk.Image.new_from_icon_name(f"{icon}-symbolic" if symbolic else icon, size))
+            button.get_accessible().set_name(text)
+            button.connect("clicked", lambda _b, item_id=item_id, command=command: self.click(item_id, command))
+            self.box.pack_start(button, homogeneous, homogeneous, 0)
+            self.buttons[item_id] = (button, text)
+        self.hint = Gtk.Label(wrap=True)
+        self.hint.get_style_context().add_class("confirm")
+        self.hint.set_no_show_all(True)
+
+    def click(self, item_id, command):
+        if self.step.click(item_id) == "arm":
+            self.update()
+            if self.timer is not None:
+                self.menu.GLib.source_remove(self.timer)
+            self.timer = self.menu.GLib.timeout_add_seconds(CONFIRM_SECONDS, self.on_timeout)
+            return
+        self.disarm()
+        self.menu.run(command)
+
+    def on_timeout(self):
+        self.timer = None
+        self.disarm()
+        return False    # GLib timeout: once
+
+    def disarm(self):
+        if self.timer is not None:
+            self.menu.GLib.source_remove(self.timer)
+            self.timer = None
+        if self.step.armed is not None:
+            self.step.disarm()
+            self.update()
+
+    def update(self):
+        armed = self.step.armed
+        for item_id, (button, text) in self.buttons.items():
+            context = button.get_style_context()
+            if item_id == armed:
+                context.add_class("destructive-action")
+                button.set_tooltip_text(CONFIRM[item_id])
+            else:
+                context.remove_class("destructive-action")
+                button.set_tooltip_text(text)
+        self.hint.set_text(CONFIRM.get(armed, ""))
+        self.hint.set_visible(armed is not None)
+
+
+def load_quick():
+    """Quick Settings' code (QUICK_CODE). Only while it is on: this script
+    has no .pyc, and compiling that file too would cost every session with
+    the start menu about 2 MB."""
+    import importlib.machinery
+    import importlib.util
+    sys.dont_write_bytecode = True      # never a __pycache__ next to it
+    loader = importlib.machinery.SourceFileLoader("flickos_menu_quick", QUICK_CODE)
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    return module
+
+
+def load_phone():
+    """The phone popup's code (PHONE_CODE). Only while the phone connection
+    is on: compiling it too would cost every start menu session its memory."""
+    import importlib.machinery
+    import importlib.util
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("flickos_menu_phone", PHONE_CODE)
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    return module
+
+
+# --- The menu window (GTK) -----------------------------------------------------
+
+def load_gtk():
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GtkLayerShell", "0.1")
+        from gi.repository import GLib
+        GLib.set_prgname(APP_ID)
+        from gi.repository import Gdk, Gio, Gtk, GtkLayerShell
+    except (ImportError, ValueError) as error:
+        raise MenuError(f"GTK 3 with layer shell is not available ({error})") from error
+    if not Gtk.init_check(sys.argv[:1])[0]:
+        raise MenuError("cannot open a window (no Wayland display)")
+    if not GtkLayerShell.is_supported():
+        raise MenuError("the compositor has no layer shell")
+    provider = Gtk.CssProvider()
+    try:
+        provider.load_from_path(STYLE)
+    except GLib.Error as error:
+        warn(f"cannot load {STYLE}: {error.message}")
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    return GLib, Gdk, Gio, Gtk, GtkLayerShell
+
+
+class Menu:
+    """The daemon's state: the app index, icons, pins and the Super tap, plus
+    the view of the current layout's menu style (VIEWS), Quick Settings and
+    the phone popup. Only what is on is built (the apps are read when the
+    start menu is), ahead of time, then only shown and hidden; a new style
+    replaces the view. One of the windows shows at a time."""
+
+    def __init__(self, gtk, root, timing=None):
+        self.GLib, self.Gdk, self.Gio, self.Gtk, self.GtkLayerShell = gtk
+        self.root = root
+        self.timing = timing
+        self.apps = []
+        self.by_id = {}
+        self.icons = {}
+        self.view = None
+        self.quick = None           # QuickSettings while it is on
+        self.phone_popup = None     # PhonePopup while the phone connection is on
+        self.monitor = None         # Gio.AppInfoMonitor, from the first index
+        self.built = False
+        self.dirty = True           # the apps need reading: not read yet
+        self.popover_open = False
+        self.pending = []
+        self.shown_at = None
+        self.warming = None
+        self.scale = 1
+        self.tap = SuperTap()
+        self.live = is_live()
+        self.phone_on = None        # whether PHONE_LINK existed at the last index
+
+    # Building -----------------------------------------------------------------
+
+    def build(self):
+        self.scale = self.monitor_scale()
+        self.Gtk.IconTheme.get_default().connect("changed", self.on_icon_theme)
+        keymap = self.Gdk.Keymap.get_for_display(self.Gdk.Display.get_default())
+        keymap.connect("state-changed", self.on_modifiers)
+        self.keymap = keymap
+        self.prepare_view()
+        self.prepare_quick()
+        self.prepare_phone()
+        self.built = True
+        for request in self.pending:
+            self.request(request)
+        self.pending = []
+        return False    # GLib idle: once
+
+    def prepare_view(self):
+        """Build the view of the current layout's style while the menu is
+        hidden, so the next show is quick (after start, and after `hide`,
+        which flickos-layout sends when the layout changes)."""
+        menu = read_menu(self.root)
+        if menu is not None and not self.visible() and (self.view is None or self.view.name != menu[1]):
+            self.switch_view(menu[1])
+        return False    # GLib idle: once
+
+    def prepare_quick(self):
+        """Build Quick Settings while it is on, and drop it once it is off
+        (after start, and after `hide`, which flickos-layout sends when a
+        choice changes)."""
+        on = read_quick(self.root) is not None
+        if on and self.quick is None:
+            started = self.clock()
+            self.quick = load_quick().QuickSettings(self, self.quick_buttons())
+            self.log(f"quick settings: built in {self.clock() - started:.1f} ms")
+        elif not on and self.quick is not None and not self.quick.visible():
+            self.quick.destroy()
+            self.quick = None
+        return False    # GLib idle: once
+
+    def prepare_phone(self):
+        """Build the phone popup while the phone connection is on, and drop
+        it once it is off (after start, and after `hide`, which flickos-layout
+        sends when the connection is turned on or off). Nothing is built
+        while flickos-phone isn't installed."""
+        import shutil
+        on = read_phone(self.root) is not None and shutil.which("flickos-phone") is not None
+        if on and self.phone_popup is None:
+            started = self.clock()
+            self.phone_popup = load_phone().PhonePopup(self)
+            self.log(f"phone: built in {self.clock() - started:.1f} ms")
+        elif not on and self.phone_popup is not None and not self.phone_popup.visible():
+            self.phone_popup.destroy()
+            self.phone_popup = None
+        return False    # GLib idle: once
+
+    def quick_buttons(self):
+        """(text, icon, command) of Quick Settings' bottom row before its power
+        buttons (power_row): Settings while flickos-control is installed."""
+        return [(text, "preferences-system-symbolic", command) for text, _icon, command in TOOLS
+                if text == "Settings" and available(command)]
+
+    def switch_view(self, style):
+        started = self.clock()
+        if self.dirty:
+            self.index()
+        if self.view is not None:
+            self.view.destroy()
+        self.view = VIEWS[style](self)
+        self.view.populate()
+        # Work out styles and sizes now, not at the first show.
+        self.view.window.realize()
+        self.view.window.get_preferred_size()
+        self.warm_icons()
+        self.log(f"view {style}: built in {self.clock() - started:.1f} ms")
+
+    def index(self):
+        started = self.clock()
+        if self.monitor is None:
+            # Watched from the first index: GLib's desktop file index costs
+            # memory that Quick Settings alone doesn't need.
+            self.monitor = self.Gio.AppInfoMonitor.get()
+            self.monitor.connect("changed", self.on_apps_changed)      # a reference kept: or no more signals
+        self.apps = load_apps(self.Gio)
+        self.by_id = {app.id: app for app in self.apps}
+        self.phone_on = phone_link_up()
+        self.dirty = False
+        self.log(f"index: {len(self.apps)} apps in {self.clock() - started:.1f} ms")
+
+    def load(self):
+        """Read the apps again and refill the view (packages or pins changed)."""
+        self.index()
+        if self.view is not None:
+            self.view.populate()
+        self.warm_icons()
+
+    def pinned_apps(self):
+        """The pinned apps that are installed, in order."""
+        found = []
+        for desktop_id in pinned_ids():
+            app = self.by_id.get(desktop_id) or self.pinned_app(desktop_id)
+            if app is not None:
+                found.append(app)
+        return found
+
+    def pinned_app(self, desktop_id):
+        """A pinned app that All apps doesn't show (NoDisplay), if installed."""
+        try:
+            info = self.Gio.DesktopAppInfo.new(desktop_id)
+        except TypeError:
+            info = None
+        if info is None:
+            return None
+        return App(desktop_id, info.get_name(), info=info)
+
+    # Icons --------------------------------------------------------------------
+
+    def themed(self, *names):
+        """A themed icon of the first name the icon theme has."""
+        theme = self.Gtk.IconTheme.get_default()
+        name = next((n for n in names if theme.has_icon(n)), names[-1])
+        return self.Gio.ThemedIcon.new(name)
+
+    def set_icon(self, image, gicon, size):
+        """Show gicon at size px (at the screens' scale), cached: rendering an
+        SVG again for every search would cost more than a frame."""
+        if gicon is None:
+            gicon = self.Gio.ThemedIcon.new("application-x-executable")
+        surface = self.icon_surface(gicon, size)
+        if surface is None:
+            image.clear()
+        else:
+            image.set_from_surface(surface)
+
+    def icon_surface(self, gicon, size):
+        Gtk, Gdk, scale = self.Gtk, self.Gdk, self.scale
+        key = (gicon.to_string(), size, scale)
+        surface = self.icons.get(key)
+        if surface is None:
+            theme = Gtk.IconTheme.get_default()
+            info = theme.lookup_by_gicon_for_scale(gicon, size, scale, Gtk.IconLookupFlags.FORCE_SIZE)
+            if info is None:
+                info = theme.lookup_icon_for_scale("application-x-executable", size, scale,
+                                                   Gtk.IconLookupFlags.FORCE_SIZE)
+            try:
+                pixbuf = info.load_icon() if info is not None else None
+            except self.GLib.Error:
+                pixbuf = None
+            if pixbuf is None:
+                return None
+            surface = Gdk.cairo_surface_create_from_pixbuf(pixbuf, scale, None)
+            self.icons[key] = surface
+        return surface
+
+    def warm_icons(self):
+        """Load every app's icon at the view's sizes in the background, a few
+        at a time: the first search would otherwise render them (about 80 ms)."""
+        import itertools
+        sizes = self.view.icon_sizes if self.view is not None else (ICON_LIST,)
+        self.warming = iter([(app, size) for size in sizes for app in self.apps])
+
+        def step(warming):
+            if warming is not self.warming:     # a newer index is warming
+                return False
+            batch = list(itertools.islice(warming, 8))
+            for app, size in batch:
+                if app.info is not None:
+                    self.icon_surface(app.info.get_icon() or self.Gio.ThemedIcon.new("application-x-executable"),
+                                      size)
+            return len(batch) == 8      # GLib idle: again until all are done
+
+        self.GLib.idle_add(step, self.warming, priority=self.GLib.PRIORITY_LOW)
+
+    def monitor_scale(self):
+        display = self.Gdk.Display.get_default()
+        return max([display.get_monitor(i).get_scale_factor() for i in range(display.get_n_monitors())] or [1])
+
+    def on_icon_theme(self, *_):
+        self.icons.clear()
+        self.dirty = True
+
+    def on_apps_changed(self, *_):
+        # Installing a package changes several files: rebuild once, when idle.
+        if not self.dirty:
+            self.dirty = True
+            self.GLib.timeout_add(500, self.reload_if_hidden)
+
+    def reload_if_hidden(self):
+        # Without the start menu's view the apps are read when it is built.
+        if self.dirty and self.view is not None and not self.visible():
+            self.load()
+        return False
+
+    # Showing and hiding ---------------------------------------------------------
+
+    def visible(self):
+        """The start menu is shown (not fading out: a toggle then shows it again)."""
+        return self.view is not None and self.view.fader.visible()
+
+    def fader(self, window, enabled=True):
+        """A Fader for one of the daemon's windows (the views, Quick Settings,
+        the phone popup)."""
+        return Fader((self.Gtk, self.GtkLayerShell), window, enabled)
+
+    def power_row(self, size, symbolic=False, homogeneous=False):
+        """The power buttons for a view or Quick Settings (PowerRow)."""
+        return PowerRow(self, size, symbolic, homogeneous)
+
+    def request(self, request):
+        if not self.built:
+            self.pending.append(request)
+            return
+        if request == "quick":
+            self.toggle_quick()
+            return
+        if request == "phone":
+            self.toggle_phone()
+            return
+        if request == "super":
+            if not self.tap.is_tap(self.clock()):
+                return
+            request = "toggle"
+        if request == "hide":
+            self.hide()
+            self.hide_quick()
+            self.hide_phone()
+            # flickos-layout sends this when a choice changes: get the new
+            # layout's style ready, and build or drop Quick Settings and the
+            # phone popup.
+            self.GLib.idle_add(self.prepare_view, priority=self.GLib.PRIORITY_LOW)
+            self.GLib.idle_add(self.prepare_quick, priority=self.GLib.PRIORITY_LOW)
+            self.GLib.idle_add(self.prepare_phone, priority=self.GLib.PRIORITY_LOW)
+        elif request == "toggle" and self.visible():
+            self.hide()
+        elif request in ("show", "toggle"):
+            self.show()
+
+    def show(self):
+        menu = read_menu(self.root)
+        if menu is None:        # the menu was turned off
+            if read_quick(self.root) is None and read_phone(self.root) is None:
+                self.quit()
+            return
+        corner, style = menu
+        self.hide_quick()
+        self.hide_phone()
+        # Phone's desktop file stays installed and is hidden with TryExec.
+        # That link comes and goes without a desktop file changing, so the
+        # index would keep the old answer until logout.
+        if phone_link_stale(self.phone_on):
+            self.dirty = True
+        self.shown_at = self.clock()
+        scale = self.monitor_scale()
+        if scale != self.scale:     # a HiDPI screen came or went
+            self.scale = scale
+            self.icons.clear()
+            self.dirty = True
+        if self.view is None or self.view.name != style:
+            self.switch_view(style)
+        elif self.dirty:
+            self.load()
+        self.view.show(corner)
+
+    def hide(self):
+        if self.visible():
+            self.view.hide()
+            if self.dirty:
+                self.GLib.idle_add(self.reload_if_hidden)
+
+    def toggle_quick(self):
+        if self.quick is not None and self.quick.visible():
+            self.quick.hide()
+            return
+        corner = read_quick(self.root)
+        if corner is None:      # Quick Settings was turned off
+            if read_menu(self.root) is None and read_phone(self.root) is None:
+                self.quit()
+            return
+        self.hide()
+        self.hide_phone()
+        if self.quick is None:
+            self.prepare_quick()
+        self.quick.show(corner)
+
+    def hide_quick(self):
+        if self.quick is not None:
+            self.quick.hide()
+
+    def toggle_phone(self):
+        if self.phone_popup is not None and self.phone_popup.visible():
+            self.phone_popup.hide()
+            return
+        corner = read_phone(self.root)
+        if corner is None:      # the phone connection was turned off
+            if read_menu(self.root) is None and read_quick(self.root) is None:
+                self.quit()
+            return
+        self.hide()
+        self.hide_quick()
+        if self.phone_popup is None:
+            self.prepare_phone()
+        if self.phone_popup is not None:
+            self.phone_popup.show(corner)
+
+    def hide_phone(self):
+        if self.phone_popup is not None:
+            self.phone_popup.hide()
+
+    def quit(self):
+        self.Gtk.main_quit()
+
+    def on_draw(self, *_):
+        if self.shown_at is not None:
+            self.log(f"shown in {self.clock() - self.shown_at:.1f} ms")
+            self.shown_at = None
+        return False
+
+    def on_focus_out(self, *_):
+        # Another window was clicked. Not while the pin popover is open.
+        if not self.popover_open:
+            self.hide()
+        return False
+
+    def on_modifiers(self, keymap):
+        Gdk = self.Gdk
+        state = keymap.get_modifier_state()
+        super_down = bool(state & (Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.MOD4_MASK))
+        others = bool(state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK
+                               | Gdk.ModifierType.MOD1_MASK))
+        self.tap.update(super_down, others, self.clock())
+
+    # Pinning ------------------------------------------------------------------
+
+    def pin_menu(self, widget, app):
+        """A popover on widget to pin or unpin app."""
+        Gtk = self.Gtk
+        popover = Gtk.Popover(relative_to=widget)
+        pinned = app.id in pinned_ids()
+        button = Gtk.ModelButton(text="Unpin from Start Menu" if pinned else "Pin to Start Menu")
+        button.connect("clicked", lambda *_: self.change_pin(app, not pinned))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin=6)
+        box.pack_start(button, False, False, 0)
+        popover.add(box)
+        self.popover_open = True
+
+        def closed(*_):
+            self.popover_open = False
+            self.GLib.idle_add(popover.destroy)
+
+        popover.connect("closed", closed)
+        popover.show_all()
+        popover.popup()
+
+    def change_pin(self, app, pinned):
+        try:
+            pin(app.id) if pinned else unpin(app.id)
+        except OSError as error:
+            warn(f"cannot save the pinned apps: {error}")
+            return
+        if self.view is not None:
+            self.view.populate()
+
+    # Launching ----------------------------------------------------------------
+
+    def activate(self, row):
+        """A row of an app or a folder was chosen."""
+        if getattr(row, "app", None) is not None:
+            self.launch(row.app)
+        elif getattr(row, "folder", None) is not None:
+            self.open_folder(row.folder)
+
+    def launch_context(self):
+        context = self.Gdk.Display.get_default().get_app_launch_context()
+        context.set_timestamp(self.Gtk.get_current_event_time())
+        return context
+
+    def launch(self, app, focus=False):
+        """Start app. focus: bring its open window forward instead, if it has
+        one (the grid, like macOS; the other styles start another copy)."""
+        if app is None or app.info is None:
+            return
+        context = self.launch_context()
+        self.hide()
+
+        def start():
+            if focus and focus_open_window(self.root, window_ids(app)):
+                return False
+            try:
+                app.info.launch([], context)
+            except self.GLib.Error as error:
+                warn(f"cannot start {app.id}: {error.message}")
+            return False
+
+        # After the hide is drawn: the menu is gone at once, the app follows.
+        self.GLib.idle_add(start)
+
+    def open_folder(self, path):
+        context = self.launch_context()
+        self.hide()
+        uri = self.Gio.File.new_for_path(path).get_uri()
+        try:
+            self.Gio.AppInfo.launch_default_for_uri(uri, context)
+        except self.GLib.Error as error:
+            warn(f"cannot open {path}: {error.message}")
+
+    def run(self, command):
+        self.hide()
+        self.hide_quick()
+        self.hide_phone()
+        GLib = self.GLib
+        try:
+            # Without DO_NOT_REAP_CHILD GLib reaps it; it outlives the menu.
+            GLib.spawn_async(command, flags=GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.STDOUT_TO_DEV_NULL
+                             | GLib.SpawnFlags.STDERR_TO_DEV_NULL)
+        except GLib.Error as error:
+            warn(f"cannot run {command[0]}: {error.message}")
+
+    # Timing -----------------------------------------------------------------
+
+    @staticmethod
+    def clock():
+        import time
+        return time.monotonic() * 1000
+
+    def log(self, message):
+        if self.timing is not None:
+            print(message, file=self.timing, flush=True)
+
+
+class View:
+    """One menu style's window. A subclass builds the content (build), fills
+    it from the menu's apps and pins (populate, again when they change) and
+    answers the search entry (on_search)."""
+
+    name = None
+    layer = "TOP"
+    icon_sizes = (ICON_LIST,)
+    fades = True        # not full screen (docs/design/flickos-fades.md, ADR-005)
+
+    def __init__(self, menu):
+        self.menu = menu
+        self.GLib, self.Gdk, self.Gio, self.Gtk, self.GtkLayerShell = (
+            menu.GLib, menu.Gdk, menu.Gio, menu.Gtk, menu.GtkLayerShell)
+        Gtk, GtkLayerShell = self.Gtk, self.GtkLayerShell
+        self.corner = None
+        window = self.window = Gtk.Window(title="Start Menu")
+        context = window.get_style_context()
+        context.add_class("flickos-menu")
+        context.add_class(f"style-{self.name}")
+        GtkLayerShell.init_for_window(window)
+        GtkLayerShell.set_namespace(window, APP_ID)
+        GtkLayerShell.set_layer(window, getattr(GtkLayerShell.Layer, self.layer))
+        self.fader = menu.fader(window, self.fades)
+        GtkLayerShell.set_keyboard_mode(window, GtkLayerShell.KeyboardMode.ON_DEMAND)
+        window.connect("key-press-event", self.on_key)
+        window.connect("focus-out-event", menu.on_focus_out)
+        window.connect("delete-event", lambda *_: menu.hide() or True)
+        window.connect_after("draw", menu.on_draw)
+        self.entry = Gtk.SearchEntry(placeholder_text="Search apps")
+        self.entry.get_style_context().add_class("search")
+        # "changed", not "search-changed": that one waits 150 ms.
+        self.entry.connect("changed", lambda entry: self.search(entry.get_text()))
+        self.entry.connect("activate", lambda _entry: self.on_activate())
+        self.entry.connect("key-press-event", self.on_entry_key)
+        self.power_rows = []
+        self.build()
+
+    # To be done by each style.
+    def build(self):
+        raise NotImplementedError
+
+    def populate(self):
+        raise NotImplementedError
+
+    def on_search(self, query):
+        raise NotImplementedError
+
+    def on_activate(self):
+        """Enter in the search entry."""
+
+    def first_row(self):
+        """The widget Down in the search entry moves to, or None."""
+        return None
+
+    # Showing ------------------------------------------------------------------
+
+    def place(self, corner):
+        """Anchor the window at corner ("bottom-left" or "top-left")."""
+        GtkLayerShell = self.GtkLayerShell
+        vertical = corner.split("-")[0]
+        GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.TOP, vertical == "top")
+        GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.BOTTOM, vertical == "bottom")
+        GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.LEFT, True)
+
+    def show(self, corner):
+        if corner != self.corner:
+            self.place(corner)
+            self.corner = corner
+        self.entry.set_text("")
+        self.reset()
+        for row in self.power_rows:
+            row.disarm()
+        self.fader.show()
+        self.entry.grab_focus()
+        self.shown()
+
+    def reset(self):
+        """Back to how the menu opens (before it is shown)."""
+
+    def shown(self):
+        """After the window is shown and the entry has the focus."""
+
+    def hide(self):
+        for row in self.power_rows:
+            row.disarm()
+        self.fader.hide()
+
+    def destroy(self):
+        for row in self.power_rows:
+            row.disarm()
+        self.fader.hide_now()
+        self.window.destroy()
+
+    def search(self, query):
+        started = self.menu.clock()
+        self.on_search(query)
+        if query.strip():
+            self.menu.log(f"search {query!r} in {self.menu.clock() - started:.1f} ms")
+
+    # Keyboard -----------------------------------------------------------------
+
+    def on_key(self, _window, event):
+        if event.keyval == self.Gdk.KEY_Escape:
+            if not self.escape():
+                self.menu.hide()
+            return True
+        if self.pin_menu_key(event):
+            return True
+        if not self.entry.has_focus() and self.entry.handle_event(event):
+            self.entry.grab_focus_without_selecting()
+            return True
+        return False
+
+    def escape(self):
+        """Escape: True if it did something short of closing the menu."""
+        if self.entry.get_text():
+            self.entry.set_text("")
+            self.entry.grab_focus()
+            return True
+        return False
+
+    def on_entry_key(self, _entry, event):
+        if event.keyval == self.Gdk.KEY_Down:
+            widget = self.first_row()
+            if widget is not None:
+                parent = widget.get_parent()
+                if isinstance(parent, self.Gtk.ListBox):
+                    parent.select_row(widget)
+                elif isinstance(parent, self.Gtk.FlowBox):
+                    parent.select_child(widget)
+                widget.grab_focus()
+                return True
+        return False
+
+    def on_keynav_failed(self, _widget, direction):
+        if direction == self.Gtk.DirectionType.UP:
+            self.entry.grab_focus_without_selecting()
+            return True
+        return False
+
+    # Widgets shared by the styles -----------------------------------------------
+
+    def app_list(self, css_class):
+        Gtk = self.Gtk
+        listbox = Gtk.ListBox()
+        listbox.get_style_context().add_class(css_class)
+        listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        listbox.set_activate_on_single_click(True)
+        listbox.connect("row-activated", lambda _list, row: self.menu.activate(row))
+        listbox.connect("button-press-event", self.on_list_click)
+        listbox.connect("keynav-failed", self.on_keynav_failed)
+        return listbox
+
+    def app_row(self, app, size):
+        Gtk = self.Gtk
+        row = Gtk.ListBoxRow()
+        row.get_style_context().add_class("app")
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.image = Gtk.Image()
+        row.image.set_size_request(size, size)
+        row.label = Gtk.Label(xalign=0)
+        row.label.set_ellipsize(3)      # Pango.EllipsizeMode.END
+        box.pack_start(row.image, False, False, 0)
+        box.pack_start(row.label, True, True, 0)
+        row.add(box)
+        row.size = size
+        row.app = row.folder = None
+        if app is not None:
+            self.fill_row(row, app)
+        return row
+
+    def fill_row(self, row, app):
+        row.app = app
+        row.label.set_text(app.name)
+        row.set_tooltip_markup(app_tooltip(app.name, app.info.get_description() if app.info else None))
+        self.menu.set_icon(row.image, app.info.get_icon() if app.info else None, row.size)
+
+    def folder_row(self, label, path, size):
+        row = self.app_row(None, size)
+        row.folder = path
+        row.label.set_text(label)
+        row.set_tooltip_text(path)
+        self.menu.set_icon(row.image, self.menu.themed("folder") if label != "Home" else
+                           self.menu.themed("user-home", "folder"), size)
+        return row
+
+    def flat_button(self, label, icon, end=False):
+        Gtk = self.Gtk
+        button = Gtk.Button(relief=Gtk.ReliefStyle.NONE)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        image = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU)
+        text = Gtk.Label(label=label, xalign=0)
+        if end:
+            box.pack_start(text, True, True, 0)
+            box.pack_end(image, False, False, 0)
+        else:
+            box.pack_start(image, False, False, 0)
+            box.pack_start(text, True, True, 0)
+        button.add(box)
+        return button
+
+    def icon_button(self, text, icon, callback, size=None):
+        Gtk = self.Gtk
+        button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, tooltip_text=text)
+        button.add(Gtk.Image.new_from_icon_name(icon, size or Gtk.IconSize.LARGE_TOOLBAR))
+        button.get_accessible().set_name(text)
+        button.connect("clicked", lambda _b: callback())
+        return button
+
+    def user_box(self, size=ICON_PINNED):
+        Gtk, GLib, Gio = self.Gtk, self.GLib, self.Gio
+        user = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        user.get_style_context().add_class("user")
+        avatar = Gtk.Image()
+        face = os.path.join(GLib.get_home_dir(), ".face")
+        if os.path.isfile(face):
+            self.menu.set_icon(avatar, Gio.FileIcon.new(Gio.File.new_for_path(face)), size)
+        else:
+            self.menu.set_icon(avatar, Gio.ThemedIcon.new("avatar-default"), size)
+        name = GLib.get_real_name()
+        if not name or name == "Unknown":
+            name = GLib.get_user_name()
+        label = Gtk.Label(label=name, xalign=0, tooltip_text=name)     # cut short in narrow columns
+        label.set_ellipsize(3)
+        user.pack_start(avatar, False, False, 0)
+        user.pack_start(label, True, True, 0)
+        return user
+
+    def places(self):
+        GLib = self.GLib
+        special = {key: GLib.get_user_special_dir(getattr(GLib.UserDirectory, f"DIRECTORY_{key}"))
+                   for key in PLACES}
+        return places(GLib.get_home_dir(), special)
+
+    def tools(self):
+        """(label, icon, command) of TOOLS that are installed."""
+        return [tool for tool in TOOLS if available(tool[2])]
+
+    def power_row(self, size, symbolic=False, homogeneous=False):
+        """The power buttons (PowerRow), disarmed when the view shows and hides."""
+        row = self.menu.power_row(size, symbolic, homogeneous)
+        self.power_rows.append(row)
+        return row
+
+    def on_list_click(self, listbox, event):
+        if event.button != 3:
+            return False
+        row = listbox.get_row_at_y(int(event.y))
+        if row is None or row.app is None:
+            return False
+        self.menu.pin_menu(row, row.app)
+        return True
+
+    def pin_menu_key(self, event):
+        """The Menu key or Shift+F10 on a focused app: the pin menu, as a
+        right-click would (HIG A11Y-1). Handled before the search field sees
+        the key, which would open its own menu."""
+        Gdk = self.Gdk
+        shift_f10 = event.keyval == Gdk.KEY_F10 and event.state & Gdk.ModifierType.SHIFT_MASK
+        if event.keyval != Gdk.KEY_Menu and not shift_f10:
+            return False
+        row = self.window.get_focus()
+        if not isinstance(row, self.Gtk.ListBoxRow) or getattr(row, "app", None) is None:
+            return False
+        self.menu.pin_menu(row, row.app)
+        return True
+
+
+class ResultList:
+    """Search results: a fixed pool of MAX_RESULTS rows, filled in place as
+    the search changes (no widgets made per keystroke)."""
+
+    def __init__(self, view):
+        Gtk = view.Gtk
+        self.view = view
+        self.listbox = view.app_list("results")
+        self.rows = [view.app_row(None, ICON_LIST) for _ in range(MAX_RESULTS)]
+        for row in self.rows:
+            self.listbox.add(row)
+        self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.scroll.add(self.listbox)
+        self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.widget.pack_start(self.scroll, True, True, 0)
+        self.empty = Gtk.Label(label="No apps found", xalign=0)
+        self.empty.get_style_context().add_class("dim-label")
+        self.empty.set_no_show_all(True)
+        self.widget.pack_start(self.empty, False, False, 0)
+
+    def show(self, found):
+        for row, app in zip(self.rows, found + [None] * (MAX_RESULTS - len(found))):
+            if app is None:
+                row.hide()
+            else:
+                self.view.fill_row(row, app)
+                row.show()
+        self.empty.set_visible(not found)
+        if found:
+            self.listbox.select_row(self.rows[0])
+        self.scroll.get_vadjustment().set_value(0)
+
+    def selected(self):
+        row = self.listbox.get_selected_row()
+        return row if row is not None and row.get_visible() and row.app is not None else None
+
+    def first(self):
+        return next((row for row in self.rows if row.get_visible()), None)
+
+
+class ClassicView(View):
+    """Windows 7: pinned apps and All apps on the left, search below them;
+    the user, folders, Settings, Software and the power buttons on the right."""
+
+    name = "classic"
+
+    def build(self):
+        Gtk = self.Gtk
+        frame = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        frame.get_style_context().add_class("menu")
+        self.window.add(frame)
+
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        left.get_style_context().add_class("left")
+        left.set_size_request(WIDTH_LEFT, HEIGHT)
+        frame.pack_start(left, False, False, 0)
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(100)
+        left.pack_start(self.stack, True, True, 0)
+
+        self.pinned_list = self.app_list("pinned")
+        home = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        home.pack_start(self.pinned_list, False, False, 0)
+        all_button = self.flat_button("All Apps", "go-next-symbolic", end=True)
+        all_button.get_style_context().add_class("all-apps")
+        all_button.connect("clicked", lambda *_: self.show_page("all"))
+        home.pack_end(all_button, False, False, 0)
+        home.pack_end(Gtk.Separator(), False, False, 0)
+        self.stack.add_named(home, "home")
+
+        everything = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        back = self.flat_button("Back", "go-previous-symbolic")
+        back.get_style_context().add_class("back")
+        back.connect("clicked", lambda *_: self.show_page("home"))
+        everything.pack_start(back, False, False, 0)
+        everything.pack_start(Gtk.Separator(), False, False, 0)
+        self.all_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.sections_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.all_scroll.add(self.sections_box)
+        everything.pack_start(self.all_scroll, True, True, 0)
+        self.stack.add_named(everything, "all")
+
+        self.results = ResultList(self)
+        self.stack.add_named(self.results.widget, "results")
+        left.pack_end(self.entry, False, False, 0)
+
+        frame.pack_start(self.right_column(), False, False, 0)
+        frame.show_all()
+
+    def right_column(self):
+        Gtk = self.Gtk
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        right.get_style_context().add_class("right")
+        right.set_size_request(WIDTH_RIGHT, -1)
+        right.pack_start(self.user_box(), False, False, 0)
+        for text, path in self.places():
+            button = self.flat_button(text, "user-home" if text == "Home" else "folder")
+            button.connect("clicked", lambda _b, path=path: self.menu.open_folder(path))
+            right.pack_start(button, False, False, 0)
+        tools = self.tools()
+        if tools:
+            right.pack_start(Gtk.Separator(), False, False, 4)
+        for text, icon, command in tools:
+            button = self.flat_button(text, icon)
+            button.connect("clicked", lambda _b, command=command: self.menu.run(command))
+            right.pack_start(button, False, False, 0)
+        power = self.power_row(Gtk.IconSize.LARGE_TOOLBAR, homogeneous=True)
+        power.hint.set_max_width_chars(1)   # wraps in the column instead of widening it
+        right.pack_end(power.box, False, False, 0)
+        right.pack_end(power.hint, False, False, 2)
+        right.pack_end(Gtk.Separator(), False, False, 4)
+        return right
+
+    def populate(self):
+        for row in self.pinned_list.get_children():
+            row.destroy()
+        for app in self.menu.pinned_apps():
+            self.pinned_list.add(self.app_row(app, ICON_PINNED))
+        self.pinned_list.show_all()
+        for child in self.sections_box.get_children():
+            child.destroy()
+        for name, icon, apps in by_section(self.menu.apps):
+            self.sections_box.pack_start(self.section(name, icon, apps), False, False, 0)
+        self.sections_box.show_all()
+
+    def section(self, name, icon, apps):
+        """An expander for one section; its app rows are made when first opened."""
+        Gtk = self.Gtk
+        expander = Gtk.Expander()
+        expander.get_style_context().add_class("section")
+        title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        image = Gtk.Image()
+        self.menu.set_icon(image, self.Gio.ThemedIcon.new_with_default_fallbacks(icon), ICON_LIST)
+        title.pack_start(image, False, False, 0)
+        title.pack_start(Gtk.Label(label=name, xalign=0), True, True, 0)
+        expander.set_label_widget(title)
+
+        def expanded(*_):
+            if expander.get_expanded() and expander.get_child() is None:
+                listbox = self.app_list("section-apps")
+                for app in apps:
+                    listbox.add(self.app_row(app, ICON_LIST))
+                expander.add(listbox)
+                listbox.show_all()
+
+        expander.connect("notify::expanded", expanded)
+        return expander
+
+    def show_page(self, name, animate=True):
+        self.stack.set_visible_child_full(name, self.Gtk.StackTransitionType.CROSSFADE if animate
+                                          else self.Gtk.StackTransitionType.NONE)
+
+    def reset(self):
+        self.show_page("home", animate=False)
+        self.all_scroll.get_vadjustment().set_value(0)
+
+    def shown(self):
+        # Focus on the way to the entry selects a row; none is chosen yet.
+        self.pinned_list.unselect_all()
+
+    def escape(self):
+        if super().escape():
+            return True
+        if self.stack.get_visible_child_name() != "home":
+            self.show_page("home")
+            return True
+        return False
+
+    def on_search(self, query):
+        if not query.strip():
+            self.show_page("home", animate=False)
+            return
+        self.results.show(search(self.menu.apps, query))
+        self.show_page("results", animate=False)
+
+    def on_activate(self):
+        if self.stack.get_visible_child_name() == "results":
+            row = self.results.selected()
+            if row is not None:
+                self.menu.activate(row)
+
+    def first_row(self):
+        page = self.stack.get_visible_child_name()
+        if page == "results":
+            return self.results.first()
+        if page == "home":
+            return next(iter(self.pinned_list.get_children()), None)
+        return None
+
+
+class CategoriesView(View):
+    """GNOME 2 and Xfce's Whisker menu: search on top, categories on the left
+    (Favorites, All apps, the sections, Folders) and their apps on the right,
+    switched by pointing at a category; the user and the power buttons below."""
+
+    name = "categories"
+    WIDTH, HEIGHT, CATEGORIES_WIDTH = 540, 480, 180
+
+    def build(self):
+        Gtk = self.Gtk
+        frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        frame.get_style_context().add_class("menu")
+        frame.set_size_request(self.WIDTH, self.HEIGHT)
+        self.window.add(frame)
+        frame.pack_start(self.entry, False, False, 0)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        body.get_style_context().add_class("body")
+        frame.pack_start(body, True, True, 0)
+        self.categories = Gtk.ListBox()
+        self.categories.get_style_context().add_class("categories")
+        self.categories.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.categories.set_size_request(self.CATEGORIES_WIDTH, -1)
+        self.categories.connect("row-selected", self.on_category)
+        # Pointing at a category opens it, as in Whisker and GNOME 2.
+        self.categories.add_events(self.Gdk.EventMask.POINTER_MOTION_MASK)
+        self.categories.connect("motion-notify-event", self.on_point)
+        body.pack_start(self.categories, False, False, 0)
+        body.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
+        self.pages = Gtk.Stack()
+        self.pages.get_style_context().add_class("apps")
+        body.pack_start(self.pages, True, True, 0)
+        self.results = ResultList(self)
+        self.pages.add_named(self.results.widget, "results")
+
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        bar.get_style_context().add_class("bar")
+        bar.pack_start(self.user_box(ICON_LIST), True, True, 0)
+        power = self.power_row(Gtk.IconSize.BUTTON)
+        power.hint.set_xalign(1)
+        bar.pack_start(power.hint, False, False, 6)
+        for text, icon, command in self.tools():
+            bar.pack_start(self.icon_button(text, icon, lambda command=command: self.menu.run(command),
+                                            Gtk.IconSize.BUTTON), False, False, 0)
+        bar.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 4)
+        bar.pack_start(power.box, False, False, 0)
+        frame.pack_start(Gtk.Separator(), False, False, 0)
+        frame.pack_start(bar, False, False, 0)
+        frame.show_all()
+        self.page_apps = {}
+
+    def populate(self):
+        """The categories; each one's apps are made when it is first opened."""
+        for row in self.categories.get_children():
+            row.destroy()
+        for name in list(self.page_apps):
+            page = self.pages.get_child_by_name(name)
+            if page is not None:
+                page.destroy()
+        self.page_apps = {"Favorites": self.menu.pinned_apps(),
+                          "All Apps": sorted(self.menu.apps, key=lambda a: a.name_key)}
+        icons = {"Favorites": self.menu.themed("starred", "emblem-favorite", "bookmark-new"),
+                 "All Apps": self.menu.themed("applications-all", "view-app-grid", "view-grid",
+                                              "applications-other")}
+        for name, icon, apps in by_section(self.menu.apps):
+            self.page_apps[name] = apps
+            icons[name] = self.Gio.ThemedIcon.new_with_default_fallbacks(icon)
+        self.page_apps["Folders"] = self.places()
+        icons["Folders"] = self.menu.themed("folder")
+        for name in self.page_apps:
+            row = self.Gtk.ListBoxRow()
+            row.get_style_context().add_class("category")
+            row.key = name
+            box = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+            image = self.Gtk.Image()
+            self.menu.set_icon(image, icons[name], ICON_LIST)
+            box.pack_start(image, False, False, 0)
+            box.pack_start(self.Gtk.Label(label=name, xalign=0), True, True, 0)
+            row.add(box)
+            self.categories.add(row)
+        self.categories.show_all()
+        if self.fader.visible():     # pinned or unpinned while open
+            self.reset()
+
+    def page(self, name):
+        """The scrolled list of category name, made the first time."""
+        page = self.pages.get_child_by_name(name)
+        if page is None:
+            Gtk = self.Gtk
+            listbox = self.app_list("category-apps")
+            if name == "Folders":
+                for label, path in self.page_apps[name]:
+                    listbox.add(self.folder_row(label, path, ICON_LIST))
+            else:
+                for app in self.page_apps[name]:
+                    listbox.add(self.app_row(app, ICON_LIST))
+            page = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+            page.listbox = listbox
+            page.add(listbox)
+            page.show_all()
+            self.pages.add_named(page, name)
+        return page
+
+    def on_category(self, _listbox, row):
+        if row is None:
+            return
+        if self.entry.get_text():
+            self.entry.set_text("")     # back from the results to the category
+        page = self.page(row.key)
+        page.get_vadjustment().set_value(0)
+        self.pages.set_visible_child(page)
+
+    def on_point(self, listbox, event):
+        row = listbox.get_row_at_y(int(event.y))
+        if row is not None and row is not listbox.get_selected_row():
+            listbox.select_row(row)
+        return False
+
+    def reset(self):
+        first = self.categories.get_row_at_index(0)
+        if first is not None:
+            self.categories.select_row(first)
+            self.on_category(self.categories, first)
+
+    def on_search(self, query):
+        if not query.strip():
+            row = self.categories.get_selected_row()
+            if row is not None:
+                self.pages.set_visible_child(self.page(row.key))
+            return
+        self.results.show(search(self.menu.apps, query))
+        self.pages.set_visible_child_name("results")
+
+    def on_activate(self):
+        if self.pages.get_visible_child_name() == "results":
+            row = self.results.selected()
+            if row is not None:
+                self.menu.activate(row)
+
+    def first_row(self):
+        if self.pages.get_visible_child_name() == "results":
+            return self.results.first()
+        page = self.pages.get_visible_child()
+        return page.listbox.get_row_at_index(0) if hasattr(page, "listbox") else None
+
+
+class GridView(View):
+    """macOS Launchpad: every app as a big icon in a full-screen grid over the
+    desktop, the search on top. A click on the background closes it."""
+
+    name = "grid"
+    layer = "OVERLAY"
+    icon_sizes = (ICON_GRID,)
+    fades = False       # full screen: a faded frame costs too much (ADR-005)
+
+    def build(self):
+        Gtk, GtkLayerShell = self.Gtk, self.GtkLayerShell
+        visual = self.Gdk.Screen.get_default().get_rgba_visual()
+        # The CSS background (the theme's, mostly opaque) over what is behind.
+        # Never app-paintable: GTK then draws no background at all, and dark
+        # icons and text vanished over a dark window.
+        if visual is not None:
+            self.window.set_visual(visual)
+        # Over the whole screen, panels and dock included.
+        GtkLayerShell.set_exclusive_zone(self.window, -1)
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM, GtkLayerShell.Edge.LEFT,
+                     GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_anchor(self.window, edge, True)
+        self.window.connect("button-press-event", self.on_press)
+        self.window.connect("button-release-event", self.on_release)
+        self.background_press = False
+        self.middle_press = None    # the tile a middle button went down on
+
+        frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        frame.get_style_context().add_class("menu")
+        self.window.add(frame)
+        self.entry.set_halign(Gtk.Align.CENTER)
+        self.entry.set_size_request(320, -1)
+        # The search in the middle of the top row; the power buttons at its
+        # right end, under the panel's Quick Settings corner, while Quick
+        # Settings (which has them) is off (reset).
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        top.set_center_widget(self.entry)
+        self.power = self.power_row(Gtk.IconSize.LARGE_TOOLBAR, symbolic=True)
+        self.power.hint.set_xalign(1)
+        self.power_corner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, valign=Gtk.Align.START)
+        self.power_corner.pack_end(self.power.box, False, False, 0)
+        self.power_corner.pack_end(self.power.hint, False, False, 0)
+        top.pack_end(self.power_corner, False, False, 0)
+        frame.pack_start(top, False, False, 0)
+        self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        frame.pack_start(self.scroll, True, True, 0)
+        self.flow = Gtk.FlowBox()
+        self.flow.get_style_context().add_class("apps")
+        self.flow.set_homogeneous(True)
+        self.flow.set_valign(Gtk.Align.START)
+        self.flow.set_halign(Gtk.Align.CENTER)
+        self.flow.set_max_children_per_line(8)
+        self.flow.set_min_children_per_line(3)
+        self.flow.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.flow.set_activate_on_single_click(True)
+        self.flow.connect("child-activated", self.on_tile_activated)
+        self.flow.connect("keynav-failed", self.on_keynav_failed)
+        self.window.connect("key-press-event", self.on_new_window_key)
+        # The pointer selects what it is over: one highlight for the mouse,
+        # the search and the arrow keys, and Enter starts that app.
+        self.flow.add_events(self.Gdk.EventMask.POINTER_MOTION_MASK)
+        self.flow.connect("motion-notify-event", self.on_pointer)
+        self.flow.set_filter_func(self.visible_app)
+        self.flow.set_sort_func(self.order_apps)
+        self.scroll.add(self.flow)
+        self.empty = Gtk.Label(label="No apps found")
+        self.empty.get_style_context().add_class("dim-label")
+        self.empty.set_no_show_all(True)
+        frame.pack_start(self.empty, False, False, 0)
+        frame.show_all()
+        self.matches = None     # desktop id -> rank while searching
+        self.tiles = []
+
+    def place(self, corner):
+        """Always the whole screen."""
+
+    def populate(self):
+        Gtk = self.Gtk
+        for child in self.flow.get_children():
+            child.destroy()
+        self.tiles = []
+        for app in sorted(self.menu.apps, key=lambda a: a.name_key):
+            child = Gtk.FlowBoxChild()
+            child.get_style_context().add_class("app")
+            child.app = app
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            image = Gtk.Image()
+            self.menu.set_icon(image, app.info.get_icon() if app.info else None, ICON_GRID)
+            label = Gtk.Label(label=app.name, justify=Gtk.Justification.CENTER)
+            label.set_line_wrap(True)
+            label.set_lines(2)
+            label.set_ellipsize(3)      # Pango.EllipsizeMode.END
+            label.set_max_width_chars(12)
+            label.set_width_chars(12)
+            box.pack_start(image, False, False, 0)
+            box.pack_start(label, False, False, 0)
+            child.add(box)
+            child.set_tooltip_markup(app_tooltip(app.name, app.info.get_description() if app.info else None))
+            self.flow.add(child)
+            self.tiles.append(child)
+        self.flow.show_all()
+
+    def visible_app(self, child):
+        return self.matches is None or child.app.id in self.matches
+
+    def order_apps(self, a, b):
+        if self.matches is not None:
+            rank_a, rank_b = self.matches.get(a.app.id, 0), self.matches.get(b.app.id, 0)
+            if rank_a != rank_b:
+                return rank_a - rank_b
+        return (a.app.name_key > b.app.name_key) - (a.app.name_key < b.app.name_key)
+
+    def on_search(self, query):
+        if query.strip():
+            found = search(self.menu.apps, query, limit=None)
+            self.matches = {app.id: rank for rank, app in enumerate(found)}
+        else:
+            found, self.matches = None, None
+        self.flow.invalidate_filter()
+        self.flow.invalidate_sort()
+        self.empty.set_visible(found == [])
+        self.scroll.get_vadjustment().set_value(0)
+        first = self.first_row()
+        if first is not None and self.matches is not None:
+            self.flow.select_child(first)
+        else:
+            self.flow.unselect_all()
+
+    def first_row(self):
+        """The first tile in sort order that the search shows."""
+        index = 0
+        while (child := self.flow.get_child_at_index(index)) is not None:
+            if child.get_child_visible():
+                return child
+            index += 1
+        return None
+
+    def on_pointer(self, _flow, event):
+        child = self.flow.get_child_at_pos(event.x, event.y)
+        if child is not None and not child.is_selected():
+            self.flow.select_child(child)
+        return False
+
+    def on_activate(self, new_window=False):
+        selected = self.flow.get_selected_children()
+        if selected:
+            self.menu.launch(selected[0].app, focus=not new_window)
+
+    # A click or Enter brings an open app forward; a middle click, Ctrl+click
+    # or Ctrl+Enter starts another copy (a second terminal or browser window).
+    def on_tile_activated(self, _flow, child):
+        ok, state = self.Gtk.get_current_event_state()
+        self.menu.launch(child.app, focus=not (ok and state & self.Gdk.ModifierType.CONTROL_MASK))
+
+    def on_new_window_key(self, _window, event):
+        # With the focus in the search, Enter is the entry's activate, which
+        # Ctrl+Enter doesn't send.
+        if (event.keyval in (self.Gdk.KEY_Return, self.Gdk.KEY_KP_Enter, self.Gdk.KEY_ISO_Enter)
+                and event.state & self.Gdk.ModifierType.CONTROL_MASK):
+            self.on_activate(new_window=True)
+            return True
+        return False
+
+    def reset(self):
+        self.scroll.get_vadjustment().set_value(0)
+        self.flow.unselect_all()
+        self.power_corner.set_visible(read_quick(self.menu.root) is None)
+        self.background_press = False
+        self.middle_press = None
+
+    def tile_at(self, event):
+        if self.Gtk.get_event_widget(event) is not self.flow:
+            return None
+        return self.flow.get_child_at_pos(event.x, event.y)
+
+    def in_power_corner(self, event):
+        widget = self.Gtk.get_event_widget(event)
+        return widget is not None and widget.is_ancestor(self.power_corner)
+
+    def on_press(self, _window, event):
+        # The entry keeps its clicks; this is the empty space or a tile. A
+        # tile's press comes here too (the flow box launches on the release
+        # of the first button; the middle one it ignores).
+        if self.in_power_corner(event):
+            self.background_press, self.middle_press = False, None
+            return False        # a power button's: it keeps its clicks
+        tile = self.tile_at(event)
+        self.background_press = event.button == 1 and tile is None
+        self.middle_press = tile if event.button == 2 else None
+        return self.background_press or self.middle_press is not None
+
+    def on_release(self, _window, event):
+        # Done on the release, never the press: a window unmapped between
+        # the two keeps GDK's implicit grab of the press, and every later
+        # press then comes to the window itself, so a click on a tile closed
+        # the menu instead of starting the app.
+        if event.button == 2 and self.middle_press is not None:
+            tile, self.middle_press = self.middle_press, None
+            if self.tile_at(event) is tile:
+                self.menu.launch(tile.app)      # another copy
+            return True
+        if event.button != 1 or not self.background_press:
+            return False
+        self.background_press = False
+        self.menu.hide()
+        return True
+
+
+VIEWS = {view.name: view for view in (ClassicView, CategoriesView, GridView)}
+
+
+# --- Commands -----------------------------------------------------------------
+
+def open_timing_log(root):
+    """$XDG_RUNTIME_DIR/flickos/menu/timing.log with FLICKOS_MENU_TIMING=1."""
+    if os.environ.get("FLICKOS_MENU_TIMING") != "1" or root is None:
+        return None
+    try:
+        return open(os.path.join(root, LOG_FILE), "a", encoding="utf-8")
+    except OSError as error:
+        warn(f"no timing log: {error}")
+        return None
+
+
+def take_lock(root):
+    """The daemon's lock, with its process id in it; None if one runs already."""
+    import fcntl
+    os.makedirs(os.path.join(root, "menu"), mode=0o700, exist_ok=True)
+    lock = open(os.path.join(root, PID_FILE), "a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.close()
+        return None
+    lock.seek(0)
+    lock.truncate()
+    lock.write(f"{os.getpid()}\n")
+    lock.flush()
+    return lock
+
+
+def cmd_daemon(opts):
+    import contextlib
+    import signal
+    root = runtime_root()
+    if root is None:
+        raise MenuError("XDG_RUNTIME_DIR is not set")
+    signals = request_signals()
+    pending = []
+    # Until GTK is ready, remember requests: a click may come while it loads,
+    # and a signal without a handler would end this process.
+    for request, signum in signals.items():
+        signal.signal(signum, lambda _signum, _frame, request=request: pending.append(request))
+    lock = take_lock(root)
+    if lock is None:
+        # One runs already (e.g. two panels started it): hand the request over.
+        pid = daemon_pid(root)
+        if opts.request and pid is not None:
+            send(root, pid, opts.request)
+        return 0
+    with lock:
+        if read_anchor(root) is None and read_quick(root) is None and read_phone(root) is None:
+            warn("the start menu, Quick Settings and the phone popup are off "
+                 "(flickos-layout launcher set menu and flickos-layout quick-settings set on "
+                 "turn the first two on; the phone popup follows the phone connection)")
+            return 0
+        gtk = load_gtk()
+        GLib, Gtk = gtk[0], gtk[3]
+        menu = Menu(gtk, root, open_timing_log(root))
+
+        def on_signal(request):
+            if request == "toggle":
+                request = take_request(root) or request
+            menu.request(request)
+            return True     # keep watching
+
+        # Default priority, like GDK's Wayland events: a source of a higher one
+        # can run while GDK has a Wayland read pending, and showing a
+        # layer-shell window from it then waits for that read forever.
+        for request, signum in signals.items():
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, on_signal, request)
+        for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, lambda: Gtk.main_quit() or False)
+        # The signals that came before GLib watched them; a toggle may have
+        # left its word (show, quick, phone) in REQUEST_FILE.
+        menu.pending = [take_request(root) or request if request == "toggle" else request for request in pending]
+        if opts.request:
+            menu.pending.append(opts.request)
+        # Build after the panel had its turn at the start of the session.
+        GLib.idle_add(menu.build, priority=GLib.PRIORITY_LOW)
+        try:
+            Gtk.main()
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(os.path.join(root, PID_FILE))
+    return 0
+
+
+def cmd_request(opts):
+    return client(opts.command)
+
+
+def cmd_list(_opts):
+    for section, _icon, apps in by_section(load_apps(load_gio())):
+        for app in apps:
+            print(f"{section}\t{app.id}\t{app.name}")
+    return 0
+
+
+def cmd_pinned(_opts):
+    Gio = load_gio()
+    for desktop_id in pinned_ids():
+        try:
+            info = Gio.DesktopAppInfo.new(desktop_id)
+        except TypeError:
+            info = None
+        if info is not None:
+            print(desktop_id)
+    return 0
+
+
+def cmd_pin(opts):
+    desktop_id = opts.id if opts.id.endswith(".desktop") else opts.id + ".desktop"
+    changed = pin(desktop_id) if opts.command == "pin" else unpin(desktop_id)
+    if not changed:
+        print(f"{desktop_id} is {'already' if opts.command == 'pin' else 'not'} pinned.")
+    return 0
+
+
+def cmd_bench(_opts):
+    import time
+    Gio = load_gio()
+    started = time.perf_counter()
+    apps = load_apps(Gio)
+    print(f"index: {len(apps)} apps in {(time.perf_counter() - started) * 1000:.1f} ms")
+    for query in ("f", "fi", "fire", "writer", "set", "zzz", "a b"):
+        started = time.perf_counter()
+        for _ in range(100):
+            found = search(apps, query)
+        print(f"search {query!r}: {len(found)} results, {(time.perf_counter() - started) * 10:.3f} ms")
+    root = runtime_root()
+    menu = read_menu(root)
+    print(f"menu: {'on, ' + ', '.join(menu) if menu else 'off'}; daemon: "
+          f"{daemon_pid(root) or 'not running'}")
+    print("Opening times: run the daemon with FLICKOS_MENU_TIMING=1, see "
+          f"{os.path.join(root or '$XDG_RUNTIME_DIR/flickos', LOG_FILE)}.")
+    return 0
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    # The fast path: a click or the Super key, before anything else is imported.
+    if len(argv) == 1 and argv[0] in REQUESTS:
+        try:
+            return client(argv[0])
+        except OSError as error:
+            warn(str(error))
+            return 1
+    import argparse
+    parser = argparse.ArgumentParser(prog="flickos-menu", description="The FlickOS start menu, Quick Settings "
+                                     "and the phone popup.")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    daemon = commands.add_parser("daemon", help="keep the menu, Quick Settings and the phone popup ready "
+                                               "(flickos-layout runs it while one of them is on)")
+    daemon.add_argument("--request", choices=REQUESTS, help="then do this")
+    daemon.set_defaults(func=cmd_daemon)
+    for request, text in (("toggle", "open or close the menu"), ("show", "open the menu"),
+                          ("hide", "close the menu, Quick Settings and the phone popup"),
+                          ("super", "a tap of Super (labwc)"),
+                          ("quick", "open or close Quick Settings"),
+                          ("phone", "open or close the phone popup")):
+        commands.add_parser(request, help=text).set_defaults(func=cmd_request)
+    commands.add_parser("list", help="print the apps: section, desktop id, name").set_defaults(func=cmd_list)
+    commands.add_parser("pinned", help="print the pinned apps that are installed").set_defaults(func=cmd_pinned)
+    for verb in ("pin", "unpin"):
+        sub = commands.add_parser(verb, help=f"{verb} an app (desktop id)")
+        sub.add_argument("id")
+        sub.set_defaults(func=cmd_pin)
+    commands.add_parser("bench", help="time the app index and search").set_defaults(func=cmd_bench)
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except (MenuError, OSError) as error:
+        warn(str(error))
+        return 1
+    except KeyboardInterrupt:
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

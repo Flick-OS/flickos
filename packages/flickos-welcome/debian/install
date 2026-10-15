@@ -1,0 +1,4 @@
+usr/bin/flickos-welcome         usr/bin/
+usr/share/applications/*        usr/share/applications/
+etc/xdg/flickos/*               etc/xdg/flickos/
+etc/skel/.config/flickos/*      etc/skel/.config/flickos/

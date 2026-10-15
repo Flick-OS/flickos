@@ -1,0 +1,7 @@
+waypaper (2.9+flickos1) trixie; urgency=medium
+
+  * Upstream release 2.9, packaged for FlickOS (not in Debian trixie).
+    Reads defaults from /etc/xdg/waypaper/config.ini: FlickOS wallpapers
+    and ~/Pictures, swaybg, fill, Arc-Dark background color.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 18 Sep 2026 14:12:36 +0800

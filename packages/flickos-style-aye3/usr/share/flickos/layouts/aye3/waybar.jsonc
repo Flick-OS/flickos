@@ -1,0 +1,31 @@
+// Aye3: one bar at the bottom, desktop numbers on the left, status as text
+// on the right, separated by thin lines (style.css). Installed next to
+// flickos-layouts' layouts, so ../common is FlickOS's shared modules; the
+// settings here win over them.
+{
+    "name": "aye3bar",
+    "layer": "top",
+    "position": "bottom",
+    "height": 22,
+    "spacing": 0,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["custom/launcher", "flickos/desktops"],
+    "modules-center": [],
+    "modules-right": ["network", "cpu", "memory", "wireplumber", "battery", "clock", "custom/recording",
+                      "custom/tiler", "tray", "custom/desktop"],
+
+    "network": {
+        "format-wifi": "W: {essid} {ipaddr}",
+        "format-ethernet": "E: {ipaddr}",
+        "format-disconnected": "W: down",
+        "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
+        "on-click": "nm-connection-editor"
+    },
+    // Every 15 s: each read wakes waybar (HIG PERF-5).
+    "cpu": { "format": "CPU {usage}%", "interval": 15 },
+    "memory": { "format": "MEM {used:0.1f}G", "interval": 15 },
+    "wireplumber": { "format": "VOL {volume}%", "format-muted": "VOL muted" },
+    "battery": { "format": "BAT {capacity}%", "format-charging": "CHR {capacity}%" },
+    "clock": { "format": "{:%Y-%m-%d %H:%M}" }
+}

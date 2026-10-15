@@ -1,0 +1,150 @@
+<?xml version="1.0"?>
+<!--
+  FlickOS labwc defaults. Reference: man labwc-config, man labwc-actions.
+  Your own ~/.config/labwc/rc.xml is merged over this file, unless it is a
+  copy of it (with this comment) or has <default />: then it replaces it.
+  `flickos-layout explain labwc` says which.
+-->
+<labwc_config>
+  <theme>
+    <!-- Window borders, title bars and menus in Arc-Dark colors:
+         /usr/share/themes/FlickOS-Arc-Dark/labwc/themerc (man labwc-theme).
+         The Light style (flickos-layout style set light) selects FlickOS-Arc
+         through a generated copy of this file in $XDG_RUNTIME_DIR/flickos. -->
+    <name>FlickOS-Arc-Dark</name>
+    <cornerRadius>6</cornerRadius>
+    <!-- Window icons in the title bar. Unset, labwc looks for an icon theme
+         named like the window theme, finds none and shows only hicolor's
+         icons, so FlickOS's own windows got labwc's. flickos-layout puts
+         the GTK icon theme here (gsettings icon-theme). -->
+    <icon>Numix-Circle</icon>
+  </theme>
+
+  <!-- Alt+Tab: the application's name and the window title, instead of
+       labwc's default shell type / app id / title columns. Size and spacing
+       are osd.window-switcher.* in the themerc. -->
+  <windowSwitcher show="yes" preview="yes" outlines="yes" allWorkspaces="no">
+    <fields>
+      <field content="desktop_entry_name" width="30%" />
+      <field content="title" width="70%" />
+    </fields>
+  </windowSwitcher>
+
+  <!-- Screen zoom (labwc's magnifier, see the Zoom keys below): the whole
+       screen under the pointer, 1.5x on the first Super+=, then 0.5 more each
+       time. Super+0 turns it off and back on at the last level (2x at first). -->
+  <magnifier>
+    <width>-1</width>
+    <height>-1</height>
+    <initScale>2</initScale>
+    <increment>0.5</increment>
+  </magnifier>
+
+  <keyboard>
+    <!--
+      Load labwc's built-in bindings: Alt+Tab, Alt+F4, window snapping,
+      window menu, brightness keys. Bindings below override defaults
+      that use the same key (W-Return, A-F3, audio keys).
+    -->
+    <default />
+
+    <!-- Applications. Super+D and Alt+F3 open the app launcher, or close it.
+         Super+Esc opens the task manager (lxtask, a Recommends of flickos-desktop).
+         Terminal, file manager and browser are the user's defaults (Settings >
+         Default Applications): xdg-terminal-exec, /usr/libexec/flickos/open-default. -->
+    <keybind key="W-Return"><action name="Execute"><command>xdg-terminal-exec</command></action></keybind>
+    <keybind key="W-d"><action name="Execute"><command>sh -c 'pkill -x fuzzel || fuzzel'</command></action></keybind>
+    <keybind key="A-F3"><action name="Execute"><command>sh -c 'pkill -x fuzzel || fuzzel'</command></action></keybind>
+    <keybind key="W-e"><action name="Execute"><command>/usr/libexec/flickos/open-default files</command></action></keybind>
+    <keybind key="W-b"><action name="Execute"><command>/usr/libexec/flickos/open-default browser</command></action></keybind>
+    <keybind key="W-v"><action name="Execute"><command>sh -c 'cliphist list | fuzzel --dmenu --prompt "Clipboard: " | cliphist decode | wl-copy'</command></action></keybind>
+    <keybind key="W-Escape"><action name="Execute"><command>lxtask</command></action></keybind>
+
+    <!-- Windows and session -->
+    <keybind key="W-q"><action name="Close" /></keybind>
+    <keybind key="W-l"><action name="Execute"><command>/usr/libexec/flickos/lock</command></action></keybind>
+    <keybind key="W-S-e"><action name="Exit" /></keybind>
+    <!-- Show Desktop (the panel button next to the apps button): minimize
+         every window, again to bring them back. flick-tiler's daemon does it;
+         labwc 0.8 has no ToggleShowDesktop. -->
+    <keybind key="W-S-d"><action name="Execute"><command>flick-tiler show-desktop</command></action></keybind>
+    <!-- Tiling on/off (flick-tiler). Its other keys (Super+J/K, Super+M, ...)
+         exist only while tiling is on: flick-tiler adds them to the rc.xml
+         overlay of flickos-layouts. -->
+    <keybind key="W-t"><action name="Execute"><command>flick-tiler toggle</command></action></keybind>
+
+    <!-- Screenshots (flickos-screenshot): saved in ~/Pictures/Screenshots and copied.
+         Print = an area, Shift+Print = every screen, Ctrl+Print = an area, copied only,
+         Super+Shift+S = the bar (area or screen, photo or video, with a delay),
+         Super+Shift+R = the bar with Video chosen, or stop the recording -->
+    <keybind key="Print"><action name="Execute"><command>flickos-screenshot shot region</command></action></keybind>
+    <keybind key="S-Print"><action name="Execute"><command>flickos-screenshot shot screen</command></action></keybind>
+    <keybind key="C-Print"><action name="Execute"><command>flickos-screenshot shot region --copy-only</command></action></keybind>
+    <keybind key="W-S-s"><action name="Execute"><command>flickos-screenshot</command></action></keybind>
+    <keybind key="W-S-r"><action name="Execute"><command>flickos-screenshot bar --video</command></action></keybind>
+
+    <!-- Zoom (labwc's magnifier, <magnifier> above; Super+scroll is in <mouse>).
+         The zoom action comes first: flickos-shortcuts describes a keybind by
+         it. SIGWINCH tells the flickos-shortcuts daemon that Super is in use,
+         so holding it down for the next zoom step doesn't show the sheet.
+         pkill -f, not -x: process names are cut to 15 characters
+         ("flickos-shortcu"); [f] keeps the pattern from matching this sh. -->
+    <keybind key="W-equal"><action name="ZoomIn" /><action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action></keybind>
+    <keybind key="W-KP_Add"><action name="ZoomIn" /><action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action></keybind>
+    <keybind key="W-minus"><action name="ZoomOut" /><action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action></keybind>
+    <keybind key="W-KP_Subtract"><action name="ZoomOut" /><action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action></keybind>
+    <keybind key="W-0"><action name="ToggleMagnify" /><action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action></keybind>
+
+    <!-- Volume through PipeWire (labwc's defaults use amixer, which is not installed) -->
+    <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+</command></action></keybind>
+    <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-</command></action></keybind>
+    <keybind key="XF86AudioMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle</command></action></keybind>
+    <keybind key="XF86AudioMicMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle</command></action></keybind>
+
+    <!-- Media players (any app supporting MPRIS: VLC, Firefox, ...) -->
+    <keybind key="XF86AudioPlay"><action name="Execute"><command>playerctl play-pause</command></action></keybind>
+    <keybind key="XF86AudioPause"><action name="Execute"><command>playerctl pause</command></action></keybind>
+    <keybind key="XF86AudioStop"><action name="Execute"><command>playerctl stop</command></action></keybind>
+    <keybind key="XF86AudioNext"><action name="Execute"><command>playerctl next</command></action></keybind>
+    <keybind key="XF86AudioPrev"><action name="Execute"><command>playerctl previous</command></action></keybind>
+
+    <!-- Brightness (same as labwc's defaults; explicit so they are easy to change) -->
+    <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>brightnessctl set 5%+</command></action></keybind>
+    <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>brightnessctl set 5%-</command></action></keybind>
+  </keyboard>
+
+  <mouse>
+    <!-- labwc's built-in bindings: window title bars, borders, buttons, Alt+drag. -->
+    <default />
+
+    <!--
+      Clicks on the empty desktop. Every click closes the app launcher (fuzzel
+      closes by itself only when a window takes the keyboard focus).
+      These are the "right-menu" desktop clicks of flickos-layouts; another
+      choice in Settings > Desktop Layout & Style (flickos-layout clicks set ID)
+      replaces the Left and Right bindings through a generated copy of this
+      file in $XDG_RUNTIME_DIR/flickos. Middle click: labwc's default (menu).
+    -->
+    <context name="Root">
+      <mousebind button="Left" action="Press">
+        <action name="Execute"><command>pkill -x fuzzel</command></action>
+      </mousebind>
+      <mousebind button="Right" action="Press">
+        <action name="Execute"><command>pkill -x fuzzel</command></action>
+        <action name="ShowMenu" menu="root-menu" />
+      </mousebind>
+    </context>
+
+    <!-- Super+scroll zooms anywhere, one step per notch (the Zoom keys). -->
+    <context name="All">
+      <mousebind direction="W-Up" action="Scroll">
+        <action name="ZoomIn" />
+        <action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action>
+      </mousebind>
+      <mousebind direction="W-Down" action="Scroll">
+        <action name="ZoomOut" />
+        <action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action>
+      </mousebind>
+    </context>
+  </mouse>
+</labwc_config>

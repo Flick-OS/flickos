@@ -1,0 +1,4 @@
+usr/bin/flickos-phone         usr/bin/
+usr/share/flickos/phone/*     usr/share/flickos/phone/
+usr/share/applications/*      usr/share/applications/
+etc/xdg/flickos/*             etc/xdg/flickos/

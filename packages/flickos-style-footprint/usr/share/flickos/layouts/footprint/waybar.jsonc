@@ -1,0 +1,20 @@
+// Footprint: a black top bar with the desktops as dots on the left, the
+// clock in the middle and the status on the right (style.css). The dock on
+// the left edge is sfwbar (dock.config, dock.css); its Show Apps is the
+// layout's apps button, so the bar has none (Super opens the grid too). Installed next to
+// flickos-layouts' layouts, so ../common is FlickOS's shared modules; the
+// settings here win over them.
+{
+    "name": "footprint",
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "spacing": 4,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["flickos/desktops"],
+    "modules-center": ["clock", "custom/recording"],
+    "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/desktop"],
+
+    "clock": { "format": "{:%b %e  %H:%M}" }
+}

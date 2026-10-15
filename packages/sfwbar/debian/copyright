@@ -1,0 +1,109 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: sfwbar
+Upstream-Contact: https://github.com/LBCrion/sfwbar/issues
+Source: https://github.com/LBCrion/sfwbar
+
+Files: *
+Copyright: 2020-2026 sfwbar maintainers
+License: GPL-3
+
+Files: protocols/cosmic-workspace-unstable-v1.xml
+       protocols/ext-workspace-v1.xml
+Copyright: 2019 Christopher Billington
+           2020 Ilia Bozhinov
+           2022 Victoria Brekenfeld
+License: HPND-sell-variant
+
+Files: protocols/ext-foreign-toplevel-list-v1.xml
+Copyright: 2018 Ilia Bozhinov
+           2020 Isaac Freund
+           2022 wb9688
+           2023 i509VCB
+License: HPND-sell-variant
+
+Files: protocols/wlr-foreign-toplevel-management-unstable-v1.xml
+Copyright: 2018 Ilia Bozhinov
+License: HPND-sell-variant
+
+Files: protocols/wlr-layer-shell-unstable-v1.xml
+Copyright: 2017 Drew DeVault
+License: HPND-sell-variant
+
+Files: protocols/ext-background-effect-v1.xml
+Copyright: 2015 Martin Gräßlin
+           2015 Marco Martin
+           2020 Vlad Zahorodnii
+           2024 Xaver Hugl
+License: Expat
+
+Files: protocols/ext-image-capture-source-v1.xml
+       protocols/ext-image-copy-capture-v1.xml
+Copyright: 2021-2023 Andri Yngvason
+           2024 Simon Ser
+License: Expat
+
+Files: protocols/xdg-output-unstable-v1.xml
+Copyright: 2017 Red Hat Inc.
+License: Expat
+
+Files: icons/weather/*
+Copyright: 2015-2017 Yr
+License: Expat
+
+Files: debian/*
+Copyright: 2026 Jon <dvbondoy@gmail.com>
+License: GPL-3
+
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, version 3 of the License.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: HPND-sell-variant
+ Permission to use, copy, modify, distribute, and sell this
+ software and its documentation for any purpose is hereby granted
+ without fee, provided that the above copyright notice appear in
+ all copies and that both that copyright notice and this permission
+ notice appear in supporting documentation, and that the name of
+ the copyright holders not be used in advertising or publicity
+ pertaining to distribution of the software without specific,
+ written prior permission.  The copyright holders make no
+ representations about the suitability of this software for any
+ purpose.  It is provided "as is" without express or implied
+ warranty.
+ .
+ THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS
+ SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ FITNESS, IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+ AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+ THIS SOFTWARE.
+
+License: Expat
+ Permission is hereby granted, free of charge, to any person obtaining a
+ copy of this software and associated documentation files (the "Software"),
+ to deal in the Software without restriction, including without limitation
+ the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ and/or sell copies of the Software, and to permit persons to whom the
+ Software is furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included
+ in all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ DEALINGS IN THE SOFTWARE.

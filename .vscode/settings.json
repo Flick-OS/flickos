@@ -1,0 +1,15 @@
+{
+    "git.ignoreLimitWarning": true,
+    "files.watcherExclude": {
+        "**/chroot/**": true,
+        "**/binary/**": true,
+        "**/cache/**": true,
+        "**/.build/**": true,
+        "**/packages/.build/**": true
+    },
+    "search.exclude": {
+        "**/chroot": true,
+        "**/binary": true,
+        "**/cache": true
+    }
+}

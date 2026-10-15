@@ -1,0 +1,2 @@
+# Runs the weekly count (flickos-countme.service): no root for the request.
+u _flickos-countme - "FlickOS weekly count" /nonexistent

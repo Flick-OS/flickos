@@ -1,0 +1,286 @@
+/* This entire file is licensed under GNU General Public License v3.0
+ *
+ * Copyright 2022- sfwbar maintainers
+ */
+
+#include "gui/capture.h"
+#include "gui/css.h"
+#include "gui/filter.h"
+#include "gui/scaleimage.h"
+#include "gui/taskbaritem.h"
+#include "gui/taskbarshell.h"
+
+G_DEFINE_TYPE_WITH_CODE (TaskbarItem, taskbar_item, FLOW_ITEM_TYPE,
+    G_ADD_PRIVATE (TaskbarItem))
+
+static gboolean taskbar_item_action_exec ( GtkWidget *self, gint slot,
+    GdkEvent *ev )
+{
+  TaskbarItemPrivate *priv;
+  GdkModifierType mods;
+  GtkWidget *shell, *parent;
+  GBytes *action;
+
+  g_return_val_if_fail(IS_TASKBAR_ITEM(self), FALSE);
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  shell = flow_item_get_parent(self);
+  if( (parent = taskbar_get_parent(shell)) )
+    shell = flow_item_get_parent(parent);
+  if(!base_widget_check_action_slot(shell, slot) && slot != 1)
+    return FALSE;
+
+  mods = base_widget_get_modifiers(self);
+  action = base_widget_get_action(shell, slot, mods);
+
+  vm_run_action(action, self, ev, priv->win, NULL,
+      base_widget_get_store(priv->taskbar), NULL);
+
+  return TRUE;
+}
+
+static void taskbar_item_style_updated ( GtkWidget *w, GtkWidget *self )
+{
+  TaskbarItemPrivate *priv;
+  gint dir;
+
+  g_return_if_fail(IS_TASKBAR_ITEM(self));
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  gtk_widget_style_get(base_widget_get_child(self), "direction", &dir, NULL);
+
+  if(dir==priv->dir)
+    return;
+  priv->dir = dir;
+
+  if(!priv->label)
+    return;
+  g_object_ref(priv->label);
+  gtk_container_remove(GTK_CONTAINER(priv->box), priv->label);
+  gtk_grid_attach(GTK_GRID(priv->box), priv->label,
+      dir==GTK_POS_LEFT? 0 : dir==GTK_POS_RIGHT? 2 : 1,
+      dir==GTK_POS_TOP? 0 : dir==GTK_POS_BOTTOM? 2 : 1,
+      1, 1);
+  g_object_unref(priv->label);
+}
+
+window_t *taskbar_item_get_window ( GtkWidget *self )
+{
+  TaskbarItemPrivate *priv;
+
+  g_return_val_if_fail(IS_TASKBAR_ITEM(self),NULL);
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  return priv->win;
+}
+
+static gboolean taskbar_item_check ( GtkWidget *self )
+{
+  TaskbarItemPrivate *priv;
+  GtkWidget *taskbar, *holder;
+  GPtrArray *pins;
+  GList *iter;
+  window_t *win;
+  gint group;
+
+  g_return_val_if_fail(IS_TASKBAR_ITEM(self), FALSE);
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  if( (holder = taskbar_get_parent(priv->taskbar)) )
+    taskbar = flow_item_get_parent(holder);
+  else
+    taskbar = priv->taskbar;
+
+  if(priv->win->pin)
+  {
+    g_object_get(G_OBJECT(taskbar), "group", &group, "pins", &pins, NULL);
+    if(group != TASKBAR_SHELL_API_POPUP && group != TASKBAR_SHELL_API_DEFAULT)
+      return FALSE;
+    for(iter=wintree_get_list(); iter; iter=g_list_next(iter))
+    {
+      win = iter->data;
+      if(win != priv->win && !g_strcmp0(win->appid, priv->win->appid) &&
+          filter_window_check(taskbar, win) )
+        return FALSE;
+    }
+    return g_ptr_array_find_with_equal_func(pins, priv->win->appid, g_str_equal, NULL);
+  }
+
+  return filter_window_check(taskbar, priv->win);
+}
+
+static void taskbar_item_update ( GtkWidget *self )
+{
+  TaskbarItemPrivate *priv;
+  gboolean tooltips, preview;
+
+  g_return_if_fail(IS_TASKBAR_ITEM(self));
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+  if(!priv->invalid)
+    return;
+
+  g_object_get(G_OBJECT(priv->taskbar), "tooltips", &tooltips,
+      "preview", &preview, NULL);
+
+  css_set_class(base_widget_get_child(self), "minimized",
+      priv->win->state & WS_MINIMIZED);
+  css_set_class(base_widget_get_child(self), "maximized",
+      priv->win->state & WS_MAXIMIZED);
+  css_set_class(base_widget_get_child(self), "fullscreen",
+      priv->win->state & WS_FULLSCREEN);
+  css_set_class(base_widget_get_child(self), "urgent",
+      priv->win->state & WS_URGENT);
+  css_set_class(base_widget_get_child(self), "focused",
+      wintree_is_focused(priv->win->uid));
+  css_set_class(base_widget_get_child(self), "preview",
+      preview && capture_support_check(CAPTURE_TYPE_WINDOW));
+
+  if(priv->label && g_strcmp0(gtk_label_get_text(GTK_LABEL(priv->label)),
+        priv->win->title))
+    gtk_label_set_text(GTK_LABEL(priv->label), priv->win->title);
+
+  if(priv->icon)
+    capture_window_image_set(priv->icon, priv->win, preview);
+
+  gtk_widget_set_has_tooltip(base_widget_get_child(self), tooltips);
+  if(tooltips)
+    gtk_widget_set_tooltip_text(base_widget_get_child(self), priv->win->title);
+
+  gtk_widget_unset_state_flags(base_widget_get_child(self),
+      GTK_STATE_FLAG_PRELIGHT);
+
+  taskbar_item_style_updated(NULL, self);
+
+  flow_item_set_active(self, taskbar_item_check(self));
+
+  priv->invalid = FALSE;
+}
+
+static void taskbar_item_icons_handle ( GtkWidget *parent, GParamSpec *spec,
+    GtkWidget *self )
+{
+  TaskbarItemPrivate *priv;
+  gboolean icons, preview;
+
+  g_return_if_fail(IS_TASKBAR_ITEM(self));
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  g_object_get(G_OBJECT(parent), "icons", &icons, "preview", &preview, NULL);
+
+  if(priv->icon && !icons)
+    g_clear_pointer(&priv->icon, gtk_widget_destroy);
+  else if(icons && !priv->icon)
+  {
+    priv->icon = scale_image_new();
+    gtk_grid_attach(GTK_GRID(priv->box), priv->icon, 1, 1, 1, 1);
+    taskbar_item_update(self);
+  }
+}
+
+static void taskbar_item_labels_handle ( GtkWidget *parent, GParamSpec *spec,
+    GtkWidget *self )
+{
+  TaskbarItemPrivate *priv;
+  gboolean labels;
+
+  g_return_if_fail(IS_TASKBAR_ITEM(self));
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  g_object_get(G_OBJECT(parent), "labels", &labels, NULL);
+
+  if(priv->label && !labels)
+    g_clear_pointer(&priv->label, gtk_widget_destroy);
+  else if(!priv->label && labels)
+  {
+    priv->label = gtk_label_new(priv->win? priv->win->title : "");
+    gtk_label_set_ellipsize (GTK_LABEL(priv->label), PANGO_ELLIPSIZE_END);
+    g_object_bind_property(G_OBJECT(priv->taskbar), "title_width",
+        G_OBJECT(priv->label), "max-width-chars", G_BINDING_SYNC_CREATE);
+    gtk_grid_attach(GTK_GRID(priv->box), priv->label, 1, 2, 1, 1);
+    taskbar_item_style_updated(self, self);
+  }
+}
+
+static gint taskbar_item_compare ( GtkWidget *a, GtkWidget *b, GtkWidget *parent )
+{
+  TaskbarItemPrivate *p1,*p2;
+
+  g_return_val_if_fail(IS_TASKBAR_ITEM(a),0);
+  g_return_val_if_fail(IS_TASKBAR_ITEM(b),0);
+
+  p1 = taskbar_item_get_instance_private(TASKBAR_ITEM(a));
+  p2 = taskbar_item_get_instance_private(TASKBAR_ITEM(b));
+  return wintree_compare(p1->win, p2->win);
+}
+
+static void taskbar_item_invalidate ( GtkWidget *self )
+{
+  TaskbarItemPrivate *priv;
+  GtkWidget *holder;
+
+  if(!self)
+    return;
+
+  g_return_if_fail(IS_TASKBAR_ITEM(self));
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  priv->invalid = TRUE;
+  flow_grid_invalidate(priv->taskbar);
+  if( (holder = taskbar_get_parent(priv->taskbar)) )
+      flow_item_invalidate(holder);
+}
+
+static void taskbar_item_class_init ( TaskbarItemClass *kclass )
+{
+  BASE_WIDGET_CLASS(kclass)->action_exec = taskbar_item_action_exec;
+  FLOW_ITEM_CLASS(kclass)->update = taskbar_item_update;
+  FLOW_ITEM_CLASS(kclass)->invalidate = taskbar_item_invalidate;
+  FLOW_ITEM_CLASS(kclass)->get_source =
+    (void * (*)(GtkWidget *))taskbar_item_get_window;
+  FLOW_ITEM_CLASS(kclass)->compare = taskbar_item_compare;
+}
+
+static void taskbar_item_init ( TaskbarItem *self )
+{
+}
+
+GtkWidget *taskbar_item_new( window_t *win, GtkWidget *taskbar )
+{
+  GtkWidget *self;
+  TaskbarItemPrivate *priv;
+  GtkWidget *button;
+
+  g_return_val_if_fail(IS_TASKBAR(taskbar),NULL);
+
+  if(flow_grid_find_child(taskbar, win))
+    return NULL;
+
+  self = GTK_WIDGET(g_object_new(taskbar_item_get_type(), NULL));
+  priv = taskbar_item_get_instance_private(TASKBAR_ITEM(self));
+
+  priv->win = win;
+  priv->taskbar = taskbar;
+
+  button = gtk_button_new();
+  gtk_container_add(GTK_CONTAINER(self), button);
+  gtk_widget_set_name(button, "taskbar_item");
+  priv->box = gtk_grid_new();
+  gtk_container_add(GTK_CONTAINER(button), priv->box);
+  flow_item_dnd_enable(taskbar, self, button);
+
+  g_object_ref_sink(G_OBJECT(self));
+  flow_grid_add_child(taskbar, self);
+  g_signal_connect(G_OBJECT(taskbar), "notify::labels",
+      G_CALLBACK(taskbar_item_labels_handle), self);
+  g_signal_connect(G_OBJECT(taskbar), "notify::icons",
+      G_CALLBACK(taskbar_item_icons_handle), self);
+  g_signal_connect(G_OBJECT(button), "style-updated",
+      G_CALLBACK(taskbar_item_style_updated), self);
+  taskbar_item_icons_handle(taskbar, NULL, self);
+  taskbar_item_labels_handle(taskbar, NULL, self);
+
+  gtk_widget_add_events(self, GDK_BUTTON_RELEASE_MASK | GDK_SCROLL_MASK);
+  taskbar_item_invalidate(self);
+
+  return self;
+}

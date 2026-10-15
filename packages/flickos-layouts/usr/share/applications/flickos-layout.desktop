@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Desktop Layout & Style
+GenericName=Desktop Layout and Style Chooser
+Comment=Choose how the panel and window buttons are arranged, and a dark or light look
+Exec=flickos-layout pick
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=layout;panel;taskbar;dock;waybar;redmond;cupertino;traditional;style;theme;dark;light;
+StartupNotify=false

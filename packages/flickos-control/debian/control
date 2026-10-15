@@ -1,0 +1,74 @@
+Source: flickos-control
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-control
+Architecture: all
+# python3-gi, gir1.2-gtk-3.0: the window, GTK 3 so it follows the Arc theme.
+# The pages run the commands that own the settings: flickos-layout (1.13
+# merges the input fragment and the keyboard layout into its overlay, 1.19
+# `state` reads the whole layout page at once, 1.22 records its changes for
+# History and takes `default`, which History's undo runs, 1.37 merges the
+# zoom settings' <magnifier>, 1.46 marks users' own styles and names the
+# defaults in `state`), flick-tiler (1.3:
+# floating, gap, ratio in status; 1.5 the same as flickos-layout 1.22),
+# flickos-shortcuts.
+# flickos-screenshot (1.6: get/set/state for the Screenshots page; History's
+# undo runs set).
+# pkexec, xkb-data: the system keyboard layout and autologin (control-helper).
+# adduser: new user accounts (control-helper user-add; passwd has the rest).
+# ufw is not a dependency: the Firewall page is left out without it.
+# xdg-utils: default apps (xdg-mime).
+# libglib2.0-bin: gsettings, the Animations switch (already in the image
+# through flickos-layouts).
+# kanshi, wlr-randr: kept screen arrangements (Displays). Depends, so
+# installed systems get them; kanshi runs only while an arrangement is kept.
+# locales (locale-gen, the list of languages) is a Recommends of
+# flickos-desktop; without it the Language & Region page is left out.
+Depends: python3,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         flickos-layouts (>= 1.46),
+         flick-tiler (>= 1.5),
+         flickos-shortcuts,
+         flickos-screenshot (>= 1.6),
+         pkexec,
+         xkb-data,
+         adduser,
+         xdg-utils,
+         libglib2.0-bin,
+         kanshi,
+         wlr-randr,
+         ${misc:Depends}
+# The Phone page's media row runs flickos-phone 1.13 (set media), its
+# commands list 1.14 (commands list|add|remove), and Open Phone runs
+# flickos-phone 1.16 (window).
+Breaks: flickos-phone (<< 1.16)
+# About: wl-copy for Copy System Info (else GTK's clipboard), lspci for the
+# graphics card (else left out).
+Recommends: wl-clipboard,
+            pciutils
+Description: Settings window of the FlickOS desktop
+ One window for the settings of the FlickOS labwc desktop: desktop layout,
+ style and desktop clicks, mouse and touchpad, keyboard layout and typing,
+ window tiling, screen arrangements kept for every login and whenever the
+ same screens are plugged in, night light, language and formats, the
+ keyboard shortcuts, default applications, startup applications,
+ screenshots and screen recordings, Do Not Disturb for
+ notifications, screen lock and sleep times, the power
+ button and the lid, date and time, automatic updates, logging in
+ automatically, user accounts, the
+ firewall on or off, the anonymous weekly count (while flickos-countme is
+ installed), and what the system is (with a copy for bug reports).
+ Other settings (wallpaper, appearance, arranging the screens, network,
+ sound, Bluetooth, printers, software updates) open their own app from the
+ same window.
+ .
+ Each page runs the FlickOS command that owns the setting, so a change made
+ here is the same as one made in the panel, with a key or on the command
+ line.

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS style is an AppStream add-on of the layout chooser
+     (docs/design/flickos-ricing.md, ADR-006, ADR-013 and ADR-014): Software
+     lists add-ons that extend flickos-layout.desktop under Styles,
+     FlickOS::style names the style's folder in /usr/share/flickos/styles,
+     and FlickOS::layout the layout Use sets with it. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.styles.Aye3</id>
+  <extends>flickos-layout.desktop</extends>
+  <name>Aye3wm</name>
+  <summary>Black panel, flat slate blue title bars, desktop numbers</summary>
+  <description>
+    <p>
+      A dark style for the FlickOS desktop in the look of a classic tiling
+      desktop: flat slate blue title bars on the window you use and grey ones on
+      the others, thin borders, a black terminal and a near-black wallpaper.
+    </p>
+    <p>
+      It comes with its own layout: one black bar at the bottom with your
+      desktops as numbered boxes on the left and the status as plain text on the
+      right. Use sets both; you can still pick another layout in Settings.
+    </p>
+  </description>
+  <icon type="stock">preferences-desktop-theme</icon>
+  <url type="homepage">https://github.com/dvbondoy/FlickOS</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::style">aye3</value>
+    <value key="FlickOS::layout">aye3</value>
+  </custom>
+</component>

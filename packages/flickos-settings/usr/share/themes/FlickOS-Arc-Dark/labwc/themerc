@@ -1,0 +1,66 @@
+# FlickOS-Arc-Dark: labwc window theme in the colors of arc-theme's Arc-Dark.
+# Selected in /etc/xdg/labwc/rc.xml (<theme><name>). Reference: man labwc-theme.
+#
+# Arc-Dark palette (from arc-theme's compiled GTK stylesheet):
+#   title bars #2f343f   background #383c4a   content #404552   borders #2b2e39
+#   text #d3dae3   title text #cfdae7   accent #5294e2   error #fc4138
+# Colors are "#rrggbb" or "#rrggbbaa" (alpha in hex: cc = 80 %, 80 = 50 %,
+# 4c = 30 %). Not "#rrggbb 80": labwc 0.8.3 logs that as deprecated.
+# tools/check-palette.py verifies every color and key in this file.
+
+# Window frame
+border.width: 1
+window.active.border.color: #2b2e39
+window.inactive.border.color: #2b2e39
+window.active.indicator.toggled-keybind.color: #fc4138
+
+# Title bar
+window.titlebar.padding.width: 4
+window.titlebar.padding.height: 0
+window.active.title.bg.color: #2f343f
+window.inactive.title.bg.color: #2f343f
+window.active.label.text.color: #cfdae7cc
+window.inactive.label.text.color: #cfdae780
+window.label.text.justify: center
+
+# Title bar buttons (labwc's built-in icons, recolored)
+window.button.width: 26
+window.button.height: 26
+window.button.spacing: 2
+window.button.hover.bg.corner-radius: 4
+window.active.button.unpressed.image.color: #d3dae3
+window.inactive.button.unpressed.image.color: #d3dae380
+
+# Menus (root menu, window menu)
+menu.border.width: 1
+menu.border.color: #2b2e39
+menu.items.bg.color: #383c4a
+menu.items.text.color: #d3dae3
+menu.items.active.bg.color: #5294e2
+menu.items.active.text.color: #ffffff
+menu.items.padding.x: 8
+menu.items.padding.y: 4
+menu.separator.color: #2b2e39
+menu.title.bg.color: #2f343f
+menu.title.text.color: #d3dae3
+
+# On-screen displays (Alt+Tab window switcher)
+osd.bg.color: #383c4a
+osd.border.color: #5294e2
+osd.border.width: 1
+osd.label.text.color: #d3dae3
+osd.window-switcher.preview.border.color: #5294e2
+osd.window-switcher.width: 640
+osd.window-switcher.padding: 8
+osd.window-switcher.item.padding.x: 12
+osd.window-switcher.item.padding.y: 6
+osd.window-switcher.item.active.border.width: 2
+
+# Window snapping preview
+snapping.overlay.region.bg.color: #5294e24c
+snapping.overlay.region.border.color: #5294e2
+snapping.overlay.edge.bg.color: #5294e24c
+snapping.overlay.edge.border.color: #5294e2
+
+# Magnifier
+magnifier.border.color: #5294e2

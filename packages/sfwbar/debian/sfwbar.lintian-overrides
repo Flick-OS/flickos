@@ -1,0 +1,5 @@
+# These two modules only call GLib, GTK and libsfwbar functions, none from
+# libc directly, so the linker doesn't record libc. Harmless: sfwbar itself
+# loads them after libc.
+library-not-linked-against-libc [usr/lib/*/sfwbar/idle.so]
+library-not-linked-against-libc [usr/lib/*/sfwbar/idleinhibit.so]

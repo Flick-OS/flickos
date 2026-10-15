@@ -1,0 +1,4 @@
+# labwc runs this when the session starts. All FlickOS startup programs live in
+# /usr/libexec/flickos/autostart, so a user's own ~/.config/labwc/autostart
+# (which replaces this file) can keep them by calling that script too.
+/usr/libexec/flickos/autostart

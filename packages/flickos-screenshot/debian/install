@@ -1,0 +1,5 @@
+usr/bin/flickos-screenshot      usr/bin/
+usr/libexec/flickos/*           usr/libexec/flickos/
+usr/share/applications/*        usr/share/applications/
+etc/xdg/xdg-desktop-portal-wlr/labwc    etc/xdg/xdg-desktop-portal-wlr/
+etc/xdg/flickos/*                       etc/xdg/flickos/

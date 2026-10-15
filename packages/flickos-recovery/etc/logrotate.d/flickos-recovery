@@ -1,0 +1,7 @@
+/var/log/flickos-recovery.log {
+	monthly
+	rotate 6
+	compress
+	missingok
+	notifempty
+}

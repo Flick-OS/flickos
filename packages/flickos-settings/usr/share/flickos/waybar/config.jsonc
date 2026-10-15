@@ -1,0 +1,47 @@
+// FlickOS waybar layout. Reference: man waybar, man waybar-<module>.
+// Used only when the user has no ~/.config/waybar/config(.jsonc);
+// see /usr/libexec/flickos/autostart.
+{
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "spacing": 6,
+
+    "modules-left": ["wlr/taskbar"],
+    "modules-center": ["clock"],
+    "modules-right": ["wireplumber", "network", "battery", "tray"],
+
+    "wlr/taskbar": {
+        "format": "{icon}",
+        "icon-size": 18,
+        "tooltip-format": "{title}",
+        "on-click": "activate",
+        "on-click-middle": "close"
+    },
+    "clock": {
+        "format": "{:%a %d %b  %H:%M}",
+        "tooltip-format": "<tt>{calendar}</tt>"
+    },
+    "wireplumber": {
+        "format": "VOL {volume}%",
+        "format-muted": "VOL muted",
+        "on-click": "pavucontrol",
+        "scroll-step": 5
+    },
+    "network": {
+        "format-wifi": "WIFI {essid}",
+        "format-ethernet": "LAN",
+        "format-disconnected": "OFFLINE",
+        "tooltip-format": "{ifname} {ipaddr}",
+        "on-click": "nm-connection-editor"
+    },
+    "battery": {
+        "format": "BAT {capacity}%",
+        "format-charging": "BAT {capacity}% +",
+        "states": { "warning": 20, "critical": 10 }
+    },
+    "tray": {
+        "icon-size": 18,
+        "spacing": 8
+    }
+}

@@ -1,0 +1,1117 @@
+#!/usr/bin/python3
+"""Change a system setting for the Settings window (flickos-control).
+
+Runs as root through pkexec; polkit asks for an administrator's password
+(/usr/share/polkit-1/actions/org.flickos.control.policy, one action per verb).
+Only these verbs exist, and every value is checked before anything changes:
+
+  keyboard MODEL LAYOUT VARIANT OPTIONS
+      The keyboard of the login screen, the console and new accounts:
+      /etc/default/keyboard (keyboard-configuration; keyboard(5)). Each value
+      must be in the XKB rules list (evdev.lst); several layouts, variants and
+      options are separated by commas. The file's other lines are kept. The
+      login screen uses it at its next start, the console at the next boot.
+
+  autologin-on
+      Log the calling user (pkexec's PKEXEC_UID, a regular account) in
+      without a password once per boot: that user becomes the only member of
+      group autologin, whose first member flickos-greeter logs in.
+
+  autologin-off
+      The calling user leaves group autologin.
+
+  user-add NAME FULLNAME ADMIN
+      Add a regular account (adduser, so /etc/skel is copied) with the
+      password on standard input, in the groups the installer gives the first
+      account (DEFAULT_GROUPS), and in group sudo if ADMIN is "yes".
+
+  user-remove NAME FILES
+      Remove a regular account (userdel) that is not logged in and not the
+      calling user's; FILES "delete" also deletes its home folder, "keep"
+      leaves it.
+
+  user-admin NAME ADMIN
+      Put a regular account in group sudo ("yes") or take it out ("no").
+
+  user-password NAME
+      Set a regular account's password to the one on standard input.
+
+  firewall-on
+      Turn the ufw firewall on now and at every start (ufw --force enable:
+      no question about ssh connections, there is nobody to answer it).
+
+  firewall-off
+      Turn the ufw firewall off now and at every start (ufw disable).
+
+  firewall-phones on|off|refresh
+      Let phones with the KDE Connect app (flickos-phone) through the
+      firewall, only from private addresses (PRIVATE_NETWORKS), or stop
+      letting them. on writes a ufw app profile (PHONES_PROFILE: TCP 1716
+      and 1739-1764, UDP 1716 for a phone's broadcast) and allows it from
+      each private range; off deletes those rules and the profile. The
+      profile is there exactly while phones are let in, which is how
+      flickos-control reads this setting (ufw's own rules need root even to
+      read). refresh rewrites an outdated FlickOS profile and its rules
+      (ufw app update) and does nothing else; flickos-control's postinst
+      runs it, so an upgrade brings new ports to phones already let in.
+
+  power SETTING ACTION
+      What the power button (SETTING power-key), closing the lid (lid) or
+      closing it while plugged in (lid-external-power) does: ACTION poweroff,
+      suspend, lock, ignore, or default (logind's own; for the lid while
+      plugged in: the same as on battery). Written to a logind drop-in
+      (LOGIND_DROP_IN, its other settings kept); logind reloads it at once.
+
+  updates SETTING VALUE | updates refresh
+      Automatic updates (unattended-upgrades): SETTING auto (yes, no),
+      scope (security, debian: Debian's own choice and FlickOS with its
+      community apps, all: also stable-updates) or reboot (no, idle: when
+      nobody is logged in); VALUE default drops the choice. Written to
+      UPDATES_DROP_IN, which sorts after Debian's 20auto-upgrades and
+      50unattended-upgrades. refresh writes the drop-in again from its
+      stored choices with this version's origins; flickos-control's postinst
+      runs it.
+
+  firefox-memory on|off
+      Make Firefox ESR use less memory, for everyone (on), or leave it to
+      Firefox's own defaults (off): FIREFOX_PREFS, a file of default prefs
+      that Debian's Firefox reads from /etc/firefox-esr/ at its next start.
+      The prefs are fixed here (FIREFOX_MEMORY_PREFS); a user's own values
+      still win. on needs Debian's firefox-esr; off works without it.
+
+  locale-add LOCALE
+      Make a language available: LOCALE must be a UTF-8 locale in
+      /usr/share/i18n/SUPPORTED. Its line in /etc/locale.gen is turned on
+      (or added), and locale-gen generates the locales that are missing.
+
+  packages-undo ID
+      Undo one change to the installed software (Settings > History): the
+      apt transaction whose Start-Date is ID (YYYY-MM-DDTHH:MM:SS), read from
+      apt's own log here, never from the caller. An install is undone by
+      removing the packages the user asked for, with the ones it brought in
+      unless another package needs them; a removal by installing them again.
+      apt simulates it first, and nothing happens if it would also remove
+      another package, anything the FlickOS desktop depends on, or install a
+      live-session package, or if the transaction was part of installing the
+      system. Updates can't be undone (Debian keeps only the newest version).
+
+Two verbs only read, and run without root (and without pkexec), so that the
+Settings window shows the same list and plan the undo will use:
+
+  packages-list [DAYS]
+      The software changes of the last DAYS days (90) as JSON, oldest first,
+      without the ones made while installing the system.
+
+  packages-plan ID
+      What packages-undo ID would do, as JSON, or why it can't.
+
+The last administrator (member of group sudo, which polkit and sudo ask for)
+can't be removed or made a standard user.
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import contextlib
+import datetime
+import glob
+import grp
+import gzip
+import json
+import os
+import pwd
+import re
+import subprocess
+import sys
+import tempfile
+
+KEYBOARD_DEFAULTS = "/etc/default/keyboard"
+XKB_RULES = "/usr/share/X11/xkb/rules/evdev.lst"
+FIELDS = ("XKBMODEL", "XKBLAYOUT", "XKBVARIANT", "XKBOPTIONS")
+AUTOLOGIN_GROUP = "autologin"       # flickos-greeter's (debian/flickos-greeter.sysusers)
+LOGIN_DEFS = "/etc/login.defs"
+PROC = "/proc"
+ADMIN_GROUP = "sudo"                # polkit's administrators (Debian) and sudo's
+# The installer's groups for the first account without sudo (flickos-installer's
+# users.conf defaultGroups); ones that don't exist here are left out.
+DEFAULT_GROUPS = ("cdrom", "floppy", "audio", "dip", "video", "plugdev", "netdev", "lpadmin", "scanner",
+                  "bluetooth")
+# adduser's default NAME_REGEX (adduser.conf), at most 32 characters.
+USER_NAME = re.compile(r"^[a-z][-a-z0-9_]{0,31}$")
+FULL_NAME_MAX = 100
+PASSWORD_MAX = 512
+UFW = "/usr/sbin/ufw"
+# Phones through the firewall (firewall-phones): flickos-control reads the
+# profile's first line (PHONES_PROFILE and PHONES_MARK; tests compare them).
+PHONES_PROFILE = "/etc/ufw/applications.d/flickos-phones"
+PHONES_MARK = "# Phones with the KDE Connect app: Settings > Phone (flickos-control) writes and"
+PHONES_APP = "FlickOS Phones"
+# flickos-phone's TCP_PORT and PAYLOAD_PORTS, and UDP_PORT: a phone broadcasts
+# when it joins the network, the fastest way back after it was away.
+PHONES_PORTS = "1716,1739:1764/tcp|1716/udp"
+PRIVATE_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+LOGIND_DROP_IN = "/etc/systemd/logind.conf.d/60-flickos.conf"
+POWER_SETTINGS = {"power-key": "HandlePowerKey", "lid": "HandleLidSwitch",
+                  "lid-external-power": "HandleLidSwitchExternalPower"}
+POWER_ACTIONS = ("poweroff", "suspend", "lock", "ignore", "default")
+LOGIND_HEADER = "# Power button and lid, from Settings > Power & Idle (flickos-control).\n[Login]\n"
+UPDATES_DROP_IN = "/etc/apt/apt.conf.d/60flickos-updates"
+# Firefox: use less memory (docs/design/flickos-firefox.md). flickos-control
+# reads the file and compares its first line (tests check they agree).
+FIREFOX_PREFS = "/etc/firefox-esr/flickos-memory.js"
+FIREFOX_SYSPREF = "/usr/lib/firefox-esr/browser/defaults/syspref"     # Debian's link to /etc/firefox-esr
+FIREFOX_MARK = "// Firefox uses less memory: Settings > Memory (flickos-control) writes and"
+FIREFOX_MEMORY_PREFS = (("dom.ipc.processPrelaunch.enabled", "false"),
+                        ("dom.ipc.processCount.webIsolated", "1"))
+# Origins-Pattern for each scope (flickos-control's UPDATE_SCOPES; tests compare them).
+UPDATE_SCOPES = {
+    "security": ("origin=Debian,codename=${distro_codename},label=Debian-Security",
+                 "origin=Debian,codename=${distro_codename}-security,label=Debian-Security"),
+    "debian": ("origin=Debian,codename=${distro_codename},label=Debian",
+               "origin=Debian,codename=${distro_codename},label=Debian-Security",
+               "origin=Debian,codename=${distro_codename}-security,label=Debian-Security",
+               "origin=FlickOS,codename=${distro_codename},label=FlickOS",
+               "origin=FlickOS,codename=${distro_codename}-community,label=FlickOS Community"),
+    "all": ("origin=Debian,codename=${distro_codename},label=Debian",
+            "origin=Debian,codename=${distro_codename},label=Debian-Security",
+            "origin=Debian,codename=${distro_codename}-security,label=Debian-Security",
+            "origin=Debian,codename=${distro_codename}-updates,label=Debian",
+            "origin=FlickOS,codename=${distro_codename},label=FlickOS",
+            "origin=FlickOS,codename=${distro_codename}-community,label=FlickOS Community"),
+}
+UPDATE_SETTINGS = {"auto": ("yes", "no"), "scope": tuple(UPDATE_SCOPES), "reboot": ("no", "idle")}
+UPDATES_MARK = "// flickos-control:"
+I18N_SUPPORTED = "/usr/share/i18n/SUPPORTED"
+LOCALE_GEN = "/etc/locale.gen"
+LOCALE_GEN_COMMAND = ("/usr/sbin/locale-gen", "--keep-existing")
+# After the change: input devices pick up the layout (keyboard(5)), and the
+# console's keymap is saved for the next boot without touching the screen.
+AFTER = (["udevadm", "trigger", "--subsystem-match=input", "--action=change"],
+         ["setupcon", "--save-only", "-k"])
+
+
+# Software changes (packages-*). apt writes every transaction to its log,
+# whoever started it (apt, Software through PackageKit, unattended-upgrades).
+APT_LOG = "/var/log/apt/history.log"            # and history.log.N.gz, rotated monthly
+APT_GET = "/usr/bin/apt-get"
+CMDLINE = "/proc/cmdline"
+PROC_UPTIME = "/proc/uptime"
+TRANSACTION_ID = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$")
+PACKAGE_ITEM = re.compile(r"([^\s,()]+):([A-Za-z0-9-]+) \(([^)]*)\)")
+LIST_FIELDS = ("Install", "Reinstall", "Upgrade", "Downgrade", "Remove", "Purge")
+# The installer removes these last: a transaction that removes one ends the
+# installation, and it and everything before it (the image's own build, the
+# installer's work) is left out, with what follows within INSTALL_SECONDS.
+INSTALLER_PACKAGES = ("flickos-installer", "calamares")
+INSTALL_SECONDS = 120
+# Only the live session uses these; an undo never installs them.
+LIVE_PACKAGES = ("live-boot", "live-config", "live-config-systemd", "live-tools", "flickos-installer", "calamares")
+DESKTOP_PACKAGE = "flickos-desktop"             # it and its Depends are never removed
+UNDO_OPTION = "FlickOS::Undo"                   # apt keeps it in the Commandline: of the undo's transaction
+HISTORY_DAYS = 90
+APT_SECONDS = 1800
+
+
+class HelperError(Exception):
+    pass
+
+
+def rules(path=None):
+    """{"model": set, "layout": set, "option": set, "variant": {layout: set}}"""
+    found = {"model": set(), "layout": set(), "option": set(), "variant": {}}
+    section = None
+    with open(path or XKB_RULES, encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("! "):
+                section = line[2:].strip()
+                continue
+            parts = line.split(None, 1)
+            if section not in found or len(parts) != 2:
+                continue
+            if section == "variant":
+                found["variant"].setdefault(parts[1].split(":", 1)[0].strip(), set()).add(parts[0])
+            else:
+                found[section].add(parts[0])
+    return found
+
+
+def check_keyboard(model, layout, variant, options, known):
+    if model and model not in known["model"]:
+        raise HelperError(f"unknown keyboard model '{model}'")
+    layouts = layout.split(",")
+    if not layout or any(name not in known["layout"] for name in layouts):
+        raise HelperError(f"unknown keyboard layout '{layout}'")
+    variants = variant.split(",") if variant else []
+    if len(variants) > len(layouts):
+        raise HelperError("more variants than layouts")
+    for name, for_layout in zip(variants, layouts):
+        if name and name not in known["variant"].get(for_layout, set()):
+            raise HelperError(f"layout '{for_layout}' has no variant '{name}'")
+    for name in options.split(",") if options else []:
+        if name not in known["option"]:
+            raise HelperError(f"unknown keyboard option '{name}'")
+
+
+def rewrite(text, values):
+    """The file with the XKB lines replaced (or added), other lines kept."""
+    lines, done = [], set()
+    for line in text.splitlines():
+        match = re.match(r"^\s*(XKB[A-Z]+)=", line)
+        if match and match.group(1) in values:
+            if match.group(1) in done:
+                continue
+            line = f'{match.group(1)}="{values[match.group(1)]}"'
+            done.add(match.group(1))
+        lines.append(line)
+    lines += [f'{name}="{values[name]}"' for name in FIELDS if name not in done]
+    return "\n".join(lines) + "\n"
+
+
+def write_atomic(path, text):
+    folder = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def cmd_keyboard(args):
+    if len(args) != 4:
+        raise HelperError("keyboard: give MODEL LAYOUT VARIANT OPTIONS (empty strings for none)")
+    model, layout, variant, options = args
+    try:
+        known = rules()
+    except OSError as error:
+        raise HelperError(f"cannot read the keyboard layouts: {error}") from None
+    check_keyboard(model, layout, variant, options, known)
+    try:
+        with open(KEYBOARD_DEFAULTS, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = "# KEYBOARD CONFIGURATION FILE\n\n# Consult the keyboard(5) manual page.\n"
+    write_atomic(KEYBOARD_DEFAULTS, rewrite(text, dict(zip(FIELDS, (model, layout, variant, options)))))
+    for command in AFTER:
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=30, check=False)
+    print("The login screen and the console now use this layout (the console after a restart).")
+    return 0
+
+
+def uid_range():
+    """Regular accounts: UID_MIN..UID_MAX of login.defs (1000..60000)."""
+    limits = {"UID_MIN": 1000, "UID_MAX": 60000}
+    with contextlib.suppress(OSError), open(LOGIN_DEFS, encoding="utf-8") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) == 2 and parts[0] in limits and parts[1].isdigit():
+                limits[parts[0]] = int(parts[1])
+    return limits["UID_MIN"], limits["UID_MAX"]
+
+
+def calling_user():
+    """The user who ran pkexec: only they can be logged in automatically."""
+    uid = os.environ.get("PKEXEC_UID", "")
+    if not uid.isdigit():
+        raise HelperError("run through pkexec (PKEXEC_UID is not set)")
+    low, high = uid_range()
+    try:
+        entry = pwd.getpwuid(int(uid))
+    except KeyError:
+        raise HelperError(f"no user with id {uid}") from None
+    if not low <= entry.pw_uid <= high:
+        raise HelperError(f"{entry.pw_name} is not a regular account")
+    return entry.pw_name
+
+
+def group_members():
+    try:
+        return grp.getgrnam(AUTOLOGIN_GROUP).gr_mem
+    except KeyError:
+        raise HelperError(f"group {AUTOLOGIN_GROUP} doesn't exist (is flickos-greeter installed?)") from None
+
+
+def gpasswd(*args):
+    result = subprocess.run(["gpasswd", *args], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, text=True, timeout=30, check=False)
+    if result.returncode != 0:
+        raise HelperError(f"gpasswd {' '.join(args)}: {result.stderr.strip()}")
+
+
+def cmd_autologin_on(args):
+    if args:
+        raise HelperError("autologin-on takes no arguments: it is for the calling user")
+    user = calling_user()
+    group_members()
+    gpasswd("-M", user, AUTOLOGIN_GROUP)
+    print(f"{user} is logged in automatically from the next start of the computer.")
+    return 0
+
+
+def cmd_autologin_off(args):
+    if args:
+        raise HelperError("autologin-off takes no arguments: it is for the calling user")
+    user = calling_user()
+    if user in group_members():
+        gpasswd("-d", user, AUTOLOGIN_GROUP)
+    print(f"{user} logs in with a password again.")
+    return 0
+
+
+# --- User accounts ------------------------------------------------------------------------
+
+def run_tool(command, stdin_text=None):
+    """Run an account tool; raises HelperError with what it printed."""
+    result = subprocess.run(command, input=stdin_text, stdin=None if stdin_text is not None else subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120, check=False)
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+        raise HelperError(message if message.startswith(f"{command[0]}:") else f"{command[0]}: {message}")
+
+
+def check_new_name(name):
+    if not USER_NAME.match(name):
+        raise HelperError(f"'{name}' is not a valid user name: lowercase letters, digits, - and _, "
+                          "starting with a letter, at most 32 characters")
+    with contextlib.suppress(KeyError):
+        pwd.getpwnam(name)
+        raise HelperError(f"user {name} already exists")
+    with contextlib.suppress(KeyError):
+        grp.getgrnam(name)
+        raise HelperError(f"group {name} already exists")
+
+
+def check_full_name(full_name):
+    """The first GECOS field: no field separators, no control characters."""
+    if len(full_name) > FULL_NAME_MAX:
+        raise HelperError(f"the full name is longer than {FULL_NAME_MAX} characters")
+    if any(c in ":,=\\" or not c.isprintable() for c in full_name):
+        raise HelperError("the full name can't contain : , = \\ or control characters")
+
+
+def read_password(stream=None):
+    """The new password: the first line of standard input."""
+    line = (stream or sys.stdin).readline(PASSWORD_MAX + 2)
+    password = line[:-1] if line.endswith("\n") else line
+    if not password:
+        raise HelperError("no password given (on standard input)")
+    if len(password) > PASSWORD_MAX or any(c in "\n\r\0" for c in password):
+        raise HelperError("the password is too long or contains a line break")
+    return password
+
+
+def regular_account(name):
+    """The passwd entry of an existing regular account."""
+    low, high = uid_range()
+    try:
+        entry = pwd.getpwnam(name)
+    except KeyError:
+        raise HelperError(f"no user {name}") from None
+    if not low <= entry.pw_uid <= high:
+        raise HelperError(f"{name} is not a regular account")
+    return entry
+
+
+def yes_no(value, what):
+    if value not in ("yes", "no"):
+        raise HelperError(f"{what}: give yes or no, not '{value}'")
+    return value == "yes"
+
+
+def administrators():
+    """Regular accounts in group sudo."""
+    try:
+        members = grp.getgrnam(ADMIN_GROUP).gr_mem
+    except KeyError:
+        return []
+    low, high = uid_range()
+    found = []
+    for name in members:
+        with contextlib.suppress(KeyError):
+            if low <= pwd.getpwnam(name).pw_uid <= high:
+                found.append(name)
+    return found
+
+
+def keep_an_administrator(name):
+    if administrators() == [name]:
+        raise HelperError(f"{name} is the only administrator; make someone else an administrator first")
+
+
+def logged_in(uid):
+    """Whether any process runs as uid (a session, or anything left running)."""
+    with contextlib.suppress(OSError):
+        for pid in os.listdir(PROC):
+            if pid.isdigit():
+                with contextlib.suppress(OSError):
+                    if os.stat(os.path.join(PROC, pid)).st_uid == uid:
+                        return True
+    return False
+
+
+def group_exists(name):
+    try:
+        grp.getgrnam(name)
+    except KeyError:
+        return False
+    return True
+
+
+def cmd_user_add(args):
+    if len(args) != 3:
+        raise HelperError("user-add: give NAME FULLNAME ADMIN (yes or no), the password on standard input")
+    name, full_name, admin = args
+    check_new_name(name)
+    check_full_name(full_name)
+    admin = yes_no(admin, "user-add ADMIN")
+    password = read_password()
+    run_tool(["adduser", "--quiet", "--disabled-password", "--comment", full_name, name])
+    try:
+        run_tool(["chpasswd"], f"{name}:{password}\n")
+        groups = [g for g in (*DEFAULT_GROUPS, *((ADMIN_GROUP,) if admin else ())) if group_exists(g)]
+        if groups:
+            run_tool(["usermod", "--append", "--groups", ",".join(groups), name])
+    except (HelperError, OSError, subprocess.TimeoutExpired):
+        with contextlib.suppress(HelperError, OSError, subprocess.TimeoutExpired):
+            run_tool(["userdel", "--remove", name])
+        raise
+    print(f"{name} can log in now{' and is an administrator' if admin else ''}.")
+    return 0
+
+
+def cmd_user_remove(args):
+    if len(args) != 2 or args[1] not in ("keep", "delete"):
+        raise HelperError("user-remove: give NAME and keep or delete (the home folder)")
+    name, files = args
+    entry = regular_account(name)
+    if entry.pw_name == calling_user():
+        raise HelperError("you can't remove the account you are using")
+    keep_an_administrator(name)
+    if logged_in(entry.pw_uid):
+        raise HelperError(f"{name} is logged in or has programs running; log them out first")
+    try:
+        run_tool(["userdel", *(["--remove"] if files == "delete" else []), name])
+    except HelperError as error:
+        with contextlib.suppress(KeyError):
+            pwd.getpwnam(name)
+            raise
+        # userdel exits 12 when the account is gone but its home folder isn't.
+        raise HelperError(f"{name} was removed, but not all of their files:\n{error}") from None
+    if files == "delete":
+        print(f"{name} was removed, with their files.")
+    else:
+        print(f"{name} was removed; their files are still in {entry.pw_dir}.")
+    return 0
+
+
+def cmd_user_admin(args):
+    if len(args) != 2:
+        raise HelperError("user-admin: give NAME and yes or no")
+    name = regular_account(args[0]).pw_name
+    if yes_no(args[1], "user-admin"):
+        gpasswd("-a", name, ADMIN_GROUP)
+        print(f"{name} is an administrator from their next login.")
+    else:
+        keep_an_administrator(name)
+        if name in administrators():
+            gpasswd("-d", name, ADMIN_GROUP)
+        print(f"{name} is a standard user from their next login.")
+    return 0
+
+
+def cmd_user_password(args):
+    if len(args) != 1:
+        raise HelperError("user-password: give NAME, the password on standard input")
+    name = regular_account(args[0]).pw_name
+    password = read_password()
+    run_tool(["chpasswd"], f"{name}:{password}\n")
+    print(f"The password of {name} was changed.")
+    return 0
+
+
+# --- Firewall -----------------------------------------------------------------------------
+
+def ufw(*args):
+    if not os.path.exists(UFW):
+        raise HelperError("ufw is not installed")
+    run_tool([UFW, *args])
+
+
+def cmd_firewall_on(args):
+    if args:
+        raise HelperError("firewall-on takes no arguments")
+    ufw("--force", "enable")
+    print("The firewall is on: other computers can't connect to this one.")
+    return 0
+
+
+def cmd_firewall_off(args):
+    if args:
+        raise HelperError("firewall-off takes no arguments")
+    ufw("disable")
+    print("The firewall is off: other computers can connect to programs on this one.")
+    return 0
+
+
+def phones_profile_text():
+    return (f"{PHONES_MARK}\n# deletes this file, with the firewall rules that use it.\n"
+            f"[{PHONES_APP}]\ntitle=Phones (FlickOS)\n"
+            "description=Pages, files and text from phones with the KDE Connect app (flickos-phone)\n"
+            f"ports={PHONES_PORTS}\n")
+
+
+def ours(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.readline().rstrip("\n") == PHONES_MARK
+    except OSError:
+        return False
+
+
+def cmd_firewall_phones(args):
+    if args not in (["on"], ["off"], ["refresh"]):
+        raise HelperError("firewall-phones: give on, off or refresh")
+    if args == ["refresh"]:
+        return refresh_phones_profile()
+    if not os.path.exists(UFW):
+        raise HelperError("ufw is not installed")
+    if os.path.exists(PHONES_PROFILE) and not ours(PHONES_PROFILE):
+        raise HelperError(f"{PHONES_PROFILE} isn't FlickOS's; it was left as it is")
+    if args == ["on"]:
+        write_atomic(PHONES_PROFILE, phones_profile_text())
+        # Rules from an older profile take its new ports; then add what's missing.
+        ufw("app", "update", PHONES_APP)
+        for network in PRIVATE_NETWORKS:
+            ufw("allow", "from", network, "to", "any", "app", PHONES_APP)
+        print("Phones on home and office networks can connect through the firewall.")
+        return 0
+    if os.path.exists(PHONES_PROFILE):
+        for network in PRIVATE_NETWORKS:
+            # A rule deleted by hand is already gone.
+            with contextlib.suppress(HelperError):
+                ufw("delete", "allow", "from", network, "to", "any", "app", PHONES_APP)
+        os.unlink(PHONES_PROFILE)
+    print("The firewall blocks phones again.")
+    return 0
+
+
+def refresh_phones_profile():
+    """An upgrade (postinst): only a FlickOS profile that differs from this
+    version's is rewritten, and only the rules that use it change."""
+    if not os.path.exists(UFW) or not ours(PHONES_PROFILE):
+        return 0
+    with open(PHONES_PROFILE, encoding="utf-8") as f:
+        if f.read() == phones_profile_text():
+            return 0
+    write_atomic(PHONES_PROFILE, phones_profile_text())
+    ufw("app", "update", PHONES_APP)
+    print("Phones let through the firewall now use this version's ports.")
+    return 0
+
+
+# --- Power button and lid ------------------------------------------------------------------
+
+def rewrite_logind(text, key, action):
+    """FlickOS's drop-in with key set to action ("default": left out) and its
+    other settings kept; None when no setting is left."""
+    lines = [line.strip() for line in text.splitlines()
+             if line.strip() and not line.lstrip().startswith(("#", ";", "["))
+             and not re.match(rf"^\s*{key}\s*=", line)]
+    if action != "default":
+        lines.append(f"{key}={action}")
+    return LOGIND_HEADER + "\n".join(lines) + "\n" if lines else None
+
+
+def cmd_power(args):
+    if len(args) != 2 or args[0] not in POWER_SETTINGS or args[1] not in POWER_ACTIONS:
+        raise HelperError(f"power: give one of {', '.join(POWER_SETTINGS)} and one of {', '.join(POWER_ACTIONS)}")
+    setting, action = args
+    try:
+        with open(LOGIND_DROP_IN, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    new = rewrite_logind(text, POWER_SETTINGS[setting], action)
+    if new is None:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(LOGIND_DROP_IN)
+    else:
+        os.makedirs(os.path.dirname(LOGIND_DROP_IN), mode=0o755, exist_ok=True)
+        write_atomic(LOGIND_DROP_IN, new)
+    run_tool(["systemctl", "reload", "systemd-logind"])
+    print("Changed.")
+    return 0
+
+
+# --- Automatic updates ------------------------------------------------------------------
+
+def updates_choices(text):
+    """{setting: value} kept in FlickOS's drop-in (its mark line)."""
+    for line in text.splitlines():
+        if line.startswith(UPDATES_MARK):
+            pairs = (word.partition("=") for word in line[len(UPDATES_MARK):].split())
+            return {key: value for key, _, value in pairs if value in UPDATE_SETTINGS.get(key, ())}
+    return {}
+
+
+def updates_text(choices):
+    """The apt.conf drop-in for the choices; None when there are none."""
+    if not choices:
+        return None
+    lines = ["// Automatic updates, from Settings > Updates (flickos-control), which",
+             "// rewrites this file. A file of your own that sorts later wins.",
+             UPDATES_MARK + " " + " ".join(f"{key}={choices[key]}" for key in UPDATE_SETTINGS if key in choices)]
+    if "auto" in choices:
+        lines.append(f'APT::Periodic::Unattended-Upgrade "{1 if choices["auto"] == "yes" else 0}";')
+    if "scope" in choices:
+        lines += ["#clear Unattended-Upgrade::Origins-Pattern;", "Unattended-Upgrade::Origins-Pattern {"]
+        lines += [f'        "{pattern}";' for pattern in UPDATE_SCOPES[choices["scope"]]] + ["};"]
+    if "reboot" in choices:
+        lines.append(f'Unattended-Upgrade::Automatic-Reboot "{"true" if choices["reboot"] == "idle" else "false"}";')
+        if choices["reboot"] == "idle":
+            lines.append('Unattended-Upgrade::Automatic-Reboot-WithUsers "false";')
+    return "\n".join(lines) + "\n"
+
+
+def refresh_updates():
+    """An upgrade (postinst): FlickOS's drop-in is written again from the
+    choices on its mark line, so a stored scope gets this version's origins
+    (the community repository's, since 1.38). Nothing without the drop-in."""
+    try:
+        with open(UPDATES_DROP_IN, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return 0
+    new = updates_text(updates_choices(text))
+    if new is not None and new != text:
+        write_atomic(UPDATES_DROP_IN, new)
+        print("Automatic updates use this version's list of repositories.")
+    return 0
+
+
+def cmd_updates(args):
+    if args == ["refresh"]:
+        return refresh_updates()
+    if len(args) != 2 or args[0] not in UPDATE_SETTINGS or args[1] not in (*UPDATE_SETTINGS[args[0]], "default"):
+        raise HelperError("updates: give refresh, or " + "; ".join(f"{key} {'|'.join(values)}|default"
+                                                                    for key, values in UPDATE_SETTINGS.items()))
+    setting, value = args
+    try:
+        with open(UPDATES_DROP_IN, encoding="utf-8") as f:
+            choices = updates_choices(f.read())
+    except FileNotFoundError:
+        choices = {}
+    if value == "default":
+        choices.pop(setting, None)
+    else:
+        choices[setting] = value
+    text = updates_text(choices)
+    if text is None:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(UPDATES_DROP_IN)
+    else:
+        write_atomic(UPDATES_DROP_IN, text)
+    print("Changed.")
+    return 0
+
+
+# --- Firefox ----------------------------------------------------------------------------
+
+def firefox_memory_text():
+    lines = [FIREFOX_MARK, "// deletes this file. Prefs you change in about:config still win."]
+    lines += [f'pref("{name}", {value});' for name, value in FIREFOX_MEMORY_PREFS]
+    return "\n".join(lines) + "\n"
+
+
+def firefox_reads_prefs():
+    """Whether Debian's firefox-esr reads default prefs from FIREFOX_PREFS' folder."""
+    folder = os.path.dirname(FIREFOX_PREFS)
+    return os.path.isdir(folder) and os.path.realpath(FIREFOX_SYSPREF) == os.path.realpath(folder)
+
+
+def cmd_firefox_memory(args):
+    if args not in (["on"], ["off"]):
+        raise HelperError("firefox-memory: give on or off")
+    if args == ["off"]:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(FIREFOX_PREFS)
+        print("Firefox uses its own settings from the next time it starts.")
+        return 0
+    if not firefox_reads_prefs():
+        raise HelperError("Firefox ESR isn't installed")
+    write_atomic(FIREFOX_PREFS, firefox_memory_text())
+    print("Firefox uses less memory from the next time it starts.")
+    return 0
+
+
+# --- Languages ----------------------------------------------------------------------------
+
+def supported_locales(path=None):
+    """The UTF-8 locales glibc can generate."""
+    found = set()
+    with open(path or I18N_SUPPORTED, encoding="utf-8") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == "UTF-8":
+                found.add(parts[0])
+    return found
+
+
+def enable_locale(text, locale):
+    """/etc/locale.gen with locale's UTF-8 line on (uncommented or added);
+    None if it already is."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        match = re.match(r"^\s*(#\s*)?(\S+)\s+(\S+)\s*$", line)
+        if match and match.group(2) == locale and match.group(3) == "UTF-8":
+            if not match.group(1):
+                return None
+            lines[i] = f"{locale} UTF-8"
+            return "\n".join(lines) + "\n"
+    return "\n".join(lines + [f"{locale} UTF-8"]) + "\n"
+
+
+def cmd_locale_add(args):
+    if len(args) != 1:
+        raise HelperError("locale-add: give a locale, for example de_DE.UTF-8")
+    locale = args[0]
+    try:
+        known = supported_locales()
+    except OSError as error:
+        raise HelperError(f"cannot read the languages (is the locales package installed?): {error}") from None
+    if locale not in known:
+        raise HelperError(f"unknown locale '{locale}': it must be a UTF-8 locale of {I18N_SUPPORTED}")
+    try:
+        with open(LOCALE_GEN, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    new = enable_locale(text, locale)
+    if new is not None:
+        write_atomic(LOCALE_GEN, new)
+    try:
+        subprocess.run(LOCALE_GEN_COMMAND, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.PIPE, text=True, timeout=600, check=True)
+    except subprocess.CalledProcessError as error:
+        raise HelperError(f"locale-gen: {error.stderr.strip() or f'exit code {error.returncode}'}") from None
+    except subprocess.TimeoutExpired:
+        raise HelperError("locale-gen took too long") from None
+    print(f"{locale} can be used now.")
+    return 0
+
+
+# --- Software changes ----------------------------------------------------------
+
+def apt_log_paths():
+    """apt's log files, oldest first."""
+    rotated = []
+    for path in glob.glob(APT_LOG + ".*.gz"):
+        number = path[len(APT_LOG) + 1:-3]
+        if number.isdigit():
+            rotated.append((int(number), path))
+    return [path for _, path in sorted(rotated, reverse=True)] + [APT_LOG]
+
+
+def parse_items(text):
+    """(package, arch, version text) of a list line: "a:amd64 (1.0, automatic), ..."."""
+    return PACKAGE_ITEM.findall(text)
+
+
+def parse_apt_log(text):
+    """The transactions of one log, oldest first: {"id", "command", "lists":
+    {field: [(package, arch, version text)]}}. A stanza without Start-Date
+    (cut off) is left out."""
+    transactions = []
+    for stanza in re.split(r"\n\s*\n", text):
+        fields = {}
+        for line in stanza.strip().splitlines():
+            name, sep, value = line.partition(": ")
+            if sep:
+                fields[name.strip()] = value.strip()
+        match = re.match(r"^(\d{4}-\d\d-\d\d)\s+(\d\d:\d\d:\d\d)$", fields.get("Start-Date", ""))
+        if not match:
+            continue
+        transactions.append({"id": f"{match.group(1)}T{match.group(2)}",
+                             "command": fields.get("Commandline", ""),
+                             "lists": {field: parse_items(fields[field]) for field in LIST_FIELDS if field in fields}})
+    return transactions
+
+
+def read_apt_log(paths=None):
+    transactions = []
+    for path in paths or apt_log_paths():
+        try:
+            if path.endswith(".gz"):
+                with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+            else:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+        except (OSError, EOFError):
+            continue
+        transactions += parse_apt_log(text)
+    return transactions
+
+
+def live_system(path=None):
+    try:
+        with open(path or CMDLINE, encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    except OSError:
+        return False
+
+
+def boot_time(path=None):
+    with open(path or PROC_UPTIME, encoding="utf-8") as f:
+        uptime = float(f.read().split()[0])
+    return datetime.datetime.now() - datetime.timedelta(seconds=uptime)
+
+
+def when(transaction):
+    return datetime.datetime.fromisoformat(transaction["id"])
+
+
+def after_installation(transactions, live=None):
+    """The transactions a user made: in the live session, those since it
+    started (its log holds the image's own build); on an installed system,
+    those after the installer removed itself."""
+    live = live_system() if live is None else live
+    if live:
+        started = boot_time()
+        return [t for t in transactions if when(t) >= started]
+    end = None
+    for transaction in transactions:
+        removed = transaction["lists"].get("Remove", []) + transaction["lists"].get("Purge", [])
+        if any(name in INSTALLER_PACKAGES for name, _, _ in removed):
+            end = when(transaction)
+    if end is None:
+        return transactions
+    return [t for t in transactions if (when(t) - end).total_seconds() > INSTALL_SECONDS]
+
+
+def native_arch():
+    return subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
+def package_name(name, arch, native):
+    """The name apt and dpkg-query use: no suffix for the native and "all"."""
+    return name if arch in (native, "all") else f"{name}:{arch}"
+
+
+def undo_marker(command):
+    match = re.search(re.escape(UNDO_OPTION) + r"=(\S+)", command)
+    return match.group(1) if match and TRANSACTION_ID.match(match.group(1)) else None
+
+
+def describe_transaction(transaction, native):
+    """What a transaction did, and whether it can be undone:
+    {"id", "kind": install|remove|update|mixed, "packages": asked for,
+    "automatic": brought in, "upgraded": count, "purged", "autoremove",
+    "undo_of": the ID this transaction undid (or None), "undoable", "why": why not}."""
+    lists = transaction["lists"]
+    installs = [(package_name(n, a, native), "automatic" in v) for n, a, v in lists.get("Install", [])]
+    asked = [name for name, auto in installs if not auto]
+    automatic = [name for name, auto in installs if auto]
+    removed = [package_name(n, a, native) for n, a, _ in lists.get("Remove", []) + lists.get("Purge", [])]
+    upgraded = sum(len(lists.get(field, [])) for field in ("Upgrade", "Downgrade", "Reinstall"))
+    autoremove = bool(re.search(r"(^|\s)(--auto-?remove|autoremove|autopurge)(\s|$)", transaction["command"]))
+    if asked and not removed:
+        kind, packages = "install", asked
+    elif removed and not installs:
+        kind, packages = "remove", removed
+    elif not removed and not asked:
+        kind, packages = "update", automatic
+    else:
+        kind, packages = "mixed", asked + removed
+    why = None
+    if kind == "update":
+        why = "Updates can't be undone: Debian keeps only the newest version of a package."
+    elif kind == "mixed":
+        why = "This change both installed and removed packages. Undo it in a terminal with apt."
+    elif autoremove:
+        why = "These packages were no longer needed; install again the ones you want."
+    return {"id": transaction["id"], "kind": kind, "packages": packages, "automatic": automatic,
+            "upgraded": upgraded, "purged": bool(lists.get("Purge")), "autoremove": autoremove,
+            "undo_of": undo_marker(transaction["command"]), "undoable": why is None, "why": why}
+
+
+def software_changes(days=HISTORY_DAYS, transactions=None, live=None, now=None):
+    transactions = after_installation(read_apt_log() if transactions is None else transactions, live)
+    since = (now or datetime.datetime.now()) - datetime.timedelta(days=days)
+    native = native_arch()
+    return [dict(describe_transaction(t, native), time=t["id"]) for t in transactions if when(t) >= since]
+
+
+def find_transaction(transaction_id, transactions=None, live=None):
+    if not TRANSACTION_ID.match(transaction_id or ""):
+        raise HelperError(f"not a change id: '{transaction_id}'")
+    everything = read_apt_log() if transactions is None else transactions
+    matching = [t for t in everything if t["id"] == transaction_id]
+    if not matching:
+        raise HelperError(f"There is no change {transaction_id} in apt's history.")
+    if len(matching) > 1:
+        raise HelperError(f"apt's history has more than one change at {transaction_id}. Undo it in a terminal.")
+    if matching[0] not in after_installation(everything, live):
+        raise HelperError("This change was part of installing the system and can't be undone here.")
+    return matching[0]
+
+
+def simulate(args):
+    """apt-get's plan: (packages it would remove, packages it would install).
+    Raises HelperError with apt's own errors."""
+    result = subprocess.run([APT_GET, "-s", "-q", *args], capture_output=True, text=True, timeout=300,
+                            env=dict(os.environ, LC_ALL="C.UTF-8"), check=False)
+    if result.returncode != 0:
+        errors = [line[3:] for line in result.stderr.splitlines() if line.startswith("E: ")]
+        raise HelperError("apt: " + (" ".join(errors) or f"exit code {result.returncode}"))
+    removed = set(re.findall(r"^Remv (\S+)", result.stdout, re.M))
+    installed = set(re.findall(r"^Inst (\S+)", result.stdout, re.M))
+    return removed, installed
+
+
+def installed_packages(names):
+    """The ones of names that are installed now."""
+    if not names:
+        return set()
+    result = subprocess.run(["dpkg-query", "-W", "-f", "${binary:Package}\t${db:Status-Status}\n", *names],
+                            capture_output=True, text=True, check=False)
+    return {line.split("\t")[0] for line in result.stdout.splitlines() if line.endswith("\tinstalled")}
+
+
+def desktop_dependencies():
+    """flickos-desktop and every package in its Depends (alternatives too)."""
+    result = subprocess.run(["dpkg-query", "-W", "-f", "${Depends}", DESKTOP_PACKAGE],
+                            capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return set()
+    names = {DESKTOP_PACKAGE}
+    for part in re.split(r"[,|]", result.stdout):
+        name = re.sub(r"\(.*?\)|\[.*?\]|:any", "", part).strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def base_name(package):
+    return package.split(":")[0]
+
+
+def undo_plan(transaction, simulate=simulate, installed=installed_packages, protected=desktop_dependencies):
+    """What undoing a transaction does: {"id", "action": remove|install,
+    "args": apt-get's arguments, "remove": [...], "install": [...],
+    "upgraded": updates that stay, "purged"}. Raises HelperError when it
+    can't be undone, saying why."""
+    change = describe_transaction(transaction, native_arch())
+    if not change["undoable"]:
+        raise HelperError(change["why"])
+    packages = change["packages"]
+    if change["kind"] == "install":
+        present = sorted(installed(packages))
+        if not present:
+            raise HelperError("Nothing to undo: none of these packages is installed now.")
+        # With the packages it brought in, named: --autoremove would also take
+        # whatever else is unneeded. One another package still needs makes
+        # apt remove that package too, and then only the asked-for ones go.
+        brought = sorted(installed(change["automatic"]))
+        args = ["remove", *present, *brought]
+        removed, _ = simulate(args)
+        if not removed <= set(present) | set(brought):
+            args = ["remove", *present]
+            removed, _ = simulate(args)
+            if not removed <= set(present):
+                others = sorted(removed - set(present))
+                raise HelperError(f"Undoing this would also remove {', '.join(others)}, so nothing was changed.")
+        needed = sorted(base_name(p) for p in removed if base_name(p) in protected())
+        if needed:
+            raise HelperError(f"Undoing this would remove {', '.join(needed)}, which the FlickOS desktop needs, "
+                              "so nothing was changed.")
+        return {"id": change["id"], "action": "remove", "args": args, "remove": sorted(removed), "install": [],
+                "upgraded": change["upgraded"], "purged": False}
+    missing = sorted(set(packages) - installed(packages))
+    if not missing:
+        raise HelperError("Nothing to undo: these packages are installed again.")
+    live_only = sorted(p for p in missing if base_name(p) in LIVE_PACKAGES)
+    if live_only:
+        raise HelperError(f"Undoing this would install {', '.join(live_only)}, which only the live session uses, "
+                          "so nothing was changed.")
+    args = ["install", *missing]
+    removed, new = simulate(args)
+    if removed:
+        raise HelperError(f"Undoing this would remove {', '.join(sorted(removed))}, so nothing was changed.")
+    return {"id": change["id"], "action": "install", "args": args, "remove": [], "install": sorted(new),
+            "upgraded": change["upgraded"], "purged": change["purged"]}
+
+
+def cmd_packages_list(args):
+    if len(args) > 1 or (args and not args[0].isdigit()):
+        raise HelperError("usage: packages-list [DAYS]")
+    print(json.dumps(software_changes(int(args[0]) if args else HISTORY_DAYS), indent=1))
+    return 0
+
+
+def cmd_packages_plan(args):
+    if len(args) != 1:
+        raise HelperError("usage: packages-plan ID")
+    print(json.dumps(undo_plan(find_transaction(args[0])), indent=1))
+    return 0
+
+
+def cmd_packages_undo(args):
+    if len(args) != 1:
+        raise HelperError("usage: packages-undo ID")
+    plan = undo_plan(find_transaction(args[0]))
+    command = [APT_GET, "-y", "-q", "-o", f"{UNDO_OPTION}={plan['id']}",
+               "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold", *plan["args"]]
+    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            timeout=APT_SECONDS, env=dict(os.environ, DEBIAN_FRONTEND="noninteractive"),
+                            check=False)
+    if result.returncode != 0:
+        text = result.stdout + result.stderr
+        if "Could not get lock" in text or "Unable to acquire the dpkg frontend lock" in text:
+            raise HelperError("Software is being installed or updated right now. Try again in a few minutes.")
+        if "Failed to fetch" in text or "Unable to fetch" in text:
+            raise HelperError(f"{', '.join(plan['install'])} can't be downloaded. Check the network connection "
+                              "and try again.")
+        errors = [line[3:] for line in result.stderr.splitlines() if line.startswith("E: ")]
+        raise HelperError("apt: " + (" ".join(errors) or f"exit code {result.returncode}"))
+    if plan["action"] == "remove":
+        print(f"Removed: {', '.join(plan['remove'])}.")
+    else:
+        print(f"Installed again: {', '.join(plan['install'])}.")
+    return 0
+
+
+VERBS = {"keyboard": cmd_keyboard, "autologin-on": cmd_autologin_on, "autologin-off": cmd_autologin_off,
+         "user-add": cmd_user_add, "user-remove": cmd_user_remove, "user-admin": cmd_user_admin,
+         "user-password": cmd_user_password, "firewall-on": cmd_firewall_on, "firewall-off": cmd_firewall_off,
+         "firewall-phones": cmd_firewall_phones,
+         "power": cmd_power, "locale-add": cmd_locale_add, "updates": cmd_updates,
+         "firefox-memory": cmd_firefox_memory,
+         "packages-undo": cmd_packages_undo, "packages-list": cmd_packages_list, "packages-plan": cmd_packages_plan}
+# These only read (apt's log, and apt-get -s): no root needed.
+READ_ONLY = ("packages-list", "packages-plan")
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or argv[0] not in VERBS:
+        print(f"usage: control-helper {{{','.join(VERBS)}}} ARGS...", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0 and argv[0] not in READ_ONLY:
+        print("control-helper: must run as root (through pkexec)", file=sys.stderr)
+        return 1
+    try:
+        return VERBS[argv[0]](argv[1:])
+    except (HelperError, OSError, subprocess.SubprocessError) as error:
+        print(f"control-helper: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

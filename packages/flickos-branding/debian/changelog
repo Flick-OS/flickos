@@ -1,0 +1,102 @@
+flickos-branding (1.13) trixie; urgency=medium
+
+  * debian/copyright: the logo files say that the FlickOS name and logo
+    are trademarks (GPL-3 section 7(e)); policy in TRADEMARKS.md.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 15 Oct 2026 21:09:00 +0800
+
+flickos-branding (1.12) trixie; urgency=medium
+
+  * fastfetch shows the FlickOS logo instead of Debian's:
+    /etc/xdg/fastfetch/config.jsonc, with fastfetch's default modules
+    and keys in the terminal's blue. The logo is generated from
+    flickos.svg (tools/make-fastfetch-logo.py).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 14:21:01 +0800
+
+flickos-branding (1.11) trixie; urgency=medium
+
+  * FlickOS 2.2.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 21:37:29 +0800
+
+flickos-branding (1.10) trixie; urgency=medium
+
+  * The panel logo's ring and dot are class "warning", so a panel can
+    draw them in another color (-gtk-icon-palette).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 11:48:48 +0800
+
+flickos-branding (1.9) trixie; urgency=medium
+
+  * The panel's one-color logo draws its ring as a filled shape: GTK
+    recolors symbolic icons by their fill, so the stroked ring showed as
+    a filled disc.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 11:38:18 +0800
+
+flickos-branding (1.8) trixie; urgency=medium
+
+  * The halo logo in FlickOS's brand amber; the boot splash's bar amber.
+  * GRUB theme for installed systems: /etc/default/grub.d/flickos-
+    theme.cfg points update-grub at /usr/share/flickos/grub/ (the live
+    menu's look); postinst and postrm run update-grub where GRUB is set
+    up.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 11:24:57 +0800
+
+flickos-branding (1.7) trixie; urgency=medium
+
+  * FlickOS 2.1.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 20:02:02 +0800
+
+flickos-branding (1.6) trixie; urgency=medium
+
+  * Add debian/copyright: GPL-3.0-or-later.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:45:23 +0800
+
+flickos-branding (1.5) trixie; urgency=medium
+
+  * Restore the /etc/os-release symlink that live-build replaces with a
+    copy of Debian's file, so the live image and installed systems show
+    FlickOS.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 13:18:50 +0800
+
+flickos-branding (1.4) trixie; urgency=medium
+
+  * FlickOS logo: icons flickos (full color, on an Arc-Dark tile) and
+    flickos-symbolic (one color, for panels) in the hicolor theme. The
+    boot splash shows the new logo.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 20:50:24 +0800
+
+flickos-branding (1.3) trixie; urgency=medium
+
+  * Boot splash in Arc-Dark colors (background, progress bar, images).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 14:22:52 +0800
+
+flickos-branding (1.2) trixie; urgency=medium
+
+  * Depend on plymouth-themes: it provides two-step.so, which the FlickOS theme
+    uses. Without it plymouth-set-default-theme failed and the build aborted.
+  * Divert base-files' os-release and issue files with --no-rename and keep the
+    originals ourselves; dpkg-divert warns that renaming files of an Essential
+    package is dangerous.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 09:00:00 +0800
+
+flickos-branding (1.1) trixie; urgency=medium
+
+  * FlickOS 2.0 (the Debian-based successor of FlickOS 1.x).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 16 Sep 2026 21:30:00 +0800
+
+flickos-branding (1.0) trixie; urgency=medium
+
+  * Initial release: Plymouth boot splash, FlickOS os-release and login banner.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 16 Sep 2026 21:00:00 +0800

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Aye3's wallpaper (tools/make-aye3.py): FlickOS's halo, as on Dark's,
+       over near-black with a faint drawing of tiled windows. -->
+  <defs>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="#111111"/>
+  <g opacity="0.55" stroke-width="2">
+    <rect x="120" y="150" width="420" height="780" fill="#161616" stroke="#4c7899"/>
+    <rect x="121" y="151" width="418" height="22" fill="#285577" stroke="none"/>
+    <rect x="556" y="150" width="380" height="382" fill="#141414" stroke="#333333"/>
+    <rect x="557" y="151" width="378" height="22" fill="#222222" stroke="none"/>
+    <rect x="556" y="548" width="380" height="382" fill="#141414" stroke="#333333"/>
+    <rect x="557" y="549" width="378" height="22" fill="#222222" stroke="none"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="1.5">
+    <circle cx="1300" cy="560" r="470" stroke-opacity="0.05"/>
+    <circle cx="1300" cy="560" r="640" stroke-opacity="0.035"/>
+  </g>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+</svg>
