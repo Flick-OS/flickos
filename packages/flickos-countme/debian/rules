@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+
+# The tests import usr/bin/flickos-countme; no bytecode next to installed files.
+export PYTHONDONTWRITEBYTECODE = 1
+
+%:
+	dh $@
+
+# Skipped with DEB_BUILD_OPTIONS=nocheck.
+override_dh_auto_test:
+	python3 -m unittest discover -s tests -v
+
+# Enable the timer, start nothing: installing or upgrading the package must
+# not send a count (the timer is started at the next boot, Persistent=true).
+override_dh_installsystemd:
+	dh_installsystemd --no-start

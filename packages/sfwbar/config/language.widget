@@ -1,0 +1,52 @@
+#Api2
+
+module("xkbmap")
+
+Private {
+
+  TriggerAction "language-list", LayoutMenuBuild();
+
+  Function LayoutName ( lang )
+  {
+    if(CustomIPC() = "hyprland")
+      Return XkbMap(lang, "name", "description");
+    Else
+      Return lang;
+  }
+
+  Function LayoutMenuBuild()
+  {
+    Var i, l = LayoutList();
+
+    MenuClear("LayoutList");
+    for(i = 0; i<ArraySize(l); i=i+1)
+      Config(ReplaceAll(LayoutMenuTmpl,
+            "%NAME%", LayoutName(l[i]),
+            "%LAYOUT%", l[i]));
+  }
+
+  Var LayoutMenuTmpl = "
+    Menu('LayoutList') {
+      Item {
+        value = '%NAME%';
+        action = SetLayout('%LAYOUT%');
+      }
+    }"
+
+  export label "language" {
+    style = If(Layout()!="", "language", "hidden");
+    value = Upper(XkbMap(Layout(), "description", "name"));
+    tooltip = "Language: " + Layout();
+    action[0] = LayoutMenuBuild();
+    action[LeftClick] = SetLayout("next");
+    action[RightClick] = Menu("LayoutList");
+    trigger = "language";
+  }
+}
+
+#CSS
+
+label#language {
+  -GtkWidget-vexpand: true;
+  -GtWidget-valign: center;
+}

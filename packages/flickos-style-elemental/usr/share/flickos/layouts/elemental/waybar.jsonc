@@ -1,0 +1,21 @@
+// Elemental: a thin see-through top bar with the apps button as the FlickOS
+// halo and the word "Applications" on the left, the date and time in the
+// middle and the status on the right (style.css). The dock at the bottom is
+// Cupertino's sfwbar config with Elemental's light dock.css. Installed next
+// to flickos-layouts' layouts, so ../common is FlickOS's shared modules; the
+// settings here win over them.
+{
+    "name": "elemental",
+    "layer": "top",
+    "position": "top",
+    "height": 28,
+    "spacing": 4,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["custom/launcher"],
+    "modules-center": ["clock", "custom/recording"],
+    "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/desktop"],
+
+    "custom/launcher": { "format": "Applications" },
+    "clock": { "format": "{:%a, %b %e  %H:%M}" }
+}

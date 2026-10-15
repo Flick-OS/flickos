@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+lb clean noauto "${@}"
+
+# lb config reads these back in, so an option removed from auto/config would
+# otherwise keep its old value. Remove them so auto/config is the only source.
+rm -f config/binary config/bootstrap config/chroot config/common config/source
+rm -f build.log

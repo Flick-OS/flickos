@@ -1,0 +1,7 @@
+#!/usr/bin/python3
+# The waypaper GUI and command line (upstream's "waypaper" entry point).
+import sys
+
+from waypaper.__main__ import run
+
+sys.exit(run())

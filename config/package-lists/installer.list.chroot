@@ -1,0 +1,8 @@
+calamares
+flickos-installer
+
+# Calamares needs it to make a btrfs filesystem; without it, choosing btrfs
+# fails. Listed here (not a Depends of flickos-installer, which Calamares
+# removes) so it stays installed and is never autoremoved: restore points
+# need it on btrfs installs (docs/design/flickos-recovery.md, phase 1a).
+btrfs-progs

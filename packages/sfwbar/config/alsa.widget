@@ -1,0 +1,30 @@
+#Api2
+
+# an example of an efficient widget using executables. For production use
+# it's preferable to use volume.widget, which supports ALSA as well as pulse.
+
+ExecClient("stdbuf -oL amixer sevents","alsactl") {}
+Exec("amixer sget Master") {
+  AlsaVolume = RegEx(".*[[](.[0-9]+)%")
+  AlsaMuted = RegEx(".*[[].*[[]([A-Za-z].*)[]]")
+}
+
+set AlsaMutedIcon = "audio-volume-muted-symbolic"
+set AlsaVolumeIcon = Lookup(AlsaVolume,
+  80, "audio-volume-high-symbolic",
+  50, "audio-volume-medium-symbolic",
+  0, "audio-volume-low-symbolic",
+  $AlsaMutedIcon)
+set AlsaIcon = If($AlsaMuted = "off",$AlsaMutedIcon,$AlsaVolumeIcon)
+
+export button "alsa" {
+  value = $AlsaIcon
+  tooltip = GT("Volume") + ": " + Str(AlsaVolume,0) + "%" + If(AlsaMuted," (" + GT("muted") + ")","")
+  style = If(Ident(AlsaVolume), "alsa", "hidden")
+  class = "module";
+  trigger = "alsactl"
+  action[LeftClick] = Exec("amixer sset Master toggle\n")
+  action[RightClick] = ExecTerm(" -e alsamixer")
+  action[ScrollUp] = Exec("amixer sset Master 5%+\n")
+  action[ScrollDown] = Exec("amixer sset Master 5%-\n")
+}

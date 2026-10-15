@@ -1,0 +1,51 @@
+/* Elemental's top bar: FlickOS's shared rules, then a see-through bar in
+ * Inter, its text bold with a soft shadow so it reads over the wallpaper,
+ * the halo before "Applications" and round hovers. Named colors only. */
+@import url("../common/base.css");
+
+/* Drawn at the alpha flickos-layout's check tests (PANEL_ALPHA): the
+ * style's wm_bg is as light as white text allows. */
+window#waybar.elemental {
+    background: alpha(@wm_bg, 0.85);
+}
+
+window#waybar.elemental * {
+    font-family: "Inter Variable", Inter, sans-serif;
+    font-size: 13px;
+    font-weight: bold;
+    text-shadow: 0 1px 2px alpha(@wm_bg, 0.9);
+}
+
+/* The halo first, then the word. */
+window#waybar.elemental #custom-launcher {
+    margin: 2px 0 2px 4px;
+    padding: 0 10px 0 32px;
+    border-radius: 12px;
+    background-position: 10px center;
+    background-size: 16px 16px;
+}
+
+/* Every button lights as a pill under the pointer. */
+window#waybar.elemental #clock,
+window#waybar.elemental #custom-tiler,
+window#waybar.elemental #custom-phone,
+window#waybar.elemental #custom-recording,
+window#waybar.elemental #tray,
+window#waybar.elemental #wireplumber,
+window#waybar.elemental #battery,
+window#waybar.elemental #quick {
+    margin: 2px 0;
+    border-radius: 12px;
+}
+
+window#waybar.elemental #custom-launcher:hover,
+window#waybar.elemental #clock:hover,
+window#waybar.elemental #custom-tiler:hover,
+window#waybar.elemental #custom-phone:hover,
+window#waybar.elemental #custom-recording:hover,
+window#waybar.elemental #wireplumber:hover,
+window#waybar.elemental #battery:hover,
+window#waybar.elemental #quick:hover {
+    background-color: alpha(@fg_color, 0.15);
+    color: @fg_color;
+}

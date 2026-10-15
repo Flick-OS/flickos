@@ -1,0 +1,3847 @@
+#!/usr/bin/python3
+"""Screenshot: take a picture of the whole screen or of an area of it, or
+record a video of it.
+
+Every screenshot is saved into ~/Pictures/Screenshots (the folder of
+`xdg-user-dir PICTURES`, where FlickOS's Print keys have always saved,
+unless the folder setting says otherwise) and
+copied to the clipboard as a PNG, and a notification says so; clicking it
+opens the picture in the markup window. Nothing is overwritten: a second
+shot in the same second gets " (2)". The shutter sound plays and what was
+taken flashes white, unless
+the desktop's event sounds or animations are off (GSettings
+org.gnome.desktop.sound event-sounds, org.gnome.desktop.interface
+enable-animations) or, for the sound, Do Not Disturb is on. Design:
+docs/design/flickos-screenshot.md.
+
+An area is chosen on a frozen screen: every screen is grabbed first (grim, as
+PPM because it is quick), before GTK is even imported, and the area is drawn
+on that picture, so an open menu or a tooltip stays in the shot. The area is
+then cut out of the grab; nothing is grabbed twice. On the frozen screen:
+drag to select an area, or click to take the whole screen under the pointer.
+From the keyboard: the arrow keys move a crosshair (with Shift 10 pixels at a
+time), Space marks the first corner, Enter takes the area (or, with no corner
+marked, the screen under the crosshair), Tab jumps to the next screen and
+Escape cancels.
+
+The capture bar (Super+Shift+S, and Screenshot in the menus) offers Area and
+Full Screen, Photo or Video (or Text, while tesseract is installed), a delay
+of 3, 5 or 10 seconds and, for a video, the sound; it hides before the delay,
+so nothing of it is in the picture. With
+a delay an area is chosen first and taken when the delay is over, so a menu
+opened meanwhile is in it. The delay it used last is remembered in
+$XDG_STATE_HOME/flickos/screenshot/last. The sound, where pictures and
+recordings are saved, and whether a screenshot includes the pointer are
+settings (`get`/`set`; the system file /etc/xdg/flickos/screenshot.conf, then
+~/.config/flickos/screenshot). flickos-settings' Print keys run `shot`
+directly; Super+Shift+R opens the bar with Video chosen, or stops the
+recording.
+
+Text (`shot --text`, the bar's Text) reads the area or the screen with
+tesseract (tesseract-ocr is only suggested: without it Text isn't offered),
+in English and up to two more installed languages, copies the text and
+prints it; the notification shows how it starts. The picture isn't saved.
+
+The markup window (`edit`) draws on a picture with a pen, a highlighter,
+arrows, boxes, text and solid boxes that hide what is under them and crops it.
+It copies the result, saves it into its own file (or, for one that was only
+copied, a new one) or, while flickos-phone runs, sends it to the phone. Undo
+and redo go back to the picture as it was opened; the file is written only by
+Save. Closing it with markup that was neither saved nor copied asks first. One
+per session: another `edit` shows its picture in the open window
+(edit-request, then SIGUSR1 to the PID in edit.lock).
+
+A recording asks xdg-desktop-portal for the screen (ScreenCast) and encodes
+it with GStreamer in this process, which loads no GTK: H.264 and Opus in a
+fragmented MP4, so a crash keeps all but the last second. It is written
+straight into ~/Videos/Screen Recordings under its final name. The panel's
+recording button (custom/recording, flickos-layouts) counts down, then shows
+the time and stops it when clicked: the recorder writes panel.json and sends
+waybar SIGRTMIN+PANEL_SIGNAL. The area is chosen by a short-lived child (the
+`area` command, the frozen screen), and another one (`outline`) draws a line
+around it, outside what is recorded. FlickOS's portal-wlr config runs
+/usr/libexec/flickos/screencast-chooser, which answers the portal's question
+"which screen?" from screencast-request, written just before; for anyone
+else's request it asks, as before. portal-wlr sometimes sends one broken frame
+and then nothing: the pipeline is restarted on the same stream (Recorder).
+
+It runs nothing in the background: every command but `record` and `edit`
+ends when its picture is taken, `record` ends with the recording and `edit`
+when its window is closed. The notification is
+shown by a short-lived child (the `notify` command) that waits for a click,
+and the sound and the flash by another one (`feedback`), started before the
+grab so that it is ready when the picture is; it holds flash.lock while the
+flash is shown, so the next grab waits for it. Session files are in
+$XDG_RUNTIME_DIR/flickos/screenshot/ (the grab while choosing an area,
+last.png, the latest picture that was only copied, so its notification can
+still open it, while recording recording.lock with the recorder's PID and
+panel.json, and while the markup window is open edit.lock). One capture at
+a time (screenshot.lock in $XDG_RUNTIME_DIR/flickos), and one recording.
+
+Commands:
+  (none), bar [--video|--photo]
+                     the capture bar; --video chooses Video, or stops the
+                     recording that is running; --photo offers only Photo
+                     and prints the picture's path (the markup window's New
+                     Screenshot)
+  shot region|screen [--delay N] [--copy-only|--text] [--pointer]
+                     take a picture of an area (chosen on the frozen screen)
+                     or of every screen, N seconds later (an area is chosen
+                     first); --copy-only copies it without saving; --text
+                     copies and prints the text in it instead (tesseract);
+                     --pointer includes the mouse pointer
+  record region|screen [--delay N] [--sound none|computer|microphone|both]
+                     record an area or a screen (with several, the portal
+                     asks which) after a countdown of N seconds (default 3),
+                     until `stop`
+  stop               stop the recording
+  edit FILE          the markup window with the picture FILE
+  status [--panel]   whether a recording runs; --panel: the panel button's JSON
+  area               (internal) choose an area on the frozen screen, print it
+  outline X Y W H    (internal) draw a line around an area until killed
+  notify FILE TITLE BODY [--icon NAME] [--edit]
+                     (internal) show a notification about FILE and open FILE
+                     (with --edit in the markup window) when it is clicked
+  feedback           (internal) once "flash [X Y W H]" comes on stdin, play the
+                     shutter sound and flash the area, or every screen
+  get KEY            print a setting: folder, recordings-folder, pointer, sound
+  set KEY VALUE      change one ("default" puts the system's back); a change
+                     is recorded for Settings > History
+  state              every setting as JSON, for Settings > Screenshots
+
+Exit codes: 0 ok, 1 error or cancelled, 2 usage error.
+"""
+
+import argparse
+import configparser
+import contextlib
+import dataclasses
+import datetime
+import fcntl
+import html
+import json
+import math
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+NAME = "flickos-screenshot"
+APP_ID = "flickos-screenshot"       # Wayland app id and layer namespace, matches the desktop file
+TITLE = "Screenshot"                # the desktop file's Name (HIG WIN-4)
+MODES = ("region", "screen")
+# The bar's delays, in seconds (the Snipping Tool's). `shot --delay` takes any
+# number of seconds up to MAX_DELAY.
+DELAYS = (0, 3, 5, 10)
+MAX_DELAY = 60
+FOLDER = "Screenshots"              # below `xdg-user-dir PICTURES`, as the Print keys always did
+FILE_NAME = "Screenshot %Y-%m-%d %H-%M-%S"   # time.strftime; ".png" and " (2)" are added
+# In $XDG_RUNTIME_DIR/flickos: the session's files (0700) and the lock held
+# from the key press until the picture is saved.
+RUNTIME = "screenshot"
+GRAB = "grab.ppm"                   # every screen, while an area is chosen
+SHOT = "shot.png"                   # the picture before it is saved
+LAST = "last.png"                   # the latest copy-only picture, for its notification
+LOCK = "screenshot.lock"
+# $XDG_STATE_HOME/flickos/screenshot/last: the bar's delay, a "delay=N" line.
+# The sound used to be kept here too; it is a setting now (a line left over
+# is ignored).
+STATE = os.path.join("flickos", "screenshot", "last")
+NOTIFY_MS = 30000                   # as flickos-phone's: mako's 5 s default is too short to click
+# labwc needs a frame to take the hidden bar off the screen before the grab.
+HIDE_SECONDS = 0.25
+COMMAND_SECONDS = 20                # grim, wl-copy, xdg-user-dir
+MIN_DRAG = 4                        # a drag shorter than this both ways (layout pixels) is a click
+KEY_STEP, KEY_STEP_SHIFT = 1, 10    # crosshair steps of the arrow keys
+DIM_ALPHA = 0.45                    # the shade over the frozen screen outside the area
+# After a screenshot (ADR-005): the sound theme's shutter sound and a white
+# flash over what was taken, fading out, as GNOME does. Neither is a setting
+# of FlickOS's (SET-3): the flash follows the desktop's animations and the
+# sound its event sounds (GSettings, as GTK and nwg-look have them), and Do
+# Not Disturb silences the sound.
+SHUTTER_SOUNDS = ("screen-capture", "camera-shutter")   # sound theme names, the first found
+SOUND_THEME = "freedesktop"         # sound-theme-freedesktop, when the chosen theme has neither
+SOUND_EXTENSIONS = (".oga", ".ogg", ".wav")
+FLASH_SECONDS = 0.3
+FLASH_ALPHA = 0.5                   # the flash's white at first; it fades to nothing
+FLASH_LOCK = "flash.lock"           # in RUNTIME: held while the flash is on the screen
+FEEDBACK_SECONDS = 3                # the longest a flash is shown or waited for
+DND_MODE = "do-not-disturb"         # mako's mode (flickos-settings' mako config)
+NOTIFICATIONS_BUS_NAME = "org.freedesktop.Notifications"
+
+# The notification for each outcome (title, body). {folder} is where it was
+# saved, {error} why it couldn't be. mako shows about three lines of body, so
+# the action comes first.
+NOTICES = {
+    "saved": ("Screenshot copied and saved", "Click to edit it. It is in {folder}."),
+    "copied": ("Screenshot copied", "Paste it anywhere, or click to edit it."),
+    "not-copied": ("Screenshot saved", "It couldn't be copied. Click to edit it. It is in {folder}."),
+    "not-saved": ("Screenshot copied", "It couldn't be saved in {folder} ({error}). Click to edit it."),
+    "failed": ("Screenshot failed", "{error}"),
+    "recorded": ("Screen recording saved", "Click to play it. It is in {folder}."),
+    "recorded-full": ("Screen recording saved", "The disk is almost full, so it stopped. It is in {folder}."),
+    "record-broken": ("Screen recording stopped", "{error} What was recorded is in {folder}."),
+    "record-failed": ("Screen recording failed", "{error}"),
+    "text-copied": ("Text copied", "{text}"),
+    "no-text": ("No text found", "Nothing was copied. Try an area with bigger or clearer text."),
+    "text-not-copied": ("Text not copied", "It was read, but couldn't be put on the clipboard."),
+    "text-failed": ("Text not copied", "{error}"),
+}
+HINTS = {
+    "shot": ("Drag to select an area, or click to take the whole screen.\n"
+             "Keys: arrows move, Space marks a corner, Enter takes it, Escape cancels."),
+    "record": ("Drag to select the area to record, or click to record the whole screen.\n"
+               "Keys: arrows move, Space marks a corner, Enter takes it, Escape cancels."),
+    "delay": ("Drag to select an area, or click to take the whole screen, {delay} seconds from then.\n"
+              "Keys: arrows move, Space marks a corner, Enter takes it, Escape cancels."),
+    "text": ("Drag to select the text to copy, or click to copy the text of the whole screen.\n"
+             "Keys: arrows move, Space marks a corner, Enter takes it, Escape cancels."),
+}
+# The bar's buttons: (mode, label with mnemonic, icon names, first the theme has).
+BAR_BUTTONS = (
+    ("region", "_Area", ("image-crop-symbolic", "edit-select-symbolic")),
+    ("screen", "_Full Screen", ("view-fullscreen-symbolic",)),
+)
+# Photo, Video or Text: (kind, label with mnemonic, icon names, tooltip).
+# Text only while tesseract is installed.
+BAR_KINDS = (
+    ("photo", "_Photo", ("camera-photo-symbolic", "image-x-generic-symbolic"), None),
+    ("video", "_Video", ("camera-video-symbolic", "media-record-symbolic"), None),
+    ("text", "_Text", ("text-x-generic-symbolic", "insert-text-symbolic"),
+     "Copy the text in the area or on the screen"),
+)
+BAR_MARGIN = 12                     # the bar's distance from the top of the screen
+
+# Text from the screen (ADR-011): tesseract-ocr is only suggested (23.6 MB
+# with its English data). While it is installed, `shot --text` and the bar's
+# Text read the picture and copy what it says; the picture isn't kept.
+OCR = "tesseract"
+NO_OCR = "Install the package tesseract-ocr to copy text from the screen."
+OCR_SECONDS = 60                    # a full HD screen of small text takes about 12 s
+OCR_PICTURE = "text.png"            # in RUNTIME: the picture at twice its size, while it is read
+# Screen text is small for tesseract: a picture up to this many pixels (an
+# area, not a whole screen) is read at twice its size, which fixes most of
+# its mistakes at 10 px and costs a whole screen far more time than it saves.
+OCR_UPSCALE_PIXELS = 1_000_000
+# tesseract's own (global) threshold can't tell a dark window's light text
+# from the window with black around it: it read nothing of a whole screen
+# like that. A picture it finds no text in is read again with Sauvola's
+# local threshold, which got that screen right but loses light text on one
+# dark background, so it isn't the first try (ADR-011).
+OCR_RETRY = ("-c", "thresholding_method=2")
+# Every installed language makes reading slower: English first, then the
+# others tesseract lists, at most this many. osd isn't a language.
+MAX_LANGUAGES = 3
+NOTICE_LINES, NOTICE_LINE_CHARS = 3, 60     # the copied text the notification shows
+
+# Recording (docs/design/flickos-screenshot.md, ADR-006 and ADR-007).
+SOUNDS = {                          # the bar's words for record --sound
+    "none": "No sound",
+    "computer": "Computer sound",
+    "microphone": "Microphone",
+    "both": "Computer and microphone",
+}
+DEFAULT_SOUND = "none"
+RECORDINGS_FOLDER = "Screen Recordings"      # below `xdg-user-dir VIDEOS`
+# Settings (ADR-008): the conffile, then the user's file. A broken file is
+# the defaults. FLICKOS_SCREENSHOT_PREFIX points both at a temp folder (tests).
+PREFIX = os.environ.get("FLICKOS_SCREENSHOT_PREFIX", "")
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/screenshot.conf"
+HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+SECTION = "Screenshot"
+SETTING_KEYS = ("folder", "recordings-folder", "pointer", "sound")
+INI_KEYS = {"folder": "Folder", "recordings-folder": "RecordingsFolder",
+            "pointer": "Pointer", "sound": "Sound"}
+DEFAULT_CHOICE = "default"
+YES = ("yes", "true", "1", "on")
+NO = ("no", "false", "0", "off")
+RECORDING_NAME = "Screen Recording %Y-%m-%d %H-%M-%S"   # ".mp4" and " (2)" are added
+RECORDING_LOCK = "recording.lock"   # in RUNTIME: held while recording, holds the PID
+PANEL = "panel.json"                # in RUNTIME: what the panel's custom/recording shows
+REQUEST = "screencast-request"      # in RUNTIME: the screen screencast-chooser answers with
+COUNTDOWN = 3                       # seconds before a recording starts, unless --delay says
+# waybar's custom/recording has "signal": 10 (flick-tiler uses 8, flickos-phone 9).
+PANEL_SIGNAL = 10
+PROC = "/proc"                      # where waybar is looked for (tests use a fake one)
+FRAMERATE = 30
+MIN_AREA = 16                       # the smallest area recorded, in the stream's pixels
+# portal-wlr sometimes sends one CORRUPTED buffer and then nothing (its "out
+# of buffers", upstream issues #251 and #69). Setting the pipeline to NULL and
+# back to PLAYING on the same stream fixes it (phase 0: 23 of 23).
+FIRST_FRAME_SECONDS = 1.0
+MAX_RESTARTS = 4
+POLL_MS = 250                       # the recorder's clock: countdown, first frame, time shown
+EOS_SECONDS = 10                    # a clean stop's end of stream, then it is cut off
+MIN_FREE_MB = 200                   # a recording stops below this much free space
+SPACE_SECONDS = 5                   # how often the free space is checked
+PORTAL_SECONDS = 120                # the portal's answer; its own chooser may ask the user
+# The GStreamer elements a recording uses, and which package has them.
+ELEMENTS = {
+    "pipewiresrc": "gstreamer1.0-pipewire",
+    "x264enc": "gstreamer1.0-plugins-ugly",
+    "mp4mux": "gstreamer1.0-plugins-good",
+    "videocrop": "gstreamer1.0-plugins-good",
+    "pulsesrc": "gstreamer1.0-plugins-good",
+    "opusenc": "gstreamer1.0-plugins-base",
+    "audiomixer": "gstreamer1.0-plugins-base",
+    "videorate": "gstreamer1.0-plugins-base",
+}
+# pipewire-pulse's name for the default output's monitor: the computer's sound.
+COMPUTER_SOUND = "@DEFAULT_MONITOR@"
+PORTAL = "org.freedesktop.portal.Desktop"
+PORTAL_PATH = "/org/freedesktop/portal/desktop"
+SCREENCAST = "org.freedesktop.portal.ScreenCast"
+SOURCE_MONITOR = 1                  # ScreenCast source types: monitors
+CURSOR_EMBEDDED = 2                 # ScreenCast cursor modes: drawn into the picture
+
+# The markup window (ADR-009).
+EDIT_LOCK = "edit.lock"             # in RUNTIME: held by the markup window, holds its PID
+EDIT_REQUEST = "edit-request"       # in RUNTIME: the picture another `edit` asks it to show
+EDIT_COPY = "edit-copy.png"         # in RUNTIME: the marked-up picture while it is copied
+EDIT_SEND = "send"                  # in RUNTIME: a folder, the marked-up picture while it goes to the phone
+PHONE_ON = "flickos-phone-on"       # flickos-phone's link in $XDG_RUNTIME_DIR/flickos/bin while it runs
+# The notices whose click opens their picture in the markup window.
+EDIT_NOTICES = ("saved", "copied", "not-copied", "not-saved", "failed")
+# The tools: (id, label with mnemonic, tooltip, icon names, the first the theme has).
+TOOLS = (
+    ("pen", "_Pen", "Draw freehand", ("document-edit-symbolic", "edit-symbolic")),
+    ("highlighter", "_Highlighter", "Mark with a see-through stroke",
+     ("format-text-underline-symbolic",)),     # Numix's marker-symbolic is a flag
+    ("arrow", "_Arrow", "Draw an arrow", ("go-next-symbolic",)),
+    ("rectangle", "_Rectangle", "Draw a box", ("checkbox-symbolic", "media-playback-stop-symbolic")),
+    ("text", "_Text", "Click where the text goes, then type. Enter ends it, Shift+Enter starts a new line.",
+     ("insert-text-symbolic", "format-text-bold-symbolic")),
+    ("hide", "Hi_de", "Cover something with a solid box. It isn't blurred, so it can't be read back.",
+     ("view-conceal-symbolic", "security-high-symbolic")),
+    ("crop", "Cr_op", "Drag a corner or the area. Keys: arrows move a corner, Tab picks the next one, "
+     "Enter applies, Escape cancels.", ("image-crop-symbolic", "zoom-fit-best-symbolic")),
+)
+# (id, name, color): Arc's error, warning and accent colors, its borders'
+# near-black and white (tools/check-palette.py).
+COLORS = (
+    ("red", "Red", "#fc4138"),
+    ("orange", "Orange", "#f27835"),
+    ("blue", "Blue", "#5294e2"),
+    ("black", "Black", "#2b2e39"),
+    ("white", "White", "#ffffff"),
+)
+# (id, name, line width, text size), in picture pixels.
+WIDTHS = (
+    ("thin", "Thin", 3, 18),
+    ("medium", "Medium", 6, 28),
+    ("thick", "Thick", 12, 44),
+)
+TEXT_FONT = "Sans Bold"
+HIGHLIGHT_WIDTH = 4                 # the highlighter is this many times as wide as the pen
+HIGHLIGHT_ALPHA = 0.4
+ARROW_HEAD, ARROW_HEAD_MIN = 4, 14  # the head's length: times the width, and at least
+ARROW_ANGLE = math.radians(28)      # between the shaft and each side of the head
+MIN_SHAPE = 3                       # an arrow or box shorter than this both ways is dropped
+# Zoom steps (Ctrl+plus/minus): picture pixels per screen pixel. Fitting
+# never makes the picture bigger than 1.
+ZOOMS = (0.1, 0.25, 0.33, 0.5, 0.67, 1, 1.5, 2, 3, 4, 6, 8)
+CANVAS_MARGIN = 12                  # around the picture when it fits the window
+HANDLE = 5                          # half a crop handle's size, layout pixels
+CROP_HANDLES = ("se", "nw", "ne", "sw")     # the order Tab picks them; the arrows move the first
+CROP_DIM = 0.55                     # the shade outside the crop while cropping
+TEXT_START = 16                     # where typed text starts without a click, layout pixels in from the corner
+EDIT_WINDOW = ((640, 420), (1120, 680))    # the smallest and biggest default size (WIN-3)
+EDIT_CHROME = 110                   # the toolbar and the action bar's height, about
+PICTURE_EXTENSIONS = (".png", ".jpg", ".jpeg")
+
+
+class ShotError(Exception):
+    """An expected failure, with a message for the user."""
+
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+# --- Places ----------------------------------------------------------------------
+
+def runtime_dir():
+    """$XDG_RUNTIME_DIR/flickos/screenshot, created 0700."""
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        raise ShotError("XDG_RUNTIME_DIR is not set; run this inside the desktop session")
+    folder = os.path.join(base, "flickos", RUNTIME)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    os.chmod(folder, 0o700)
+    return folder
+
+
+def state_home():
+    return os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+
+
+def state_path():
+    return os.path.join(state_home(), STATE)
+
+
+def config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+
+
+def user_conf():
+    return os.path.join(config_home(), "flickos", "screenshot")
+
+
+def user_dir(kind, fallback):
+    """The user's folder of a kind (xdg-user-dir PICTURES, VIDEOS). xdg-user-dir
+    answers the home folder when it isn't set, so that means ~/fallback."""
+    home = os.path.expanduser("~")
+    try:
+        result = subprocess.run(["xdg-user-dir", kind], capture_output=True, text=True,
+                                timeout=COMMAND_SECONDS)
+        folder = result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        folder = ""
+    if not folder or os.path.realpath(folder) == os.path.realpath(home):
+        folder = os.path.join(home, fallback)
+    return folder
+
+
+def default_pictures_dir():
+    """Where screenshots go unless a setting says otherwise: PICTURES/Screenshots."""
+    return os.path.join(user_dir("PICTURES", "Pictures"), FOLDER)
+
+
+def default_videos_dir():
+    """Where recordings go unless a setting says otherwise: VIDEOS/Screen Recordings."""
+    return os.path.join(user_dir("VIDEOS", "Videos"), RECORDINGS_FOLDER)
+
+
+def pictures_dir():
+    """The folder screenshots are saved in."""
+    return load_settings().folder
+
+
+def videos_dir():
+    """The folder recordings are saved in."""
+    return load_settings().recordings_folder
+
+
+def shown_folder(folder):
+    """A folder as the user knows it: relative to the home folder."""
+    home = os.path.expanduser("~")
+    if os.path.commonpath([os.path.abspath(folder), home]) == home:
+        return os.path.relpath(folder, home)
+    return folder
+
+
+@contextlib.contextmanager
+def single_capture():
+    """Yields True for the only capture of the session, False while another runs."""
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        yield True
+        return
+    folder = os.path.join(base, "flickos")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, LOCK), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+def remove(path):
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)
+
+
+def read_last():
+    """The delay the bar used last: one of DELAYS, or 0 when there is none
+    or it isn't one of them. A sound= line from before it was a setting is
+    ignored."""
+    try:
+        with open(state_path(), encoding="utf-8") as f:
+            for line in f:
+                key, _, value = line.strip().partition("=")
+                if key == "delay" and value.isdigit() and int(value) in DELAYS:
+                    return int(value)
+    except OSError:
+        pass
+    return 0
+
+
+def write_last(delay):
+    """Remember the bar's delay (atomically). A failure only costs the memory."""
+    path = state_path()
+    temp = f"{path}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(temp, "w", encoding="utf-8") as f:
+            f.write(f"delay={delay}\n")
+        os.replace(temp, path)
+    except OSError as error:
+        warn(f"{path}: {error}")
+    finally:
+        remove(temp)
+
+
+# --- Settings ------------------------------------------------------------------------
+# One owner (SET-1): this program. The system default is the conffile, the
+# user's choice is ~/.config/flickos/screenshot, written only when they change
+# something. Every change is recorded for Settings > History, in the format
+# shared with the other owners (docs/design/flickos-history.md).
+
+@dataclasses.dataclass
+class Settings:
+    folder: str
+    recordings_folder: str
+    pointer: bool
+    sound: str
+    user_keys: frozenset = frozenset()     # keys the user's file sets
+
+
+def write_atomic(path, text, mode=0o644):
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def read_ini(path):
+    """{setting key: value} of one file. A file that can't be read counts as
+    absent, with a warning (SET-4)."""
+    ini = configparser.ConfigParser(interpolation=None)
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return {}
+    if not ini.has_section(SECTION):
+        return {}
+    raw = {key.lower(): value for key, value in ini[SECTION].items()}
+    return {key: raw[name.lower()] for key, name in INI_KEYS.items() if name.lower() in raw}
+
+
+def meaningful(values):
+    """Keys with a value. An empty one is absent, so the other file applies."""
+    return {key: value for key, value in values.items() if value.strip()}
+
+
+def normalize_folder(text):
+    """An absolute folder path, or None. Relative paths are refused: a setting
+    must not depend on whichever folder the command was started in."""
+    text = text.strip()
+    if not text or any(char in text for char in "\n\x00"):
+        return None
+    if not (text.startswith("/") or text.startswith("~")):
+        return None
+    path = os.path.abspath(os.path.expanduser(text))
+    return path if os.path.isabs(path) else None
+
+
+def folder_value(text, key, fallback):
+    text = text.strip()
+    if not text:
+        return fallback()
+    path = normalize_folder(text)
+    if path is None:
+        warn(f"{key}: '{text}' is not a folder path; using the usual one")
+        return fallback()
+    return path
+
+
+def pointer_value(text):
+    text = text.strip().lower()
+    if not text or text in NO:
+        return False
+    if text in YES:
+        return True
+    warn(f"pointer: '{text}' is not yes or no; using no")
+    return False
+
+
+def sound_value(text):
+    text = text.strip().lower()
+    if not text:
+        return DEFAULT_SOUND
+    if text in SOUNDS:
+        return text
+    warn(f"sound: '{text}' is not one of {', '.join(SOUNDS)}; using {DEFAULT_SOUND}")
+    return DEFAULT_SOUND
+
+
+def load_settings():
+    """The settings in force: the user's file over the system's, and the
+    built-in defaults where neither says."""
+    values = meaningful(read_ini(SYSTEM_CONF))
+    user = meaningful(read_ini(user_conf()))
+    values.update(user)
+    return Settings(
+        folder_value(values.get("folder", ""), "folder", default_pictures_dir),
+        folder_value(values.get("recordings-folder", ""), "recordings-folder", default_videos_dir),
+        pointer_value(values.get("pointer", "")),
+        sound_value(values.get("sound", "")),
+        frozenset(user))
+
+
+def setting_text(settings, key):
+    """A setting as `get` prints it."""
+    if key == "folder":
+        return settings.folder
+    if key == "recordings-folder":
+        return settings.recordings_folder
+    if key == "pointer":
+        return "yes" if settings.pointer else "no"
+    if key == "sound":
+        return settings.sound
+    raise ShotError(f"unknown setting '{key}'")
+
+
+def recorded(settings, key):
+    """A setting as History stores it. A folder the user hasn't chosen is
+    "default": the usual folder follows xdg-user-dir, which can move."""
+    if key in ("folder", "recordings-folder") and key not in settings.user_keys:
+        return DEFAULT_CHOICE
+    return setting_text(settings, key)
+
+
+def save_settings(changes):
+    """Write changes to the user's file. None removes a key, so the system's
+    applies again. A change that shows is recorded. Returns the settings after."""
+    before = load_settings()
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+        ini.read(user_conf(), encoding="utf-8")
+    if not ini.has_section(SECTION):
+        ini.add_section(SECTION)
+    for key, value in changes.items():
+        name = INI_KEYS[key]
+        for existing in list(ini[SECTION]):
+            if existing.lower() == name.lower():
+                ini.remove_option(SECTION, existing)
+        if value is not None:
+            ini[SECTION][name] = value
+    path = user_conf()
+    if ini[SECTION]:
+        lines = [
+            "# Screenshots and screen recordings (flickos-screenshot).",
+            "# Change them with: flickos-screenshot set KEY VALUE",
+            "# VALUE default puts the system's back. Settings > Screenshots does the same.",
+            f"[{SECTION}]",
+        ]
+        lines += [f"{key}={value}" for key, value in ini[SECTION].items()]
+        write_atomic(path, "\n".join(lines) + "\n")
+    else:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
+    after = load_settings()
+    for key in changes:
+        record(key, recorded(before, key), recorded(after, key))
+    return after
+
+
+def change_setting(key, value):
+    """`set KEY VALUE`. Raises ShotError when VALUE isn't one of the key's."""
+    if key in ("folder", "recordings-folder"):
+        if value == DEFAULT_CHOICE:
+            save_settings({key: None})
+            return
+        path = normalize_folder(value)
+        if path is None:
+            raise ShotError(f"{key}: a folder, or default")
+        if os.path.lexists(path) and not os.path.isdir(path):
+            raise ShotError(f"{key}: {path} is not a folder")
+        save_settings({key: path})
+        return
+    if key == "pointer":
+        if value == DEFAULT_CHOICE:
+            save_settings({key: None})
+        elif value in ("yes", "no"):
+            save_settings({key: value})
+        else:
+            raise ShotError("pointer: yes, no or default")
+        return
+    if key == "sound":
+        if value == DEFAULT_CHOICE:
+            save_settings({key: None})
+        elif value in SOUNDS:
+            save_settings({key: value})
+        else:
+            raise ShotError(f"sound: {', '.join(SOUNDS)}, or default")
+        return
+    raise ShotError(f"unknown setting '{key}'")
+
+
+def settings_state():
+    """What `state` prints: each setting's value, and whether the user chose it."""
+    settings = load_settings()
+    return {key: {"value": setting_text(settings, key), "default": key not in settings.user_keys}
+            for key in SETTING_KEYS}
+
+
+# --- History ------------------------------------------------------------------------
+# One JSON line per change, appended. The format is shared with flickos-control,
+# flickos-layout, flick-tiler and flickos-phone.
+
+HISTORY_OWNER = "flickos-screenshot"
+HISTORY_FILE = "history.jsonl"      # in $XDG_STATE_HOME/flickos
+HISTORY_LOCK = "history.lock"
+HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
+
+
+def history_enabled():
+    enabled = True
+    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+            value = ini.get("History", "Enabled", fallback=None)
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+        if value is not None:
+            enabled = value.strip().lower() not in NO
+    return enabled
+
+
+def record(key, old, new):
+    """Add a change to the history. It never stops the change itself: a
+    history that can't be written is only a warning."""
+    if old == new or not history_enabled():
+        return
+    now = time.time_ns()
+    entry = {"v": 1, "id": str(now),
+             "time": datetime.datetime.fromtimestamp(now / 1e9).astimezone().isoformat(timespec="seconds"),
+             "owner": HISTORY_OWNER, "key": key, "old": old, "new": new}
+    folder = os.path.join(state_home(), "flickos")
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        with open(os.path.join(folder, HISTORY_LOCK), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = os.path.join(folder, HISTORY_FILE)
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                size = os.fstat(f.fileno()).st_size
+            if size > HISTORY_BYTES:
+                trim_history(path)
+    except OSError as error:
+        warn(f"the history can't be written: {error}")
+
+
+def trim_history(path):
+    """Keep the newest lines that fit in half of HISTORY_BYTES (under the lock)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    kept, size = [], 0
+    for line in reversed(lines):
+        size += len(line.encode())
+        if size > HISTORY_BYTES // 2:
+            break
+        kept.append(line)
+    write_atomic(path, "".join(reversed(kept)), mode=0o600)
+
+
+# --- Geometry (layout coordinates to picture pixels) ------------------------------
+
+def union(rects):
+    """The box (x, y, w, h) around rectangles."""
+    left = min(r[0] for r in rects)
+    top = min(r[1] for r in rects)
+    right = max(r[0] + r[2] for r in rects)
+    bottom = max(r[1] + r[3] for r in rects)
+    return left, top, right - left, bottom - top
+
+
+def corners(a, b):
+    """The rectangle (x, y, w, h) between two points."""
+    return min(a[0], b[0]), min(a[1], b[1]), abs(a[0] - b[0]), abs(a[1] - b[1])
+
+
+def to_pixels(rect, box, size):
+    """The pixels (x, y, w, h) of a picture of size (w, h) that show rect.
+
+    rect and box (the layout's bounding box, which the picture shows) are in
+    layout coordinates. grim draws the layout at the highest screen scale,
+    and a layout's origin need not be 0,0, so the scale is taken from the
+    picture itself. The result is clamped to the picture."""
+    scale_x, scale_y = size[0] / box[2], size[1] / box[3]
+
+    def clamp(value, limit):
+        return max(0, min(limit, value))
+
+    left = clamp(round((rect[0] - box[0]) * scale_x), size[0])
+    top = clamp(round((rect[1] - box[1]) * scale_y), size[1])
+    right = clamp(round((rect[0] + rect[2] - box[0]) * scale_x), size[0])
+    bottom = clamp(round((rect[1] + rect[3] - box[1]) * scale_y), size[1])
+    return left, top, right - left, bottom - top
+
+
+def monitor_at(point, rects):
+    """The index of the screen that holds point, or of the nearest one."""
+    def distance(rect):
+        dx = max(rect[0] - point[0], 0, point[0] - (rect[0] + rect[2] - 1))
+        dy = max(rect[1] - point[1], 0, point[1] - (rect[1] + rect[3] - 1))
+        return dx * dx + dy * dy
+    return min(range(len(rects)), key=lambda i: distance(rects[i]))
+
+
+def clamp_point(point, box):
+    return (max(box[0], min(box[0] + box[2] - 1, point[0])),
+            max(box[1], min(box[1] + box[3] - 1, point[1])))
+
+
+# --- Taking, saving and copying --------------------------------------------------
+
+def grab(path, pointer=False, image_type="ppm"):
+    """Every screen into path with grim. Raises ShotError. The last shot's
+    flash would be in the picture, so it waits for that to end."""
+    if not shutil.which("grim"):
+        raise ShotError("The screen can't be captured: grim is not installed.")
+    wait_for_flash(os.path.dirname(path))
+    argv = ["grim", "-t", image_type] + (["-c"] if pointer else []) + [path]
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ShotError(f"The screen couldn't be captured ({error}).") from None
+    if result.returncode != 0 or not os.path.exists(path):
+        detail = result.stderr.strip().splitlines()[-1:] or ["no picture"]
+        raise ShotError(f"The screen couldn't be captured ({detail[0]}).")
+
+
+def save_picture(source, folder, when=None):
+    """Copy source into folder under a new name. Returns the path. Raises OSError.
+
+    The picture is written to a temporary file in folder and linked to its
+    name, so a name that exists is never overwritten, even by a shot in the
+    same second, and a half-written file never has the real name."""
+    os.makedirs(folder, exist_ok=True)
+    base = time.strftime(FILE_NAME, time.localtime(when))
+    temp = os.path.join(folder, f".{base}.{os.getpid()}.tmp")
+    try:
+        shutil.copyfile(source, temp)
+        number = 1
+        while True:
+            path = numbered(folder, base, number, ".png")
+            try:
+                os.link(temp, path)
+                return path
+            except FileExistsError:
+                number += 1
+    finally:
+        remove(temp)
+
+
+def numbered(folder, base, number, extension):
+    """base.extension in folder, or with " (number)" from the second one on."""
+    return os.path.join(folder, base + ("" if number == 1 else f" ({number})") + extension)
+
+
+def reserve_recording(folder, when=None):
+    """Create the recording's file, empty, under a name that doesn't exist yet.
+    Returns the path. Raises OSError. The recording is written straight into
+    it, so a crash leaves a playable file under its real name."""
+    os.makedirs(folder, exist_ok=True)
+    base = time.strftime(RECORDING_NAME, time.localtime(when))
+    number = 1
+    while True:
+        path = numbered(folder, base, number, ".mp4")
+        try:
+            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644))
+            return path
+        except FileExistsError:
+            number += 1
+
+
+def copy_picture(path):
+    """Put the PNG on the clipboard with wl-copy (cliphist keeps it). Returns
+    True when it worked. wl-copy stays in the background to serve the
+    clipboard, so its output must not be a pipe this waits on."""
+    if not shutil.which("wl-copy"):
+        return False
+    try:
+        with open(path, "rb") as picture:
+            result = subprocess.run(["wl-copy", "--type", "image/png"], stdin=picture,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def copy_text(text):
+    """Put text on the clipboard, as copy_picture does a picture. Returns
+    True when it worked."""
+    if not shutil.which("wl-copy"):
+        return False
+    try:
+        result = subprocess.run(["wl-copy", "--type", "text/plain;charset=utf-8"], input=text.encode(),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def ocr_languages():
+    """The languages tesseract reads in: English first, at most MAX_LANGUAGES.
+    None when it can't tell, and it reads in its default."""
+    try:
+        result = subprocess.run([OCR, "--list-langs"], capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    # The first line says where they are; then one name per line.
+    found = [line.strip() for line in result.stdout.splitlines()[1:]]
+    found = [name for name in found if name and " " not in name and name != "osd"]
+    found.sort(key=lambda name: name != "eng")      # stable: the others keep tesseract's order
+    return found[:MAX_LANGUAGES] or None
+
+
+def ocr_picture(source, path):
+    """The picture tesseract reads: source, or a small one at twice its size
+    written to path. Returns which. Anything that goes wrong is source."""
+    try:
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf, GLib
+    except (ImportError, ValueError):
+        return source
+    try:
+        pixbuf = GdkPixbuf.Pixbuf.new_from_file(source)
+        width, height = pixbuf.get_width(), pixbuf.get_height()
+        if width * height > OCR_UPSCALE_PIXELS:
+            return source
+        bigger = pixbuf.scale_simple(width * 2, height * 2, GdkPixbuf.InterpType.BILINEAR)
+        if bigger is None or not bigger.savev(path, "png", [], []):
+            return source
+    except GLib.Error:
+        return source
+    return path
+
+
+def read_text(picture):
+    """The text tesseract finds in the picture, without blank space around it,
+    read again with OCR_RETRY when it finds none. Raises ShotError. One
+    thread: tesseract's OpenMP threads make it slower, not faster, and would
+    take every core."""
+    if not shutil.which(OCR):
+        raise ShotError(NO_OCR)
+    bigger = os.path.join(os.path.dirname(picture), OCR_PICTURE)
+    try:
+        argv = [OCR, ocr_picture(picture, bigger), "stdout"]
+        languages = ocr_languages()
+        if languages:
+            argv += ["-l", "+".join(languages)]
+        for extra in ((), OCR_RETRY):
+            result = subprocess.run(argv + list(extra), capture_output=True, encoding="utf-8", errors="replace",
+                                    timeout=OCR_SECONDS, env=dict(os.environ, OMP_THREAD_LIMIT="1"))
+            if result.returncode != 0:
+                detail = result.stderr.strip().splitlines()[-1:] or [f"tesseract exited with {result.returncode}"]
+                raise ShotError(f"The text couldn't be read ({detail[0]}).")
+            text = result.stdout.strip()    # tesseract ends a page with a form feed
+            if text:
+                break
+    except subprocess.TimeoutExpired:
+        raise ShotError("Reading the text took too long. Try a smaller area.") from None
+    except OSError as error:
+        raise ShotError(f"The text couldn't be read ({error}).") from None
+    finally:
+        remove(bigger)
+    return text
+
+
+def text_excerpt(text):
+    """The start of the copied text for the notification: mako shows about
+    three lines of body, and reads it as Pango markup."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    shown = [line if len(line) <= NOTICE_LINE_CHARS else line[:NOTICE_LINE_CHARS - 1] + "…"
+             for line in lines[:NOTICE_LINES]]
+    if len(lines) > NOTICE_LINES and not shown[-1].endswith("…"):
+        shown[-1] += " …"
+    return html.escape("\n".join(shown), quote=False)
+
+
+def notify(notice, target=None, icon=None, **fields):
+    """Show a notification in a child that outlives this program: it waits for
+    a click, which opens target: a screenshot in the markup window, anything
+    else in its default app. The icon is target (a picture) unless named."""
+    title, body = NOTICES[notice]
+    argv = [sys.executable, os.path.abspath(__file__), "notify", target or "", title, body.format(**fields)]
+    if icon:
+        argv += ["--icon", icon]
+    if target and notice in EDIT_NOTICES:
+        argv += ["--edit"]
+    try:
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as error:
+        warn(f"can't show the notification ({error})")
+
+
+class Feedback:
+    """The shutter sound and the flash, played by a child (the `feedback`
+    command) that outlives this program, so saving and copying don't wait
+    for it. It is started before the grab, so it has loaded GTK by the time
+    the picture is taken, and waits on its stdin: show() lets it go, and a
+    shot that is cancelled or fails closes the pipe, and it ends."""
+
+    def __init__(self):
+        try:
+            self.child = subprocess.Popen([sys.executable, os.path.abspath(__file__), "feedback"],
+                                          stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        except OSError as error:
+            warn(f"can't flash the screen ({error})")
+            self.child = None
+
+    def show(self, area=None):
+        """Flash area (layout coordinates), or every screen."""
+        if self.child:
+            with contextlib.suppress(OSError):
+                self.child.stdin.write(" ".join(["flash", *(str(value) for value in area or ())]) + "\n")
+        self.close()
+
+    def close(self):
+        if self.child:
+            with contextlib.suppress(OSError):
+                self.child.stdin.close()
+            self.child = None
+
+
+def wait_for_flash(runtime):
+    """Wait until no flash is on the screen, at most FEEDBACK_SECONDS. With
+    no lock file there has been none."""
+    deadline = time.monotonic() + FEEDBACK_SECONDS
+    try:
+        with open(os.path.join(runtime, FLASH_LOCK)) as lock:
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        return
+                    time.sleep(0.05)
+    except OSError:
+        pass
+
+
+def desktop_settings():
+    """The desktop's animations, event sounds and sound theme (GSettings).
+    Anything that can't be read is on, and the theme SOUND_THEME."""
+    found = {"animations": True, "event-sounds": True, "sound-theme": SOUND_THEME}
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+    except (ImportError, ValueError):
+        return found
+    source = Gio.SettingsSchemaSource.get_default()
+    for schema, key, name in (("org.gnome.desktop.interface", "enable-animations", "animations"),
+                              ("org.gnome.desktop.sound", "event-sounds", "event-sounds"),
+                              ("org.gnome.desktop.sound", "theme-name", "sound-theme")):
+        known = source.lookup(schema, True) if source else None
+        if known and known.has_key(key):
+            found[name] = Gio.Settings.new(schema).get_value(key).unpack() or found[name]
+    return found
+
+
+def shutter_sound(theme):
+    """The screenshot sound of a sound theme, else of SOUND_THEME, or None."""
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    data_dirs = [data_home] + (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    for name in dict.fromkeys((theme, SOUND_THEME)):
+        for sound in SHUTTER_SOUNDS:
+            for folder in data_dirs:
+                for extension in SOUND_EXTENSIONS:
+                    path = os.path.join(folder, "sounds", name, "stereo", sound + extension)
+                    if os.path.isfile(path):
+                        return path
+    return None
+
+
+def do_not_disturb():
+    """Whether mako's Do Not Disturb is on. makoctl runs only while something
+    owns the notifications' bus name: otherwise D-Bus would start a mako
+    without FlickOS's config (as in flickos-control)."""
+    if not shutil.which("busctl") or not shutil.which("makoctl"):
+        return False
+    try:
+        owner = subprocess.run(["busctl", "--user", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                                "org.freedesktop.DBus", "NameHasOwner", "s", NOTIFICATIONS_BUS_NAME],
+                               capture_output=True, text=True, timeout=FEEDBACK_SECONDS)
+        if owner.stdout.split() != ["b", "true"]:
+            return False
+        modes = subprocess.run(["makoctl", "mode"], capture_output=True, text=True, timeout=FEEDBACK_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return DND_MODE in modes.stdout.split()
+
+
+def play_sound(path):
+    """Play a sound as a notification's, without waiting for it."""
+    for argv in (["pw-play", "--media-role", "Notification", path], ["paplay", path]):
+        if shutil.which(argv[0]):
+            try:
+                subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            except OSError as error:
+                warn(f"can't play {path} ({error})")
+            return
+
+
+def finish(shot, copy_only=False, folder=None):
+    """Copy the picture at shot, save it (unless copy_only) and say so. Returns
+    the exit code. shot is gone afterwards: saved, or kept as LAST."""
+    runtime = os.path.dirname(shot)
+    last = os.path.join(runtime, LAST)
+    copied = copy_picture(shot)
+    if copy_only:
+        os.replace(shot, last)
+        if not copied:
+            notify("failed", last, error="The screenshot couldn't be copied.")
+            return 1
+        notify("copied", last)
+        return 0
+    folder = folder or pictures_dir()
+    try:
+        path = save_picture(shot, folder)
+    except OSError as error:
+        os.replace(shot, last)
+        if not copied:
+            notify("failed", last, error=f"The screenshot couldn't be saved in {shown_folder(folder)} "
+                                         f"({error.strerror or error}) or copied.")
+            return 1
+        notify("not-saved", last, folder=shown_folder(folder), error=error.strerror or str(error))
+        return 1
+    remove(shot)
+    print(path)
+    notify("saved" if copied else "not-copied", path, folder=shown_folder(folder))
+    return 0
+
+
+def finish_text(shot):
+    """Read the text in the picture at shot, print it, copy it and say so.
+    Returns the exit code. Raises ShotError. shot is gone afterwards: the
+    picture isn't kept."""
+    try:
+        text = read_text(shot)
+    finally:
+        remove(shot)
+    if not text:
+        warn("no text found")
+        notify("no-text")
+        return 1
+    print(text)
+    if not copy_text(text):
+        notify("text-not-copied")
+        return 1
+    notify("text-copied", text=text_excerpt(text))
+    return 0
+
+
+# --- GTK: the capture bar and the frozen screen -----------------------------------
+
+def load_gtk(layer_shell=True, purpose="The area can't be chosen"):
+    """GTK 3 with gtk-layer-shell, loaded only for the bar, an area and the
+    markup window (which needs no layer shell). Raises ShotError, which
+    starts with purpose."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GdkPixbuf", "2.0")
+        gi.require_version("GtkLayerShell", "0.1")
+        gi.require_version("Pango", "1.0")
+        gi.require_version("PangoCairo", "1.0")
+        from gi.repository import GLib
+        GLib.set_prgname(APP_ID)
+        from gi.repository import Gdk, GdkPixbuf, Gio, Gtk, GtkLayerShell, Pango, PangoCairo
+    except (ImportError, ValueError) as error:
+        raise ShotError(f"{purpose}: GTK 3 with layer shell is missing ({error}).") from None
+    if not Gtk.init_check(sys.argv[:1])[0]:
+        raise ShotError(f"{purpose} without a Wayland display.")
+    if layer_shell and not GtkLayerShell.is_supported():
+        raise ShotError(f"{purpose}: the compositor has no layer shell.")
+    return argparse.Namespace(GLib=GLib, Gdk=Gdk, GdkPixbuf=GdkPixbuf, Gio=Gio, Gtk=Gtk,
+                              GtkLayerShell=GtkLayerShell, Pango=Pango, PangoCairo=PangoCairo)
+
+
+def first_icon(gi, names):
+    theme = gi.Gtk.IconTheme.get_default()
+    return next((name for name in names if theme.has_icon(name)), names[-1])
+
+
+def run_bar(gi, video=False, recording=False, photo_only=False):
+    """Show the capture bar, with Video chosen if video. While recording, Video
+    can't be chosen, and with photo_only (the markup window's New Screenshot)
+    neither it nor Text is offered; Text is only while tesseract is installed.
+    Returns {"mode", "delay", "video", "text", "sound"}, or None when it is
+    closed."""
+    Gtk, GtkLayerShell = gi.Gtk, gi.GtkLayerShell
+    settings = load_settings()
+    choice = {}
+    window = Gtk.Window(title=TITLE)
+    GtkLayerShell.init_for_window(window)
+    GtkLayerShell.set_namespace(window, APP_ID)
+    GtkLayerShell.set_layer(window, GtkLayerShell.Layer.OVERLAY)
+    GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.TOP, True)
+    GtkLayerShell.set_margin(window, GtkLayerShell.Edge.TOP, BAR_MARGIN)
+    GtkLayerShell.set_keyboard_mode(window, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    box.set_border_width(8)
+    frame = Gtk.Frame()
+    frame.add(box)
+    window.add(frame)
+
+    delays = Gtk.ComboBoxText()
+    for delay in DELAYS:
+        delays.append(str(delay), "No delay" if delay == 0 else f"{delay} seconds")
+    delays.set_active_id(str(read_last()))
+    sounds = Gtk.ComboBoxText()
+    for sound, label in SOUNDS.items():
+        sounds.append(sound, label)
+    sounds.set_active_id(settings.sound)
+
+    # Photo, Video or Text: linked toggle buttons, one of them always down.
+    kinds = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    kinds.get_style_context().add_class("linked")
+    group = None
+    kind_buttons = {}
+    can_read = shutil.which(OCR) is not None
+    for kind, label, icons, tooltip in BAR_KINDS:
+        if kind == "text" and not can_read:
+            continue
+        button = Gtk.RadioButton.new_with_mnemonic_from_widget(group, label)
+        button.set_mode(False)          # a toggle button, not a radio circle
+        button.set_image(Gtk.Image.new_from_icon_name(first_icon(gi, icons), Gtk.IconSize.BUTTON))
+        button.set_always_show_image(True)
+        button.set_tooltip_text(tooltip)
+        kinds.pack_start(button, False, False, 0)
+        kind_buttons[kind] = button
+        group = group or button
+    if recording:
+        kind_buttons["video"].set_sensitive(False)
+        kind_buttons["video"].set_tooltip_text("A recording is running. Stop it with Super+Shift+R.")
+    kind_buttons["video" if video and not recording and not photo_only else "photo"].set_active(True)
+    box.pack_start(kinds, False, False, 0)
+    separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+    box.pack_start(separator, False, False, 6)
+    for widget in (kinds, separator):
+        widget.set_no_show_all(photo_only)
+
+    def take(_button, mode):
+        chosen = next(kind for kind, button in kind_buttons.items() if button.get_active())
+        choice.update(mode=mode, delay=int(delays.get_active_id() or 0), video=chosen == "video",
+                      text=chosen == "text", sound=sounds.get_active_id() or DEFAULT_SOUND)
+        window.destroy()
+
+    first = None
+    for mode, label, icons in BAR_BUTTONS:
+        button = Gtk.Button.new_with_mnemonic(label)
+        button.set_image(Gtk.Image.new_from_icon_name(first_icon(gi, icons), Gtk.IconSize.BUTTON))
+        button.set_always_show_image(True)
+        button.connect("clicked", take, mode)
+        box.pack_start(button, False, False, 0)
+        first = first or button
+    box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 6)
+    delay_label = Gtk.Label.new_with_mnemonic("_Delay:")
+    delay_label.set_mnemonic_widget(delays)
+    box.pack_start(delay_label, False, False, 0)
+    box.pack_start(delays, False, False, 0)
+    # The sound, only for a video.
+    sound_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    sound_label = Gtk.Label.new_with_mnemonic("_Sound:")
+    sound_label.set_mnemonic_widget(sounds)
+    sound_box.pack_start(sound_label, False, False, 6)
+    sound_box.pack_start(sounds, False, False, 0)
+    sound_box.set_no_show_all(True)
+    for child in (sound_label, sounds):
+        child.show()
+    box.pack_start(sound_box, False, False, 0)
+
+    def kind_changed(_button=None):
+        sound_box.set_visible(kind_buttons["video"].get_active())
+
+    kind_buttons["video"].connect("toggled", kind_changed)
+    kind_changed()
+    close = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.BUTTON)
+    close.set_relief(Gtk.ReliefStyle.NONE)
+    close.set_tooltip_text("Close")
+    close.get_accessible().set_name("Close")
+    close.connect("clicked", lambda _b: window.destroy())
+    box.pack_start(close, False, False, 0)
+
+    def key_pressed(_window, event):
+        if event.keyval == gi.Gdk.KEY_Escape:
+            window.destroy()
+            return True
+        return False
+
+    window.connect("key-press-event", key_pressed)
+    window.connect("destroy", lambda _w: Gtk.main_quit())
+    window.show_all()
+    first.grab_focus()
+    Gtk.main()
+    if not choice:
+        return None
+    # Let labwc take the bar off the screen before anything is grabbed.
+    display = gi.Gdk.Display.get_default()
+    display.flush()
+    while Gtk.events_pending():
+        Gtk.main_iteration()
+    return choice
+
+
+def monitor_rects(gi):
+    """GDK's monitors and their rectangles (layout coordinates)."""
+    display = gi.Gdk.Display.get_default()
+    monitors = [display.get_monitor(i) for i in range(display.get_n_monitors())]
+    rects = []
+    for monitor in monitors:
+        geometry = monitor.get_geometry()
+        rects.append((geometry.x, geometry.y, geometry.width, geometry.height))
+    return monitors, rects
+
+
+def overlay_window(gi, monitor):
+    """A transparent layer-shell surface over a whole monitor that takes no
+    keyboard and lets clicks through: the outline's and the flash's."""
+    import cairo
+    Gtk, GtkLayerShell = gi.Gtk, gi.GtkLayerShell
+    window = Gtk.Window(title=TITLE)
+    GtkLayerShell.init_for_window(window)
+    GtkLayerShell.set_namespace(window, APP_ID)
+    GtkLayerShell.set_monitor(window, monitor)
+    GtkLayerShell.set_layer(window, GtkLayerShell.Layer.OVERLAY)
+    for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                 GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+        GtkLayerShell.set_anchor(window, edge, True)
+    GtkLayerShell.set_exclusive_zone(window, -1)
+    GtkLayerShell.set_keyboard_mode(window, GtkLayerShell.KeyboardMode.NONE)
+    visual = window.get_screen().get_rgba_visual()
+    if visual:
+        window.set_visual(visual)
+    window.set_app_paintable(True)
+    window.connect("realize", lambda _w: window.input_shape_combine_region(cairo.Region()))
+    return window
+
+
+def save_area(gi, pixbuf, area, box, path):
+    """Save the part of pixbuf (a grab of the layout's bounding box) that shows
+    area (layout coordinates) as PNG at path. Raises ShotError."""
+    x, y, w, h = to_pixels(area, box, (pixbuf.get_width(), pixbuf.get_height()))
+    if w < 1 or h < 1:
+        raise ShotError("The area isn't on any screen.")
+    try:
+        pixbuf.new_subpixbuf(x, y, w, h).savev(path, "png", [], [])
+    except gi.GLib.Error as error:
+        warn(f"{path}: {error.message}")
+        raise ShotError(f"The screenshot couldn't be written ({error.message}).") from None
+
+
+def cut_area(gi, grab_path, area, box, path):
+    """save_area from the grab at grab_path. Raises ShotError."""
+    try:
+        pixbuf = gi.GdkPixbuf.Pixbuf.new_from_file(grab_path)
+    except gi.GLib.Error as error:
+        raise ShotError(f"The screen couldn't be captured ({error.message}).") from None
+    save_area(gi, pixbuf, area, box, path)
+
+
+class FrozenScreen:
+    """One layer-shell surface per screen, showing its part of the grab dimmed,
+    with the area drawn undimmed on top. Everything is kept in layout
+    coordinates; each surface adds its screen's position."""
+
+    def __init__(self, gi, grab_path, shot_path=None, hint=HINTS["shot"]):
+        """With shot_path the area's picture is saved there; without, the
+        result is the area itself (layout coordinates), for a recording."""
+        self.gi = gi
+        self.shot_path = shot_path
+        self.hint = hint
+        self.result = None
+        self.area = None            # the area taken (layout coordinates), for the flash
+        self.pixbuf = gi.GdkPixbuf.Pixbuf.new_from_file(grab_path)
+        self.monitors, self.rects = monitor_rects(gi)
+        self.box = union(self.rects)
+        self.size = (self.pixbuf.get_width(), self.pixbuf.get_height())
+        # Each screen's part of the grab, as a cairo surface made once.
+        self.parts = []
+        for rect in self.rects:
+            x, y, w, h = to_pixels(rect, self.box, self.size)
+            part = self.pixbuf.new_subpixbuf(x, y, max(w, 1), max(h, 1))
+            self.parts.append((gi.Gdk.cairo_surface_create_from_pixbuf(part, 1, None),
+                               part.get_width(), part.get_height()))
+        centre = self.rects[0]
+        self.point = (centre[0] + centre[2] // 2, centre[1] + centre[3] // 2)
+        self.anchor = None          # the first corner, while one is marked or dragged
+        self.keyboard = False       # draw the crosshair once the arrow keys are used
+        self.dragging = False
+        self.windows = [self.make_window(i) for i in range(len(self.monitors))]
+
+    def make_window(self, index):
+        Gtk, GtkLayerShell, Gdk = self.gi.Gtk, self.gi.GtkLayerShell, self.gi.Gdk
+        window = Gtk.Window(title=TITLE)
+        GtkLayerShell.init_for_window(window)
+        GtkLayerShell.set_namespace(window, APP_ID)
+        GtkLayerShell.set_monitor(window, self.monitors[index])
+        GtkLayerShell.set_layer(window, GtkLayerShell.Layer.OVERLAY)
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                     GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_anchor(window, edge, True)
+        GtkLayerShell.set_exclusive_zone(window, -1)
+        GtkLayerShell.set_keyboard_mode(window, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+        area = Gtk.DrawingArea()
+        area.set_can_focus(True)
+        area.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.BUTTON_PRESS_MASK
+                        | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.KEY_PRESS_MASK)
+        area.connect("draw", self.draw, index)
+        area.connect("motion-notify-event", self.motion, index)
+        area.connect("button-press-event", self.pressed, index)
+        area.connect("button-release-event", self.released, index)
+        window.connect("key-press-event", self.key)
+        window.connect("realize", self.realized)
+        window.add(area)
+        area.get_accessible().set_name("Select an area for the screenshot")
+        return window
+
+    def realized(self, window):
+        cursor = self.gi.Gdk.Cursor.new_from_name(window.get_display(), "crosshair")
+        if cursor:
+            window.get_window().set_cursor(cursor)
+
+    def run(self):
+        """Show the frozen screen until an area is taken or it is cancelled.
+        Returns the path of the picture, or None."""
+        for window in self.windows:
+            window.show_all()
+        self.gi.Gtk.main()
+        return self.result
+
+    def close(self):
+        for window in self.windows:
+            window.destroy()
+        self.gi.Gtk.main_quit()
+
+    def redraw(self):
+        for window in self.windows:
+            window.queue_draw()
+
+    # Input.
+
+    def layout_point(self, index, event):
+        rect = self.rects[index]
+        return clamp_point((rect[0] + round(event.x), rect[1] + round(event.y)), self.box)
+
+    def motion(self, _area, event, index):
+        self.point = self.layout_point(index, event)
+        self.keyboard = False
+        self.redraw()
+
+    def pressed(self, _area, event, index):
+        if event.button != 1:
+            return False
+        self.point = self.layout_point(index, event)
+        self.anchor, self.dragging, self.keyboard = self.point, True, False
+        self.redraw()
+        return True
+
+    def released(self, _area, event, index):
+        if event.button != 1 or not self.dragging:
+            return False
+        self.point = self.layout_point(index, event)
+        self.dragging = False
+        self.take()
+        return True
+
+    def key(self, _window, event):
+        Gdk = self.gi.Gdk
+        keyval = event.keyval
+        step = KEY_STEP_SHIFT if event.state & Gdk.ModifierType.SHIFT_MASK else KEY_STEP
+        moves = {Gdk.KEY_Left: (-step, 0), Gdk.KEY_Right: (step, 0),
+                 Gdk.KEY_Up: (0, -step), Gdk.KEY_Down: (0, step)}
+        if keyval == Gdk.KEY_Escape:
+            self.close()
+        elif keyval in moves:
+            dx, dy = moves[keyval]
+            self.point = clamp_point((self.point[0] + dx, self.point[1] + dy), self.box)
+            self.keyboard = True
+        elif keyval == Gdk.KEY_space:
+            self.anchor = None if self.anchor == self.point else self.point
+            self.keyboard = True
+        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.take()
+            return True
+        elif keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+            forward = keyval == Gdk.KEY_Tab and not event.state & Gdk.ModifierType.SHIFT_MASK
+            index = (monitor_at(self.point, self.rects) + (1 if forward else -1)) % len(self.rects)
+            rect = self.rects[index]
+            self.point, self.keyboard = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), True
+        else:
+            return False
+        self.redraw()
+        return True
+
+    def selection(self):
+        """The area (layout coordinates) while one is marked or dragged, else None."""
+        if self.anchor is None:
+            return None
+        return corners(self.anchor, self.point)
+
+    def take(self):
+        """Cut the area (or the screen under the point) out of the grab and close."""
+        area = self.selection()
+        if area is None or (area[2] < MIN_DRAG and area[3] < MIN_DRAG):
+            area = self.rects[monitor_at(self.point, self.rects)]
+        _x, _y, w, h = to_pixels(area, self.box, self.size)
+        if w < 1 or h < 1:
+            return
+        self.area = area
+        if self.shot_path is None:
+            self.result = area
+            self.close()
+            return
+        try:
+            save_area(self.gi, self.pixbuf, area, self.box, self.shot_path)
+        except ShotError as error:
+            self.result = error
+        else:
+            self.result = self.shot_path
+        self.close()
+
+    # Drawing.
+
+    def theme_color(self, widget, name, fallback):
+        found, color = widget.get_style_context().lookup_color(name)
+        return color if found else fallback
+
+    def draw(self, area, cr, index):
+        Gdk = self.gi.Gdk
+        rect = self.rects[index]
+        width, height = area.get_allocated_width(), area.get_allocated_height()
+        surface, part_w, part_h = self.parts[index]
+
+        def picture():
+            cr.save()
+            cr.scale(width / part_w, height / part_h)
+            cr.set_source_surface(surface, 0, 0)
+            cr.paint()
+            cr.restore()
+
+        picture()
+        cr.set_source_rgba(0, 0, 0, DIM_ALPHA)
+        cr.paint()
+        accent = self.theme_color(area, "theme_selected_bg_color", Gdk.RGBA(0.32, 0.58, 0.89, 1))
+        chosen = self.selection()
+        if chosen:
+            local = (chosen[0] - rect[0], chosen[1] - rect[1], chosen[2], chosen[3])
+            cr.save()
+            cr.rectangle(*local)
+            cr.clip()
+            picture()
+            cr.restore()
+            cr.set_source_rgba(accent.red, accent.green, accent.blue, 1)
+            cr.set_line_width(2)
+            cr.rectangle(local[0] - 1, local[1] - 1, local[2] + 2, local[3] + 2)
+            cr.stroke()
+            pixels = to_pixels(chosen, self.box, self.size)
+            self.label(area, cr, f"{pixels[2]} × {pixels[3]}",
+                       local[0] + local[2], local[1] + local[3] + 8, right=True)
+        if self.keyboard:
+            px, py = self.point[0] - rect[0] + 0.5, self.point[1] - rect[1] + 0.5
+            cr.set_source_rgba(accent.red, accent.green, accent.blue, 1)
+            cr.set_line_width(1)
+            cr.move_to(px, 0)
+            cr.line_to(px, height)
+            cr.move_to(0, py)
+            cr.line_to(width, py)
+            cr.stroke()
+        if not chosen:
+            self.label(area, cr, self.hint, width / 2, 24, centre=True)
+        return True
+
+    def label(self, area, cr, text, x, y, right=False, centre=False):
+        """Text in the theme's colors on a box of the theme's background."""
+        Gdk = self.gi.Gdk
+        layout = area.create_pango_layout(text)
+        alignment = self.gi.Pango.Alignment
+        layout.set_alignment(alignment.CENTER if centre else alignment.LEFT)
+        text_w, text_h = layout.get_pixel_size()
+        pad = 8
+        if centre:
+            x -= text_w / 2
+        elif right:
+            x -= text_w
+        x = max(pad, min(area.get_allocated_width() - text_w - pad, x))
+        y = max(pad, min(area.get_allocated_height() - text_h - pad, y))
+        background = self.theme_color(area, "theme_bg_color", Gdk.RGBA(0.22, 0.24, 0.29, 1))
+        foreground = self.theme_color(area, "theme_fg_color", Gdk.RGBA(0.83, 0.85, 0.87, 1))
+        cr.set_source_rgba(background.red, background.green, background.blue, 0.92)
+        cr.rectangle(x - pad, y - pad / 2, text_w + 2 * pad, text_h + pad)
+        cr.fill()
+        cr.set_source_rgba(foreground.red, foreground.green, foreground.blue, 1)
+        cr.move_to(x, y)
+        self.gi.PangoCairo.show_layout(cr, layout)
+
+
+def run_outline(gi, rect):
+    """A line just outside rect (layout coordinates), on a transparent surface
+    that takes no input, until this process is killed or its parent ends."""
+    import cairo
+    Gtk, Gdk, GLib = gi.Gtk, gi.Gdk, gi.GLib
+    monitors, rects = monitor_rects(gi)
+    index = monitor_at((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), rects)
+    screen = rects[index]
+    window = overlay_window(gi, monitors[index])
+    accent = Gdk.RGBA(0.32, 0.58, 0.89, 1)
+
+    def draw(widget, cr):
+        found, color = widget.get_style_context().lookup_color("theme_selected_bg_color")
+        line = color if found else accent
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        cr.set_source_rgba(line.red, line.green, line.blue, 1)
+        cr.set_line_width(2)
+        # Centred 2 px outside the area: the line covers 1 to 3 px outside it.
+        cr.rectangle(rect[0] - screen[0] - 2, rect[1] - screen[1] - 2, rect[2] + 4, rect[3] + 4)
+        cr.stroke()
+        return True
+
+    parent = os.getppid()
+
+    def orphaned():
+        if os.getppid() != parent:
+            Gtk.main_quit()
+            return False
+        return True
+
+    window.connect("draw", draw)
+    window.connect("destroy", lambda _w: Gtk.main_quit())
+    GLib.timeout_add_seconds(1, orphaned)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: Gtk.main_quit() or False)
+    window.show_all()
+    Gtk.main()
+
+
+def flash_alpha(elapsed):
+    """The flash's white at a time since it was first drawn: FLASH_ALPHA,
+    easing out to 0 at FLASH_SECONDS."""
+    left = max(0.0, 1 - elapsed / FLASH_SECONDS)
+    return FLASH_ALPHA * left * left
+
+
+def run_flash(gi, area=None):
+    """Flash white over area (layout coordinates), or over every screen, and
+    fade it out in FLASH_SECONDS; ends by itself, at the latest after
+    FEEDBACK_SECONDS. It takes no input."""
+    import cairo
+    Gtk, GLib = gi.Gtk, gi.GLib
+    monitors, rects = monitor_rects(gi)
+    started = []                    # when the first frame was drawn
+
+    def draw(_widget, cr, part):
+        now = time.monotonic()
+        if not started:
+            started.append(now)
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_source_rgba(1, 1, 1, flash_alpha(now - started[0]))
+        cr.rectangle(*part)
+        cr.fill()
+        return True
+
+    def tick(widget, _clock):
+        if started and time.monotonic() - started[0] >= FLASH_SECONDS:
+            Gtk.main_quit()
+            return False
+        widget.queue_draw()
+        return True
+
+    windows = []
+    for monitor, rect in zip(monitors, rects):
+        part = overlap(area, rect) if area else rect
+        if not part:
+            continue
+        window = overlay_window(gi, monitor)
+        window.connect("draw", draw, (part[0] - rect[0], part[1] - rect[1], part[2], part[3]))
+        window.add_tick_callback(tick)
+        windows.append(window)
+    if not windows:
+        return
+    GLib.timeout_add_seconds(FEEDBACK_SECONDS, lambda: Gtk.main_quit() or False)
+    for window in windows:
+        window.show_all()
+    Gtk.main()
+
+
+# --- The markup window ---------------------------------------------------------------
+
+class Markup:
+    """What was drawn on a picture: shapes in picture pixels, the crop, and
+    undo and redo. Nothing here needs GTK.
+
+    A shape is a dict: "tool", "color" ("#rrggbb"), and "width" and "points"
+    for pen, highlighter (the points of the stroke), arrow (from, to),
+    rectangle and hide (two corners), or "point", "text" and "size" for text.
+    Shapes outside the crop stay: undoing the crop shows them again."""
+
+    def __init__(self, size):
+        self.size = size
+        self.shapes = []
+        self.crop = (0, 0, size[0], size[1])
+        self.done = []              # the changes, oldest first: dicts, compared by identity
+        self.undone = []
+        self.kept = None            # the change the picture was last saved or copied at
+
+    def add(self, shape):
+        self.change({"shape": shape})
+
+    def set_crop(self, rect):
+        if tuple(rect) != self.crop:
+            self.change({"crop": (self.crop, tuple(rect))})
+
+    def change(self, change):
+        self.apply(change, forward=True)
+        self.done.append(change)
+        self.undone.clear()
+
+    def apply(self, change, forward):
+        if "shape" in change:
+            if forward:
+                self.shapes.append(change["shape"])
+            else:
+                # By identity: two shapes can be equal.
+                index = max(i for i, shape in enumerate(self.shapes) if shape is change["shape"])
+                del self.shapes[index]
+        else:
+            self.crop = change["crop"][1 if forward else 0]
+
+    def undo(self):
+        """Undo the last change. Returns False when there is none."""
+        if not self.done:
+            return False
+        change = self.done.pop()
+        self.apply(change, forward=False)
+        self.undone.append(change)
+        return True
+
+    def redo(self):
+        if not self.undone:
+            return False
+        change = self.undone.pop()
+        self.apply(change, forward=True)
+        self.done.append(change)
+        return True
+
+    def keep(self):
+        """The picture as it is now was saved or copied."""
+        self.kept = self.done[-1] if self.done else None
+
+    @property
+    def dirty(self):
+        """Whether it changed since it was last saved or copied (or opened)."""
+        return (self.done[-1] if self.done else None) is not self.kept
+
+
+def hex_rgb(color):
+    """"#rrggbb" as cairo's red, green and blue (0 to 1)."""
+    return tuple(int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+
+def distance(a, b):
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def arrow_head(start, end, width):
+    """The two back corners of the head of an arrow from start to end; its
+    tip is end."""
+    length = max(ARROW_HEAD_MIN, width * ARROW_HEAD)
+    angle = math.atan2(end[1] - start[1], end[0] - start[0])
+    return [(end[0] - length * math.cos(angle + side * ARROW_ANGLE),
+             end[1] - length * math.sin(angle + side * ARROW_ANGLE)) for side in (-1, 1)]
+
+
+def crop_rect(a, b, size):
+    """The crop (x, y, w, h) between two points (picture pixels), whole
+    pixels on a picture of size, at least 1 pixel both ways."""
+    def span(p, q, limit):
+        low, high = sorted((max(0, min(limit, round(p))), max(0, min(limit, round(q)))))
+        if high - low < 1:
+            low, high = (low, low + 1) if low < limit else (limit - 1, limit)
+        return low, high
+    left, right = span(a[0], b[0], size[0])
+    top, bottom = span(a[1], b[1], size[1])
+    return left, top, right - left, bottom - top
+
+
+def move_crop(rect, handle, dx, dy, size):
+    """rect with one corner ("nw", "ne", "sw", "se") moved by dx, dy, never
+    past the opposite one, or all of it ("move"), kept on the picture."""
+    left, top, right, bottom = rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]
+    if handle == "move":
+        dx = max(-left, min(size[0] - right, dx))
+        dy = max(-top, min(size[1] - bottom, dy))
+        return left + dx, top + dy, rect[2], rect[3]
+    if "w" in handle:
+        left = max(0, min(right - 1, left + dx))
+    else:
+        right = min(size[0], max(left + 1, right + dx))
+    if "n" in handle:
+        top = max(0, min(bottom - 1, top + dy))
+    else:
+        bottom = min(size[1], max(top + 1, bottom + dy))
+    return left, top, right - left, bottom - top
+
+
+def crop_corner(rect, handle):
+    """The point of a crop's corner."""
+    return (rect[0] + (0 if "w" in handle else rect[2]), rect[1] + (0 if "n" in handle else rect[3]))
+
+
+def opposite(handle):
+    return {"n": "s", "s": "n"}[handle[0]] + {"w": "e", "e": "w"}[handle[1]]
+
+
+def hit_handle(point, rect, radius):
+    """The crop corner within radius of point, else "move" inside rect, else None."""
+    near = [(distance(point, crop_corner(rect, handle)), handle) for handle in CROP_HANDLES]
+    best = min(near)
+    if best[0] <= radius:
+        return best[1]
+    inside = rect[0] <= point[0] <= rect[0] + rect[2] and rect[1] <= point[1] <= rect[1] + rect[3]
+    return "move" if inside else None
+
+
+def fit_scale(size, room, factor=1):
+    """Layout pixels per picture pixel that fit a picture of size into room
+    (layout pixels), never more than one picture pixel per screen pixel."""
+    return max(min(1 / factor, max(room[0], 1) / size[0], max(room[1], 1) / size[1]), ZOOMS[0] / factor)
+
+
+def next_zoom(zoom, step):
+    """The next of ZOOMS above zoom (step 1) or below it (-1), or the last one."""
+    if step > 0:
+        return next((z for z in ZOOMS if z > zoom * 1.001), ZOOMS[-1])
+    return next((z for z in reversed(ZOOMS) if z < zoom * 0.999), ZOOMS[0])
+
+
+def text_layout(gi, cr, shape):
+    """A Pango layout of a text shape, for cr."""
+    layout = gi.PangoCairo.create_layout(cr)
+    font = gi.Pango.FontDescription.from_string(TEXT_FONT)
+    font.set_absolute_size(shape["size"] * gi.Pango.SCALE)
+    layout.set_font_description(font)
+    layout.set_text(shape["text"], -1)
+    return layout
+
+
+def draw_shape(cr, shape, gi=None):
+    """Draw a shape (picture pixels) on cr. Text needs gi's Pango."""
+    import cairo
+    tool = shape["tool"]
+    red, green, blue = hex_rgb(shape["color"])
+    points = shape.get("points") or []
+    cr.save()
+    cr.set_source_rgb(red, green, blue)
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    if tool in ("pen", "highlighter"):
+        width = shape["width"]
+        if tool == "highlighter":
+            width *= HIGHLIGHT_WIDTH
+            cr.set_source_rgba(red, green, blue, HIGHLIGHT_ALPHA)
+            cr.set_line_cap(cairo.LINE_CAP_SQUARE)
+        cr.set_line_width(width)
+        cr.move_to(*points[0])
+        for point in points[1:] or points:     # one point is a dot
+            cr.line_to(*point)
+        cr.stroke()                            # one stroke: a highlighter never darkens itself
+    elif tool == "arrow":
+        start, end = points[0], points[-1]
+        head = arrow_head(start, end, shape["width"])
+        base = ((head[0][0] + head[1][0]) / 2, (head[0][1] + head[1][1]) / 2)
+        cr.set_line_width(shape["width"])
+        if distance(start, end) > distance(base, end):
+            cr.move_to(*start)
+            cr.line_to(*base)
+            cr.stroke()
+        cr.move_to(*end)
+        cr.line_to(*head[0])
+        cr.line_to(*head[1])
+        cr.close_path()
+        cr.fill()
+    elif tool in ("rectangle", "hide"):
+        cr.rectangle(*corners(points[0], points[-1]))
+        if tool == "hide":
+            cr.fill()
+        else:
+            cr.set_line_join(cairo.LINE_JOIN_MITER)
+            cr.set_line_width(shape["width"])
+            cr.stroke()
+    elif tool == "text" and gi:
+        cr.move_to(*shape["point"])
+        gi.PangoCairo.show_layout(cr, text_layout(gi, cr, shape))
+    cr.restore()
+
+
+def render_picture(picture, markup, gi=None):
+    """The picture (a cairo image surface) cropped, with the markup drawn
+    on it: a new cairo image surface."""
+    import cairo
+    x, y, w, h = markup.crop
+    surface = cairo.ImageSurface(cairo.FORMAT_RGB24, w, h)
+    cr = cairo.Context(surface)
+    cr.translate(-x, -y)
+    cr.set_source_surface(picture, 0, 0)
+    cr.paint()
+    for shape in markup.shapes:
+        draw_shape(cr, shape, gi)
+    surface.flush()
+    return surface
+
+
+def write_picture(surface, path, gi=None):
+    """Write a cairo image surface to path: JPEG for .jpg and .jpeg (needs
+    gi), else PNG. The file is replaced only once the new one is complete.
+    Raises OSError."""
+    import cairo
+    folder, name = os.path.split(path)
+    temp = os.path.join(folder, f".{name}.{os.getpid()}.tmp")
+    try:
+        if os.path.splitext(name)[1].lower() in (".jpg", ".jpeg"):
+            pixbuf = gi.Gdk.pixbuf_get_from_surface(surface, 0, 0, surface.get_width(), surface.get_height())
+            try:
+                pixbuf.savev(temp, "jpeg", ["quality"], ["92"])
+            except gi.GLib.Error as error:
+                raise OSError(error.message) from None
+        else:
+            try:
+                surface.write_to_png(temp)
+            except cairo.Error as error:
+                raise OSError(str(error)) from None
+        os.replace(temp, path)
+    finally:
+        remove(temp)
+
+
+def send_edit_request(runtime, path):
+    """Ask the markup window that is open to show path: EDIT_REQUEST, then
+    SIGUSR1 to the PID in its lock. Returns False when none is open."""
+    pid = lock_holder(os.path.join(runtime, EDIT_LOCK))
+    if pid is None:
+        return False
+    request = os.path.join(runtime, EDIT_REQUEST)
+    temp = f"{request}.{os.getpid()}.tmp"
+    try:
+        with open(temp, "w", encoding="utf-8") as f:
+            f.write(path + "\n")
+        os.replace(temp, request)
+        os.kill(pid, signal.SIGUSR1)
+    except OSError as error:
+        warn(f"can't ask the markup window ({error})")
+        return False
+    finally:
+        remove(temp)
+    return True
+
+
+def take_edit_request(runtime):
+    """The picture send_edit_request asked for, once, or None."""
+    request = os.path.join(runtime, EDIT_REQUEST)
+    try:
+        with open(request, encoding="utf-8") as f:
+            path = f.read().rstrip("\n")
+    except OSError:
+        return None
+    remove(request)
+    return path or None
+
+
+def picture_name(path, own):
+    """The name a marked-up picture is saved or sent under: its own file's,
+    or for one only in the runtime folder, a saved screenshot's."""
+    if own:
+        return os.path.basename(path)
+    try:
+        taken = os.path.getmtime(path)
+    except OSError:                         # replaced by the next copy-only shot
+        taken = None
+    return time.strftime(FILE_NAME, time.localtime(taken)) + ".png"
+
+
+def phone_on(runtime):
+    """flickos-phone is installed and its daemon runs: the daemon keeps
+    PHONE_ON (flickos-phone's ON_LINK) while it does."""
+    return (os.path.exists(os.path.join(os.path.dirname(runtime), "bin", PHONE_ON))
+            and shutil.which("flickos-phone") is not None)
+
+
+def phone_send_argv(path):
+    """Send the file at path to the phone and delete it, also when the
+    window has been closed by then."""
+    return ["/bin/sh", "-c", 'flickos-phone send "$1"; code=$?; /bin/rm -f "$1"; exit $code', "sh", path]
+
+
+class Editor:
+    """The markup window (ADR-009): a plain GTK window (labwc's title bar),
+    the tools above the picture, the actions below it. The picture is scaled
+    to fit until it is zoomed. One per session: `edit` holds EDIT_LOCK, and
+    another `edit` sends its picture here (send_edit_request)."""
+
+    def __init__(self, gi, runtime):
+        import cairo
+        self.gi, self.cairo, self.runtime = gi, cairo, runtime
+        self.path = None            # the picture's file
+        self.own = False            # False for a picture only in the runtime folder: Save is Save As
+        self.picture = None         # the picture as it was opened, a cairo image surface
+        self.markup = None
+        self.tool, self.previous_tool = "pen", "pen"
+        self.color = COLORS[0][2]
+        self.width = WIDTHS[1]
+        self.drawing = None         # the shape being drawn with the pointer
+        self.text = None            # the text being typed, a shape
+        self.crop_draft = None      # the crop while the Crop tool is chosen, until applied
+        self.crop_drag = None       # (what, point, crop) while a crop is dragged
+        self.handle = CROP_HANDLES[0]
+        self.scale = 1.0            # layout pixels per picture pixel
+        self.fit = True
+        self.cache = None           # (key, surface): the picture scaled down for the view
+        self.busy = False           # a dialog is open
+        self.bar = None             # the capture bar of New Screenshot, while it runs
+        self.sending = None         # flickos-phone send, while it runs
+        self.build()
+
+    # Building the window.
+
+    def build(self):
+        gi = self.gi
+        Gtk, Gdk = gi.Gtk, gi.Gdk
+        window = self.window = Gtk.Window(title=TITLE)
+        window.set_icon_name("applets-screenshooter")
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        window.add(outer)
+
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        toolbar.set_border_width(6)
+        self.tool_buttons = {}
+        tools = self.radio_row([(tool, label, tip, None, icons) for tool, label, tip, icons in TOOLS],
+                               self.tool_chosen, self.tool_buttons)
+        toolbar.pack_start(tools, False, False, 0)
+        toolbar.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 6)
+        colors = self.radio_row([(color, None, name, self.swatch(color), None) for _id, name, color in COLORS],
+                                lambda color: setattr(self, "color", color) or self.shape_style_changed())
+        toolbar.pack_start(colors, False, False, 0)
+        toolbar.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 6)
+        widths = self.radio_row([(width, None, width[1], self.line(width[2]), None) for width in WIDTHS],
+                                lambda width: setattr(self, "width", width) or self.shape_style_changed())
+        widths.get_children()[1].set_active(True)
+        toolbar.pack_start(widths, False, False, 0)
+        outer.pack_start(toolbar, False, False, 0)
+
+        # Errors (WIN-10): selectable, so they can be copied into a bug report.
+        self.info = Gtk.InfoBar(message_type=Gtk.MessageType.ERROR, show_close_button=True)
+        self.info_label = Gtk.Label(selectable=True, wrap=True, xalign=0)
+        self.info.get_content_area().add(self.info_label)
+        self.info.connect("response", lambda bar, _response: bar.hide())
+        self.info.set_no_show_all(True)
+        outer.pack_start(self.info, False, False, 0)
+
+        self.scroller = Gtk.ScrolledWindow()
+        self.scroller.connect("size-allocate", self.room_changed)
+        canvas = self.canvas = Gtk.DrawingArea()
+        canvas.set_halign(Gtk.Align.CENTER)
+        canvas.set_valign(Gtk.Align.CENTER)
+        canvas.set_can_focus(True)
+        canvas.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.BUTTON_PRESS_MASK
+                          | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.KEY_PRESS_MASK
+                          | Gdk.EventMask.KEY_RELEASE_MASK | Gdk.EventMask.SCROLL_MASK
+                          | Gdk.EventMask.SMOOTH_SCROLL_MASK | Gdk.EventMask.FOCUS_CHANGE_MASK)
+        canvas.get_accessible().set_name("Picture")
+        for name, handler in (("draw", self.draw), ("button-press-event", self.pressed),
+                              ("motion-notify-event", self.moved), ("button-release-event", self.released),
+                              ("key-press-event", self.canvas_key), ("key-release-event", self.canvas_key_up),
+                              ("scroll-event", self.scrolled), ("realize", self.canvas_realized),
+                              ("focus-in-event", lambda *_a: self.im.focus_in()),
+                              ("focus-out-event", lambda *_a: self.im.focus_out())):
+            canvas.connect(name, handler)
+        # Typing goes through an input method, so dead keys and compose work.
+        self.im = Gtk.IMMulticontext()
+        self.im.connect("commit", self.typed)
+        self.scroller.add(canvas)
+        outer.pack_start(self.scroller, True, True, 0)
+
+        actions = Gtk.ActionBar()
+        for icon, tip, handler in (("edit-undo-symbolic", "Undo (Ctrl+Z)", self.undo),
+                                   ("edit-redo-symbolic", "Redo (Ctrl+Shift+Z)", self.redo)):
+            button = Gtk.Button.new_from_icon_name(icon, Gtk.IconSize.BUTTON)
+            button.set_tooltip_text(tip)
+            button.get_accessible().set_name(tip.split(" (")[0])
+            button.connect("clicked", lambda _b, do=handler: do())
+            actions.pack_start(button)
+        new = self.button("_New Screenshot", "Take another screenshot (Ctrl+N)",
+                          ("camera-photo-symbolic",), self.new_screenshot)
+        actions.pack_start(new)
+        self.status = Gtk.Label(ellipsize=gi.Pango.EllipsizeMode.END)
+        self.status.get_style_context().add_class("dim-label")
+        actions.set_center_widget(self.status)
+        save = self.button("_Save", "Save into the screenshot's file (Ctrl+S)", ("document-save-symbolic",),
+                           self.save)
+        save.get_style_context().add_class("suggested-action")
+        actions.pack_end(save)
+        actions.pack_end(self.button("Sa_ve As…", "Save as a new file (Ctrl+Shift+S)",
+                                     ("document-save-as-symbolic",), self.save_as))
+        actions.pack_end(self.button("_Copy", "Copy to the clipboard (Ctrl+C)", ("edit-copy-symbolic",),
+                                     self.copy))
+        # Only while flickos-phone runs (phone_on), checked when the window
+        # becomes active and when a picture is opened.
+        self.phone = self.button("S_end to Phone", "Send to your phone with flickos-phone",
+                                 ("phone-symbolic", "smartphone-symbolic"), self.send_to_phone)
+        self.phone.set_no_show_all(True)
+        actions.pack_end(self.phone)
+        outer.pack_start(actions, False, False, 0)
+
+        window.connect("key-press-event", self.window_key)
+        window.connect("notify::is-active", lambda w, _p: w.is_active() and self.phone_changed())
+        window.connect("delete-event", self.closing)
+        window.connect("destroy", lambda _w: Gtk.main_quit())
+
+    def button(self, label, tip, icons, handler):
+        Gtk = self.gi.Gtk
+        button = Gtk.Button.new_with_mnemonic(label)
+        button.set_image(Gtk.Image.new_from_icon_name(first_icon(self.gi, icons), Gtk.IconSize.BUTTON))
+        button.set_always_show_image(True)
+        button.set_tooltip_text(tip)
+        button.connect("clicked", lambda _b: handler())
+        return button
+
+    def radio_row(self, items, chosen, buttons=None):
+        """Linked toggle buttons, one of them down: (value, label with
+        mnemonic, tooltip, child widget, icon names). chosen(value) runs when
+        one goes down."""
+        Gtk = self.gi.Gtk
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        row.get_style_context().add_class("linked")
+        group = None
+        for value, label, tip, child, icons in items:
+            if label:
+                button = Gtk.RadioButton.new_with_mnemonic_from_widget(group, label)
+            else:
+                button = Gtk.RadioButton.new_from_widget(group)
+                button.add(child)
+                button.get_accessible().set_name(tip)
+            button.set_mode(False)          # a toggle button, not a radio circle
+            if icons:
+                button.set_image(Gtk.Image.new_from_icon_name(first_icon(self.gi, icons), Gtk.IconSize.BUTTON))
+                button.set_always_show_image(True)
+            button.set_tooltip_text(tip)
+            button.connect("toggled", lambda b, v=value: b.get_active() and chosen(v))
+            row.pack_start(button, False, False, 0)
+            if buttons is not None:
+                buttons[value] = button
+            group = group or button
+        return row
+
+    def swatch(self, color):
+        """A color button's dot."""
+        def draw(widget, cr):
+            width, height = widget.get_allocated_width(), widget.get_allocated_height()
+            cr.arc(width / 2, height / 2, min(width, height) / 2 - 1, 0, 2 * math.pi)
+            cr.set_source_rgb(*hex_rgb(color))
+            cr.fill_preserve()
+            edge = self.theme_color(widget, "theme_fg_color", (0.83, 0.85, 0.87))
+            cr.set_source_rgba(*edge, 0.6)
+            cr.set_line_width(1)
+            cr.stroke()
+            return True
+        area = self.gi.Gtk.DrawingArea()
+        area.set_size_request(16, 16)
+        area.connect("draw", draw)
+        return area
+
+    def line(self, width):
+        """A width button's line."""
+        def draw(widget, cr):
+            w, h = widget.get_allocated_width(), widget.get_allocated_height()
+            cr.set_source_rgb(*self.theme_color(widget, "theme_fg_color", (0.83, 0.85, 0.87)))
+            cr.set_line_width(max(1.5, width / 2))
+            cr.set_line_cap(self.cairo.LINE_CAP_ROUND)
+            cr.move_to(3, h / 2)
+            cr.line_to(w - 3, h / 2)
+            cr.stroke()
+            return True
+        area = self.gi.Gtk.DrawingArea()
+        area.set_size_request(22, 16)
+        area.connect("draw", draw)
+        return area
+
+    def theme_color(self, widget, name, fallback):
+        found, color = widget.get_style_context().lookup_color(name)
+        return (color.red, color.green, color.blue) if found else fallback
+
+    def canvas_realized(self, canvas):
+        self.im.set_client_window(canvas.get_window())
+        self.set_cursor(None)
+
+    def set_cursor(self, handle):
+        names = {"nw": "nw-resize", "ne": "ne-resize", "sw": "sw-resize", "se": "se-resize", "move": "move"}
+        name = "text" if self.tool == "text" else names.get(handle, "crosshair")
+        window = self.canvas.get_window()
+        if window:
+            window.set_cursor(self.gi.Gdk.Cursor.new_from_name(window.get_display(), name))
+
+    # The picture.
+
+    def open(self, path):
+        """Show the picture at path. When what is shown has unsaved markup,
+        it asks first. Returns True when path is shown."""
+        GdkPixbuf, GLib = self.gi.GdkPixbuf, self.gi.GLib
+        if self.path and self.markup is not None:
+            with contextlib.suppress(OSError):
+                if os.path.samefile(path, self.path):
+                    return True
+            if not self.ask_to_keep("replace"):
+                return False
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+        except GLib.Error as error:
+            self.error(f"{os.path.basename(path)} couldn't be opened ({error.message}).")
+            return False
+        picture = self.cairo.ImageSurface(self.cairo.FORMAT_RGB24, pixbuf.get_width(), pixbuf.get_height())
+        cr = self.cairo.Context(picture)
+        self.gi.Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0)
+        cr.paint()
+        self.path, self.picture = path, picture
+        self.own = not os.path.realpath(path).startswith(os.path.realpath(self.runtime) + os.sep)
+        self.markup = Markup((pixbuf.get_width(), pixbuf.get_height()))
+        self.drawing = self.text = self.crop_drag = self.crop_draft = None
+        if self.tool == "crop":
+            self.tool_buttons[self.previous_tool].set_active(True)
+        self.fit = True
+        self.window.set_title(f"{TITLE} – {os.path.basename(path)}" if self.own else TITLE)
+        self.info.hide()
+        self.say("")
+        self.phone_changed()
+        self.refit(force=True)
+        return True
+
+    def view_rect(self):
+        """The part of the picture the canvas shows: all of it while
+        cropping, else the crop."""
+        if self.tool == "crop":
+            return (0, 0, *self.markup.size)
+        return self.markup.crop
+
+    def to_picture(self, x, y):
+        view = self.view_rect()
+        return view[0] + x / self.scale, view[1] + y / self.scale
+
+    def view_changed(self):
+        """The view's part of the picture or its scale changed."""
+        self.cache = None
+        view = self.view_rect()
+        self.canvas.set_size_request(math.ceil(view[2] * self.scale), math.ceil(view[3] * self.scale))
+        self.canvas.queue_draw()
+        return False
+
+    def refit(self, force=False):
+        """Fit the view into the window, when it is to fit. force: the view
+        changed, so the canvas does too."""
+        if self.markup is None:
+            return
+        if self.fit:
+            room = self.scroller.get_allocation()
+            view = self.view_rect()
+            scale = fit_scale(view[2:], (room.width - 2 * CANVAS_MARGIN, room.height - 2 * CANVAS_MARGIN),
+                              self.canvas.get_scale_factor())
+            force = force or scale != self.scale
+            self.scale = scale
+        if force:
+            self.view_changed()
+
+    def room_changed(self, _scroller, _allocation):
+        if self.fit and self.markup is not None:
+            # Not while GTK allocates: that would resize from inside a resize.
+            self.gi.GLib.idle_add(lambda: self.refit() or False)
+
+    def zoom(self, step):
+        """Zoom in (1), out (-1), to fit (0) or to one screen pixel per
+        picture pixel (None)."""
+        factor = self.canvas.get_scale_factor()
+        if step == 0:
+            self.fit = True
+            self.refit(force=True)
+            self.say("Fitted to the window.")
+            return
+        zoom = 1 if step is None else next_zoom(self.scale * factor, step)
+        self.fit = False
+        self.scale = zoom / factor
+        self.view_changed()
+        self.say(f"Zoom {round(zoom * 100)}%")
+
+    def changed(self):
+        """The markup changed."""
+        self.view_changed()
+
+    def say(self, text):
+        self.status.set_text(text)
+
+    def error(self, text):
+        self.info_label.set_text(text)
+        self.info.set_no_show_all(False)
+        self.info.show_all()
+        self.say("")
+
+    # Drawing the canvas.
+
+    def draw(self, canvas, cr):
+        if self.markup is None:
+            return False
+        cairo = self.cairo
+        view = self.view_rect()
+        scale = self.scale
+        factor = canvas.get_scale_factor()
+        cr.save()
+        if scale * factor < 1:
+            # Scaling a big picture down on every frame is slow on old
+            # computers: once per view.
+            key = (view, scale, factor)
+            if not self.cache or self.cache[0] != key:
+                surface = cairo.ImageSurface(cairo.FORMAT_RGB24, math.ceil(view[2] * scale * factor),
+                                             math.ceil(view[3] * scale * factor))
+                surface.set_device_scale(factor, factor)
+                small = cairo.Context(surface)
+                small.scale(scale, scale)
+                small.translate(-view[0], -view[1])
+                small.set_source_surface(self.picture, 0, 0)
+                small.get_source().set_filter(cairo.FILTER_GOOD)
+                small.paint()
+                self.cache = (key, surface)
+            cr.set_source_surface(self.cache[1], 0, 0)
+            cr.paint()
+            cr.scale(scale, scale)
+            cr.translate(-view[0], -view[1])
+        else:
+            cr.scale(scale, scale)
+            cr.translate(-view[0], -view[1])
+            cr.set_source_surface(self.picture, 0, 0)
+            cr.get_source().set_filter(cairo.FILTER_NEAREST if scale * factor >= 2 else cairo.FILTER_GOOD)
+            cr.rectangle(*view)
+            cr.fill()
+        cr.rectangle(*view)
+        cr.clip()
+        for shape in self.markup.shapes + [shape for shape in (self.drawing, self.text) if shape]:
+            draw_shape(cr, shape, self.gi)
+        if self.text is not None:
+            self.draw_text_cursor(cr)
+        cr.restore()
+        if self.tool == "crop":
+            self.draw_crop(canvas, cr)
+        return True
+
+    def draw_text_cursor(self, cr):
+        layout = text_layout(self.gi, cr, self.text)
+        index = len(self.text["text"].encode())
+        strong = layout.get_cursor_pos(index)[0]
+        scale = self.gi.Pango.SCALE
+        x = self.text["point"][0] + strong.x / scale
+        y = self.text["point"][1] + strong.y / scale
+        cr.set_source_rgb(*hex_rgb(self.text["color"]))
+        cr.set_line_width(max(1.5, 2 / self.scale))
+        cr.move_to(x, y)
+        cr.line_to(x, y + strong.height / scale)
+        cr.stroke()
+
+    def draw_crop(self, canvas, cr):
+        """The crop over the whole picture: shade outside it, a line and handles."""
+        scale = self.scale
+        x, y, w, h = (value * scale for value in self.crop_draft)
+        cr.set_fill_rule(self.cairo.FILL_RULE_EVEN_ODD)
+        cr.rectangle(0, 0, canvas.get_allocated_width(), canvas.get_allocated_height())
+        cr.rectangle(x, y, w, h)
+        cr.set_source_rgba(0, 0, 0, CROP_DIM)
+        cr.fill()
+        accent = self.theme_color(canvas, "theme_selected_bg_color", (0.32, 0.58, 0.89))
+        cr.set_source_rgb(*accent)
+        cr.set_line_width(2)
+        cr.rectangle(x, y, w, h)
+        cr.stroke()
+        for handle in CROP_HANDLES:
+            hx, hy = crop_corner((x, y, w, h), handle)
+            cr.rectangle(hx - HANDLE, hy - HANDLE, 2 * HANDLE, 2 * HANDLE)
+            cr.set_source_rgb(*(accent if handle == self.handle else (1, 1, 1)))
+            cr.fill_preserve()
+            cr.set_source_rgb(*accent)
+            cr.set_line_width(1.5)
+            cr.stroke()
+
+    # Tools and the pointer.
+
+    def tool_chosen(self, tool):
+        self.finish_text()
+        if self.tool == "crop" and tool != "crop":
+            self.apply_crop()
+        if tool == "crop":
+            self.previous_tool = self.tool
+            self.crop_draft = self.markup.crop if self.markup else None
+            self.handle = CROP_HANDLES[0]
+        self.tool = tool
+        self.set_cursor(None)
+        self.refit(force=True)
+        if tool in ("text", "crop"):
+            self.canvas.grab_focus()        # they take keys
+
+    def shape_style_changed(self):
+        """A color or width was chosen: the text being typed takes it."""
+        if self.text is not None:
+            self.text.update(color=self.color, size=self.width[3])
+            self.canvas.queue_draw()
+            self.canvas.grab_focus()
+
+    def apply_crop(self):
+        if self.crop_draft and self.markup:
+            self.markup.set_crop(self.crop_draft)
+        self.crop_draft = None
+
+    def leave_crop(self, apply):
+        """Enter applies the crop, Escape drops it; either goes back to the tool before."""
+        if not apply:
+            self.crop_draft = None
+        self.tool_buttons[self.previous_tool].set_active(True)
+
+    def pressed(self, canvas, event):
+        if event.button != 1 or self.markup is None:
+            return False
+        canvas.grab_focus()
+        point = self.to_picture(event.x, event.y)
+        if self.tool == "crop":
+            handle = hit_handle(point, self.crop_draft, HANDLE * 2 / self.scale)
+            if handle == "move":
+                self.crop_drag = ("move", point, self.crop_draft)
+            elif handle:
+                self.handle = handle
+                self.crop_drag = ("corner", crop_corner(self.crop_draft, opposite(handle)), self.crop_draft)
+            else:
+                self.crop_drag = ("new", point, self.crop_draft)
+        elif self.tool == "text":
+            self.finish_text()
+            self.start_text(point)
+        else:
+            self.drawing = {"tool": self.tool, "color": self.color, "width": self.width[2], "points": [point]}
+        canvas.queue_draw()
+        return True
+
+    def moved(self, canvas, event):
+        if self.markup is None:
+            return False
+        point = self.to_picture(event.x, event.y)
+        if self.drawing:
+            points = self.drawing["points"]
+            if self.drawing["tool"] in ("pen", "highlighter"):
+                if distance(point, points[-1]) * self.scale >= 1:
+                    points.append(point)
+            else:
+                self.drawing["points"] = [points[0], point]
+            canvas.queue_draw()
+        elif self.crop_drag:
+            what, start, rect = self.crop_drag
+            if what == "move":
+                self.crop_draft = move_crop(rect, "move", round(point[0] - start[0]), round(point[1] - start[1]),
+                                            self.markup.size)
+            else:
+                self.crop_draft = crop_rect(start, point, self.markup.size)
+            canvas.queue_draw()
+        elif self.tool == "crop":
+            self.set_cursor(hit_handle(point, self.crop_draft, HANDLE * 2 / self.scale))
+        return True
+
+    def released(self, canvas, event):
+        if event.button != 1:
+            return False
+        if self.drawing:
+            shape, self.drawing = self.drawing, None
+            points = shape["points"]
+            long_enough = max(abs(points[-1][0] - points[0][0]), abs(points[-1][1] - points[0][1])) >= MIN_SHAPE
+            if shape["tool"] in ("pen", "highlighter") or long_enough:
+                self.markup.add(shape)
+                self.changed()
+        elif self.crop_drag:
+            what, _start, rect = self.crop_drag
+            self.crop_drag = None
+            if what == "new" and self.crop_draft[2] < MIN_SHAPE and self.crop_draft[3] < MIN_SHAPE:
+                self.crop_draft = rect      # a click isn't a crop
+        canvas.queue_draw()
+        return True
+
+    def scrolled(self, _canvas, event):
+        """Ctrl+wheel zooms."""
+        Gdk = self.gi.Gdk
+        if not event.state & Gdk.ModifierType.CONTROL_MASK:
+            return False
+        if event.direction == Gdk.ScrollDirection.SMOOTH:
+            step = -1 if event.delta_y > 0 else 1 if event.delta_y < 0 else 0
+        else:
+            step = {Gdk.ScrollDirection.UP: 1, Gdk.ScrollDirection.DOWN: -1}.get(event.direction, 0)
+        if step:
+            self.zoom(step)
+        return True
+
+    # Text.
+
+    def start_text(self, point):
+        self.text = {"tool": "text", "color": self.color, "size": self.width[3], "point": point, "text": ""}
+        self.im.reset()
+
+    def finish_text(self):
+        """Keep the text being typed, if there is any."""
+        text, self.text = self.text, None
+        if text and text["text"].strip():
+            self.markup.add(text)
+            self.changed()
+        elif text:
+            self.canvas.queue_draw()
+
+    def typed(self, _im, string):
+        if self.text is not None:
+            self.text["text"] += string
+            self.canvas.queue_draw()
+
+    # Keys.
+
+    def window_key(self, _window, event):
+        """The window's shortcuts, before the focused widget sees the key."""
+        Gdk = self.gi.Gdk
+        state = event.state & shortcut_modifiers(Gdk)
+        if not state & Gdk.ModifierType.CONTROL_MASK or self.markup is None:
+            return False
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        key = Gdk.keyval_to_lower(event.keyval)
+        actions = {
+            Gdk.KEY_z: self.redo if shift else self.undo, Gdk.KEY_y: self.redo,
+            Gdk.KEY_c: self.copy, Gdk.KEY_s: self.save_as if shift else self.save,
+            Gdk.KEY_n: self.new_screenshot, Gdk.KEY_w: self.close,
+            Gdk.KEY_plus: lambda: self.zoom(1), Gdk.KEY_equal: lambda: self.zoom(1),
+            Gdk.KEY_KP_Add: lambda: self.zoom(1),
+            Gdk.KEY_minus: lambda: self.zoom(-1), Gdk.KEY_underscore: lambda: self.zoom(-1),
+            Gdk.KEY_KP_Subtract: lambda: self.zoom(-1),
+            Gdk.KEY_0: lambda: self.zoom(0), Gdk.KEY_KP_0: lambda: self.zoom(0),
+            Gdk.KEY_1: lambda: self.zoom(None), Gdk.KEY_KP_1: lambda: self.zoom(None),
+        }
+        action = actions.get(key)
+        if action is None:
+            return False
+        action()
+        return True
+
+    def canvas_key(self, _canvas, event):
+        if self.markup is None:
+            return False
+        if self.tool == "text":
+            return self.text_key(event)
+        if self.tool == "crop":
+            return self.crop_key(event)
+        return False
+
+    def canvas_key_up(self, _canvas, event):
+        return self.text is not None and self.im.filter_keypress(event)
+
+    def arrow_step(self, event):
+        """An arrow key's (dx, dy), 10 times as far with Shift, or None."""
+        Gdk = self.gi.Gdk
+        step = KEY_STEP_SHIFT if event.state & Gdk.ModifierType.SHIFT_MASK else KEY_STEP
+        return {Gdk.KEY_Left: (-step, 0), Gdk.KEY_Right: (step, 0),
+                Gdk.KEY_Up: (0, -step), Gdk.KEY_Down: (0, step)}.get(event.keyval)
+
+    def text_key(self, event):
+        Gdk = self.gi.Gdk
+        keyval = event.keyval
+        if self.text is None:
+            # Typing without a click starts in the corner of what is shown.
+            plain = not event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK)
+            if not plain or Gdk.keyval_to_unicode(keyval) < 32 or keyval == Gdk.KEY_Delete:
+                return False
+            allocation = self.canvas.get_allocation()
+            x = max(0, self.scroller.get_hadjustment().get_value() - allocation.x) + TEXT_START
+            y = max(0, self.scroller.get_vadjustment().get_value() - allocation.y) + TEXT_START
+            self.start_text(self.to_picture(x, y))
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            if event.state & Gdk.ModifierType.SHIFT_MASK:
+                self.text["text"] += "\n"
+            else:
+                self.finish_text()
+        elif keyval == Gdk.KEY_Escape:
+            self.text = None
+        elif keyval == Gdk.KEY_BackSpace:
+            self.text["text"] = self.text["text"][:-1]
+        elif self.arrow_step(event):
+            dx, dy = self.arrow_step(event)
+            point = self.text["point"]
+            self.text["point"] = (point[0] + dx / self.scale, point[1] + dy / self.scale)
+        elif not self.im.filter_keypress(event):
+            return False
+        self.canvas.queue_draw()
+        return True
+
+    def crop_key(self, event):
+        Gdk = self.gi.Gdk
+        keyval = event.keyval
+        if self.arrow_step(event):
+            dx, dy = self.arrow_step(event)
+            self.crop_draft = move_crop(self.crop_draft, self.handle, dx, dy, self.markup.size)
+        elif keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+            back = keyval == Gdk.KEY_ISO_Left_Tab or event.state & Gdk.ModifierType.SHIFT_MASK
+            index = CROP_HANDLES.index(self.handle) + (-1 if back else 1)
+            self.handle = CROP_HANDLES[index % len(CROP_HANDLES)]
+        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.leave_crop(apply=True)
+            return True
+        elif keyval == Gdk.KEY_Escape:
+            self.leave_crop(apply=False)
+            return True
+        else:
+            return False
+        self.canvas.queue_draw()
+        return True
+
+    # Actions.
+
+    def undo(self):
+        """Undo: first what is being typed or cropped, then the last change."""
+        if self.markup is None:
+            return
+        if self.text is not None:
+            self.text = None
+        elif self.tool == "crop" and self.crop_draft != self.markup.crop:
+            self.crop_draft = self.markup.crop
+        elif self.markup.undo():
+            if self.tool == "crop":
+                self.crop_draft = self.markup.crop
+            self.changed()
+        self.canvas.queue_draw()
+
+    def redo(self):
+        if self.markup is not None and self.text is None and self.markup.redo():
+            if self.tool == "crop":
+                self.crop_draft = self.markup.crop
+            self.changed()
+
+    def settle(self):
+        """Keep the text being typed and the crop being made, before the
+        picture is saved or copied."""
+        self.finish_text()
+        if self.tool == "crop":
+            self.apply_crop()
+            self.crop_draft = self.markup.crop
+
+    def copy(self):
+        self.settle()
+        temp = os.path.join(self.runtime, EDIT_COPY)
+        try:
+            write_picture(render_picture(self.picture, self.markup, self.gi), temp, self.gi)
+            copied = copy_picture(temp)
+        except OSError:
+            copied = False
+        finally:
+            remove(temp)
+        if copied:
+            self.markup.keep()
+            self.say("Copied.")
+        else:
+            self.error("The picture couldn't be copied to the clipboard (wl-copy).")
+
+    def save(self):
+        """Save into the picture's own file; one only in the runtime folder
+        (a copy-only screenshot) asks where. Returns True when saved."""
+        if not self.own:
+            return self.save_as()
+        return self.write(self.path)
+
+    def save_as(self):
+        Gtk = self.gi.Gtk
+        self.settle()
+        dialog = Gtk.FileChooserDialog(title="Save Screenshot", transient_for=self.window, modal=True,
+                                       action=Gtk.FileChooserAction.SAVE)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Save", Gtk.ResponseType.ACCEPT).get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+        dialog.set_do_overwrite_confirmation(True)
+        if self.own:
+            folder = os.path.dirname(self.path)
+        else:
+            folder = pictures_dir()
+            with contextlib.suppress(OSError):
+                os.makedirs(folder, exist_ok=True)
+        dialog.set_current_folder(folder)
+        dialog.set_current_name(picture_name(self.path, self.own))
+        self.busy = True
+        response = dialog.run()
+        path = dialog.get_filename()
+        dialog.destroy()
+        self.busy = False
+        if response != Gtk.ResponseType.ACCEPT or not path:
+            return False
+        if os.path.splitext(path)[1].lower() not in PICTURE_EXTENSIONS:
+            path += ".png"
+            if os.path.exists(path):     # the dialog asked about the name without .png
+                self.error(f"{os.path.basename(path)} exists already. Save it under another name.")
+                return False
+        return self.write(path)
+
+    def write(self, path):
+        self.settle()
+        folder = shown_folder(os.path.dirname(path))
+        try:
+            write_picture(render_picture(self.picture, self.markup, self.gi), path, self.gi)
+        except OSError as error:
+            self.error(f"The picture couldn't be saved in {folder} ({error.strerror or error}).")
+            return False
+        self.markup.keep()
+        self.path, self.own = path, True
+        self.window.set_title(f"{TITLE} – {os.path.basename(path)}")
+        self.info.hide()
+        self.say(f"Saved in {folder}.")
+        return True
+
+    def phone_changed(self):
+        self.phone.set_visible(phone_on(self.runtime))
+
+    def send_to_phone(self):
+        """The picture as it is shown, under its file's name. Sending doesn't
+        count as keeping it: closing still asks."""
+        Gio, GLib = self.gi.Gio, self.gi.GLib
+        if self.sending:
+            return
+        self.settle()
+        path = os.path.join(self.runtime, EDIT_SEND, picture_name(self.path, self.own))
+        try:
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+            write_picture(render_picture(self.picture, self.markup, self.gi), path, self.gi)
+        except OSError as error:
+            self.error(f"The picture couldn't be sent to your phone ({error.strerror or error}).")
+            return
+        try:
+            self.sending = Gio.Subprocess.new(phone_send_argv(path), Gio.SubprocessFlags.STDOUT_PIPE
+                                              | Gio.SubprocessFlags.STDERR_PIPE)
+        except GLib.Error as error:
+            remove(path)
+            self.error(f"The picture couldn't be sent to your phone ({error.message}).")
+            return
+        self.phone.set_sensitive(False)
+        self.info.hide()
+        self.say("Sending to your phone…")
+        self.sending.communicate_utf8_async(None, None, self.sent)
+
+    def sent(self, sender, result):
+        self.sending = None
+        self.phone.set_sensitive(True)
+        try:
+            _ok, out, err = sender.communicate_utf8_finish(result)
+        except self.gi.GLib.Error as error:
+            out, err = "", error.message
+        if sender.get_successful():
+            lines = (out or "").strip().splitlines()
+            self.say(lines[-1] if lines else "Sent to your phone.")
+            return
+        lines = (err or "").strip().splitlines()
+        reason = lines[-1].removeprefix("flickos-phone: ").rstrip(".") if lines else "flickos-phone failed"
+        self.error(f"The picture couldn't be sent to your phone ({reason}).")
+
+    def ask_to_keep(self, why):
+        """Before the markup is lost ("close", "replace"): when it wasn't
+        saved or copied, ask (WIN-13). Returns True to go on."""
+        Gtk = self.gi.Gtk
+        self.settle()
+        if not self.markup.dirty:
+            return True
+        name = f"“{os.path.basename(self.path)}”" if self.own else "the screenshot"
+        dialog = Gtk.MessageDialog(transient_for=self.window, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                   buttons=Gtk.ButtonsType.NONE, text=f"Save the changes to {name}?")
+        if why == "close":
+            dialog.format_secondary_text("If you close without saving, the changes are lost.")
+            discard = "Close _Without Saving"
+        else:
+            dialog.format_secondary_text("A new screenshot is shown in its place. "
+                                         "If you don't save, the changes are lost.")
+            discard = "_Discard Changes"
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button(discard, Gtk.ResponseType.REJECT).get_style_context().add_class("destructive-action")
+        dialog.add_button("_Save", Gtk.ResponseType.ACCEPT).get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        self.busy = True
+        response = dialog.run()
+        dialog.destroy()
+        self.busy = False
+        if response == Gtk.ResponseType.ACCEPT:
+            return self.save()
+        return response == Gtk.ResponseType.REJECT
+
+    def closing(self, _window, _event):
+        if self.busy:
+            return True
+        return not self.ask_to_keep("close")    # True keeps the window
+
+    def close(self):
+        if not self.busy and self.ask_to_keep("close"):
+            self.window.destroy()
+
+    def new_screenshot(self):
+        """The capture bar, with this window out of the way; the screenshot
+        taken is shown here."""
+        Gio, GLib = self.gi.Gio, self.gi.GLib
+        if self.bar or self.busy:
+            return
+        argv = [sys.executable, os.path.abspath(__file__), "bar", "--photo"]
+        try:
+            self.bar = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE)
+        except GLib.Error as error:
+            self.error(f"The capture bar couldn't be opened ({error.message}).")
+            return
+        self.window.hide()
+        self.bar.communicate_utf8_async(None, None, self.bar_done)
+
+    def bar_done(self, bar, result):
+        self.bar = None
+        try:
+            _ok, out, _err = bar.communicate_utf8_finish(result)
+        except self.gi.GLib.Error:
+            out = ""
+        self.window.show()
+        self.window.present()
+        lines = (out or "").strip().splitlines()
+        if lines and os.path.isfile(lines[-1]):
+            self.open(lines[-1])
+
+    def requested(self):
+        """Another `edit` sent a picture (SIGUSR1)."""
+        path = take_edit_request(self.runtime)
+        if not path:
+            return True
+        if self.busy or self.bar:
+            warn(f"{path}: not shown, the markup window is busy")
+            return True
+        if not self.window.is_active():
+            # labwc lets only the focused client raise a window; a window
+            # that is mapped again gets the focus.
+            self.window.hide()
+            self.window.show()
+        self.window.present()
+        self.open(path)
+        return True
+
+    def run(self, path):
+        """Show the window with the picture at path until it is closed.
+        Returns False when the picture can't be opened."""
+        Gtk, GLib = self.gi.Gtk, self.gi.GLib
+        try:
+            pixbuf_size = self.gi.GdkPixbuf.Pixbuf.get_file_info(path)[1:]
+        except (TypeError, GLib.Error):
+            pixbuf_size = (0, 0)
+        (min_w, min_h), (max_w, max_h) = EDIT_WINDOW
+        self.window.set_default_size(max(min_w, min(max_w, pixbuf_size[0] + 2 * CANVAS_MARGIN)),
+                                     max(min_h, min(max_h, pixbuf_size[1] + 2 * CANVAS_MARGIN + EDIT_CHROME)))
+        if not self.open(path):
+            warn(self.info_label.get_text())
+            return False
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self.requested)
+        GLib.idle_add(lambda: self.requested() and False)   # one sent before the handler was set
+        self.window.show_all()
+        self.canvas.grab_focus()
+        Gtk.main()
+        return True
+
+
+def shortcut_modifiers(Gdk):
+    """The modifiers that tell shortcuts apart."""
+    return (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.MOD1_MASK
+            | Gdk.ModifierType.SUPER_MASK)
+
+
+# --- Recording ---------------------------------------------------------------------
+
+class Cancelled(Exception):
+    """The user said no: Escape on the frozen screen, the portal's chooser."""
+
+
+def screens():
+    """The enabled screens from wlr-randr --json: {"name", "rect" (layout
+    coordinates), "pixels" (the stream's width and height)}. [] when unknown."""
+    try:
+        result = subprocess.run(["wlr-randr", "--json"], capture_output=True, text=True,
+                                timeout=COMMAND_SECONDS)
+        heads = json.loads(result.stdout) if result.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+    found = []
+    for head in heads if isinstance(heads, list) else []:
+        try:
+            if not head.get("enabled"):
+                continue
+            mode = next(m for m in head["modes"] if m.get("current"))
+            width, height = int(mode["width"]), int(mode["height"])
+            if str(head.get("transform", "normal")).endswith(("90", "270")):
+                width, height = height, width
+            scale = float(head.get("scale") or 1) or 1.0
+            position = head.get("position") or {}
+            found.append({"name": str(head["name"]), "pixels": (width, height),
+                          "rect": (int(position.get("x", 0)), int(position.get("y", 0)),
+                                   round(width / scale), round(height / scale))})
+        except (KeyError, StopIteration, TypeError, ValueError):
+            continue
+    return found
+
+
+def overlap(a, b):
+    """The rectangle two rectangles share, or None."""
+    left, top = max(a[0], b[0]), max(a[1], b[1])
+    right, bottom = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right - left, bottom - top
+
+
+def recording_crop(rect, found):
+    """The screen that holds most of rect (layout coordinates), the part of
+    rect on it, and the crop (left, top, right, bottom) of its stream, None
+    for all of it. The size is made even, as H.264 in I420 needs. Raises
+    ShotError."""
+    def shared(screen):
+        part = overlap(rect, screen["rect"])
+        return part[2] * part[3] if part else 0
+    if not found:
+        raise ShotError("The screens couldn't be found (wlr-randr).")
+    screen = max(found, key=shared)
+    part = overlap(rect, screen["rect"])
+    if part is None:
+        raise ShotError("The area isn't on a screen.")
+    x, y, w, h = to_pixels(part, screen["rect"], screen["pixels"])
+    w, h = w - w % 2, h - h % 2
+    if w < MIN_AREA or h < MIN_AREA:
+        raise ShotError("The area is too small to record.")
+    width, height = screen["pixels"]
+    crop = (x, y, width - x - w, height - y - h)
+    return screen, part, (None if crop == (0, 0, 0, 0) else crop)
+
+
+def pipeline_description(crop=None, sound=DEFAULT_SOUND):
+    """The GStreamer pipeline (gst-launch syntax) of a recording. The source's
+    fd and path and the file's location are set on the elements named
+    "source" and "file"; buffers pass "video-gate" and "audio-gate" (identity)
+    only once the countdown is over (Recorder)."""
+    video = (f"pipewiresrc name=source do-timestamp=true keepalive-time=1000 ! videorate "
+             f"! video/x-raw,framerate={FRAMERATE}/1 ! ")
+    if crop:
+        video += "videocrop left={} top={} right={} bottom={} ! ".format(*crop)
+    video += ("videoconvert ! video/x-raw,format=I420 ! identity name=video-gate ! queue "
+              "! x264enc speed-preset=ultrafast tune=zerolatency ! video/x-h264,profile=baseline ! queue "
+              "! mp4mux name=mux fragment-duration=1000 ! filesink name=file")
+    sources = {"computer": [f"pulsesrc device={COMPUTER_SOUND}"], "microphone": ["pulsesrc"],
+               "both": [f"pulsesrc device={COMPUTER_SOUND}", "pulsesrc"]}.get(sound, [])
+    # Stereo: left to itself, the caps negotiation settles on mono.
+    encode = ("audioconvert ! audioresample ! audio/x-raw,channels=2 ! identity name=audio-gate "
+              "! opusenc ! queue ! mux.")
+    if len(sources) == 1:
+        return f"{video} {sources[0]} do-timestamp=true ! {encode}"
+    if len(sources) == 2:
+        mixed = " ".join(f"{source} do-timestamp=true ! audioconvert ! audioresample ! queue ! mix."
+                         for source in sources)
+        return f"{video} audiomixer name=mix ! {encode} {mixed}"
+    return video
+
+
+def duration_text(seconds):
+    """0:42, 12:05, 1:02:03."""
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02}:{seconds:02}" if hours else f"{minutes}:{seconds:02}"
+
+
+def panel_status(countdown=None, elapsed=None):
+    """What the panel's custom/recording shows (waybar's JSON)."""
+    if elapsed is not None:
+        return {"text": duration_text(elapsed), "class": "recording",
+                "tooltip": "Recording the screen. Click to stop (Super+Shift+R)."}
+    if countdown:
+        return {"text": f"Recording in {countdown}", "class": "countdown",
+                "tooltip": "The recording is about to start. Click to cancel."}
+    return {"text": "Starting", "class": "countdown",
+            "tooltip": "The recording is starting. Click to cancel."}
+
+
+def write_panel(runtime, status):
+    """Write panel.json (atomically; None deletes it) and tell waybar."""
+    path = os.path.join(runtime, PANEL)
+    if status is None:
+        remove(path)
+    else:
+        temp = f"{path}.{os.getpid()}.tmp"
+        try:
+            with open(temp, "w", encoding="utf-8") as f:
+                json.dump(status, f)
+                f.write("\n")
+            os.replace(temp, path)
+        except OSError as error:
+            warn(f"{path}: {error}")
+            remove(temp)
+    signal_panel()
+
+
+def signal_panel():
+    """Send the user's waybars SIGRTMIN+PANEL_SIGNAL, so custom/recording
+    reads panel.json again. Every waybar handles every realtime signal, so
+    one without the module ignores it. PIDs from PROC, never pkill -x."""
+    uid = os.getuid()
+    try:
+        entries = os.listdir(PROC)
+    except OSError:
+        return
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
+                if f.read().strip() != "waybar":
+                    continue
+            if os.stat(os.path.join(PROC, entry)).st_uid != uid:
+                continue
+            os.kill(int(entry), signal.SIGRTMIN + PANEL_SIGNAL)
+        except (OSError, ValueError):
+            continue
+
+
+@contextlib.contextmanager
+def pid_lock(path):
+    """Yields True for the only holder of the lock file at path, which then
+    holds its PID, and False while another process holds it."""
+    with open(path, "a+") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        lock.seek(0)
+        lock.truncate()
+        lock.write(f"{os.getpid()}\n")
+        lock.flush()
+        yield True
+
+
+def recorder_lock(runtime):
+    """Yields True for the session's only recorder, False while another runs.
+    The lock file holds the recorder's PID, for `stop`."""
+    return pid_lock(os.path.join(runtime, RECORDING_LOCK))
+
+
+def recorder_pid():
+    """The PID of the recording that is running, or None."""
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        return None
+    return lock_holder(os.path.join(base, "flickos", RUNTIME, RECORDING_LOCK))
+
+
+def lock_holder(path):
+    """The PID in a pid_lock file while a flickos-screenshot process holds
+    it, or None."""
+    try:
+        with open(path, encoding="utf-8") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                return None                     # nobody holds it
+            except BlockingIOError:
+                pass
+            text = lock.read().strip()
+    except OSError:
+        return None
+    if not text.isdigit():
+        return None
+    pid = int(text)
+    try:
+        with open(os.path.join(PROC, str(pid), "cmdline"), "rb") as f:
+            argv = f.read().split(b"\0")
+    except OSError:
+        return None
+    if not any(os.path.basename(arg.decode(errors="replace")) == NAME for arg in argv):
+        return None
+    return pid
+
+
+def load_gst():
+    """GStreamer and GIO, for a recording (no GTK). Raises ShotError."""
+    try:
+        import gi
+        gi.require_version("Gst", "1.0")
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib, Gst
+    except (ImportError, ValueError) as error:
+        raise ShotError(f"The screen can't be recorded: GStreamer is missing ({error}).") from None
+    GLib.set_prgname(APP_ID)
+    Gst.init(None)
+    missing = sorted({package for element, package in ELEMENTS.items() if not Gst.ElementFactory.find(element)})
+    if missing:
+        raise ShotError(f"The screen can't be recorded: {', '.join(missing)} is missing.")
+    return argparse.Namespace(Gio=Gio, GLib=GLib, Gst=Gst)
+
+
+class Portal:
+    """xdg-desktop-portal's ScreenCast: one monitor, the pointer drawn in."""
+
+    def __init__(self, gi):
+        self.gi = gi
+        try:
+            self.bus = gi.Gio.bus_get_sync(gi.Gio.BusType.SESSION)
+        except gi.GLib.Error as error:
+            raise ShotError(f"The screen can't be recorded: no session bus ({error.message}).") from None
+        self.session = None
+        self.tokens = 0
+        self.closed_watch = None
+
+    def request(self, method, signature, args, options):
+        """Call a portal method that answers with a Request's Response.
+        Returns its results. Raises Cancelled or ShotError."""
+        GLib = self.gi.GLib
+        self.tokens += 1
+        token = f"flickos_screenshot_{os.getpid()}_{self.tokens}"
+        sender = self.bus.get_unique_name()[1:].replace(".", "_")
+        path = f"{PORTAL_PATH}/request/{sender}/{token}"
+        answer = {}
+        loop = GLib.MainLoop()
+
+        def response(_bus, _sender, _path, _interface, _signal, parameters):
+            answer["code"], answer["results"] = parameters.unpack()
+            loop.quit()
+
+        def timeout():
+            answer.setdefault("code", None)
+            loop.quit()
+            return False
+
+        watch = self.bus.signal_subscribe(None, "org.freedesktop.portal.Request", "Response", path,
+                                          None, self.gi.Gio.DBusSignalFlags.NONE, response)
+        timer = GLib.timeout_add_seconds(PORTAL_SECONDS, timeout)
+        try:
+            self.bus.call_sync(PORTAL, PORTAL_PATH, SCREENCAST, method,
+                               GLib.Variant(signature, (*args, dict(options, handle_token=GLib.Variant("s", token)))),
+                               GLib.VariantType("(o)"), self.gi.Gio.DBusCallFlags.NONE, -1, None)
+            loop.run()
+        except GLib.Error as error:
+            raise ShotError(f"The screen can't be recorded: the portal said no ({error.message}).") from None
+        finally:
+            self.bus.signal_unsubscribe(watch)
+            if "code" not in answer or answer["code"] is not None:
+                GLib.source_remove(timer)
+        if answer["code"] == 1:
+            raise Cancelled()
+        if answer["code"] is None:
+            raise ShotError("The screen can't be recorded: the portal didn't answer.")
+        if answer["code"] != 0:
+            raise ShotError("The screen can't be recorded: the portal couldn't capture it.")
+        return answer["results"]
+
+    def open(self, runtime, output, on_closed):
+        """Ask for output (a screen's name; None lets the portal ask) and return
+        the PipeWire (fd, node). on_closed is called when the portal ends the
+        session. Raises Cancelled or ShotError."""
+        GLib = self.gi.GLib
+        created = self.request("CreateSession", "(a{sv})", (),
+                               {"session_handle_token": GLib.Variant("s", f"flickos_screenshot_{os.getpid()}")})
+        self.session = created["session_handle"]
+        self.closed_watch = self.bus.signal_subscribe(
+            None, "org.freedesktop.portal.Session", "Closed", self.session, None,
+            self.gi.Gio.DBusSignalFlags.NONE, lambda *_args: on_closed())
+        request = os.path.join(runtime, REQUEST)
+        if output:
+            # screencast-chooser answers with it, if it is fresh (ADR-006).
+            with open(request, "w", encoding="utf-8") as f:
+                f.write(output + "\n")
+        try:
+            self.request("SelectSources", "(oa{sv})", (self.session,),
+                         {"types": GLib.Variant("u", SOURCE_MONITOR),
+                          "cursor_mode": GLib.Variant("u", CURSOR_EMBEDDED),
+                          "multiple": GLib.Variant("b", False)})
+        finally:
+            remove(request)
+        started = self.request("Start", "(osa{sv})", (self.session, ""), {})
+        streams = started.get("streams") or []
+        if not streams:
+            raise ShotError("The screen can't be recorded: the portal gave no screen.")
+        node = streams[0][0]
+        try:
+            result, fds = self.bus.call_with_unix_fd_list_sync(
+                PORTAL, PORTAL_PATH, SCREENCAST, "OpenPipeWireRemote",
+                GLib.Variant("(oa{sv})", (self.session, {})), GLib.VariantType("(h)"),
+                self.gi.Gio.DBusCallFlags.NONE, -1, None, None)
+        except GLib.Error as error:
+            raise ShotError(f"The screen can't be recorded ({error.message}).") from None
+        return fds.get(result.unpack()[0]), node
+
+    def close(self):
+        if self.closed_watch is not None:
+            self.bus.signal_unsubscribe(self.closed_watch)
+            self.closed_watch = None
+        if self.session:
+            with contextlib.suppress(self.gi.GLib.Error):
+                self.bus.call_sync(PORTAL, self.session, "org.freedesktop.portal.Session", "Close",
+                                   None, None, self.gi.Gio.DBusCallFlags.NONE, -1, None)
+            self.session = None
+
+
+class Recorder:
+    """Runs a recording's pipeline until it is stopped: counts down, restarts
+    a stream that sends no frame, lets buffers through the gates once the
+    countdown is over and a frame came, shows it all in the panel.
+
+    result afterwards: "stopped", "full" (stopped for lack of space),
+    "cancelled" (stopped before it started), or a ShotError. started: whether
+    anything was let through, so the file has a recording in it."""
+
+    def __init__(self, gi, pipeline, countdown, folder=None, on_status=None, clock=time.monotonic):
+        self.gi = gi
+        self.pipeline = pipeline
+        self.folder = folder
+        self.on_status = on_status or (lambda status: None)
+        self.clock = clock
+        self.loop = gi.GLib.MainLoop()
+        self.countdown_end = clock() + countdown
+        self.frames = 0             # good frames since the pipeline last started
+        self.restarts = 0
+        self.last_start = None
+        self.gate = None            # the running time buffers pass from, once open
+        self.started = False
+        self.began = None           # clock() when the gate opened
+        self.stopping = False
+        self.result = None
+        self.shown = None
+        self.space_checked = None   # clock() of the last look at the free space
+        self.eos_timer = None
+        self.pending = "stopped"   # the result once the end of stream is back
+        self.gates = []             # the gates' src pads
+
+    # Called from GStreamer's streaming threads: only counters and comparisons.
+
+    def source_probe(self, _pad, info):
+        buffer = info.get_buffer()
+        if buffer.has_flags(self.gi.Gst.BufferFlags.CORRUPTED):
+            return self.gi.Gst.PadProbeReturn.DROP
+        self.frames += 1
+        return self.gi.Gst.PadProbeReturn.OK
+
+    def gate_probe(self, _pad, info):
+        gate = self.gate
+        if gate is None:
+            return self.gi.Gst.PadProbeReturn.DROP
+        pts = info.get_buffer().pts
+        if pts != self.gi.Gst.CLOCK_TIME_NONE and pts < gate:
+            return self.gi.Gst.PadProbeReturn.DROP
+        return self.gi.Gst.PadProbeReturn.OK
+
+    # The main loop.
+
+    def run(self):
+        Gst, GLib = self.gi.Gst, self.gi.GLib
+        source = self.pipeline.get_by_name("source")
+        if source is not None:
+            source.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, self.source_probe)
+        self.gates = [element.get_static_pad("src") for element in
+                      (self.pipeline.get_by_name("video-gate"), self.pipeline.get_by_name("audio-gate"))
+                      if element is not None]
+        for pad in self.gates:
+            pad.add_probe(Gst.PadProbeType.BUFFER, self.gate_probe)
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message", self.message)
+        for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, number, self.signalled)
+        self.start()
+        self.poll()
+        GLib.timeout_add(POLL_MS, self.poll)
+        self.loop.run()
+        self.pipeline.set_state(Gst.State.NULL)
+        bus.remove_signal_watch()
+        return self.result
+
+    def start(self):
+        Gst = self.gi.Gst
+        self.frames = 0
+        self.last_start = self.clock()
+        if self.pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+            self.finish(ShotError("The recording couldn't start."))
+
+    def running_time(self):
+        clock = self.pipeline.get_clock()
+        if clock is None:
+            return 0
+        return max(0, clock.get_time() - self.pipeline.get_base_time())
+
+    def poll(self):
+        """Every POLL_MS: the countdown, the first frame, the time shown."""
+        if self.result is not None:
+            return False
+        now = self.clock()
+        if self.gate is None:
+            if self.frames == 0 and now - self.last_start >= FIRST_FRAME_SECONDS:
+                if self.restarts >= MAX_RESTARTS:
+                    self.finish(ShotError("The recording couldn't start: no picture came from the screen."))
+                    return False
+                self.restarts += 1
+                warn(f"no picture from the screen; restarting ({self.restarts})")
+                self.pipeline.set_state(self.gi.Gst.State.NULL)
+                self.start()
+                if self.result is not None:
+                    return False
+            remaining = math.ceil(self.countdown_end - now)
+            if remaining > 0:
+                self.show(panel_status(countdown=remaining))
+            elif self.frames > 0:
+                self.open_gate()
+            else:
+                self.show(panel_status())
+        if self.gate is not None and not self.stopping:
+            self.show(panel_status(elapsed=now - self.began))
+            if self.folder and (self.space_checked is None or now - self.space_checked >= SPACE_SECONDS):
+                self.space_checked = now
+                if free_mb(self.folder) < MIN_FREE_MB:
+                    warn("the disk is almost full; stopping")
+                    self.stop("full")
+        return True
+
+    def open_gate(self):
+        """Let buffers through from now on, as if the recording began now."""
+        self.gate = self.running_time()
+        for pad in self.gates:
+            pad.set_offset(-self.gate)
+        self.began = self.clock()
+        self.started = True
+
+    def show(self, status):
+        if status != self.shown:
+            self.shown = status
+            self.on_status(status)
+
+    def signalled(self):
+        self.stop()
+        return True
+
+    def stop(self, result="stopped"):
+        """Finish the file (end of stream), or cancel before it started."""
+        if self.stopping or self.result is not None:
+            return
+        if not self.started:
+            self.finish("cancelled")
+            return
+        self.stopping = True
+        self.pending = result
+        self.pipeline.send_event(self.gi.Gst.Event.new_eos())
+        self.eos_timer = self.gi.GLib.timeout_add_seconds(EOS_SECONDS, self.eos_timeout)
+
+    def eos_timeout(self):
+        warn("the recording didn't finish in time; what was written is kept")
+        self.eos_timer = None
+        self.finish(self.pending)
+        return False
+
+    def message(self, _bus, message):
+        Gst = self.gi.Gst
+        if message.type == Gst.MessageType.EOS:
+            self.finish(self.pending)
+        elif message.type == Gst.MessageType.ERROR:
+            error, debug = message.parse_error()
+            warn(f"{error.message} ({debug})" if debug else error.message)
+            self.finish(ShotError(f"The recording stopped: {error.message}."))
+
+    def finish(self, result):
+        if self.result is not None:
+            return
+        self.result = result
+        if self.eos_timer is not None:
+            self.gi.GLib.source_remove(self.eos_timer)
+            self.eos_timer = None
+        self.loop.quit()
+
+
+def free_mb(folder):
+    try:
+        stat = os.statvfs(folder)
+    except OSError:
+        return MIN_FREE_MB
+    return stat.f_bavail * stat.f_frsize // (1024 * 1024)
+
+
+def choose_area():
+    """The area to record, chosen on the frozen screen by a child (the `area`
+    command), so this process never loads GTK. Raises Cancelled or ShotError."""
+    try:
+        result = subprocess.run([sys.executable, os.path.abspath(__file__), "area"],
+                                capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    except OSError as error:
+        raise ShotError(f"The area couldn't be chosen ({error}).") from None
+    if result.returncode != 0:
+        detail = result.stderr.strip().splitlines()[-1:]
+        if detail and not detail[0].endswith("cancelled"):
+            raise ShotError(detail[0].removeprefix(f"{NAME}: "))
+        raise Cancelled()
+    try:
+        x, y, w, h = (int(value) for value in result.stdout.split())
+    except ValueError:
+        raise ShotError("The area couldn't be chosen.") from None
+    return x, y, w, h
+
+
+def show_outline(rect):
+    """Start the `outline` child around rect. Returns it, or None."""
+    try:
+        return subprocess.Popen([sys.executable, os.path.abspath(__file__), "outline", *map(str, rect)],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    except OSError as error:
+        warn(f"can't show the outline ({error})")
+        return None
+
+
+def run_recording(mode, sound, countdown, runtime):
+    """Record a screen or an area until stopped. Returns the exit code.
+    Named apart from record(), which appends a settings change to History."""
+    found = screens()
+    output, crop, outline = None, None, None
+    if mode == "region":
+        with single_capture() as first:
+            if not first:
+                warn("a screenshot is being taken")
+                return 1
+            rect = choose_area()
+        screen, part, crop = recording_crop(rect, found)
+        output = screen["name"]
+        if crop:
+            outline = part
+    elif len(found) == 1:
+        output = found[0]["name"]           # with several, the portal asks which
+    gi = load_gst()
+    folder = videos_dir()
+    try:
+        path = reserve_recording(folder)
+    except OSError as error:
+        raise ShotError(f"The recording can't be saved in {shown_folder(folder)} "
+                        f"({error.strerror or error}).") from None
+    portal = Portal(gi)
+    child = None
+    try:
+        recorder = None
+        fd, node = portal.open(runtime, output, lambda: recorder and recorder.stop())
+        pipeline = gi.Gst.parse_launch(pipeline_description(crop, sound))
+        source = pipeline.get_by_name("source")
+        source.set_property("fd", fd)
+        source.set_property("path", str(node))
+        pipeline.get_by_name("file").set_property("location", path)
+        recorder = Recorder(gi, pipeline, countdown, folder,
+                            on_status=lambda status: write_panel(runtime, status))
+        if outline:
+            child = show_outline(outline)
+        result = recorder.run()
+    except BaseException:
+        remove(path)
+        raise
+    finally:
+        if child:
+            child.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                child.wait(timeout=5)
+        portal.close()
+        write_panel(runtime, None)
+    size = os.path.getsize(path) if os.path.exists(path) else 0
+    if not recorder.started or size == 0:
+        remove(path)
+        if result == "cancelled":
+            warn("cancelled")
+            return 1
+        raise result if isinstance(result, ShotError) else ShotError("Nothing was recorded.")
+    print(path)
+    where = shown_folder(folder)
+    if isinstance(result, ShotError):
+        notify("record-broken", path, icon="video-x-generic", error=str(result), folder=where)
+        return 1
+    notify("recorded-full" if result == "full" else "recorded", path, icon="video-x-generic", folder=where)
+    return 0
+
+
+# --- Commands ----------------------------------------------------------------------
+
+def capture(mode, pointer, copy_only, gi=None, delay=0, text=False):
+    """Take the shot and finish: save and copy it, or with text copy the text
+    in it. For an area, gi is GTK when it is loaded already; otherwise it is
+    loaded after the grab. The screen is grabbed when the delay is over; with
+    a delay an area is chosen first (delayed_area). Returns the exit code."""
+    runtime = runtime_dir()
+    shot = os.path.join(runtime, SHOT)
+    done = finish_text if text else lambda path: finish(path, copy_only)
+    if mode == "screen":
+        with contextlib.closing(Feedback()) as feedback:
+            if delay:
+                time.sleep(delay)
+            grab(shot, pointer, "png")
+            feedback.show()
+        return done(shot)
+    grab_path = os.path.join(runtime, GRAB)
+    if delay:
+        return delayed_area(pointer, gi, delay, grab_path, shot, done)
+    with contextlib.closing(Feedback()) as feedback:
+        try:
+            grab(grab_path, pointer)
+            frozen = FrozenScreen(gi or load_gtk(), grab_path, shot, HINTS["text" if text else "shot"])
+            result = frozen.run()
+        finally:
+            remove(grab_path)
+        if isinstance(result, ShotError):
+            raise result
+        if result is None:
+            warn("cancelled")
+            return 1
+        feedback.show(frozen.area)
+    return done(result)
+
+
+def delayed_area(pointer, gi, delay, grab_path, shot, done):
+    """The area is chosen on the frozen screen first; when the delay is over
+    the screen is grabbed again and the area cut out of that grab, and done
+    finishes it. The delay is for opening a menu or pointing at something in
+    the area."""
+    gi = gi or load_gtk()
+    try:
+        grab(grab_path)
+        frozen = FrozenScreen(gi, grab_path, None, HINTS["delay"].format(delay=delay))
+        area = frozen.run()
+    finally:
+        remove(grab_path)
+    if area is None:
+        warn("cancelled")
+        return 1
+    with contextlib.closing(Feedback()) as feedback:
+        time.sleep(delay)               # the frozen screen is long gone by then
+        try:
+            grab(grab_path, pointer)
+            cut_area(gi, grab_path, area, frozen.box, shot)
+        finally:
+            remove(grab_path)
+        feedback.show(area)
+    return done(shot)
+
+
+def failed(error, notice="failed"):
+    warn(str(error))
+    notify(notice, error=str(error))
+    return 1
+
+
+def cmd_shot(opts):
+    notice = "text-failed" if opts.text else "failed"
+    if opts.text and not shutil.which(OCR):
+        return failed(ShotError(NO_OCR), notice)      # before an area is chosen for nothing
+    with single_capture() as first:
+        if not first:
+            warn("a screenshot is already being taken")
+            return 1
+        try:
+            # The pointer setting is for pictures; it would only be read as text.
+            pointer = opts.pointer or (load_settings().pointer and not opts.text)
+            return capture(opts.mode, pointer, opts.copy_only, delay=opts.delay, text=opts.text)
+        except ShotError as error:
+            return failed(error, notice)
+
+
+def record_argv(mode, delay, sound):
+    """The command line of a recording."""
+    return [sys.executable, os.path.abspath(__file__), "record", mode, "--delay", str(delay), "--sound", sound]
+
+
+def cmd_bar(opts):
+    video = getattr(opts, "video", False)
+    photo = getattr(opts, "photo", False)
+    recording = recorder_pid() is not None
+    if video and recording:
+        return cmd_stop(opts)               # Super+Shift+R stops what it started
+    with single_capture() as first:
+        if not first:
+            warn("a screenshot is already being taken")
+            return 1
+        notice = "failed"
+        try:
+            gi = load_gtk()
+            choice = run_bar(gi, video, recording, photo_only=photo)
+            if choice is None:
+                return 0
+            write_last(choice["delay"])
+            if choice["video"]:
+                # The sound is a setting: the bar's choice is kept for the
+                # next recording too. This one is told --sound either way.
+                if choice["sound"] != load_settings().sound:
+                    try:
+                        save_settings({"sound": choice["sound"]})
+                    except OSError as error:
+                        warn(f"the sound couldn't be saved ({error})")
+                # The recorder loads no GTK: it replaces this process (and the
+                # lock goes with it; the file is opened close-on-exec).
+                argv = record_argv(choice["mode"], choice["delay"] or COUNTDOWN, choice["sound"])
+                os.execv(argv[0], argv)
+            time.sleep(HIDE_SECONDS)
+            text = choice["text"]
+            notice = "text-failed" if text else notice
+            return capture(choice["mode"], load_settings().pointer and not text, False, gi,
+                           choice["delay"], text=text)
+        except ShotError as error:
+            return failed(error, notice)
+
+
+def cmd_record(opts):
+    try:
+        runtime = runtime_dir()
+        with recorder_lock(runtime) as first:
+            if not first:
+                warn("a recording is already running")
+                return 1
+            sound = opts.sound if opts.sound is not None else load_settings().sound
+            return run_recording(opts.mode, sound, opts.delay, runtime)
+    except Cancelled:
+        warn("cancelled")
+        return 1
+    except ShotError as error:
+        return failed(error, "record-failed")
+
+
+def cmd_stop(_opts):
+    pid = recorder_pid()
+    if pid is None:
+        # A recorder that was killed leaves its panel button behind.
+        base = os.environ.get("XDG_RUNTIME_DIR")
+        if base and os.path.exists(os.path.join(base, "flickos", RUNTIME, PANEL)):
+            write_panel(os.path.join(base, "flickos", RUNTIME), None)
+        warn("no recording is running")
+        return 1
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as error:
+        warn(f"can't stop the recording ({error})")
+        return 1
+    return 0
+
+
+def cmd_status(opts):
+    pid = recorder_pid()
+    if opts.panel:
+        base = os.environ.get("XDG_RUNTIME_DIR", "")
+        with contextlib.suppress(OSError):
+            if pid is not None:
+                with open(os.path.join(base, "flickos", RUNTIME, PANEL), encoding="utf-8") as f:
+                    sys.stdout.write(f.read())
+        return 0
+    print("recording" if pid is not None else "not recording")
+    return 0
+
+
+def cmd_edit(opts):
+    """The markup window with FILE, or, while one is open, FILE shown in it
+    (HIG WIN-2)."""
+    path = os.path.abspath(opts.file)
+    if not os.path.isfile(path):
+        warn(f"{opts.file}: no such file")
+        return 1
+    # A second `edit` may signal before the window has its handler; it
+    # finds the request when it starts.
+    signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+    try:
+        runtime = runtime_dir()
+        with pid_lock(os.path.join(runtime, EDIT_LOCK)) as first:
+            if not first:
+                if not send_edit_request(runtime, path):
+                    warn("the markup window is open but can't be asked to show it")
+                    return 1
+                print(f"{TITLE} is already open. The picture is shown in it.")
+                return 0
+            remove(os.path.join(runtime, EDIT_REQUEST))     # one a window before this left
+            gi = load_gtk(layer_shell=False, purpose="The markup window can't open")
+            return 0 if Editor(gi, runtime).run(path) else 1
+    except ShotError as error:
+        warn(str(error))
+        return 1
+
+
+def cmd_area(_opts):
+    """Choose an area on the frozen screen and print it: X Y W H."""
+    try:
+        runtime = runtime_dir()
+        grab_path = os.path.join(runtime, f"area-{os.getpid()}.ppm")
+        try:
+            grab(grab_path)
+            area = FrozenScreen(load_gtk(), grab_path, None, HINTS["record"]).run()
+        finally:
+            remove(grab_path)
+    except ShotError as error:
+        warn(str(error))
+        return 1
+    if area is None:
+        warn("cancelled")
+        return 1
+    print(*area)
+    return 0
+
+
+def cmd_outline(opts):
+    try:
+        run_outline(load_gtk(), (opts.x, opts.y, opts.width, opts.height))
+    except ShotError as error:
+        warn(str(error))
+        return 1
+    return 0
+
+
+def cmd_notify(opts):
+    """Show the notification and wait for it; a click opens the file."""
+    if not shutil.which("notify-send"):
+        return 0
+    argv = ["notify-send", f"--app-name={TITLE}", f"--expire-time={NOTIFY_MS}"]
+    if opts.file:
+        argv += [f"--icon={opts.icon or opts.file}", f"--action=default={'Edit' if opts.edit else 'Open'}"]
+    else:
+        argv += [f"--icon={opts.icon or 'applets-screenshooter'}"]
+    try:
+        result = subprocess.run(argv + [opts.title, opts.body], capture_output=True, text=True,
+                                timeout=NOTIFY_MS / 1000 + 60)
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+    if not opts.file or result.stdout.strip() != "default" or not os.path.exists(opts.file):
+        return 0
+    if opts.edit:
+        argv = [sys.executable, os.path.abspath(__file__), "edit", opts.file]
+    elif shutil.which("xdg-open"):
+        argv = ["xdg-open", opts.file]
+    else:
+        return 0
+    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    return 0
+
+
+def cmd_feedback(_opts):
+    """The shutter sound and the flash after a screenshot, each unless the
+    desktop turned it off. Everything is loaded first; then it waits for
+    "flash [X Y W H]" on stdin, and holds FLASH_LOCK while it flashes."""
+    desktop = desktop_settings()
+    sound = shutter_sound(desktop["sound-theme"]) if desktop["event-sounds"] else None
+    gi = None
+    if desktop["animations"]:
+        try:
+            gi = load_gtk()
+        except ShotError as error:
+            warn(str(error))
+    words = sys.stdin.readline().split()
+    if words[:1] != ["flash"]:
+        return 0                            # the shot was cancelled or failed
+    try:
+        area = tuple(int(word) for word in words[1:5]) if len(words) == 5 else None
+    except ValueError:
+        area = None
+    with open(os.path.join(runtime_dir(), FLASH_LOCK), "a") as lock:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if sound and not do_not_disturb():
+            play_sound(sound)
+        if gi:
+            run_flash(gi, area)
+    return 0
+
+
+def cmd_get(opts):
+    print(setting_text(load_settings(), opts.key))
+    return 0
+
+
+def cmd_set(opts):
+    try:
+        change_setting(opts.key, opts.value)
+    except (ShotError, OSError) as error:
+        warn(str(error))
+        return 1
+    return 0
+
+
+def cmd_state(_opts):
+    json.dump(settings_state(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def delay_seconds(text):
+    if not text.isdigit() or int(text) > MAX_DELAY:
+        raise argparse.ArgumentTypeError(f"a number of seconds from 0 to {MAX_DELAY}")
+    return int(text)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="Take a screenshot or record the screen.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    bar = commands.add_parser("bar", help="the capture bar")
+    bar.add_argument("--video", action="store_true", help="choose Video, or stop the recording")
+    bar.add_argument("--photo", action="store_true", help="offer only Photo (the markup window's New Screenshot)")
+    bar.set_defaults(func=cmd_bar)
+    shot = commands.add_parser("shot", help="take a picture of an area or of every screen")
+    shot.add_argument("mode", choices=MODES)
+    shot.add_argument("--delay", type=delay_seconds, default=0, metavar="N",
+                      help=f"take it N seconds later, an area chosen first (0 to {MAX_DELAY})")
+    kept = shot.add_mutually_exclusive_group()
+    kept.add_argument("--copy-only", action="store_true", help="copy it without saving it")
+    kept.add_argument("--text", action="store_true",
+                      help="copy and print the text in it instead (needs tesseract-ocr)")
+    shot.add_argument("--pointer", action="store_true", help="include the mouse pointer")
+    shot.set_defaults(func=cmd_shot)
+    rec = commands.add_parser("record", help="record an area or a screen")
+    rec.add_argument("mode", choices=MODES)
+    rec.add_argument("--delay", type=delay_seconds, default=COUNTDOWN, metavar="N",
+                     help=f"count down N seconds first (0 to {MAX_DELAY}, default {COUNTDOWN})")
+    rec.add_argument("--sound", choices=tuple(SOUNDS), default=None,
+                     help="the computer's sound, the microphone or both (default: the sound setting)")
+    rec.set_defaults(func=cmd_record)
+    commands.add_parser("stop", help="stop the recording").set_defaults(func=cmd_stop)
+    edit = commands.add_parser("edit", help="draw on a picture, crop it, then copy or save it")
+    edit.add_argument("file")
+    edit.set_defaults(func=cmd_edit)
+    status = commands.add_parser("status", help="whether a recording runs")
+    status.add_argument("--panel", action="store_true", help="the panel button's JSON")
+    status.set_defaults(func=cmd_status)
+    commands.add_parser("area", help="(internal) choose an area, print X Y W H").set_defaults(func=cmd_area)
+    outline = commands.add_parser("outline", help="(internal) draw a line around an area")
+    for name in ("x", "y", "width", "height"):
+        outline.add_argument(name, type=int)
+    outline.set_defaults(func=cmd_outline)
+    notice = commands.add_parser("notify", help="(internal) the notification about a file")
+    notice.add_argument("file")
+    notice.add_argument("title")
+    notice.add_argument("body")
+    notice.add_argument("--icon", help="an icon name instead of the file")
+    notice.add_argument("--edit", action="store_true", help="a click opens the file in the markup window")
+    notice.set_defaults(func=cmd_notify)
+    commands.add_parser("feedback", help="(internal) the shutter sound and the flash, when told on stdin"
+                        ).set_defaults(func=cmd_feedback)
+    get = commands.add_parser("get", help="print a setting")
+    get.add_argument("key", choices=SETTING_KEYS)
+    get.set_defaults(func=cmd_get)
+    set_ = commands.add_parser("set", help="change a setting (default puts the system's back)")
+    set_.add_argument("key", choices=SETTING_KEYS)
+    set_.add_argument("value", help="the new value, or default")
+    set_.set_defaults(func=cmd_set)
+    commands.add_parser("state", help="every setting, as JSON").set_defaults(func=cmd_state)
+    opts = parser.parse_args(argv)
+    if not getattr(opts, "func", None):
+        opts.func = cmd_bar
+    return opts.func(opts)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

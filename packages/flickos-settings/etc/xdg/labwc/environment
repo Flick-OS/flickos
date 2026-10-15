@@ -1,0 +1,4 @@
+# Environment for the labwc session. Reference: man labwc-config.
+# A user's ~/.config/labwc/environment replaces this file.
+XCURSOR_THEME=Adwaita
+XCURSOR_SIZE=24

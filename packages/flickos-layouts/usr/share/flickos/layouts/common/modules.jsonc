@@ -1,0 +1,111 @@
+// Modules shared by every layout. A layout's bar includes this file with
+// "include": "../common/modules.jsonc" and may override single settings:
+// values in the bar win. Reference: man waybar, man waybar-<module>.
+{
+    // The FlickOS logo (base.css); a layout may add text with "format".
+    "custom/launcher": {
+        "format": " ",
+        "tooltip-format": "Search and open apps (Super+D)",
+        // A second click closes the launcher again.
+        "on-click": "pkill -x fuzzel || fuzzel"
+    },
+    // Show Desktop, the last module at the right end of a bar (base.css draws
+    // it as a slim strip): the first click minimizes every window, the next
+    // one brings them back. flick-tiler's daemon does it, whether tiling is
+    // on or off.
+    "custom/desktop": {
+        "format": " ",
+        "tooltip-format": "Show Desktop (Super+Shift+D)",
+        "on-click": "flick-tiler show-desktop"
+    },
+    // A click brings a window to the front, and minimizes it when it already
+    // is, as in Windows; sfwbar's window lists (the dock, Traditional's bottom
+    // panel) do the same by default.
+    "wlr/taskbar": {
+        "format": "{icon}",
+        "icon-size": 18,
+        "tooltip-format": "{title}",
+        "on-click": "minimize-raise",
+        "on-click-middle": "close"
+    },
+    // The tooltip's calendar: scroll for the next or previous month, right
+    // click for the year, middle click back to today's month. Today gets the
+    // style's selection colors in the generated panel (flickos-layout).
+    "clock": {
+        "format": "{:%a %d %b  %H:%M}",
+        "tooltip-format": "<tt>{calendar}</tt>",
+        "actions": {
+            "on-scroll-up": "shift_down",
+            "on-scroll-down": "shift_up",
+            "on-click-right": "mode",
+            "on-click-middle": "shift_reset"
+        }
+    },
+    // Volume and battery are icons: base.css draws them from the icon theme
+    // by CSS class ("muted", "warning", "charging", ...). The value is in the
+    // tooltip. The network icon is nm-applet's, in the tray.
+    "wireplumber": {
+        "format": " ",
+        "tooltip-format": "Volume {volume}%",
+        "on-click": "pavucontrol",
+        "scroll-step": 5
+    },
+    "battery": {
+        "format": " ",
+        "tooltip-format": "Battery {capacity}%, {timeTo}",
+        "states": { "warning": 20, "critical": 10 }
+    },
+    // Tiling (flick-tiler): an icon per arrangement (base.css), dimmed while
+    // tiling is off. No process stays: waybar runs `status` once, again after
+    // a click, and when flick-tiler sends it SIGRTMIN+8 (PANEL_SIGNAL).
+    "custom/tiler": {
+        "exec": "flick-tiler status",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 8,
+        "on-click": "flick-tiler toggle",
+        "on-click-right": "flick-tiler menu",
+        "on-scroll-up": "flick-tiler mode prev",
+        "on-scroll-down": "flick-tiler mode next"
+    },
+    // The phone connection (flickos-phone), only while it is on: flickos-layout
+    // puts it into the generated panel. The daemon sends signal 9
+    // (flickos-phone's PANEL_SIGNAL) when a phone connects or goes.
+    "custom/phone": {
+        "exec": "flickos-phone status --panel",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 9,
+        // The fuzzel menu. While the phone popup is on, the generated panel
+        // replaces both clicks (flickos-layout's PHONE_TOGGLE); this stays
+        // the fallback when the popup isn't there.
+        "on-click": "flickos-phone menu",
+        "on-click-right": "flickos-phone menu"
+    },
+    // A screen recording (flickos-screenshot), next to the clock in every
+    // layout: empty and hidden while nothing records (one `cat` of a missing
+    // file when the panel starts). While recording, the recorder writes the
+    // countdown, then the time, into panel.json and sends signal 10
+    // (flickos-screenshot's PANEL_SIGNAL); a click stops it. It is always
+    // there because adding it only while recording would restart the panel
+    // at the moment the recording starts (HIG INT-9's exception, ADR-007 of
+    // docs/design/flickos-screenshot.md).
+    "custom/recording": {
+        "exec": "cat \"$XDG_RUNTIME_DIR/flickos/screenshot/panel.json\" 2>/dev/null",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 10,
+        "on-click": "flickos-screenshot stop"
+    },
+    // Signal 11 is the desktop buttons' (flickos/desktops: flickos-layout
+    // generates custom/desk#N modules and their supervisor sends it); no
+    // module here may take it.
+    // The size of base.css's own icons (volume, battery, tiling), so an app's
+    // full-size icon is no bigger than theirs, and the space between two
+    // modules (base.css: 10px padding each side), so tray icons are as far
+    // apart as the panel's other icons.
+    "tray": {
+        "icon-size": 16,
+        "spacing": 20
+    }
+}

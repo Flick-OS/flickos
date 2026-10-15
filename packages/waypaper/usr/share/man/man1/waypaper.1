@@ -1,0 +1,73 @@
+.TH WAYPAPER 1 2026-08-30
+.nh
+.SH NAME
+waypaper \- GUI wallpaper manager for Wayland and X11
+.SH SYNOPSIS
+.B waypaper
+[ \fIOPTION\fR ]
+.SH DESCRIPTION
+.B Waypaper
+is a GUI wallpaper manager for Wayland and Xorg window managers, with support for gif and video wallpapers. It works as a frontend for popular wallpaper backends like swaybg, swww, awww, hyprpaper, mpvpaper, gslapper, feh, xwallpaper, wallutils, and linux-wallpaperengine.  \fIhttps://anufrievroman.gitbook.io/waypaper \fR
+.SH OPTIONS
+
+.TP
+\fB\-v \fP, \fB\-\-version \fP
+Print version.
+
+.TP
+\fB\-h \fP, \fB\-\-help \fP
+Print help.
+
+.TP
+\fB\-\-restore \fP
+Restore the last chosen wallpaper. Useful at launch of the window manager.
+
+.TP
+\fB\-\-random \fP
+Set a random wallpaper.
+
+.TP
+\fB\-\-wallpaper XXX \fP
+Set the wallpaper from the provided path and save it in the config.
+
+.TP
+\fB\-\-folder \fP
+Set the folder of wallpaper images.
+
+.TP
+\fB\-\-monitor \fP
+Set the desired monitor. Should be used together with either \-\-random or \-\-wallpaper.
+
+.TP
+\fB\-\-backend XXX \fP
+Specify which backend to use, which can be either \fIswaybg, swww, awww, hyprpaper, mpvpaper, gslapper, feh, xwallpaper, wallutils, linux\-wallpaperengine\fR, or \fImacos\fR. Useful if you use waypaper on both Wayland and Xorg on the same machine. By default, last used backend is used.
+
+.TP
+\fB\-\-state\-file XXX \fP
+Set the path to state file.
+
+.TP
+\fB\-\-config\-file XXX \fP
+Set the path to configuration file.
+
+.TP
+\fB\-\-fill XXX \fP
+Specifies filling type, which can be either \fIfill, stretch, fit, center\fR, or \fItile\fR.
+
+.TP
+\fB\-\-list \fP
+List wallpapers, monitors, and backend in json format.
+
+.TP
+\fB\-\-no\-post\-command \fP
+Prevent running the post command that was set in the config.
+
+.TP
+\fB\-\-zen\-mode \fP
+Launch in Zen mode, which hides the top bar and options panel for a minimal, grid-only view.
+
+.SH COMMANDS DURING USE
+Press '\fB?\fP' during use to get a list of keybindings.
+.br
+.SH AUTHOR
+Written by Roman Anufriev. For more information, visit \fIhttps://anufrievroman.gitbook.io/waypaper\fR

@@ -1,0 +1,1924 @@
+'\" t
+.\" Man page generated from reStructuredText
+.\" by the Docutils 0.23 manpage writer.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "SFWBar" "" "" ""
+.SH Name
+SFWBar \- S* Floating Window taskBar
+.sp
+test
+:Copyright: GPLv3+
+:Manual section: 1
+.SH SYNOPSIS
+.nf
+\fBsfwbar\fP [options]
+.fi
+.sp
+.SH DESCRIPTION
+.sp
+\fBSFWBar\fP is a taskbar for wayland compositors. It works with wayland
+compositors supporting layer shell protocol. Some features rely on wlr
+protocols or custom compositor IPCs.
+.SH OPTIONS
+.sp
+SFWBar executable can be invoked with the following options:
+.INDENT 0.0
+.TP
+.B \-f | \-\-config
+Specify a filename of a configuration file
+.TP
+.B \-c | \-\-css
+Specify a filename of a css file
+.TP
+.B \-s | \-\-socket
+Specify a location of sway ipc socket
+.TP
+.B \-m | \-\-monitor
+Specify a monitor to display the bar on (\(dq\-m list\(dq to list available monitors)
+.TP
+.B \-b | \-\-bar_id
+Specify a sway bar_id on which sfwbar will listen for status changes
+.UNINDENT
+.SH CONFIGURATION
+.sp
+SFWBar reads configuration from a file (sfwbar.config by default). The
+program checks users XDG config directory (usually ~/.config/sfwbar/) for this
+file, followed by system xdg data directories. Additionally, user can specify
+a location and a name of the configuration file using \fB\-f\fP command line option.
+.sp
+Appearance of the program is controlled using CSS properties. These
+are sourced either from the css section of the main configuration file or
+from a file with a .css extension with the same base name and the same location
+as the configuration file. The name of the css file can be also specified using
+\fB\-c\fP option.
+.sp
+Please note that both \fB\-f\fP and \fB\-c\fP options require full path to the file.
+.sp
+Additional configuration files can be included from the main configuration file
+using the \fIinclude\fP directive i.e. \fIinclude \(dqfile.widget\(dq\fP\&.
+.sp
+Sfwbar can be restarted and configuration reloaded by sending a SIGHUP signal
+to the sfwbar process (i.e. \fIkillall \-SIGHUP sfwbar\fP).
+.sp
+The configuration files described in this document are using API V2 format. To
+distinguish between old and new format, the configuration files should begin
+with \fI#Api2\fP tag. If the file is missing this tag, SFWBar assumes that the file
+uses an old configuration format.
+.SS Toplevel keywords
+.INDENT 0.0
+.TP
+.B Theme <string>
+Override a GTK theme to name specified.
+.TP
+.B IconTheme <string>
+Override a GTK icon theme.
+.TP
+.B TriggerAction <trigger>, <action>
+Execute an action when a trigger is emitted. Trigger is a string, an
+action is any valid action, as described in the Actions section.
+.TP
+.B Define <identifier> = <expression>
+Define an expression macro. Once declared, an <identifier> used in any
+expression will be expanded into an <expression>.
+.UNINDENT
+.SS bar
+.sp
+The layout of the bar is specified in one of the parent structures, these are
+\fIbar\fP, \fIpopup\fP or \fIwidget_grid\fP\&. Each one is a nested structure consisting of
+widgets and their properties. i.e.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+bar \(dqsfwbar\(dq {
+  button {
+    value = \(dqicon\-name\(dq;
+    style = \(dqlauncher\(dq;
+    action[LeftClick] = Exec(\(dqfirefox\(dq);
+  }
+  grid {
+    label \(dqmylabel\(dq {
+      value = \(dqSome text\(dq;
+    }
+  }
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+The following widget types are supported:
+.INDENT 0.0
+.TP
+.B taskbar
+a special widget displaying a list of all floating windows.
+(requires a compositor supporting wlr\-foreign\-toplevel protocol or i3 ipc)
+.TP
+.B pager
+a special widget displaying a list of all workspaces.
+(requires a compositor supporting wlr\-foreign\-toplevel protocol or i3 ipc)
+.TP
+.B tray
+a special widget displaying a list of tray icons received via status
+notifier item interface
+.TP
+.B grid
+a layout grid capable of containing other widgets. You can use these to
+further subdivide each cell of the main grid and arrange items within it.
+.TP
+.B label
+a label displaying text sourced from an expression. Labels accept pango
+markup to further theme text within them.
+.TP
+.B scale
+a progress bar with a progress value specified by an expression
+.TP
+.B chart
+a chart plotting the value of the expression over time
+.TP
+.B image
+display an icon or an image from a file. The name of an icon or a file is
+specified by an expression and can change dynamically.
+.TP
+.B button
+add a clickable button with an icon/image.
+.TP
+.B entry
+display a text entry widget. This widget should not be added within popup
+windows as these are not guaranteed to be able to receive keyboard input.
+The current text from an entry can be obtained using \fIEntryText\fP function.
+.TP
+.B any
+special type used to address existing widgets, this can\(aqt be used to declare
+a new widget, only to modify an existing widget.
+.UNINDENT
+.sp
+Each widget is placed within the parent grid. By default, widgets are placed
+next to the previous widget along the \(dqdirection\(dq of the grid (left to right
+by default). You can specify widget\(aqs positions within a grid by using a
+property \(dqloc(x,y[,w,h])\(dq with the first two parameters specifying the location
+of the widget within the parent grid and the last two parameters specifying the
+widget dimensions in grid cells:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+bar \(dqid\(dq {
+   label {
+   style = \(dqmystyle\(dq
+   value = SwapUsed / SwapTotal + \(dq%\(dq
+   loc(2,1,1,1)
+   }
+ }
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+The optional \(dqid\(dq string of the layout, specifies the bar to populate and can
+control positioning of the grid within a bar using syntax of \(dqname:position\(dq,
+valid positions are start, center and end. This allows placement of some
+widgets in the center of the bar. In case of a single bar, the name of a bar
+can be omitted, i.e. \(dq:center\(dq.
+External widgets can be included using the following syntax:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+bar {
+  widget \(dqMyWidget.widget\(dq
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+The above will process the contents of configuration file \fIMyWidget.widget\fP and
+place the \fIwidget_grid\fP object from the included file into the \fIbar\fP\&.
+.sp
+Grid widgets can contain other widgets, these are declared within the grid
+definition i.e.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+grid {
+  css = \(dq* { border: none }\(dq
+
+  label \(dqid\(dq {
+    ...
+  }
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Widgets can optionally have unique id\(aqs assigned to them in order to allow
+manipulating them in the future.
+.sp
+Properties define the appearance and behaviour of widgets. These are generally
+defined as \fIproperty = value\fP with a few exceptions.
+All widgets can have the following properties:
+.INDENT 0.0
+.TP
+.B value = <expression>
+an expression specifying the value to display. This can be a static value
+(i.e. \fB\(dqstring\(dq\fP or \fB1\fP) or an expression (i.e.
+\fB\(dqValue is:\(dq + $MyString\fP or \fB2 * MyNumber.val\fP). See \fBexpressions\fP
+section for more detail.
+For \fBLabel\fP widgets value specifies text to display.
+For \fBScale\fP widgets it specifies a fraction to display.
+For \fBChart\fP widgets it specifies a fraction of the next data point.
+For \fBImage\fP and \fBButton\fP widgets and buttons it provides an icon or an
+image file name.
+.TP
+.B style = <expression>
+a style name for the widget. Styles can be used in CSS to theme widgets.
+Multiple widgets can have the same style. A style name can be used in css
+using GTK+ named widget convention, i.e. \fBlabel#mystyle\fP\&. Style property
+can be set to an expression to change styles in response to changes in
+system parameters.
+.TP
+.B tooltip = <expression>
+sets a tooltip for a widget. A tooltip can be a static value or an
+expression. In case of the latter, the tooltip will be dynamically
+updated every time it pops up.
+.TP
+.B class <string>
+set a CSS class for a widget. Currently only one class can be set a time.
+.TP
+.B interval = <number>
+widget update frequency in milliseconds.
+.TP
+.B trigger = <string>
+a trigger event that should cause the widget to update. Triggers are emitted
+by a variety of sources (i.e. modules, compositor events, data available in
+from a client connection etc.).
+(if trigger is specified, the interval property is ignored).
+.TP
+.B css = <string>
+additional css properties for the widget. These properties will only apply to
+the widget in question. You can have multiple instances of the css property
+in a single widget definition and they all will be applied in the order of
+their occurrence. css property value can only be a static string, not an
+expression.
+.TP
+.B action
+an action to execute upon interaction with a widget. Actions can be attached
+to any widget. Multiple actions can be attached to various pointer events.
+The notation is \fBaction[<event>] = <action>\fP\&.  Event values are
+LeftClick, MiddleClick or RightClick, DoubleClick, ScrollUp, ScrollDown,
+ScrollLeft, ScrollRight and Drag respectively.
+Please note that if you add a DoubleClick event to a widget, the LeftClick
+event will still be emitted for each click in addition to the DoubleClick
+event.
+Additionally, modifiers can be specified using the notation of
+\fB[Modifier+]<event>\fP\&. I.e. \fBaction[Ctrl+LeftClick]\fP\&. The following
+modifiers supported: Shift, Ctrl, Mod1, Mod2, Mod3, Mod4, Mod5, Super, Hyper,
+and Meta. Multiple modifiers can be added, i.e.
+\fBaction[Ctrl+Shift+ScrollUp]\fP\&. action[0] will be executed on startup. You
+can use this action to set initial configuration for a widget.  See
+\fBActions\fP section for more details on how actions are specified.
+.TP
+.B disable = [true|false]
+disables a widget without commenting out the entire section.
+I.e. setting \fIdisable = true;\fP will discard the widget definition.
+.UNINDENT
+.sp
+\fBButton\fP widget may contain the following property
+.INDENT 0.0
+.TP
+.B type = [image|label]
+controls whether the widget value is displayed as an image or text.
+.UNINDENT
+.sp
+\fBTaskbar\fP widget may contain the following options
+.INDENT 0.0
+.TP
+.B icons = [true|false]
+an indicator whether to display application icons within the taskbar
+.TP
+.B labels = [true|false]
+an indicator whether to display an application title within the taskbar
+.TP
+.B tooltips = [true|false]
+specifies whether taskbar items display a window titles as tooltips when a
+pointer hovers over an item.
+.TP
+.B title_width = <number>
+set maximum width of an application title in characters
+.TP
+.B filter = [floating|minimized|output|workspace]
+controls which windows are shown in the switcher.
+\fIfloating\fP will only show flowing windows.
+\fIminimized\fP will filter out minimized windows.
+\fIoutput\fP will only show windows from the current display.
+\fIworkspace\fP will only show window from the current workspace.
+.TP
+.B sort = [true|false]
+setting of whether taskbar items should be sorted. If the items are not
+sorted, user can sort them manually via drag\-and\-drop mechanism.
+Items are sorted by default, set this to false to enable drag\-and\-drop.
+.TP
+.B sort_reverse = [true|false]
+if set to true, taskbar items are sorted in reverse order.
+.TP
+.B rows = <number>
+a number of rows in a taskbar.
+.TP
+.B cols = <number>
+a number of columns in a taskbar.
+If both rows and cols are specified, rows will be used. If neither is
+specified, the default is rows=1
+.TP
+.B group = [popup|pager|false]
+if set to true, the taskbar items will be grouped. Supported groupings
+are: popup and pager. In a popup grouping windows are grouped by app_id,
+the main taskbar will contain one item per app_id with an icon and a
+label set to app_id. On over, it will popup a \(dqgroup taskbar\(dq containing
+items for individual windows.
+In a pager grouping mode, the taskbar is partitioned into workspaces and
+each workspace contains windows belonging to it. Dragging windows from
+one workspace to another moves it to a destination workspace. (currently
+this is only supported with sway and hyprland compositors, support for
+other compositors requires adoption of new wayland protocols).
+You can specify taskbar parameters for the group taskbars using group
+prefix, i.e. \fBgroup.cols = 1\fP\&. The properties supported for groups
+are cols, rows, style, css, title_width, labels, icons.
+.TP
+.B pins = <string list>
+a list of pinned applications. This property is only supported for taskbars
+with \fIgroup = popup\fP property set. The taskbar will list pinned applications
+in the order they are listed in the property definition. If a specified
+application isn\(aqt running, the pin will still be created and will launch
+the application on the first left\-click. The application will also always
+launch on a middle click on the pin.
+.UNINDENT
+.sp
+\fBpager\fP widget may contain the following options
+.INDENT 0.0
+.TP
+.B preview = [true|false]
+specifies whether workspace previews are displayed on mouse hover over
+pager buttons
+.TP
+.B sort = [true|false]
+setting of whether pager items should be sorted. If the items are not
+sorted, user can sort them manually via drag\-and\-drop mechanism.
+Items are sorted by default, set this to false to enable drag\-and\-drop.
+.TP
+.B primary_axis = [rows|cols]
+specifies a primary axis for sorting items, i.e. will the next item be placed
+to the right or below it\(aqs sibling.
+.TP
+.B pins = <string list>
+a list of \(dqpinned\(dq workspaces. These will show up in the pager even if the
+workspace is empty. I.e. \fBpins = \(dq1\(dq, \(dq2\(dq, \(dq3\(dq, \(dq4\(dq;\fP
+.TP
+.B rows = <number>
+a number of rows in a pager.
+.TP
+.B cols = <number>
+a number of columns in a pager.
+If both rows and cols are specified, rows will be used. If neither is
+specified, the default is rows=1
+.UNINDENT
+.sp
+\fBtray\fP widget may contain the following options
+.INDENT 0.0
+.TP
+.B rows = <number>
+a number of rows in a pager.
+.TP
+.B cols = <number>
+a number of columns in a pager.
+If both rows and cols are specified, rows will be used. If neither is
+specified, the default is rows=1
+.TP
+.B sort = [true|false]
+setting of whether tray items should be sorted. If the items are not
+sorted, user can sort them manually via drag\-and\-drop mechanism.
+Items are sorted by default, set this to false to enable drag\-and\-drop.
+.TP
+.B primary_axis = [rows|columns]
+specifies a primary axis for sorting items, i.e. will the next item be placed
+to the right or below it\(aqs sibling.
+.TP
+.B sort_reverse = [true|false]
+if set to true, tray items are sorted in reverse order. This applies to both
+the default title\-based sort and any explicit order configured via \fBorder\fP\&.
+.TP
+.B order = <string> [, <string> ...]
+a list of tray item SNI IDs specifying the order in which they should appear.
+Items whose ID matches an entry in the list are sorted by their position
+in that list; items not listed are sorted alphabetically by ID and placed
+after all explicitly ordered items.  SNI IDs are used since they should be
+stable long\-term.
+.UNINDENT
+.sp
+\fBbar\fP objects may have the following options
+.INDENT 0.0
+.TP
+.B edge = <direction>
+Specifies the edge against which the bar should be positioned. The valid
+values are \fItop\fP, \fIleft\fP, \fIright\fP, \fIbottom\fP;
+.TP
+.B size = <number|string>
+set size of the bar (width for top or bottom bar, height for left or right
+bar). The argument is a number, specifying the size in pixels or a string
+(I.e. \(dq800\(dq for 800 pixels or \(dq50%\(dq for 50% of screen size) or \(dqauto\(dq for
+a bar dynamically sized to accommodate its contents.
+.TP
+.B halign = <alignment>
+specified horizontal alignment of the bar if the bar occupies less than 100%
+of the monitor. The valid values are \fIstart\fP, \fIcenter\fP, \fIend\fP;
+.TP
+.B valign = <alignment>
+specified vertical alignment of the bar if the bar occupies less than 100%
+of the monitor. The valid values are \fIstart\fP, \fIcenter\fP, \fIend\fP;
+.TP
+.B sensor = <number>
+Specifies the interval after the pointer leaves the bar before the bar is
+hidden (autohide mode). Once hidden, the bar will popup again if the pointer
+touches the sensor located along the screen edge along which the bar is
+placed.  A numeric value specifies the bar pop\-down delay in milliseconds.
+If the timeout is zero, the bar will always be visible.
+.TP
+.B sensor_delay = <number>
+Specifies the interval after the pointer enters the bar sensor area and the
+hidden bar pops back up. This property is ignore if the \fIsensor\fP property is
+not specified.
+.TP
+.B transition = <number>
+Specifies the transition period (in milliseconds) for bar appearance
+animation.
+.TP
+.B monitor = <string>
+assign bar to a given monitor. The  monitor name can be prefixed by
+\(dqstatic:\(dq, i.e. \(dqstatic:eDP\-1\(dq. if this is set and the specified monitor
+doesn\(aqt exist or gets disconnected, the bar will not jump to another monitor,
+but will be hidden and won\(aqt reappear until the monitor is reconnected.
+.TP
+.B mirror = <string>
+mirror the bar to monitors matching any of the specified patterns.  The
+string parameter specifies a string list of patters to match the monitors
+against, i.e. \fI\(dqeDP\-*\(dq, \(dqHDMI\-1\(dq\fP will mirror to any monitor with name
+starting with \(dqeDP\-\(dq or monitor named \(dqHDMI\-1\(dq. Patterns starting with \(aq!\(aq
+will block the bar from being mirrored to a matching monitor. The patterns
+are specified in glob style \(aq*\(aq and \(aq?\(aq are used as wildcards. The simplest
+use is \fImirror = \(dq*\(dq\fP, which will mirror the bar across all monitors.
+.TP
+.B layer = <layer>
+move bar to a specified layer (supported parameters are \fItop\fP, \fIbottom\fP,
+\fIbackground\fP and \fIoverlay\fP\&.
+.TP
+.B margin = <string>
+set margin around the bar to the number of pixels specified by string.
+.TP
+.B exclusive_zone = <string>
+specify exclusive zone policy for the bar window. Acceptable values are
+\(dqauto\(dq, \(dq\-1\(dq, \(dq0\(dq or positive integers. These have meanings in line with
+exclusive zone setting in the layer shell protocol. Default value is \(dqauto\(dq
+.TP
+.B bar_id = <string>
+specify bar ID to listen on for mode and hidden_state signals. If no
+bar ID is specified, SfwBar will listen to signals on all IDs
+.UNINDENT
+.SS PopUps and Windows
+.sp
+Popup windows and toplevel windows can be defined the same way as bars.
+The only difference is that they are not part of a bar and will not be
+displayed by default.  Instead they are displayed when an action is invoked
+on a widget. i.e.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+popup \(dqMyPopup\(dq {
+  label { value = \(dqtest\(dq; }
+}
+
+bar {
+  label {
+    value = \(dqclick me\(dq;
+    action = PopUp(\(dqMyPopup\(dq);
+  }
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+The \fIPopUp\fP action toggles visibility of the popup window. I.e. the first time
+it\(aqs invoked, the window will pop up and on the second invocation it will pop
+down. As a result it should be safe to bind the PopUp to multiple widgets.
+.sp
+\fBpopup\fP window may contain the following options
+.INDENT 0.0
+.TP
+.B AutoClose [true|false]
+specify whether the popup window should close if user clicks anywhere outside
+of the window.
+.UNINDENT
+.sp
+Toplevel windows can be defined using a \fIwindow\fP element and are controlled
+using \fIWindowOpen\fP and \fIWindowClose\fP actions. I.e.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+window \(dqmywindow\(dq {
+  button {
+    value = \(dqclose\-icon\(dq;
+    action = WindowClose(\(dqmywindow\(dq);
+  }
+}
+
+bar {
+  button {
+   value = \(dqopen\-icon\(dq;
+   action = WindowOpen(\(dqmywindow\(dq);
+  }
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+unlike popups, toplevel windows can\(aqt be placed in a specific location,
+compositors can place them anywhere on the desktop. They can receive focus
+and are useful for implementing dialogs.
+.SS Menus
+.sp
+User defined menus can be creating using a \fImenu\fP structure. The format is
+similar to the \fIbar\fP, but widgets and properties differ. For example:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+menu \(dqmenu_name\(dq {
+  item {
+    value = \(dqitem1\(dq;
+    tooltip = \(dqthe first item\(dq;
+    action = Exec(\(dqcommand\(dq);
+  }
+  separator;
+  item {
+    value = \(dqsub\(dq;
+    menu \(dqmysubmenu\(dq {
+      item {
+        value = \(dqitem2\(dq;
+        action = SwayCmd(\(dqfocus next\(dq);
+      }
+    }
+  }
+}
+
+bar {
+  ...
+  button {
+    value = \(dqmenu\-icon\(dq;
+    action = Menu(\(dqmenu_name\(dq);
+  }
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Each menu has a name used to link the menu to the widget action and a
+list of menu items. If a menu with the same name is defined more than
+once.
+The following menu items are supported:
+.INDENT 0.0
+.TP
+.B item
+A menu item. If the item contains a \fImenu\fP widget inside it, it will be
+presented as a submenu, otherwise the item will have invoke an \fIaction\fP upon
+activation if an \fIaction\fP is defined.
+.TP
+.B separator
+A separator item. This item does not accept any properties.
+.UNINDENT
+.sp
+Menu structure supports one property:
+.INDENT 0.0
+.TP
+.B sort = [true|false]
+if set to true, the menu items will be sorted with the menu. The items are
+sorted using \fIindex\fP as the primary sort key and item \fIvalue\fP as a secondary
+sort key.
+.UNINDENT
+.sp
+Menu items contain the following properties:
+.INDENT 0.0
+.TP
+.B value = <expression>
+a value to be displayed in the menu item, this will change if the result of
+the expression changes.
+.TP
+.B icon = <string>
+an icon to be displayed next to the item text.
+.TP
+.B tooltip = <expression>
+a value to be displayed in the tooltip when pointer hovers over the item.
+.TP
+.B desktopid = <string>
+populate a menu item from a desktop entry file. If any other properties are
+specified for the item, they will override the data extracted from the desktop
+entry file.
+.TP
+.B action = <action>
+an action to execute if the item is activated.
+.TP
+.B index = <number>
+a sort index associated with an item. If a menu has a \fIsort\fP property set to
+true, the items will be sorted using this index as a primary sort key.
+.UNINDENT
+.sp
+The config file consists of the following top level sections:
+.SS Placer
+.sp
+Placer structure controls intelligent placement of new floating windows. This
+functionality currently relies on side channel IPCs and is not supported for
+all compositors. If placer is enabled, SFWBar will first attempt to place a new
+floating window in a location, where it won\(aqt overlap with other windows. If
+such location doesn\(aqt exist, the window will be placed in a cascading pattern
+from top\-left to bottom\-right.
+.sp
+The \fIplacer\fP structure supports the following properties:
+.INDENT 0.0
+.TP
+.B children
+place child windows on screen (child windows are windows sharing a pid with
+existing windows).
+.TP
+.B xorigin = <number>
+a horizontal position (as a percentage of a desktop size) of the first window
+in a cascade.
+.TP
+.B yorigin = <number>
+a vertical position (as a percentage of a desktop size) of the first window
+in a cascade.
+.TP
+.B xstep = <number>
+a horizontal step (as a percentage of desktop size) of the window cascade.
+.TP
+.B ystep = <number>
+a vertical step (as a percentage of desktop size) of the window cascade.
+.UNINDENT
+.sp
+I.e.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+placer {
+  xorigin = 5
+  yorigin = 5
+  xstep = 5
+  ystep = 5
+  children = false
+}
+.EE
+.UNINDENT
+.UNINDENT
+.SS Task Switcher
+.sp
+Task switcher cycles the focus across windows (i.e. Alt\-Tab function). Switcher
+can be invoked through a \fISwitcherEvent\fP action. The forward switch action is
+bound to \fISIGUSR1\fP signal by default,  in \fIsway\fP, the action is additionally
+bound to a change in a bar hidden_state property.
+.sp
+In sway, you can bind alt\-tab using \fIbindsym Alt\-Tab bar hidden_state toggle\fP
+In other compositors, you can bind a key to \fIkillall \-SIGUSR1 sfwbar\fP (you may
+need to replace \fIsfwbar\fP with the name of the sfwbar executable if it differs
+from the default on your system).
+.sp
+Task switcher is configured in the \(dqswitcher\(dq section of the configuration file.
+The following parameters are accepted:
+.INDENT 0.0
+.TP
+.B interval = <number>
+an timeout after the last task switch event after which the selected window
+is activated.
+.TP
+.B filter = [floating|minimized|output|workspace]
+controls which windows are shown in the switcher.
+\fIfloating\fP will only show flowing windows.
+\fIminimized\fP will filter out minimized windows.
+\fIoutput\fP will only show windows from the current display.
+\fIworkspace\fP will only show window from the current workspace.
+.TP
+.B icons = [true|false]
+display window icons in the task list.
+.TP
+.B labels = [true|false]
+display window titles in the task list.
+.TP
+.B title_width = <number>
+controls the width of the label (in character).
+.TP
+.B row = <number>
+a number of rows in the task list
+.TP
+.B cols = <number>
+a number of columns in the task list
+If both rows and cols are specified, rows will be used. If neither is
+specified, the default is rows=1
+.TP
+.B sort = [true|false]
+controls whether the items in the switcher should be sorted.
+.TP
+.B sort_reverse = [true|false]
+if set to true, taskbar items are sorted in reverse order.
+.TP
+.B primary_axis = [rows|columns]
+specifies a primary axis for sorting items, i.e. will the next item be placed
+to the right or below it\(aqs sibling.
+.TP
+.B css = <string>
+css code applicable to the switcher grid. This property can only be set to a
+static string, not an expression. You can specify more detailed css code in
+the main CSS file. Using style name \fI#switcher\fP for the task switcher window
+and the main grid and names \fI#switcher_item\fP for window representations.
+.UNINDENT
+.SS Triggers
+.sp
+Triggers are emitted in response to various events, such as compositor state
+changes, real time signals or notifications from modules. Some triggers can
+be defined as part of the configuration (i.e. SocketClient or ExecClient
+scanner sources), others are built in, or defined in modules and user actions.
+.sp
+Built\-in triggers are:
+.TS
+box center;
+l|l.
+T{
+SIGRTMIN+X
+T}	T{
+RT signal SIGRTMIN+X has been received (X is a number)
+T}
+_
+T{
+sway
+T}	T{
+Data has been received on SwayClient scanner source
+T}
+_
+T{
+mpd
+T}	T{
+Data has been received on MpdClient scanner source
+T}
+_
+T{
+<output>\-connected
+T}	T{
+an output has been connected (i.e. eDP\-1\-connected)
+T}
+_
+T{
+<output>\-disconnected
+T}	T{
+an output has been disconnected
+T}
+.TE
+.SS Actions
+.sp
+SFWBar will execute actions in response to certain events. These can be user
+input events such as clicking or scroll a mouse over a widget or system events,
+such as realtime signals, data arriving via a pipe etc.
+.sp
+To bind an action to user input events, use widgets \fIaction\fP property. Or for
+system events, you can bind an action to a trigger, using \fITriggerAction\fP
+keyword. I.e.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+TriggerAction \(dqmytrigger\(dq, Exec(\(dqMyCommand\(dq)
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+An action can be a single instruction, i.e. \fIExec(\(dqfirefox\(dq);\fP or a sequence of
+instructions enclosed in curly brackets.
+.sp
+An instruction can be a function call using syntax:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+[<variable> = ] my_func ( [<expression>, ... ] );
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+You can use variables within action \fI{ }\fP blocks. Variables are declared using
+a \fIVar\fP keyword:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+Var <identifier> [ = <expression> ];
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Conditional operations can be implemented using \fIIf\fP keyword:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+If <expression>
+  <instruction>
+[else
+  <instruction>]
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Loops can be implemented using \fIWhile\fP keyword:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+While <expression>
+  <instruction>
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Functions can be terminated early and return a value using a \fIReturn\fP keyword:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+Return [<expression>];
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+For more complex actions, you can define your own functions using a toplevel
+\fIfunction\fP keyword. I.e.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+Function my_func ( x ) {
+  Var y = \(dqThis is a test \(dq + Str(x);
+  Print(y);
+  Return x+1;
+}
+TriggerAction \(dqsometrigger\(dq, my_func(1);
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+By default, all actions, functions and expressions share a single name space, so
+any variable is visible to all code instances. Private scopes can be defined
+using a \fIPrivate\fP keyword. I.e.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+Private {
+  Var X = 1;
+
+  export label \(dqmylabel\(dq {
+    value = Str(x);
+  }
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+In the above example variable \fIX\fP can only be accessible within the scope. You
+can access it when addressing label \(dqmylabel\(dq outside of the private block as
+the label will inherit the scope it\(aqs defined in.
+.sp
+Function \(dqSfwBarInit\(dq is executed on startup. Use it set initial parameters for
+the bar, modules etc.
+.SS Expressions
+.sp
+As part of the configuration SFWBar can evaluate expressions. These can be part of
+an action or user defined function, but some properties also accept expressions.
+In case of the later, the expression is evaluated periodically or in response to
+to a trigger (see \fIinterval\fP and \fItrigger\fP widget properties).
+.sp
+A value in an expression can have one of four types: numeric, string, array or
+n/a.
+.sp
+Expressions support the following operators:
+============ =========================================================================================
+Operation    Description
+============ =========================================================================================
+\fB+\fP        addition of numeric values or concatenation of strings, append value operator for arrays.
+\fB\-\fP        subtraction of numeric values.
+\fB*\fP        multiplication of numeric values.
+\fB/\fP        division of numeric values.
+\fB%\fP        remainder of an integer division for numeric values.
+\fB>\fP        greater than comparison of numeric values.
+\fB>=\fP       greater than or equal comparison of numeric values.
+\fB<\fP        less than comparison of numeric values.
+\fB<=\fP       less than or equal comparison of numeric values.
+\fB=\fP        equality comparison of two values, returns false if types differ.
+\fBIf\fP       conditional: If(<condition>, <expression>, <expression>)
+\fBCached\fP   get last value from a scanner variable without updating it, i.e. \fICached(identifier)\fP\&.
+\fBIdent\fP    Check if an identifier exists either as a variable or a function.
+============ =========================================================================================
+.sp
+Expressions can include function calls, i.e.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+Var my_var = 1 + my_func(2);
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Arrays can be declared and array elements can be accessed using \fI[ ]\fP operator:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+Var my_array = [1,2,3];
+Var my_var = my_array[2];
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Array indices start at 0.
+.SS Native functions
+.sp
+Actions and functions can call user definer or built\-in (native) functions, the
+following is the list of the functions provided by SFWBar. Modules can expose
+their own functions which are documented separately.
+.sp
+SFWBar supports the following native functions:
+.INDENT 0.0
+.TP
+.B Config(<string>)
+Process a snippet of configuration file. This action permits changing the bar
+configuration on the fly. Returns n/a.
+.TP
+.B PipeRead(<string>)
+Process a snippet of configuration sourced from an output of a shell command.
+This function can be used to update SFWBar configuration from a script.
+Returns n/a.
+.TP
+.B Exec(<string>)
+Execute a shell command. Returns n/a.
+.TP
+.B ExecTerm(<string>)
+Execute a shell command in a terminal. Returns n/a.
+.TP
+.B ExecRead(<string>)
+Execute a shell command and return it\(aqs output as a string.
+.TP
+.B GetTerm()
+Get the auto detected terminal executable name. Returns <string>.
+.TP
+.B Print(<string>)
+Print a string to standard output. Useful for debugging user functions.
+Returns n/a.
+.TP
+.B USleep(<numeric>)
+Sleep for duration specified in microseconds. Actions and expressions are
+executed in separate threads. USleep will block the relevant thread only.
+Returns n/a.
+.TP
+.B Exit()
+Terminate SFWBar.
+.TP
+.B EmitTrigger(<string>)
+Emit a trigger event. The string parameter specifies the name of a trigger.
+Returns n/a.
+.TP
+.B FileTrigger(<\%<file:string>>, <trigger:string>[, <timeout:numeric>])
+Setup a file monitor. Upon any changes to the file, a trigger will be
+emitted. If the timeout is specified, the trigger will be emitted at an
+interval specified by timeout value (in microseconds) until the first
+file monitor event is detected (this is useful for /sys files where
+monitoring may not be effective. Returns n/a.
+.TP
+.B ClientSend(<id:string>, <string>)
+send a string to a client. The string will be written to client\(aqs standard
+input for execClient or to a socket for socketClient. The first parameter is
+the client id, the second is the string to send. Returns n/a.
+.TP
+.B Eval(<string>, <string>)
+update a value of an intermediate scanner variable with a result of an
+expression. The first parameter is the name of the intermediate variable,
+the second parameter is the expression. Returns n/a.
+.TP
+.B PopUp(<string>)
+open a popup window. The popup will be attached to a widget executing the
+action. Returns n/a.
+.TP
+.B Menu(<string>)
+open a menu with a specified name. The menu will be attached to the widget
+executing the action. Returns n/a.
+.TP
+.B MenuClear(<string>)
+delete a menu with a given name (This is useful if you want to generate
+menus dynamically via PipeRead and would like to delete a previously
+generated menu). Returns n/a.
+.TP
+.B MenuItemClear(<string>)
+delete a menu item with a given id. The menu item must be declared with an id
+if you want to modify or clear it. Returns n/a.
+.TP
+.B MapAppId(app_id:string>, <pattern:string>)
+add a fallback title to app_id mapping. If an application is missing an
+application id, SFWBar can assign one based on a title of an application,
+please note that title of an application can vary, so mapping may not be
+stable. The \fIpattern\fP parameter specifies a regular expression pattern to
+match titles against. \fIapp_id\fP parameter specifies the application id to
+assign. Returns n/a.
+.TP
+.B MapIcon(<app_id:string>, <icon:string>)
+use icon <icon> for applications with app id <app_id>. Both parameters are
+strings. Returns n/a.
+.TP
+.B FilterAppId(<pattern:string>)
+Any windows with appids matching a regular expression pattern will not be
+shown on the taskbar or switcher. Returns n/a.
+.TP
+.B FilterTitle(<pattern:string>)
+Any windows with titles matching a regular expression pattern will not be
+shown on the taskbar or switcher. Returns n/a.
+.TP
+.B SetDisownMinimized(<boolean>)
+Disassociate windows from their workplaces when they are minimized. If this
+option is set, selecting a minimized window will unminimize it on the active
+workplace. If set to False (default), the window will be unminimzied to it\(aqs
+last workplace. This option requires custom IPC support. Returns n/a.
+.TP
+.B SwitcherEvent(<string>)
+trigger a switcher event, this action will bring up the switcher window and
+cycle the focus either forward or back based on the argument. The string
+argument can be either \(dqforward\(dq or \(dqback\(dq. If the argument is omitted, the
+focus will cycle forward.
+.TP
+.B SetValue([<widget:string>,]<string>)
+Deprecated. Please use Config(\(dqWidget \(aqname\(aq { value = ... }\(dq);
+.TP
+.B SetStyle([<widget:string>,]<string>)
+Deprecated. Please use Config(\(dqWidget \(aqname\(aq { style = ... }\(dq);
+.TP
+.B SetTooltip([<widget:string>,]<value:string>)
+Deprecated. Please use Config(\(dqWidget \(aqname\(aq { tooltip = ... }\(dq);
+.TP
+.B ActiveWin()
+Returns a tile of the currently focused window. Returns <string>.
+.TP
+.B WindowInfo([<id:string>,] <query:string>)
+Queries information about a window. Optional parameter \fIid\fP specifies the
+the widget id of a taskbar item corresponding to a window to query. If omitted
+the widget calling the function is used. \fIquery\fP parameter specifies the data
+to query. Valid values are:
+\(dqappid\(dq \- application id of a window. Returns <string>.
+\(dqtitle\(dq \- title of a window. Returns <string>.
+\(dqminimized\(dq \- minimized state of a window. Returns <number>.
+\(dqmaximized\(dq \- maximized state of a window. Returns <number>.
+\(dqfullscreen\(dq \- fullscreen state of a window. Returns <number>.
+\(dqfocused\(dq \- focused state of a window. Returns <number>.
+.TP
+.B Focus([<id:string>])
+set window to focused. This action can only be invoked from a taskbar item
+widget, which optionally can be specified by parameter \fIid\fP\&. Returns n/a.
+.TP
+.B Close([<id:string>])
+close a window. This action can only be invoked from a taskbar item
+widget, which optionally can be specified by parameter \fIid\fP\&. Returns n/a.
+.TP
+.B Minimize([<id:string>])
+minimize a window. This action can only be invoked from a taskbar item
+widget, which optionally can be specified by parameter \fIid\fP\&. Returns n/a.
+.TP
+.B UnMinimize([<id:string>])
+unset a minimized state for the window. This action can only be invoked from
+a taskbar item widget, which optionally can be specified by parameter \fIid\fP\&.
+Returns n/a.
+.TP
+.B Maximize([<id:string>])
+maximize a window. This action can only be invoked from a taskbar item
+widget, which optionally can be specified by parameter \fIid\fP\&. Returns n/a.
+.TP
+.B UnMaximize([<id:string>])
+unset a maximized state for the window. This action can only be invoked from
+a taskbar item widget, which optionally can be specified by parameter \fIid\fP\&.
+Returns n/a.
+.TP
+.B WorkspaceActivate([<id:string>])
+Activate a workspace associated with a pager item. A pager item widget can
+be optionally specified by an \fIid\fP parameter. Returns n/a.
+.TP
+.B MpdCmd(<string>)
+send a command to Music Player Daemon client. Returns n/a.
+.TP
+.B SwayCmd(<string>)
+Send a command over Sway IPC. Returns n/a.
+.TP
+.B SwayWinCmd(<string>)
+Send a command over Sway IPC applicable to a current window, Returns n/a.
+.TP
+.B Str(<value> [, <number>])
+Convert a value to string.If converting a number, the second parameter
+controls decimal precision. Returns <string>.
+.TP
+.B Val(<string>)
+Convert a string to a number. Returns <numeric>
+.TP
+.B Min(<number>, <number>)
+Return a smaller of the two numbers.
+.TP
+.B Max(<number>, <number>)
+Return a larger of the two numbers.
+.TP
+.B Mid(<string>, <numeric>, <numeric>)
+Extract a substring from a string, the first parameter is the string to extract
+the substring from, second and third parameters are the first and last
+characters of the substring. Returns <string>.
+.TP
+.B Extract(<string>, <pattern:string>)
+Extract a substring using a regular expression. The function will return
+contents of the first capture buffer in the regular expression specified
+by <pattern>. Returns <string>.
+.TP
+.B ExtractJson(<string>, <path:string>)
+Extract an element from a json string. An element is specified by a path.
+The path starts with a separator character, which is followed by a path with
+elements separated by the same character. The path can contain numbers to
+indicate array indices i.e. \fB\&.data.node.1.string\fP and key checks to filter
+arrays, i.e.  \fB\&.data.node.[key=\(dqblah\(dq].value\fP
+.TP
+.B Pad(<string>, <length:number> [, <string>])
+Pad the string to a desired length. The first parameter is the string to pad.
+The second is the desired length, the third optional parameter is a character
+to pad with (defaults to space). Returns <string>.
+.TP
+.B Upper(<string>)
+Convert a string to uppercase. Returns <string>.
+.TP
+.B Lower(<string>)
+Convert a string to lowercase. Returns <string>.
+.TP
+.B Escape(<string>)
+Escapes double quotes and other special characters in a string making it
+suitable to be included as a substring within double quotes.
+Returns <string>.
+.TP
+.B Markup(<string>)
+Convert any special characters into pango markup compatible sequences.
+Return <string>.
+.TP
+.B Replace(<string>, <old:string>, <new:string>)
+Replaces an \fIold\fP substring with a \fInew\fP substring within a string. Returns
+<string>.
+.TP
+.B ReplaceAll(<string>, <old:string>, <new:string>, ... )
+Perform multiple substitutions within a string. Identical to calling \fIReplace\fP
+multiple times. Further parameters must be supplied in pairs of \fIold\fP and
+\fInew\fP substrings. Returns <string>.
+.TP
+.B Map(<string>, <match:string>, <result:string>, ..., <default:string>)
+Looks for a \fIstring\fP in a list of \fImatch\fP strings and returns a corresponding
+\fIresult\fP\&. Further parameters must be supplied in pairs of \fImatch\fP and
+\fIresult\fP\&. If the string doesn\(aqt match any \fImatch\fP\(aqes, returns \fIdefault\fP\&.
+Returns <string>.
+.TP
+.B ArrayMap(<string>, <match:array>, <result:array> [, <default:string>])
+Looks up a \fIstring\fP in a \fImatch\fP array. If a match is found returns a
+corresponding element of a \fIresult\fP array. If no match is found and \fIresult\fP
+array is longer than a \fImatch\fP array, returns an extra (default) element of
+a \fIresult\fP array, otherwise returns a \fIdefault\fP string. Returns <string>.
+.TP
+.B Lookup(<number>, <threshold:number>, <result:string>, ..., <default:string>)
+Looks up a \fInumber\fP against a list of \fIthreshold\(gas. Returns a \(garesult\fP string
+corresponding to a first \fIthreshold\fP smaller than the \fInumber\fP\&. This means
+\fIthresholds\fP should be sorted in a descending order. If all \fIthreshold\(gas are
+greater than the \(ganumber\fP, returns \fIdefault\fP string. Returns <string>.
+.TP
+.B ArrayLookup(<number>, <threshold:array>, <result:array> [, <default:string>])
+Looks up a \fInumber\fP in a \fIthreshold\fP array and returns a \fIresult\fP with an
+index corresponding to a first element of a \fIthreshold\fP array smaller than a
+\fInumber\fP\&. If all \fIthreshold\fP elements are greater than the \fInumber\fP, and a
+\fIresult\fP array is longer than a \fIthreshold\fP array, returns an extra (default)
+element of a \fIresult\fP array, otherwise returns a \fIdefault\fP string.
+Returns <string>.
+.TP
+.B ArraySize(<array>)
+Returns the size of the array. Valid indices for the array will be
+0 to size\-1. Returns <number>.
+.TP
+.B ArrayBuild(<any>, ... )
+Concatenate values into an array. Equivalent to  [<any>, ...].
+Returns <array>.
+.TP
+.B ArrayConcat(<array>, <array>)
+Concatenates two arrays. Equivalent to a \fI+\fP operator on two arrays.
+Returns <array>.
+.TP
+.B ArrayIndex(<array>, <index:number>)
+Get a value of an item in the array specified by the \fIindex\fP\&. Return value
+is value dependent.
+.TP
+.B ArrayAssign(<array>, <index:number>, <value>)
+Assigns a value to an index within the array, if the index is out of bounds,
+the array will be resized. This is equivalent to \fIarray[index] = value\fP\&.
+.TP
+.B ArrayFind(<array>, <value:any>)
+Checks whether an array contains a \fIvalue\fP\&. Returns <boolean>.
+.TP
+.B ArrayRemove(<array>, <value:any>)
+Removes a \fIvalue\fP from an array. Returns <array>.
+.TP
+.B Read(<string>)
+Reads the contents of a file and returns them as a string. Returns <string>.
+.TP
+.B ReadURI(<uri:string>, <trigger:string>)
+Read text from \fIuri\fP\&. Upon completion sfwbar will emit \fItrigger\fP with
+variable \fIresult\fP containing the contents read from \fIuri\fP\&. A VFS backend for
+the relevant URI should be installed on the system or the operation will
+fail.
+.TP
+.B ls(<string>)
+Retrieves a list of files in a directory specified by the parameter.
+Returns <array>.
+.TP
+.B TestFile(<string>)
+Check if the file exists and is readable by the SFWBar process.
+Returns <number>.
+.TP
+.B GT(<string>)
+Returns a translation of a string corresponding to a current locale. If
+translation is not available, returns the string. Returns <string>.
+.TP
+.B Layout()
+Returns the current keyboard layout. Returns <string>.
+.TP
+.B LayoutList()
+Returns a list of available keyboard layouts. Returns <array>.
+.TP
+.B SetLayout(<string>)
+Switches current keyboard layout. The string parameter can have values \(dqnext\(dq
+or \(dqprev\(dq for next or previous layout respectively. Returns n/a.
+.TP
+.B GetLocale()
+Returns current locale. Returns <string>.
+.TP
+.B Time(<format:string> [, <tz:string>])
+Returns current time in a format specified by a \fIformat\fP string. If a \fItz\fP
+argument is supplied, returns time corresponding to a supplied time zone.
+Returns <string>.
+.TP
+.B Schedule(<start:string>, <interval:numeric>, <trigger:string>)
+emit a \fItrigger\fP at a time specified by \fIstart\fP parameter in ISO 8601 format.
+if \fIinterval\fP parameter is not zero, the \fItrigger\fP will be emitted repeatedly
+every \fIinterval\fP milliseconds. You can specify \fIstart\fP in the past to serve
+as an anchor to \fIinterval\fP\&. I.e. if you want to emit a \fItrigger\fP every hour
+on the hour, you can specify \fIstart\fP as \(dq1970\-01\-01 00:00:00\(dq and \fIinterval\fP
+as 3600000.
+.TP
+.B Disk(<fs:string>, <info:string>)
+queries disk information for a disk. \fIfs\fP specifies a mount point to query.
+\fIinfo\fP specifies desired information. Available options are:
+\fItotal\fP \- total space on disk in bytes.
+\fIavail\fP \- available space on disk.
+\fIfree\fP \- free space on disk.
+\fI%avail\fP \- available fraction of space on disk.
+\fI%used\fP \- used fraction of space on disk.
+Returns <number>.
+.TP
+.B WidgetId()
+Returns an ID of a widget invoking the action. Returns <string>.
+.TP
+.B WidgetClear(<id:string>)
+Delete a widget specified by \fIid\fP\&. A widget must be declared with an id if
+you want to modify or delete it. Returns n/a.
+.TP
+.B WidgetPush(<id:string>)
+Push a widget specified by \fIid\fP into a widget stack. All subsequent
+operations will apply to this new widget until \fIWidgetPop\fP is called.
+Returns n/a.
+.TP
+.B WidgetPop()
+Pop a widget from the widget stack. Call this function to undo effects of
+\fIWidgetPush\fP\&. Returns n/a.
+.TP
+.B WidgetUpdate()
+Triggers an update of a widget invoking the action. Returns n/a.
+.TP
+.B WidgetSetData([<id:string>], <name:string>, <value>)
+Attach a named value to a widget. The optional parameter \fIid\fP specifies an
+id of a widget, if omitted, the operation will apply to the current widget.
+A value will be attached to a widget property \fIname\fP and can be later
+retrieved using WidgetSetData. Returns <n/a>.
+.TP
+.B WidgetGetData([<id:string>], <name:string>)
+Retrieves a named value from a widget.  The optional parameter \fIid\fP specifies
+an id of a widget, if omitted, the operation will apply to the current widget.
+This function returns a value previously attached to property \fIname\fP of a
+widget.
+.TP
+.B WidgetSetState([<widget:string>,] <string>)
+Set boolean user state on a widget. If widget parameter isn\(aqt specified, the
+state will be set for a widget invoking the action. Valid values are \(dqOn\(dq or
+\(dqOff\(dq. Returns n/a. (This function has an alias \fIUserState\fP ).
+.TP
+.B WidgetGetState([<id:string>,] <stateid:numeric>)
+Returns a value of one of two widget \fIstate\fP boolean. The optional parameter
+\fIid\fP specifies an id of a widget to query. If omitted, the state of a widget
+calling the expression will be returned. The \fIstateid\fP parameter specifies
+which state variable to query (valid values are 1 or 2). Returns <number>.
+(This function has an alias \fIWidgetState\fP).
+.TP
+.B WidgetChildren([<id:string>])
+Returns a list of child widgets within a widget. The optional parameter \fIid\fP
+specifies an id of a widget to query. If omitted, the state of a widget
+calling the expression will be returned. Returns <array>.
+.TP
+.B BarDir()
+Returns a direction of a bar containing the current widget. Returns <string>.
+.TP
+.B GtkEvent(<axis:string>)
+Returns position of a GTK+ event triggering the execution of the current
+action. I.e. location of a click within the widget. The \fIaxis\fP parameter
+specifies which axis to query. Possible values are \(dqx\(dq for horizontal,
+\(dqy for vertical or \(dqdir\(dq to use the direction property of a widget. The
+returned value is a fraction of a size of a widget. Returns <number>.
+.TP
+.B EntryText(<id:string>)
+Retrieve the current text in an entry widget identified by \fIid\fP\&.
+.TP
+.B CustomIPC()
+Returns a name of a custom IPC currently in use (if any). Returns <string>.
+.TP
+.B InterfaceProvider(<interface:string>)
+Returns a name of a module currently handling the specified interface.
+Returns <string>.
+.UNINDENT
+.SS Scanner
+.sp
+Bar often require polling data from system files (i.e. /sys or /proc). To this
+end, SFWBar provides a scanner infrastructure. Scanners allow reading system
+files and extract multiple data points from them in a single pass. This ensures
+that multiple data items are consistent and resources are not wasted reading the
+same file multiple times.:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+File(\(dq/proc/swaps\(dq,NoGlob) {
+  SwapTotal = RegEx(\(dq[\et ]([0\-9]+)\(dq)
+  SwapUsed = RegEx(\(dq[\et ][0\-9]+[\et ]([0\-9]+)\(dq)
+}
+Exec(\(dqgetweather.sh\(dq) {
+  WeatherTemp = Json(\(dq.forecast.today.degrees\(dq)
+}
+ExecClient(\(dqstdbuf \-oL foo.sh BAR BAZ\(dq, \(dqfoo\(dq) {
+  Foo_foo = Json(\(dq.foo\(dq)
+  Foo_bar = Json(\(dq.bar\(dq)
+}
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Scanner declarations consist of a scanner source and one or more parsers used to
+populate the scanner variables.
+.sp
+The sources are:
+.INDENT 0.0
+.TP
+.B File(<name>, <flags>)
+Read data from a file
+.TP
+.B Exec(<command>)
+Read data from an output of a shell command
+.TP
+.B ExecClient(<command> [,<trigger>)
+Read data from an executable, this source will wait for any output from
+the standard output of the executable. Once available (i.e. the program
+flushes its output) the source will populate the variables and emit a
+trigger event.  This source accepts two parameters, command to execute
+and an id. The id can be used to write to the standard input of the
+executable via ClientSend (provided that the executable takes standard
+input) and to identify a trigger emitted upon variable updates.
+USE RESPONSIBLY: If a trigger causes the client to receive new data
+(i.e. by triggering a ClientSend command that in turn triggers response
+from the source, you can end up with an infinite loop.
+(see alsa.widget and rfkill\-wifi.widget as examples).
+.TP
+.B SocketClient(<address> [,<trigger>)
+Read data from a socket, this source will read a bust of data
+using it to populate the variables and emit a trigger event once done.
+This source accepts two parameters, a socket address and an id. The
+id is used to address the socket via ClientSend and to identify a
+trigger emitted upon variable updates.
+USE RESPONSIBLY: If a trigger causes the client to receive new data
+(i.e. by triggering a ClientSend command that in turn triggers response
+from the source, you can end up with an infinite loop.
+.TP
+.B MpdClient(<address> [,<trigger>)
+Read data from Music Player Daemon IPC (data is polled whenever MPD
+responds to an \(aqidle player\(aq event).  MpdClient emits trigger \(dqmpd\(dq.
+(see mpd\-int.widget as an example)
+.TP
+.B SwayClient(<command> [,<trigger>)
+Receive updates on Sway state, updates are the json objects sent by
+sway, wrapped into an object with a name of the event i.e.
+\fBwindow: { sway window change object }\fP\&.
+SwayClient emits trigger \(dqsway\(dq.
+(see sway\-lang.widget as an example).
+.UNINDENT
+.sp
+The \fIFile\fP source also accepts further optional arguments specifying how
+scanner should handle the source, these can be:
+.INDENT 0.0
+.TP
+.B NoGlob
+specifies that SFWBar shouldn\(aqt attempt to expand the pattern in
+the file name. If this flag is not specified, the file source will
+attempt to read from all files matching a filename pattern.
+.TP
+.B CheckTime
+indicates that the program should only update the variables from
+this file when file modification date/time changes.
+.UNINDENT
+.sp
+Scanner variables are extracted from sources using parsers, currently the following
+parsers are supported:
+.INDENT 0.0
+.TP
+.B Grab([Aggregator])
+specifies that the data is copied from the file verbatim
+.TP
+.B RegEx(Pattern[,Aggregator])
+extracts data using a regular expression parser, the variable is assigned
+data from the first capture buffer
+.TP
+.B Json(Path[,Aggregator])
+extracts data from a json structure. The path starts with a separator
+character, which is followed by a path with elements separated by the
+same character. The path can contain numbers to indicate array indices
+i.e. \fB\&.data.node.1.string\fP and key checks to filter arrays, i.e.
+\fB\&.data.node.[key=\(dqblah\(dq].value\fP
+.UNINDENT
+.sp
+Optional aggregators specify how multiple occurrences of numeric data are
+treated. The following aggregators are supported:
+.INDENT 0.0
+.TP
+.B First
+Variable should be set to the first occurrence of the pattern in the source
+.TP
+.B Last
+Variable should be set to the last occurrence of the pattern in the source
+.TP
+.B Sum
+Variable should be set to the sum of all occurrences of the pattern in the
+source
+.TP
+.B Product
+Variable should be set to the product of all occurrences of the pattern in
+the source
+.UNINDENT
+.sp
+For string values, Sum and Product aggregators are treated as Last.
+Each scanner variable holds the following information:
+.INDENT 0.0
+.TP
+.B \&.val
+current numeric value of the variable
+.TP
+.B \&.pval
+previous value of the variable
+.TP
+.B \&.time
+time elapsed between observing .pval and .val
+.TP
+.B \&.age
+time elapsed since variable was last updated
+.TP
+.B \&.count
+a number of time the pattern has been matched
+during the last scan
+.TP
+.B \&.str
+a string value of the variable (can also be accessed by using $ prefix).
+.UNINDENT
+.sp
+If a suffix is omitted for a scanner variable, the .val suffix is assumed.
+.sp
+Intermediate scanner variables can be declared using a toplevel \fBset\fP keyword
+I.e.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+set MyExpr = VarA + VarB * VarC + Val($Complex
+\&...
+value = Str(MyExpr,2)
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+In the above example, value of the MyExpr variable will be calculated and
+the result will be used in computing the value expression. Intermediate
+variables have type and have all of the fields of a scan variable (i.e. val,
+pval, time etc). They can be used the same way as scan variables.
+.SH Mapping icons
+.sp
+If the icon is missing for a specific program in the taskbar or switcher, it
+is likely due to an missing icon or application not setting app_id correctly.
+You can check app_id\(aqs of running programs by running \fIsfwbar \-d \-g app_id\fP,
+this should produce output like below:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+08:08:28,69 [DEBUG] app_id: \(aqfirefox\(aq, title \(aqMozilla Firefox\(aq
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Alternatively your desktop environment might have a command to display a list:
+\- Sway: \fIswaymsg \-t get_tree\fP
+\- Hyperland: \fIhyprctl \-j clients\fP
+.sp
+If an application id is present, you need to add an icon with the appropriate
+name to your icon theme. To do this this, copy a file with a name matching appid
+into one of the following directories:
+.INDENT 0.0
+.IP 1. 3
+\fI$HOME/.icons\fP
+.IP 2. 3
+One of the directories listed in \fI$XDG_DATA_DIRS/icons\fP
+.IP 3. 3
+\fI/usr/share/pixmaps\fP
+.IP 4. 3
+Location of the main config file currently in use
+.IP 5. 3
+\fI$XDG_CONFIG_HOME/sfwbar/\fP
+.UNINDENT
+.sp
+In the above example, you can put an icon called \fIfirefox.svg\fP (you can also use
+\&.png or .xpm) into one of the above directories.
+.sp
+If application id is blank, you can try mapping it from the program\(aqs title
+(please note that the title may change during runtime, so matching it can be
+tricky). Mapping is supported via function \fBMapAppId\fP\&. You can add a function
+call to your \fISfwbarInit\fP function to run it on startup, I.e.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+MapAppId(\(dqfirefox\(dq, \(dq.*Mozilla Firefox\(dq);
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+If an \fIapp_id\fP is not set, and sway is being used, sfwbar will fallback to
+using the \fIinstance\fP in the \fIwindow\-properties\fP\&.
+.SH CSS Styling
+.sp
+SFWBar uses GTK+ widgets and can accept all css properties supported by GTK+.
+SFWBar widgets correspond to GTK+ widgets as following:
+.TS
+box center;
+l|l|l.
+T{
+SFWBar widget
+T}	T{
+GTK+ widget
+T}	T{
+css class
+T}
+_
+T{
+label
+T}	T{
+GtkLabel
+T}	T{
+label
+T}
+_
+T{
+image
+T}	T{
+GtkImage
+T}	T{
+image
+T}
+_
+T{
+button
+T}	T{
+GtkButton
+T}	T{
+button
+T}
+_
+T{
+scale
+T}	T{
+GtkProgressBar
+T}	T{
+progress bar, trough, progress
+T}
+.TE
+.sp
+Taskbar, Pager, Tray and Switcher use combinations of these widgets and can
+be themed using GTK+ nested css convention,
+i.e. \fBgrid#mytaskbar button { ... }\fP
+(this example assumes you assigned \fBstyle = \(dqmytaskbar\(dq\fP to your taskbar
+widget).
+.sp
+In addition to standard GTK+ css properties SFWBar implements several
+additional properties. These are:
+.TS
+box center;
+l|l.
+T{
+property
+T}	T{
+description
+T}
+_
+T{
+\-GtkWidget\-align
+T}	T{
+specify text alignment for a label, defined as a
+fraction.  (i.e. 0 = left aligned, 1 = right
+aligned, 0.5 = centered)
+T}
+_
+T{
+\-GtkWidget\-hexpand
+T}	T{
+specify if a widget should expand horizontally to
+occupy available space. [true|false]
+T}
+_
+T{
+\-GtkWidget\-vexpand
+T}	T{
+as above, for vertical expansion.
+T}
+_
+T{
+\-GtkWidget\-halign
+T}	T{
+Horizontally align widget within any free space
+allocated to it, values supported are: fill, start,
+end, center and baseline. The last vertically
+aligns widgets to align text within.
+T}
+_
+T{
+\-GtkWidget\-valign
+T}	T{
+Vertically align widget.
+T}
+_
+T{
+\-GtkWidget\-visible
+T}	T{
+Control visibility of a widget. If set to false,
+widget will be hidden.
+T}
+_
+T{
+\-GtkWidget\-max\-width
+T}	T{
+Limit maximum width of a widget (in pixels)
+T}
+_
+T{
+\-GtkWidget\-max\-height
+T}	T{
+Limit maximum height of a widget (in pixels)
+T}
+_
+T{
+\-GtkWidget\-ellipsize
+T}	T{
+specify whether a text in a label should be
+ellipsized if it\(aqs too long to fit in allocated
+space.
+T}
+_
+T{
+\-GtkWidget\-wrap
+T}	T{
+wrap a string if it\(aqs too long for it\(aqs container
+(you would usually want to pair it with
+\-GtkWidget\-max\-width)
+T}
+_
+T{
+\-GtkWidget\-direction
+T}	T{
+specify a direction for a widget.  For scale, it\(aqs
+a direction towards which scale grows.  For a grid,
+it\(aqs a direction in which a new widget is position
+relative to the last placed widget. For a window
+it\(aqs an edge along which the bar is positioned.
+Possible values [top|bottom|left|right]
+T}
+_
+T{
+\-ScaleImage\-color
+T}	T{
+Specify a color to repaint an image with. The image
+will be painted with this color using image\(aqs alpha
+channel as a mask. The color\(aqs own alpha value can
+be used to tint the image.
+T}
+_
+T{
+\-ScaleImage\-symbolic
+T}	T{
+Render an image as a symbolic icon. If set to true,
+the image will be re\-colored to the gtk theme
+foreground color, preserving the image alpha
+channel. This property is ignored if
+\-ScaleImage\-color is specified.
+T}
+_
+T{
+\-ScaleImage\-shadow\-radius
+T}	T{
+specify a radius for a drop shadow of an image
+widget. A drop shadow is rendered if a radius or
+one of the offsets is specified for an image.
+(an integer specifying a number of pixels).
+T}
+_
+T{
+\-ScaleImage\-shadow\-x\-offset
+T}	T{
+a horizontal offset of a drop shadow relative to an
+image. (an integer specifying a number of pixels).
+T}
+_
+T{
+\-ScaleImage\-shadow\-y\-offset
+T}	T{
+a vertical offset of a drop shadow relative to an
+image. (an integer specifying a number of pixels).
+T}
+_
+T{
+\-ScaleImage\-shadow\-clip
+T}	T{
+a boolean specifying whether a shadow is clipped to
+a padding box. If false, the shadow may spill over
+a border and a margin of a widget. (default = true)
+T}
+_
+T{
+\-ScaleImage\-shadow\-color
+T}	T{
+a color of a drop shadow.
+T}
+.TE
+.sp
+Taskbar and pager buttons are assigned the following styles
+.TS
+box center;
+l|l.
+T{
+style name
+T}	T{
+description
+T}
+_
+T{
+sfwbar
+T}	T{
+toplevel bar window
+T}
+_
+T{
+layout
+T}	T{
+top level layout grid
+T}
+_
+T{
+taskbar_item
+T}	T{
+taskbar button for a window
+T}
+_
+T{
+taskbar_popup
+T}	T{
+taskbar popup button for an application group (supports class .focused)
+T}
+_
+T{
+taskbar_popup_grid
+T}	T{
+a grid for popped up taskbar group in a popup taskbar
+T}
+_
+T{
+taskbar_pager
+T}	T{
+taskbar pager grid (supports class .focused)
+T}
+_
+T{
+pager_item
+T}	T{
+pager button for a workspace
+T}
+_
+T{
+pager_preview
+T}	T{
+a desktop preview tooltip for a pager item
+T}
+_
+T{
+switcher
+T}	T{
+switcher window and top level grid
+T}
+_
+T{
+switcher_item
+T}	T{
+a switcher item grid for a window
+T}
+_
+T{
+tray
+T}	T{
+tray menus and menu items
+T}
+_
+T{
+tray_item
+T}	T{
+tray item icon
+T}
+_
+T{
+menu_item
+T}	T{
+menu items (each contains an image and a label)
+T}
+.TE
+.sp
+pager_item may have one or more of the following classes set: \fIfocused\fP and
+\fIvisible\fP;
+.sp
+tray_item may have one of more of the following classes set: \fIpassive\fP and
+\fIattention\fP\&.
+.sp
+taskbar_item and switcher_item may have one or more of additional classes set,
+reflecting the state of a window: \fIfocused\fP, \fImaximized\fP, \fIminimized\fP,
+\fIfullscreen\fP, \fIurgent\fP and \fIpreview\fP\&.
+.sp
+a group item in a popup taskbar can have a \fIpin\fP class set if the item is
+pinned in the taskbar config. The last pinned item in the taskbar has a
+further class \fIlast\-pin\fP set.
+.sp
+The \fIpreview\fP class is set when the compositor supports window previews and the
+taskbar or switcher is configured to display window previews instead of icons.
+.sp
+The \fIdrop_target\fP class is set for an item if it can accept the drop from the
+drag occurring over it. This is equivalent to :drop(active) pseudo\-class, but
+unlike the pseudo\-class it doesn\(aqt have to apply to the last element of the CSS
+node (i.e. you can theme children of .drop_target widget).
+.sp
+For example you can style top level grid using \fBgrid#layout { }\fP\&.
+.\" End of generated man page.

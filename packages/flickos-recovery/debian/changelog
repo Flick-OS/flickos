@@ -1,0 +1,53 @@
+flickos-recovery (1.3) trixie; urgency=medium
+
+  * Restore points made by an apt command with options (apt-get -o
+    NAME=VALUE install …) are named after the packages again, not after
+    the options' values: asked_for skips the value of -o, -c, -t and
+    apt's other options that take one, and takes apt's command from the
+    first word that isn't an option.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 15 Oct 2026 15:08:13 +0800
+
+flickos-recovery (1.2) trixie; urgency=medium
+
+  * Tests never run the installed recovery-helper: on a build computer
+    with flickos-recovery installed, a test went through pkexec, asked
+    for the password and failed the build.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 11 Oct 2026 22:02:29 +0800
+
+flickos-recovery (1.1) trixie; urgency=medium
+
+  * The boot menu's Restore points (ADR-004): /etc/grub.d/42_flickos-
+    recovery and the entries in /boot/grub/flickos-recovery.cfg, written
+    after every change; started from one, the initramfs puts a writable
+    layer in memory over it, and putting it back keeps it (restore
+    points design, phase 2).
+  * The start counter (ADR-005): flickos-recovery-start and -good
+    services, GRUB reads it and starts the newest good restore point
+    after 2 failed starts (auto-recover yes) or waits with it
+    highlighted (no), never twice in a row; start keep|try-again, set
+    auto-recover. The settings move to @snapshots, so putting back or a
+    start from a restore point doesn't lose them.
+  * notify: at login, started from a restore point, a notification says
+    so; a click opens Settings' Restore Points page.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 10 Oct 2026 17:24:52 +0800
+
+flickos-recovery (1.0) trixie; urgency=medium
+
+  * Restore points before every software change: the apt hook, list,
+    create, delete, state, get/set enabled (restore points design, phase
+    1).
+  * Putting back: restore, plan, settle (a oneshot at the next start),
+    apt refused until the restart, GRUB installed again from the
+    restored system; recovery-helper and its polkit actions for Settings
+    and for users (ADR-003).
+  * A restore point is committed at once (btrfs filesystem sync): after
+    a power cut early in an upgrade it was gone. The swap is committed
+    before GRUB is installed again.
+  * Nothing in a chroot: the installer's own apt runs (Calamares works
+    in a chroot of the new system) made restore points of a half-
+    installed system.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 10 Oct 2026 14:38:42 +0800

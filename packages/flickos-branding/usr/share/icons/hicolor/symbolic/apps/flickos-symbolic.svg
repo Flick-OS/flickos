@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256">
+  <!-- FlickOS logo, one color for panels: GTK draws it in the text color.
+       Full-color version: ../../scalable/apps/flickos.svg. Fills only: GTK 3
+       recolors a symbolic icon by setting every shape's fill, so a stroke
+       would stay light and its inside fill up. The ring is the outline of
+       the color logo's arc (center 128,128, radius 72), 26 wide. The ring
+       and the dot are class "warning": GTK draws them in the CSS
+       -gtk-icon-palette's warning color, which FlickOS's panel sets to the
+       brand amber (flickos-layouts' base.css), and elsewhere in the theme's
+       warning orange. -->
+  <title>FlickOS</title>
+  <path d="M113.9 142.1L202.9 72.9L183.1 53.1Z" fill="#d3dae3"/>
+  <path class="warning" d="M210.1 106.0A85 85 0 1 1 150.0 45.9A13 13 0 0 1 143.3 71.0A59 59 0 1 0 185.0 112.7A13 13 0 0 1 210.1 106.0Z" fill="#d3dae3"/>
+  <circle class="warning" cx="193" cy="63" r="22" fill="#d3dae3"/>
+</svg>

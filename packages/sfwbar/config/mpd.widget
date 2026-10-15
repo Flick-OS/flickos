@@ -1,0 +1,237 @@
+#Api2
+
+Module("mpd");
+
+Private {
+
+  include("mpd-browser.widget");
+
+  Var icon_play = "media-playback-start";
+  Var icon_stop = "media-playback-stop";
+  Var icon_pause = "media-playback-pause";
+  Var icon_ffwd = "media-seek-forward";
+  Var icon_back = "media-seek-backward";
+  Var icon_repeat = "media-playlist-repeat";
+  Var icon_shuffle = "media-playlist-shuffle";
+  Var icon_browse = "view-list";
+  Var simple_icon = False;
+
+  Var MpdIconStop = "<path d='m 3.5 2 h 9 c 0.828125 0 1.5 0.671875 1.5 1.5 v 9
+    c 0 0.828125 -0.671875 1.5 -1.5 1.5 h -9 c -0.828125 0 -1.5 -0.671875 -1.5
+    -1.5 v -9 c 0 -0.828125 0.671875 -1.5 1.5 -1.5 z m 0 0' fill='@theme_fg_color'/>";
+  Var MpdIconPlay = "<path d='m 2 2.5 v 11 c 0 1.5 1.269531 1.492188 1.269531
+    1.492188 h 0.128907 c 0.246093 0.003906 0.488281 -0.050782 0.699218
+    -0.171876 l 9.796875 -5.597656 c 0.433594 -0.242187 0.65625 -0.734375
+    0.65625 -1.226562 c 0 -0.492188 -0.222656 -0.984375 -0.65625 -1.222656 l
+    -9.796875 -5.597657 c -0.210937 -0.121093 -0.453125 -0.175781 -0.699218
+    -0.175781 h -0.128907 s -1.269531 0 -1.269531 1.5 z m 0 0' fill='@theme_fg_color'/>";
+  Var MpdIconPause = "<path d='m 3 1 h 3 c 0.550781 0 1 0.449219 1 1 v 12 c 0
+    0.550781 -0.449219 1 -1 1 h -3 c -0.550781 0 -1 -0.449219 -1 -1 v -12 c 0
+    -0.550781 0.449219 -1 1 -1 z m 0 0' fill='@theme_fg_color'/>
+    <path d='m 10 1 h 3 c 0.550781 0 1 0.449219 1 1 v 12 c 0 0.550781 -0.449219
+    1 -1 1 h -3 c -0.550781 0 -1 -0.449219 -1 -1 v -12 c 0 -0.550781 0.449219
+    -1 1 -1 z m 0 0' fill='@theme_fg_color'/>";
+
+  Var MpdIconTmpl='<?xml version="1.0" encoding="UTF-8"?>
+    <svg viewBox="0 0 16 20" xmlns="http://www.w3.org/2000/svg">
+    @MPD_ICON@
+    <path d="M1 19 H16 0" stroke-linecap="round" stroke-width="2"
+      stroke="@theme_fg_color" stroke-opacity="0.5"/>
+    <path d="M1 19 H@MPD_PROGRESS@ 0" stroke-linecap="round" stroke-width="2"
+      stroke="red"/>
+    </svg>'
+
+  Set MpdProgress = (Val(MpdInfo("elapsed")) + If(MpdInfo("state")="play",
+        Val(MpdInfo("age"))/1000000, 0))/Val(MpdInfo("duration"));
+
+  PopUp "XMpdWindow" {
+#    autoclose = true;
+    trigger = "mpd";
+    style = "XMpdPopup";
+    grid 'mpd_player' {
+      style = If(MpdBrowser, "hidden", "");
+      trigger = "mpd-browser";
+      css = "* { -GtkWidget-direction: bottom; }"
+      grid {
+        image {
+          value = MpdInfo("cover");
+          trigger = "mpd-cover";
+          style = If(MpdInfo("cover")="", "hidden", "mpd_cover");
+          loc(1,1,1,5);
+        }
+        label {
+          value = "<b>"+MpdInfo("Title")+"</b>";
+          trigger = "mpd"
+          style = "mpd_title"
+          loc(2,1);
+        }
+        label {
+          value = MpdInfo("Album");
+          trigger = "mpd"
+            action = MpdCmd("list artist");
+          style = "mpd_album"
+          loc(2,2);
+        }
+        label {
+          value = MpdInfo("Artist");
+          trigger = "mpd"
+          style = "mpd_artist"
+          loc(2,3);
+        }
+        scale "mpd_progress" {
+          value = MpdProgress;
+          style = "mpd_progress"
+          action = MpdCmd("seekcur " + Str(gtkevent("x") * Val(MpdInfo("Duration"))))
+          interval = 1000
+          loc(2,4);
+        }
+        grid "XMpdPlayer" {
+          loc(2,5)
+          css = "* { -GtkWidget-direction: right; -GtkWidget-halign: center; -GtkWidget-hexpand: true; }"
+          image {
+            value = icon_repeat;
+            action = MpdCmd("repeat " + If(Val(MpdInfo("Repeat")),"0","1"))
+            style = If(Val(MpdInfo("repeat")),"mpd_icon_red","mpd_icon")
+            trigger = "mpd"
+          }
+          image {
+            value = icon_shuffle;
+            action = MpdCmd("random " + If(Val(MpdInfo("Random")),"0","1"))
+            style = If(Val(MpdInfo("random")),"mpd_icon_red","mpd_icon")
+            trigger = "mpd"
+          }
+          image {
+            value = icon_back;
+            action = MpdCmd("previous")
+            style = "mpd_icon"
+          }
+          image {
+            value = icon_play;
+            action = MpdCmd("play")
+            style = If(MpdInfo("state")="play","mpd_icon_red","mpd_icon")
+            trigger = "mpd"
+          }
+          image {
+            value = icon_pause;
+            action = MpdCmd("pause")
+            style = If(MpdInfo("State")="pause","mpd_icon_red","mpd_icon")
+            trigger = "mpd"
+          }
+          image {
+            value = icon_stop;
+            action = MpdCmd("stop")
+            style = If(MpdInfo("state")="stop","mpd_icon_red","mpd_icon")
+            trigger = "mpd"
+          }
+          image {
+            value = icon_ffwd;
+            action = MpdCmd("next")
+            style = "mpd_icon"
+          }
+          image {
+            value = icon_browse;
+            action = EmitTrigger("mpd-browser-open");
+            style = "mpd_icon"
+          }
+        }
+      }
+    }
+  }
+
+  Function BuildSvg() {
+    if !simple_icon
+      Return ReplaceAll(MpdIconTmpl,
+          "@MPD_ICON@", Map(MpdInfo("State"),
+            "play", MpdIconPlay,
+            "pause", MpdIconPause,
+            MpdIconStop),
+          "@MPD_PROGRESS@", Str(MpdProgress*16));
+    Return Map(MpdInfo("State"),
+        "play", icon_play,
+        "pause", icon_pause,
+        icon_stop);
+  }
+
+  TriggerAction "mpd", UpdateWidget("mpd_progress")
+
+  export button "mpd" {
+    value = BuildSvg();
+    style = If(MpdInfo("State")="", "hidden", "mpd");
+    class = "module";
+    action = MpdCmd("pause");
+    action[RightClick] = PopUp("XMpdWindow");
+    action[ScrollUp] = MpdCmd("seekcur +5");
+    action[ScrollDown] = MpdCmd("seekcur -5");
+    action[Configure] =
+      Config("TriggerAction 'mpd', UpdateWidget('" + WidgetId() + "')");
+    interval = 1000;
+  }
+}
+
+#CSS
+window#XMpdWindow {
+  background-color: rgba(0,0,0,0);
+}
+
+grid#XMpdPopup {
+  margin: 10px;
+  border-radius: 10px;
+  border-image: none;
+  border-width: 1px;
+  border-style: solid;
+  border-color: @borders;
+  background-color: @theme_bg_color;
+  padding: 10px;
+}
+
+image#mpd_icon {
+  -GtkWidget-hexpand: false;
+  -GtkWidget-vexpand: false;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 4px;
+  color: @theme_fg_color;
+}
+
+image#mpd_cover {
+  min-height: 100px;
+  min-width: 100px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+image#mpd_icon_red {
+  -GtkWidget-hexpand: false;
+  -GtkWidget-vexpand: false;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 4px;
+  color: red;
+}
+
+label#mpd_title,
+label#mpd_album,
+label#mpd_artist {
+  padding-left: 4px;
+  padding-right: 4px;
+  -GtkWidget-align: 0.5;
+  color: @theme_text_color;
+  -GtkWidget-halign: center;
+}
+
+#mpd_progress {
+  margin-top: 3px;
+  margin-bottom: 3px;
+  margin-left: 10px;
+  margin-right: 10px;
+  -GtkWidget-halign: fill;
+  -GtkWidget-hexpand: true;
+}
+
+#mpd_progress progress {
+  min-height: 8px;
+}
+
+#mpd_progress trough {
+  min-height: 8px;
+}

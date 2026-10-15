@@ -1,0 +1,8 @@
+# Package pool on the ISO medium (/pool, /dists), not installed in the image.
+# Calamares' bootloader-config helper (flickos-installer) installs the
+# bootloader for the firmware it finds from this pool, which sources-media
+# adds as an apt source, so installing works offline.
+#
+# grub-pc and grub-efi-amd64 conflict, and live-build resolves each list as one
+# apt transaction, so the UEFI packages are in grub-efi.list.binary.
+grub-pc

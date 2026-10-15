@@ -1,0 +1,13 @@
+/* Aye3: a black panel (tools/make-aye3.py). Same names as the Dark
+ * style's waybar-colors.css. */
+@define-color wm_bg #000000;
+@define-color bg_color #222222;
+@define-color base_color #285577;
+@define-color fg_color #ffffff;
+@define-color selected_bg_color #4c7899;
+@define-color selected_fg_color #ffffff;
+@define-color borders #333333;
+@define-color warning_color #ffff00;
+@define-color error_color #ff0000;
+/* FlickOS's brand amber: only the start button's logo (base.css). */
+@define-color brand_color #ffb13d;

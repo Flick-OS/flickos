@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Software
+Comment=Find, install and remove apps
+Exec=flickos-software
+Icon=system-software-install
+Terminal=false
+Categories=System;PackageManager;
+Keywords=software;apps;install;remove;store;flathub;debian;packages;
+StartupNotify=false

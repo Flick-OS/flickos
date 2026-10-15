@@ -1,0 +1,73 @@
+Source: flickos-settings
+Section: misc
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-settings
+Architecture: all
+# Depends: programs the session scripts and configs call unconditionally.
+Depends: labwc,
+         swaybg,
+         waybar,
+         mako-notifier,
+         mate-polkit,
+         network-manager-applet,
+         swayidle,
+         swaylock,
+         xdg-user-dirs,
+         gsettings-desktop-schemas,
+         dconf-gsettings-backend,
+         arc-theme,
+         numix-icon-theme-circle,
+# flickos-screenshot: the Print keys, Super+Shift+S and Super+Shift+R (bar
+# --video, since 1.1) run it. A Depends, not a Recommends like the other keys'
+# programs, because they worked before it existed: this keeps
+# flickos-settings back until it can be installed too.
+         flickos-screenshot (>= 1.1),
+         ${misc:Depends}
+# autostart leaves starting mako to flickos-layout panel (flickos-layouts 1.3),
+# runs flickos-layout first-run (1.4) and flickos-layout wallpaper (1.6).
+# It runs flickos-control night-light and notifications (1.8), startup run
+# (1.9) and lock (1.10, the lock script) when flickos-control is installed;
+# an older one would leave night light off or the screen unlocked. The
+# menu's Displays runs flickos-control displays arrange (1.21).
+# Super+Shift+D runs flick-tiler show-desktop (1.7).
+# The zoom keys send flickos-shortcuts SIGWINCH so its sheet stays away while
+# Super is held for them, and it names them (1.14); flickos-session's
+# labwc -m needs a sheet that reads the merged files (1.16).
+Breaks: flickos-layouts (<< 1.6),
+        flickos-control (<< 1.21),
+        flick-tiler (<< 1.7),
+        flickos-shortcuts (<< 1.16)
+# Recommends: programs used by keybindings and menu entries.
+Recommends: foot,
+            fuzzel,
+            thunar,
+            wl-clipboard,
+            libnotify-bin,
+            brightnessctl,
+            wireplumber,
+            cliphist,
+            wlsunset,
+            playerctl,
+            vlc,
+            libreoffice-writer,
+            libreoffice-calc,
+            libreoffice-impress,
+            gnome-themes-extra,
+            adwaita-icon-theme,
+            nwg-look,
+            waypaper
+Description: FlickOS default desktop configuration
+ System-wide defaults for the FlickOS labwc session: keybindings, root menu,
+ session startup programs, wallpaper, panel, notification and launcher
+ styles, the Arc-Dark look (GTK theme, Numix-Circle icons, FlickOS-Arc-Dark
+ labwc window theme), the FlickOS-Arc window theme for the Light style, and
+ starting labwc on tty1 login.
+ .
+ Program configuration is installed to /etc/xdg/labwc, /etc/xdg/flickos and
+ /usr/share/flickos, so it applies to every user without a personal
+ ~/.config override.

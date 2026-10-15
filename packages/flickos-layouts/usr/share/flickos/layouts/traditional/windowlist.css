@@ -1,0 +1,75 @@
+/* Traditional window list (sfwbar, windowlist.config). Named colors only:
+ * flickos-layout puts the style's palette (waybar-colors.css) before this
+ * file. window#sfwbar is the bar, grid#windowscroll the scrolling box around
+ * grid#windowlist, the window list (a button#taskbar_item per window,
+ * .focused for the active one), and grid#desktops the desktop switcher (a
+ * button#pager_item per desktop, .focused for the current one). */
+
+window#sfwbar {
+    background-color: alpha(@wm_bg, 0.85);
+    border-top: 1px solid alpha(@borders, 0.9);
+    min-height: 28px;
+}
+
+window#sfwbar label {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 13px;
+    color: @fg_color;
+}
+
+/* The window list takes the room the switcher leaves. A scrolling grid asks
+ * for at most its min-width, so it needs hexpand to get any. */
+grid#windowscroll {
+    min-width: 0;
+    -GtkWidget-hexpand: true;
+}
+
+button#taskbar_item {
+    margin: 2px 1px;
+    padding: 0 8px;
+    border: 1px solid alpha(@borders, 0.9);
+    border-radius: 3px;
+    background: none;
+    box-shadow: none;
+}
+
+button#taskbar_item image {
+    min-width: 16px;
+    min-height: 16px;
+    margin-right: 4px;
+}
+
+button#taskbar_item:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+button#taskbar_item.focused {
+    background-color: @base_color;
+    box-shadow: inset 0 -2px @selected_bg_color;
+}
+
+grid#desktops {
+    margin: 0 4px;
+}
+
+button#pager_item {
+    min-width: 28px;
+    margin: 2px 1px;
+    padding: 0;
+    border: 1px solid alpha(@borders, 0.9);
+    border-radius: 3px;
+    background: none;
+    box-shadow: none;
+}
+
+button#pager_item:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+button#pager_item.focused {
+    background-color: @selected_bg_color;
+}
+
+button#pager_item.focused label {
+    color: @selected_fg_color;
+}

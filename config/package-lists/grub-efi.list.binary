@@ -1,0 +1,3 @@
+# UEFI bootloader for Calamares' bootloader-config helper. See grub-pc.list.binary.
+grub-efi
+efibootmgr

@@ -1,0 +1,37 @@
+/* The shortcut sheet of flickos-shortcuts. Only the GTK theme's named colors,
+   so the Dark and Light styles (Arc-Dark, Arc) recolor it. */
+
+window.flickos-shortcuts {
+    background: transparent;
+}
+
+.flickos-shortcuts .sheet {
+    background-color: alpha(@theme_bg_color, 0.96);
+    border: 1px solid @borders;
+    border-radius: 10px;
+    padding: 24px 32px;
+    color: @theme_fg_color;
+}
+
+.flickos-shortcuts .title {
+    font-size: 16pt;
+    font-weight: bold;
+}
+
+.flickos-shortcuts .heading {
+    font-weight: bold;
+}
+
+.flickos-shortcuts .key {
+    background-color: @theme_base_color;
+    border: 1px solid @borders;
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-family: monospace;
+}
+
+/* The line under the title: full text color, since dimmed text is too faint
+   on Arc's light background. */
+.flickos-shortcuts .hint {
+    font-style: italic;
+}

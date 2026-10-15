@@ -1,0 +1,3 @@
+usr/bin/flickos-countme                   usr/bin/
+usr/libexec/flickos/countme-helper        usr/libexec/flickos/
+usr/share/polkit-1/actions/*              usr/share/polkit-1/actions/

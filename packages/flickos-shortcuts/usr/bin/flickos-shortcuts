@@ -1,0 +1,817 @@
+#!/usr/bin/python3
+"""Show the keyboard shortcuts of the FlickOS labwc session.
+
+Press and hold Super (the Windows key) on its own, and a sheet with the
+shortcuts appears in the middle of the screen until Super is let go. The
+shortcuts still work while it is shown: hold Super, read, press the key.
+
+The daemon (autostart runs `flickos-shortcuts daemon`) sees Super without
+taking the keyboard: labwc (0.8) sends the modifier state to every client
+that has a keyboard, not only to the focused one. A small Wayland client
+below (standard library only) listens for it. The sheet itself is a GTK 3
+layer-shell surface that takes no keyboard focus and lets clicks through.
+
+The shortcuts are read from the rc.xml labwc uses (the first in
+$XDG_CONFIG_HOME, then $XDG_CONFIG_DIRS: the user's own, the flickos-layouts
+overlay with flick-tiler's keys while tiling is on, or FlickOS's), plus
+labwc's built-in ones where it has <default />. In the plain session labwc
+reads only flickos-layouts' plain folder (labwc -C), and while flickos-layouts
+has labwc merge the files (labwc -m) every rc.xml is read, least important
+first, the later binding of a key winning, as labwc does. Keys FlickOS knows get a
+description (COMMANDS, ACTIONS), add-ons' keys the one their labwc.xml gives
+(flickos-layouts writes them to ADDON_DESCRIPTIONS); others show their
+action or command.
+Media, volume and brightness keys are left out.
+
+Commands:
+  daemon   show the sheet while Super is held (one per session)
+  show     show the sheet now, until a key or a click (Settings menu)
+  list     print the shortcuts
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import argparse
+import contextlib
+import fcntl
+import json
+import os
+import re
+import signal
+import socket
+import struct
+import sys
+import xml.etree.ElementTree as ET
+
+# FLICKOS_SHORTCUTS_PREFIX: run from a source tree, e.g. packages/flickos-shortcuts.
+PREFIX = os.environ.get("FLICKOS_SHORTCUTS_PREFIX", "")
+STYLE = PREFIX + "/usr/share/flickos/shortcuts/style.css"
+TITLE = "Keyboard Shortcuts"
+APP_ID = "flickos-shortcuts"
+
+# How long Super must be held alone before the sheet appears. Shorter would
+# flash it during quick Super+key shortcuts.
+HOLD_MS = 700
+# xkbcommon gives the real modifiers the indices Shift, Lock, Control,
+# Mod1-Mod5; Super is Mod4 in every standard keymap.
+MOD_SUPER = 1 << 6
+# Sent by keybinds that are used with Super held down (flickos-settings'
+# zoom keys and Super+scroll): Super is in use, so no sheet until it is let
+# go. SIGWINCH because its default is to be ignored, so a daemon still
+# running older code is never killed by it.
+BUSY_SIGNAL = signal.SIGWINCH
+COLUMNS = 3
+# The sheet fades in and out (docs/design/flickos-fades.md), as flickos-menu's
+# windows do, only while GSettings' enable-animations is on. About 65 ms of
+# CPU per fade, the daemon and labwc together; nothing between holds.
+FADE_IN_MS = 100
+FADE_OUT_MS = 80
+
+SECTIONS = ("Applications", "Windows", "Tiling", "Screenshots", "Zoom", "Session", "Other")
+
+# labwc 0.8.3's built-in keybinds (include/config/default-bindings.h), used
+# where rc.xml has <default />. Keys rc.xml binds again replace them.
+DEFAULT_KEYBINDS = (
+    ("A-Tab", [("NextWindow", {})]),
+    ("A-S-Tab", [("PreviousWindow", {})]),
+    ("W-Return", [("Execute", {"command": "alacritty"})]),
+    ("A-F3", [("Execute", {"command": "bemenu-run"})]),
+    ("A-F4", [("Close", {})]),
+    ("W-a", [("ToggleMaximize", {})]),
+    ("A-Left", [("MoveToEdge", {"direction": "left"})]),
+    ("A-Right", [("MoveToEdge", {"direction": "right"})]),
+    ("A-Up", [("MoveToEdge", {"direction": "up"})]),
+    ("A-Down", [("MoveToEdge", {"direction": "down"})]),
+    ("W-Left", [("SnapToEdge", {"direction": "left"})]),
+    ("W-Right", [("SnapToEdge", {"direction": "right"})]),
+    ("W-Up", [("SnapToEdge", {"direction": "up"})]),
+    ("W-Down", [("SnapToEdge", {"direction": "down"})]),
+    ("A-space", [("ShowMenu", {"menu": "client-menu"})]),
+)
+
+# Commands of FlickOS's rc.xml (flickos-settings) and flick-tiler's KEYBINDS:
+# (regex searched in the command, section, description). First match wins.
+COMMANDS = (
+    # flickos-layouts' overlay while Quick Settings is on (Super+A).
+    (r"flickos-menu quick", "Session", "Quick Settings"),
+    (r"flickos-menu", "Applications", "Start menu (tap)"),
+    (r"^(foot|xdg-terminal-exec)\b", "Applications", "Terminal"),
+    (r"cliphist", "Applications", "Clipboard history"),
+    (r"^lxtask\b", "Applications", "Task manager"),
+    (r"fuzzel", "Applications", "App launcher"),
+    (r"^(thunar|pcmanfm)\b|open-default files", "Applications", "File manager"),
+    (r"^(x-www-browser|firefox)|open-default browser", "Applications", "Web browser"),
+    (r"^flick-tiler show-desktop", "Windows", "Show desktop"),
+    (r"^flick-tiler toggle", "Tiling", "Tiling on or off"),
+    (r"^flick-tiler mode next", "Tiling", "Next arrangement"),
+    (r"^flick-tiler focus next", "Tiling", "Focus next window"),
+    (r"^flick-tiler focus prev", "Tiling", "Focus previous window"),
+    (r"^flick-tiler swap next", "Tiling", "Move window forward"),
+    (r"^flick-tiler swap prev", "Tiling", "Move window back"),
+    (r"^flick-tiler promote", "Tiling", "Make main window"),
+    (r"^flick-tiler ratio -", "Tiling", "Narrower main area"),
+    (r"^flick-tiler ratio \+", "Tiling", "Wider main area"),
+    (r"^flick-tiler tile", "Tiling", "Tile this window"),
+    (r"^flick-tiler float", "Tiling", "Float this window"),
+    (r"^flickos-shortcuts", "Session", "Show keyboard shortcuts"),
+    (r"^swaylock|^/usr/libexec/flickos/lock$", "Session", "Lock screen"),
+    (r"^flickos-screenshot shot region --copy-only", "Screenshots", "Area, copied only"),
+    (r"^flickos-screenshot shot region", "Screenshots", "Area"),
+    (r"^flickos-screenshot shot screen", "Screenshots", "Whole screen"),
+    (r"^flickos-screenshot bar --video", "Screenshots", "Record the screen, or stop"),
+    (r"^flickos-screenshot$", "Screenshots", "Area, screen, video or delay"),
+    # The one-liners of flickos-settings before flickos-screenshot, which a
+    # user's own rc.xml may still have.
+    (r"grim.*wl-copy", "Screenshots", "Area to clipboard"),
+    (r"grim -g", "Screenshots", "Area to file"),
+    (r"grim", "Screenshots", "Whole screen to file"),
+)
+
+# Descriptions of add-ons' keybinds ({command: description}), written by
+# flickos-layouts into $XDG_RUNTIME_DIR/flickos at every login: add-ons are
+# programs that aren't FlickOS packages, so COMMANDS can't know them. They
+# are shown under ADDON_SECTION.
+ADDON_DESCRIPTIONS = os.path.join("shortcuts", "addons.json")
+# flickos-layouts' signs, below $XDG_RUNTIME_DIR/flickos, of how labwc reads
+# its config (docs/design/flickos-ricing.md): the plain session runs labwc
+# -C with this folder; while the marker exists labwc runs with -m.
+PLAIN_LABWC = os.path.join("plain", "labwc")
+MERGE_MARKER = "labwc-merge"
+ADDON_SECTION = "Other"
+
+# labwc actions: action name -> (section, description); {menu} and
+# {desktop} (DESKTOPS, from `to`) are the action's arguments. The four
+# directions share a row.
+ACTIONS = {
+    "Close": ("Windows", "Close window"),
+    "NextWindow": ("Windows", "Switch windows"),
+    "PreviousWindow": ("Windows", "Switch windows backwards"),
+    "ToggleMaximize": ("Windows", "Maximize or restore"),
+    "Maximize": ("Windows", "Maximize"),
+    "Iconify": ("Windows", "Minimize"),
+    "ToggleFullscreen": ("Windows", "Fullscreen"),
+    "ToggleAlwaysOnTop": ("Windows", "Always on top"),
+    "MoveToEdge": ("Windows", "Move to screen edge"),
+    "SnapToEdge": ("Windows", "Snap to half of screen"),
+    "GoToDesktop": ("Windows", "Go to {desktop}"),
+    "SendToDesktop": ("Windows", "Move window to {desktop}"),
+    "ShowMenu": ("Windows", "{menu}"),
+    "Exit": ("Session", "Log out"),
+    "Reconfigure": ("Session", "Reload desktop config"),
+    "ZoomIn": ("Zoom", "Zoom in"),
+    "ZoomOut": ("Zoom", "Zoom out"),
+    "ToggleMagnify": ("Zoom", "Zoom off, or back on"),
+}
+MENUS = {"client-menu": "Window menu", "root-menu": "Desktop menu"}
+# GoToDesktop's and SendToDesktop's `to` other than a desktop's name or number
+# (flickos-layouts' Traditional binds left and right).
+DESKTOPS = {"left": "the desktop on the left", "right": "the desktop on the right",
+            "last": "the last desktop used"}
+# A desktop's number bound to that digit key (Traditional's Super+1 to 4), so
+# the keys share one row: "Go to the desktop with that number  Super + 1 2 3 4".
+NUMBERED_DESKTOP = "the desktop with that number"
+
+# Actions that only go with another one in the same keybind (flick-tiler's
+# Super+Shift+T snaps, then tells the daemon): the other one describes it.
+QUIET_ACTIONS = {"SnapToRegion", "Focus", "Raise", "Unfocus"}
+
+MODIFIERS = {"W": "Super", "Mod4": "Super", "C": "Ctrl", "A": "Alt", "Mod1": "Alt",
+             "S": "Shift", "H": "Hyper", "Mod3": "Hyper", "M": "Meta", "Mod5": "Meta"}
+MODIFIER_ORDER = ("Super", "Ctrl", "Alt", "Hyper", "Meta", "Shift")
+KEY_NAMES = {
+    "Super_L": "Super", "Super_R": "Super",     # flickos-layouts' start menu (onRelease)
+    "Return": "Enter", "KP_Enter": "Enter", "space": "Space", "Escape": "Esc",
+    "Left": "←", "Right": "→", "Up": "↑", "Down": "↓", "Print": "Print Screen",
+    "Prior": "Page Up", "Next": "Page Down", "BackSpace": "Backspace",
+    "bracketleft": "[", "bracketright": "]", "minus": "-", "equal": "=", "plus": "+",
+    "comma": ",", "period": ".", "slash": "/", "backslash": "\\", "semicolon": ";",
+    "apostrophe": "'", "grave": "`", "KP_Add": "Keypad +", "KP_Subtract": "Keypad -",
+}
+
+
+class ShortcutsError(Exception):
+    pass
+
+
+def warn(message):
+    print(f"flickos-shortcuts: {message}", file=sys.stderr)
+
+
+# --- Shortcuts from rc.xml ----------------------------------------------------
+
+def config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+
+
+def flickos_runtime():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    return os.path.join(base, "flickos") if base and os.path.isabs(base) else None
+
+
+def rc_xml_files():
+    """The rc.xml files labwc reads, in the order it reads them: the plain
+    session's only, every one least important first while labwc merges, else
+    the first one in its config folders."""
+    runtime = flickos_runtime()
+    if runtime:
+        plain = os.path.join(runtime, PLAIN_LABWC, "rc.xml")
+        if os.path.isfile(plain):
+            return [plain]
+    folders = [config_home()] + (os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(":")
+    found = [os.path.join(folder, "labwc", "rc.xml") for folder in folders
+             if folder and os.path.isfile(os.path.join(folder, "labwc", "rc.xml"))]
+    if runtime and os.path.exists(os.path.join(runtime, MERGE_MARKER)):
+        return found[::-1]
+    return found[:1]
+
+
+def find_rc_xml():
+    """The rc.xml labwc reads first (the only one unless it merges)."""
+    files = rc_xml_files()
+    return files[-1] if files else None
+
+
+def key_parts(key):
+    """'W-S-Return' -> (('Super', 'Shift'), 'Return'), modifiers in MODIFIER_ORDER.
+    None for a key with a modifier labwc doesn't have."""
+    *mods, name = key.split("-")
+    names = set()
+    for mod in mods:
+        if mod not in MODIFIERS:
+            return None
+        names.add(MODIFIERS[mod])
+    return tuple(m for m in MODIFIER_ORDER if m in names), name
+
+
+def key_name(name):
+    return KEY_NAMES.get(name, name.upper() if len(name) == 1 else name)
+
+
+def format_keys(keys):
+    """Key texts for [(modifiers, name)]: keys with the same modifiers share
+    one ('Alt + ← → ↑ ↓'), Super keys first. A name of several words
+    ('Keypad +') gets its own text: 'Super + = Keypad +' would read as one key."""
+    groups = {}
+    for mods, name in keys:
+        text = key_name(name)
+        _, shown = groups.setdefault((mods, text) if " " in text else mods, (mods, []))
+        if text not in shown:     # Super_L and Super_R are both "Super"
+            shown.append(text)
+    order = sorted(groups.values(), key=lambda group: ("Super" not in group[0], len(group[0])))
+    return [" + ".join(mods + (" ".join(shown),)) for mods, shown in order]
+
+
+def parse_action(element):
+    """An <action> as (name, arguments): attributes and child elements."""
+    args = {k: v for k, v in element.attrib.items() if k != "name"}
+    for child in element:
+        args[child.tag] = (child.text or "").strip()
+    return element.get("name", ""), args
+
+
+def read_keybinds(paths):
+    """The keybinds of one rc.xml, or several read in turn as labwc -m does,
+    as [(key, [(action, arguments)])] in labwc's order: built-in ones where a
+    file has <default />, a key bound again replaces the earlier binding, a
+    binding to action None removes it. Of several files, one that can't be
+    read is skipped (labwc skips it too)."""
+    paths = [paths] if isinstance(paths, str) else list(paths)
+    roots = []
+    for path in paths:
+        try:
+            roots.append(ET.parse(path).getroot())
+        except (OSError, ET.ParseError) as error:
+            if len(paths) == 1:
+                raise ShortcutsError(f"cannot read {path}: {error}") from error
+    bound = {}
+    for keyboard in (keyboard for root in roots for keyboard in root.iter("keyboard")):
+        for element in keyboard:
+            if element.tag == "default":
+                for key, actions in DEFAULT_KEYBINDS:
+                    bound[key_parts(key)] = (key, actions)
+            elif element.tag == "keybind" and element.get("key"):
+                parts = key_parts(element.get("key"))
+                if parts is None:
+                    continue
+                actions = [parse_action(a) for a in element.iter("action")]
+                bound.pop(parts, None)      # keeps labwc's order: the later one wins
+                if actions and all(name != "None" for name, _ in actions):
+                    bound[parts] = (element.get("key"), actions)
+    return list(bound.values())
+
+
+def addon_descriptions():
+    """The add-ons' keybind descriptions ({command: description}); none
+    without the file or when it can't be read."""
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base):
+        return {}
+    try:
+        with open(os.path.join(base, "flickos", ADDON_DESCRIPTIONS), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {command: text for command, text in data.items() if isinstance(text, str) and text}
+
+
+def describe(actions, key=None, addons=None):
+    """(section, description) of a keybind's actions, bound to `key` (labwc's
+    name, e.g. 'W-1'). addons: addon_descriptions()."""
+    for name, args in actions:
+        if name == "Execute":
+            command = args.get("command", "")
+            if addons and command.strip() in addons:
+                return ADDON_SECTION, addons[command.strip()]
+            for pattern, section, text in COMMANDS:
+                if re.search(pattern, command):
+                    return section, text
+            program = os.path.basename(command.split()[0]) if command.split() else "command"
+            return "Other", f"Run {program}"
+        if name in ACTIONS:
+            section, text = ACTIONS[name]
+            to = args.get("to", "")
+            if to.isdigit() and key and key.split("-")[-1] == to:
+                desktop = NUMBERED_DESKTOP
+            else:
+                desktop = DESKTOPS.get(to, f"desktop {to}")
+            return section, text.format(menu=MENUS.get(args.get("menu", ""), "Menu"),
+                                        desktop=desktop)
+    for name, _ in actions:
+        if name not in QUIET_ACTIONS:
+            # "ToggleDecorations" -> "Toggle decorations"
+            return "Other", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).capitalize()
+    return "Other", actions[0][0] if actions else "Nothing"
+
+
+def shortcuts(path=None):
+    """{section: [(description, [key text, ...])]} in SECTIONS order, keys
+    with the same description in one row."""
+    paths = [path] if path else rc_xml_files()
+    if not paths:
+        raise ShortcutsError("no labwc rc.xml found")
+    rows = {}
+    addons = addon_descriptions()
+    for key, actions in read_keybinds(paths):
+        parts = key_parts(key)
+        if parts[1].startswith("XF86") or not actions:
+            continue
+        section, text = describe(actions, key, addons)
+        rows.setdefault((section, text), []).append(parts)
+    result = {}
+    for (section, text), keys in rows.items():
+        result.setdefault(section, []).append((text, format_keys(keys)))
+    return {s: result[s] for s in SECTIONS if s in result}
+
+
+def split_columns(sections, count=COLUMNS):
+    """Sections spread over at most `count` columns of about the same height,
+    in order."""
+    items = list(sections.items())
+    total = sum(len(rows) + 2 for _, rows in items)     # +2: heading and gap
+    columns, height = [[]], 0
+    for name, rows in items:
+        size = len(rows) + 2
+        if columns[-1] and len(columns) < count and height + size / 2 > total / count:
+            columns.append([])
+            height = 0
+        columns[-1].append((name, rows))
+        height += size
+    return columns
+
+
+# --- Super from the compositor ------------------------------------------------
+
+def pack_uint(value):
+    return struct.pack("=I", value)
+
+
+def pack_string(text):
+    data = text.encode("utf-8") + b"\0"
+    return pack_uint(len(data)) + data + b"\0" * (-len(data) % 4)
+
+
+def wayland_socket_path():
+    display = os.environ.get("WAYLAND_DISPLAY")
+    if not display:
+        raise ShortcutsError("WAYLAND_DISPLAY is not set")
+    if os.path.isabs(display):
+        return display
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime:
+        raise ShortcutsError("XDG_RUNTIME_DIR is not set")
+    return os.path.join(runtime, display)
+
+
+class Modifiers:
+    """A Wayland connection with only a keyboard. Calls on_change(depressed)
+    when the modifiers change; labwc sends them without keyboard focus."""
+
+    def __init__(self, sock, on_change):
+        self.sock = sock
+        self.on_change = on_change
+        self.buffer = b""
+        self.next_id = 2
+        self.handlers = {1: self.on_display}
+        self.registry = self.new_object(self.on_registry)
+        self.send(1, 1, pack_uint(self.registry))           # wl_display.get_registry
+        self.seat = None
+        self.keyboard = None
+
+    def new_object(self, handler):
+        object_id = self.next_id
+        self.next_id += 1
+        self.handlers[object_id] = handler
+        return object_id
+
+    def send(self, object_id, opcode, payload=b""):
+        self.sock.sendall(struct.pack("=II", object_id, (8 + len(payload)) << 16 | opcode) + payload)
+
+    def fileno(self):
+        return self.sock.fileno()
+
+    def dispatch(self):
+        """Read and handle what's available. False when the compositor is gone."""
+        # The keymap event comes with a file descriptor; take it and close it.
+        try:
+            data, fds, _, _ = socket.recv_fds(self.sock, 65536, 4)
+        except ConnectionResetError:
+            return False
+        for fd in fds:
+            os.close(fd)
+        if not data:
+            return False
+        self.buffer += data
+        while len(self.buffer) >= 8:
+            object_id, word = struct.unpack_from("=II", self.buffer)
+            size, opcode = word >> 16, word & 0xFFFF
+            if size < 8:
+                raise ShortcutsError("bad Wayland message")
+            if len(self.buffer) < size:
+                break
+            payload, self.buffer = self.buffer[8:size], self.buffer[size:]
+            handler = self.handlers.get(object_id)
+            if handler is not None:
+                handler(opcode, payload)
+        return True
+
+    def on_display(self, opcode, payload):
+        if opcode == 0:     # error
+            object_id, code = struct.unpack_from("=II", payload)
+            raise ShortcutsError(f"Wayland error on object {object_id} ({code})")
+        if opcode == 1:     # delete_id
+            self.handlers.pop(struct.unpack_from("=I", payload)[0], None)
+
+    def on_registry(self, opcode, payload):
+        if opcode != 0 or self.seat is not None:     # global, first seat only
+            return
+        name, size = struct.unpack_from("=II", payload)
+        interface = payload[8:8 + size - 1].decode("utf-8", "replace")
+        if interface == "wl_seat":
+            # Version 1: capabilities, and a keyboard without repeat_info.
+            self.seat = self.new_object(self.on_seat)
+            self.send(self.registry, 0, pack_uint(name) + pack_string(interface) + pack_uint(1)
+                      + pack_uint(self.seat))
+
+    def on_seat(self, opcode, payload):
+        if opcode == 0 and self.keyboard is None:  # capabilities
+            if struct.unpack_from("=I", payload)[0] & 2:    # keyboard
+                self.keyboard = self.new_object(self.on_keyboard)
+                self.send(self.seat, 1, pack_uint(self.keyboard))  # get_keyboard
+
+    def on_keyboard(self, opcode, payload):
+        if opcode == 4:     # modifiers: serial, depressed, latched, locked, group
+            self.on_change(struct.unpack_from("=5I", payload)[1])
+
+
+class Hold:
+    """Decides when the sheet shows: Super held alone for HOLD_MS. Another
+    modifier, or letting go, hides it, and so does busy() (BUSY_SIGNAL) until
+    Super is let go. `timer` is (start(ms, callback), cancel(handle)); hide
+    takes now (True: without a fade)."""
+
+    def __init__(self, show, hide, timer):
+        self.show, self.hide = show, hide
+        self.start_timer, self.cancel_timer = timer
+        self.pending = None
+        self.shown = False
+        self.super_down = False
+        self.in_use = False
+
+    def modifiers(self, depressed):
+        self.super_down = bool(depressed & MOD_SUPER)
+        if not self.super_down:
+            self.in_use = False
+        if depressed == MOD_SUPER and not self.in_use:
+            if self.pending is None and not self.shown:
+                self.pending = self.start_timer(HOLD_MS, self.held)
+            return
+        self.stop()
+
+    def busy(self):
+        """Super is held for a keybind (BUSY_SIGNAL): no sheet until it is let
+        go, and a shown one goes at once, without a fade (a zoom key must not
+        leave it over the zoomed screen). The signal can come after a quick
+        Super+key is over: then it changes nothing."""
+        self.in_use = self.super_down
+        self.stop(now=True)
+
+    def stop(self, now=False):
+        if self.pending is not None:
+            self.cancel_timer(self.pending)
+            self.pending = None
+        if self.shown:
+            self.shown = False
+            self.hide(now)
+
+    def held(self):
+        self.pending = None
+        self.shown = True
+        self.show()
+        return False    # GLib: don't repeat
+
+
+def fade_opacity(start, end, elapsed, duration, ease_out):
+    """(opacity, finished) of a fade from start to end, elapsed ms into one of
+    duration ms: cubic, eased out (fast at first) for a fade in, eased in for
+    a fade out. The same as flickos-menu's (a test compares them)."""
+    t = min(max(elapsed / duration, 0.0), 1.0) if duration > 0 else 1.0
+    k = 1 - (1 - t) ** 3 if ease_out else t ** 3
+    return start + (end - start) * k, t >= 1.0
+
+
+# --- The sheet ----------------------------------------------------------------
+
+def load_gtk():
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GtkLayerShell", "0.1")
+        from gi.repository import GLib
+        GLib.set_prgname(APP_ID)
+        from gi.repository import Gdk, Gtk, GtkLayerShell
+    except (ImportError, ValueError) as error:
+        raise ShortcutsError(f"GTK 3 with layer shell is not available ({error})") from error
+    if not Gtk.init_check(sys.argv[:1])[0]:
+        raise ShortcutsError("cannot open a window (no Wayland display)")
+    if not GtkLayerShell.is_supported():
+        raise ShortcutsError("the compositor has no layer shell")
+    provider = Gtk.CssProvider()
+    try:
+        provider.load_from_path(STYLE)
+    except GLib.Error as error:
+        warn(f"cannot load {STYLE}: {error.message}")
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    return GLib, Gdk, Gtk, GtkLayerShell
+
+
+def build_sheet(gtk, footer, interactive):
+    """The sheet as a layer-shell window (not shown yet)."""
+    _, Gdk, Gtk, GtkLayerShell = gtk
+    window = Gtk.Window(title=TITLE, app_paintable=True)
+    visual = Gdk.Screen.get_default().get_rgba_visual()
+    if visual is not None:      # rounded corners
+        window.set_visual(visual)
+    window.get_style_context().add_class("flickos-shortcuts")
+    GtkLayerShell.init_for_window(window)
+    GtkLayerShell.set_namespace(window, APP_ID)
+    GtkLayerShell.set_layer(window, GtkLayerShell.Layer.OVERLAY)
+    GtkLayerShell.set_keyboard_mode(window, GtkLayerShell.KeyboardMode.EXCLUSIVE if interactive
+                                    else GtkLayerShell.KeyboardMode.NONE)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+    box.get_style_context().add_class("sheet")
+    window.add(box)
+    title = Gtk.Label(label=TITLE, xalign=0)
+    title.get_style_context().add_class("title")
+    box.pack_start(title, False, False, 0)
+
+    try:
+        sections = shortcuts()
+    except ShortcutsError as error:
+        sections = {}
+        box.pack_start(Gtk.Label(label=str(error), xalign=0), False, False, 0)
+    columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=40)
+    box.pack_start(columns, False, False, 0)
+    for column in split_columns(sections):
+        grid = Gtk.Grid(column_spacing=16, row_spacing=6, valign=Gtk.Align.START)
+        columns.pack_start(grid, False, False, 0)
+        row = 0
+        for name, rows in column:
+            heading = Gtk.Label(label=name, xalign=0)
+            heading.get_style_context().add_class("heading")
+            if row:
+                heading.set_margin_top(12)
+            grid.attach(heading, 0, row, 2, 1)
+            row += 1
+            for text, keys in rows:
+                caps = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                for index, key in enumerate(keys):
+                    if index:
+                        caps.pack_start(Gtk.Label(label="or"), False, False, 0)
+                    cap = Gtk.Label(label=key)
+                    cap.get_style_context().add_class("key")
+                    caps.pack_start(cap, False, False, 0)
+                grid.attach(caps, 0, row, 1, 1)
+                grid.attach(Gtk.Label(label=text, xalign=0), 1, row, 1, 1)
+                row += 1
+
+    hint = Gtk.Label(label=footer, xalign=0)
+    hint.get_style_context().add_class("hint")
+    box.pack_start(hint, False, False, 0)
+    return window
+
+
+class Sheets:
+    """The daemon's sheet. Built again at every show (rc.xml changes: tiling
+    on or off, layouts), faded in, and faded out before it is destroyed. A
+    new hold during a fade out destroys the old sheet at once. build() makes
+    a sheet window, not shown yet."""
+
+    def __init__(self, Gtk, build):
+        self.Gtk, self.build = Gtk, build
+        self.window = None      # the sheet shown
+        self.leaving = None     # a sheet fading out
+        self.ticks = {}         # window: its fade's tick callback
+
+    def animate(self):
+        return self.Gtk.Settings.get_default().props.gtk_enable_animations
+
+    def show(self):
+        if self.leaving is not None:
+            self.destroy(self.leaving)
+            self.leaving = None
+        window = self.window = self.build()
+        if self.animate():
+            # Through Gtk.Widget: PyGObject maps Gtk.Window.set_opacity to the
+            # deprecated gtk_window_set_opacity.
+            self.Gtk.Widget.set_opacity(window, 0.0)
+            window.show_all()
+            self.fade(window, 1.0, FADE_IN_MS, True)
+        else:
+            window.show_all()
+
+    def hide(self, now=False):
+        window, self.window = self.window, None
+        if window is None:
+            return
+        if now or not self.animate():
+            self.destroy(window)
+            return
+        self.leaving = window
+
+        def gone():
+            if self.leaving is window:
+                self.leaving = None
+            self.destroy(window)
+
+        self.fade(window, 0.0, FADE_OUT_MS, False, gone)
+
+    def destroy(self, window):
+        tick = self.ticks.pop(window, None)
+        if tick is not None:
+            window.remove_tick_callback(tick)
+        window.destroy()
+
+    def fade(self, window, end, duration, ease_out, done=None):
+        tick = self.ticks.pop(window, None)
+        if tick is not None:
+            window.remove_tick_callback(tick)
+        Gtk = self.Gtk
+        start = Gtk.Widget.get_opacity(window)
+        began = []
+
+        def step(_widget, clock):
+            now = clock.get_frame_time() / 1000     # µs → ms
+            if not began:
+                began.append(now)
+            value, finished = fade_opacity(start, end, now - began[0], duration, ease_out)
+            Gtk.Widget.set_opacity(window, value)
+            if not finished:
+                return True
+            self.ticks.pop(window, None)
+            if done is not None:
+                done()
+            return False
+
+        self.ticks[window] = window.add_tick_callback(step)
+
+
+def pass_clicks_through(window):
+    """Clicks go to the windows below (the sheet is only shown while Super is
+    held, and Super+drag must still work)."""
+    try:
+        import gi
+        gi.require_foreign("cairo")
+        import cairo
+    except (ImportError, ValueError):
+        return
+    window.input_shape_combine_region(cairo.Region())
+
+
+# --- Commands -----------------------------------------------------------------
+
+def runtime_dir():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base) or not os.path.isdir(base):
+        raise ShortcutsError("XDG_RUNTIME_DIR is not set")
+    return os.path.join(base, "flickos")
+
+
+@contextlib.contextmanager
+def daemon_lock():
+    """One daemon per session. Raises if another one holds the lock."""
+    folder = runtime_dir()
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    with open(os.path.join(folder, "shortcuts.lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ShortcutsError("already running") from None
+        yield
+
+
+def cmd_daemon(_opts):
+    with daemon_lock():
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(wayland_socket_path())
+        except OSError as error:
+            raise ShortcutsError(f"cannot connect to the compositor: {error}") from error
+        gtk = load_gtk()
+        GLib, _, Gtk, _ = gtk
+
+        def build():
+            window = build_sheet(gtk, "Release Super to close", interactive=False)
+            window.connect("realize", pass_clicks_through)
+            return window
+
+        sheets = Sheets(Gtk, build)
+        hold = Hold(sheets.show, sheets.hide, (GLib.timeout_add, GLib.source_remove))
+        modifiers = Modifiers(sock, hold.modifiers)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, BUSY_SIGNAL, lambda: hold.busy() or True)
+
+        def readable(*_):
+            try:
+                if modifiers.dispatch():
+                    return True
+            except (OSError, ShortcutsError) as error:
+                warn(str(error))
+            Gtk.main_quit()     # the compositor is gone
+            return False
+
+        GLib.io_add_watch(modifiers.fileno(), GLib.PRIORITY_DEFAULT,
+                          GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, readable)
+        Gtk.main()
+    return 0
+
+
+def cmd_show(_opts):
+    gtk = load_gtk()
+    _, _, Gtk, _ = gtk
+    window = build_sheet(gtk, "Press any key or click to close", interactive=True)
+    window.connect("key-press-event", lambda *_: Gtk.main_quit())
+    window.connect("button-press-event", lambda *_: Gtk.main_quit())
+    window.connect("destroy", Gtk.main_quit)
+    # Fades in like the held sheet; a key or a click ends the program at once.
+    Sheets(Gtk, lambda: window).show()
+    Gtk.main()
+    return 0
+
+
+def cmd_list(opts):
+    sections = shortcuts(opts.file)
+    width = max((len(" or ".join(keys)) for rows in sections.values() for _, keys in rows), default=0)
+    for index, (name, rows) in enumerate(sections.items()):
+        if index:
+            print()
+        print(f"{name}:")
+        for text, keys in rows:
+            print(f"  {' or '.join(keys):<{width}}  {text}")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="flickos-shortcuts",
+                                     description="Show the keyboard shortcuts of the FlickOS session.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("daemon", help="show the shortcuts while Super is held").set_defaults(func=cmd_daemon)
+    sub.add_parser("show", help="show the shortcuts until a key or click").set_defaults(func=cmd_show)
+    listing = sub.add_parser("list", help="print the shortcuts")
+    listing.add_argument("--file", help="rc.xml to read (default: the one labwc uses)")
+    listing.set_defaults(func=cmd_list)
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except ShortcutsError as error:
+        warn(str(error))
+        return 1
+    except KeyboardInterrupt:
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

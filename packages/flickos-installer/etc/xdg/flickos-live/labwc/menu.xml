@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Live session root menu: the FlickOS menu plus "Install FlickOS".
+  Copy of packages/flickos-settings/etc/xdg/labwc/menu.xml. Keep both in sync
+  (tools/check-menus.py checks it).
+  Used because /etc/profile.d/95-flickos-session.sh puts /etc/xdg/flickos-live
+  first in XDG_CONFIG_DIRS while this package is installed.
+-->
+<openbox_menu>
+  <menu id="root-menu" label="">
+    <item label="Install FlickOS"><action name="Execute"><command>flickos-install</command></action></item>
+    <separator />
+    <item label="Terminal"><action name="Execute"><command>xdg-terminal-exec</command></action></item>
+    <item label="Web Browser"><action name="Execute"><command>/usr/libexec/flickos/open-default browser</command></action></item>
+    <item label="Files"><action name="Execute"><command>/usr/libexec/flickos/open-default files</command></action></item>
+    <item label="Applications"><action name="Execute"><command>fuzzel</command></action></item>
+    <menu id="office-menu" label="Office">
+      <item label="Writer (documents)"><action name="Execute"><command>libreoffice --writer</command></action></item>
+      <item label="Calc (spreadsheets)"><action name="Execute"><command>libreoffice --calc</command></action></item>
+      <item label="Impress (presentations)"><action name="Execute"><command>libreoffice --impress</command></action></item>
+    </menu>
+    <item label="Media Player"><action name="Execute"><command>vlc</command></action></item>
+    <item label="Screenshot"><action name="Execute"><command>flickos-screenshot</command></action></item>
+    <item label="Software"><action name="Execute"><command>flickos-software</command></action></item>
+    <item label="Task Manager"><action name="Execute"><command>lxtask</command></action></item>
+    <separator />
+    <menu id="settings-menu" label="Settings">
+      <item label="All Settings"><action name="Execute"><command>flickos-control</command></action></item>
+      <separator />
+      <item label="Desktop Layout &amp; Style"><action name="Execute"><command>flickos-layout pick</command></action></item>
+      <item label="Wallpaper"><action name="Execute"><command>waypaper</command></action></item>
+      <item label="Appearance"><action name="Execute"><command>nwg-look</command></action></item>
+      <item label="Displays"><action name="Execute"><command>flickos-control displays arrange</command></action></item>
+      <item label="Network"><action name="Execute"><command>nm-connection-editor</command></action></item>
+      <item label="Sound"><action name="Execute"><command>pavucontrol</command></action></item>
+      <item label="Bluetooth"><action name="Execute"><command>blueman-manager</command></action></item>
+      <item label="Printers"><action name="Execute"><command>system-config-printer</command></action></item>
+      <item label="Software Updates"><action name="Execute"><command>gpk-update-viewer</command></action></item>
+      <item label="Keyboard Shortcuts"><action name="Execute"><command>flickos-shortcuts show</command></action></item>
+      <separator />
+      <item label="Reload Desktop Config"><action name="Reconfigure" /></item>
+    </menu>
+    <menu id="session-menu" label="Session">
+      <item label="Lock Screen"><action name="Execute"><command>/usr/libexec/flickos/lock</command></action></item>
+      <item label="Log Out"><action name="Exit" /></item>
+      <item label="Sleep"><action name="Execute"><command>systemctl suspend</command></action></item>
+      <item label="Restart"><action name="Execute"><command>systemctl reboot</command></action></item>
+      <item label="Shut Down"><action name="Execute"><command>systemctl poweroff</command></action></item>
+    </menu>
+  </menu>
+</openbox_menu>

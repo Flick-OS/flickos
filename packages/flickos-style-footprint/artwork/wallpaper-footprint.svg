@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Footprint's wallpaper (tools/make-footprint.py): FlickOS's halo, as on
+       Dark's, over a dusk of soft blue-grey hills. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1" >
+      <stop offset="0" stop-color="#1c2633"/>
+      <stop offset="1" stop-color="#11161d"/>
+    </linearGradient>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <path d="M0 760C320 640 640 700 960 780C1280 860 1600 820 1920 700V1080H0Z" fill="#26364a" fill-opacity="0.55"/>
+  <path d="M0 860C360 780 720 820 1080 900C1440 980 1680 940 1920 860V1080H0Z" fill="#2c4a6e" fill-opacity="0.45"/>
+  <path d="M0 960C400 900 800 940 1200 1000C1500 1040 1720 1020 1920 980V1080H0Z" fill="#3584e4" fill-opacity="0.18"/>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+</svg>

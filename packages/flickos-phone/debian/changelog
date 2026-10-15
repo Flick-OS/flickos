@@ -1,0 +1,279 @@
+flickos-phone (1.29) trixie; urgency=medium
+
+  * Sending files to the phone: a file counts as sent only once the
+    phone has every byte, so a small file the phone dropped is no longer
+    reported as sent, and a file is offered up to three times instead of
+    twice. A phone that was idle a few seconds may take nothing for 10 s
+    on a new connection, and its app then gives up.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 09 Oct 2026 07:57:38 +0800
+
+flickos-phone (1.28) trixie; urgency=medium
+
+  * The window's Loading… spinner turns only while it is on screen: GTK
+    3 kept animating it on the hidden loading page, 60 redraws a second
+    while the window was open.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 22:22:27 +0800
+
+flickos-phone (1.27) trixie; urgency=medium
+
+  * A text from the phone that is one address of a scheme another
+    package registered in /usr/share/flickos/phone/open-schemes/ (a file
+    holding the app's name) opens in that app on a click: the
+    notification, the received list, the menu and the window offer Open
+    in APP. Nothing opens by itself; other text is copied as before.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 12:22:31 +0800
+
+flickos-phone (1.26) trixie; urgency=medium
+
+  * A phone that left the network without a word is dropped within about
+    a minute (TCP keepalive), so it connects again by itself when it
+    comes back; a phone's broadcast is answered even while an old link
+    to it is held.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 11:15:45 +0800
+
+flickos-phone (1.25) trixie; urgency=medium
+
+  * Use as Second Screen, or Stop Second Screen while it is on, in the
+    menu, the Phone window and the popup's actions while the phone
+    screen add-on is installed (its second screen, docs/design/flickos-
+    second-screen.md ADR-007).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 07 Oct 2026 18:46:39 +0800
+
+flickos-phone (1.24) trixie; urgency=medium
+
+  * What the phone plays (ADR-018, Later item 15): the phone's players
+    come in as kdeconnect.mpris and are controlled with
+    kdeconnect.mpris.request, announced while the connection is on.
+    state's playing and a watch line playing fill the phone popup's
+    media row, and its buttons run the new flickos-phone player
+    play|pause|play-pause|next|previous|volume PERCENT [--to ID].
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 06 Oct 2026 20:03:12 +0800
+
+flickos-phone (1.23) trixie; urgency=medium
+
+  * Phone window: received rows show the item's icon, or a picture's
+    thumbnail; a click on a row opens or copies it, and the other
+    actions are in a menu. received_icons, shared with the phone popup.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 21:59:26 +0800
+
+flickos-phone (1.22) trixie; urgency=medium
+
+  * Phone window: files on their way to or from the phone show with a
+    progress bar and Cancel. The daemon writes a watch line per transfer
+    while bytes move (at most twice a second) and takes cancel ID;
+    flickos-phone cancel ID. send waits for a large file without a
+    timeout and says what was cancelled. Errors in the window's status
+    line read as sentences.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 21:50:15 +0800
+
+flickos-phone (1.21) trixie; urgency=medium
+
+  * Phone window: one page instead of a sidebar with Overview and
+    Received: the phone's line with Settings, the actions as a row of
+    buttons, then everything received. 640 wide instead of 900.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 21:24:51 +0800
+
+flickos-phone (1.20) trixie; urgency=medium
+
+  * Phone window: dropped files, links and text are sent to the phone,
+    and Ctrl+V sends the clipboard, while a phone is connected. The off,
+    unpaired and not-running messages have a Phone Settings button.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 21:08:14 +0800
+
+flickos-phone (1.19) trixie; urgency=medium
+
+  * Each action has short words for the tiles (Send Files…, Ring Phone,
+    Browse Files) in actions --json; the Phone window shows them. The
+    menu keeps the long ones.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 20:48:10 +0800
+
+flickos-phone (1.18) trixie; urgency=medium
+
+  * Phone window: the sidebar as in Settings, tile labels centered, and
+    Send Screenshot to Phone's underline moved off C, which Send
+    Clipboard to Phone has.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 20:40:41 +0800
+
+flickos-phone (1.17) trixie; urgency=medium
+
+  * A ringing call is reported to windows that are watching, and mute
+    silences the ringer from the command line.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 19:53:56 +0800
+
+flickos-phone (1.16) trixie; urgency=medium
+
+  * The Phone window: the phone's line, Overview and Received. The apps
+    menu entry stays hidden while the daemon is not running. The panel
+    menu and the window share one actions list, and the window hears
+    changes from the daemon instead of polling.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 19:20:33 +0800
+
+flickos-phone (1.15) trixie; urgency=medium
+
+  * Media control reads the players when playerctl reports a change, not
+    every 2 seconds (HIG PERF-5): no CPU while nothing changes, and a
+    pause reaches the phone at once.
+  * VLC shows once on the phone, not twice.
+  * Browse Phone's errors say what to do. The docstring lists the
+    commands, and the package description the named commands.
+  * A phone notification's text shows as written: it could restyle
+    itself with markup (a chat message could look like another alert).
+  * At most 20 of the phone's notifications stay here (each holds a
+    waiting notify-send); the oldest closes here and stays on the phone.
+    The icon cache keeps the newest 200 icons.
+  * Tests no longer write icons into the build host's cache.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 18:31:18 +0800
+
+flickos-phone (1.14) trixie; urgency=medium
+
+  * The phone can run commands named on this computer. It is sent the
+    names and asks by a key. The list is empty until one is added, and
+    nothing runs while the screen is locked.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 16:13:06 +0800
+
+flickos-phone (1.13) trixie; urgency=medium
+
+  * The phone's app can play, pause and change the volume of what's
+    playing on this computer, and shows the title and cover. Off until
+    turned on, and it changes nothing while the screen is locked.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 15:45:13 +0800
+
+flickos-phone (1.12) trixie; urgency=medium
+
+  * Browse Phone opens the phone's folder in the file manager. The
+    address was being opened in the web browser.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 15:27:56 +0800
+
+flickos-phone (1.11) trixie; urgency=medium
+
+  * Browse Phone, in the panel button's menu, opens the phone's files in
+    the file manager. The phone's key is checked against the one it
+    paired with before anything is opened.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 15:12:02 +0800
+
+flickos-phone (1.10) trixie; urgency=medium
+
+  * When the phone rings, a notification names the caller and Mute
+    silences the ringer. What is playing pauses until the call ends. Off
+    until turned on, and nothing is shown while the screen is locked.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 14:43:58 +0800
+
+flickos-phone (1.9) trixie; urgency=medium
+
+  * Show the phone's notifications for the apps you allow, never while
+    the screen is locked. Dismissing one here dismisses it on the phone.
+    Off until turned on.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 14:15:27 +0800
+
+flickos-phone (1.8) trixie; urgency=medium
+
+  * The panel button's menu has Show Phone Screen while a program called
+    flickos-phone-screen is installed and a phone is connected (the
+    phone screen add-on's ADR-008); it runs that program, with the
+    phone's id while one is connected.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 02 Oct 2026 14:59:34 +0800
+
+flickos-phone (1.7) trixie; urgency=medium
+
+  * The state and status JSON give each connected phone's address, and
+    the new ping command shows a text as a notification on the phone.
+    Both are for the phone screen add-on (ADR-008 of its design) and
+    anything else that wants them.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 02 Oct 2026 13:41:45 +0800
+
+flickos-phone (1.6) trixie; urgency=medium
+
+  * Close a phone's connection only in the thread that reads it; other
+    threads hang up. Closing it from another thread let OpenSSL write
+    into whatever reused the number (a test saw its alert in
+    subprocess's pipe).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 01 Oct 2026 19:31:18 +0800
+
+flickos-phone (1.5) trixie; urgency=medium
+
+  * Send to Phone is a Thunar custom action now (flickos-settings'
+    uca.xml), always shown: while the phone connection is off or in the
+    live session, its notification says why nothing was sent. Drop the
+    PCManFM action and the libfm-modules Depends.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 01 Oct 2026 18:51:56 +0800
+
+flickos-phone (1.4) trixie; urgency=medium
+
+  * Text sent to the phone that its clipboard sync sends straight back
+    (kdeconnect.clipboard repeating it within ECHO_SECONDS) is dropped:
+    it was copied, notified and listed in the panel button's menu as if
+    it came from the phone.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 18:33:28 +0800
+
+flickos-phone (1.3) trixie; urgency=medium
+
+  * Panel button: status --panel (waybar, signal 9 when a phone connects
+    or goes) and menu (fuzzel: Send Clipboard to Phone, the newest
+    received items, Phone Settings). set enabled regenerates the panel
+    (flickos-layout reload-panel). send --clipboard sends a web address
+    as a page.
+  * Panel button's menu: Send Screenshot to Phone (send --screenshot,
+    grim; only while grim is installed) and Ring My Phone (ring:
+    kdeconnect.findmyphone.request). The tooltip shows the phone's
+    battery (kdeconnect.battery).
+  * Send Files to Phone… in the panel button's menu: send --choose picks
+    the files in GTK's file chooser (Depends python3-gi, gir1.2-gtk-
+    3.0).
+  * Send Text to Phone… in the panel button's menu: send --type-text, a
+    line typed into fuzzel.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 17:26:11 +0800
+
+flickos-phone (1.2) trixie; urgency=medium
+
+  * Send to Phone in the file manager (PCManFM; Depends libfm-modules):
+    shown only while the phone connection runs, through flickos-phone-on
+    on the session's PATH. send --notify says what happened in a
+    notification.
+  * Send to Phone: no Tooltip in the action, which libfm shows as the
+    menu label instead of Name; the explanation is its Description.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 16:55:34 +0800
+
+flickos-phone (1.1) trixie; urgency=medium
+
+  * state: everything the Settings page shows, as one JSON object (also:
+    is port 1716 taken by KDE Connect). pair --json for the page's Add
+    Phone dialog; the pairing window closes as soon as pair goes away.
+    set networks 'UUID ...'|default (History can undo it).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 15:47:41 +0800
+
+flickos-phone (1.0) trixie; urgency=medium
+
+  * Initial release: send pages, files and text between a phone with the
+    KDE Connect app and this computer. Off by default (flickos-phone set
+    enabled yes, then flickos-phone pair).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 15:10:20 +0800

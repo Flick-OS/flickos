@@ -1,0 +1,31 @@
+flickos-countme (1.3) trixie; urgency=medium
+
+  * run outside the timer's service says to use systemctl start (or
+    --dry-run) instead of failing on the missing state folder.
+  * Docs and description: the installer no longer asks; the count is on
+    by default.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 01 Oct 2026 20:57:40 +0800
+
+flickos-countme (1.2) trixie; urgency=medium
+
+  * Description: systems installed before the count are counted until it
+    is turned off; removing the package is no longer the way out
+    (flickos-desktop depends on it).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 30 Sep 2026 21:42:15 +0800
+
+flickos-countme (1.1) trixie; urgency=medium
+
+  * Add debian/copyright: GPL-3.0-or-later.
+  * Count to the FlickOS server, flickos-countme.dvbondoy.workers.dev.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 30 Sep 2026 19:45:44 +0800
+
+flickos-countme (1.0) trixie; urgency=medium
+
+  * Initial release: an anonymous weekly count (FlickOS version and
+    install age only), a daily timer that sends at most once a week,
+    never in the live session; enable/disable through pkexec.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:22:18 +0800

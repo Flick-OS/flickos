@@ -1,0 +1,9 @@
+usr/bin/flickos-layout           usr/bin/
+usr/libexec/flickos/check-css    usr/libexec/flickos/
+usr/libexec/flickos/desktop      usr/libexec/flickos/
+usr/share/flickos/layouts/*      usr/share/flickos/layouts/
+etc/xdg/flickos/layouts.conf     etc/xdg/flickos/
+usr/share/flickos/styles/*       usr/share/flickos/styles/
+usr/share/backgrounds/flickos/*  usr/share/backgrounds/flickos/
+usr/share/applications/*         usr/share/applications/
+etc/skel/.config/flickos/choose-layout   etc/skel/.config/flickos/

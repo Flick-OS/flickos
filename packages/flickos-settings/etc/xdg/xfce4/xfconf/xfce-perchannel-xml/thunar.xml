@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FlickOS defaults for Thunar. Thunar keeps its settings in xfconf, whose
+  daemon (xfconfd) is started by D-Bus without the session's XDG_CONFIG_DIRS,
+  so this file can't live in /etc/xdg/flickos. It fills in only what the user
+  hasn't set: the user's ~/.config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml
+  (written when Thunar saves a setting) wins.
+
+  last-location-bar: the path as buttons (Thunar's default is the text entry;
+  Ctrl+L still types a location). Window size as FlickOS's pcmanfm had.
+-->
+<channel name="thunar" version="1.0">
+  <property name="last-location-bar" type="string" value="ThunarLocationButtons"/>
+  <property name="last-window-width" type="int" value="960"/>
+  <property name="last-window-height" type="int" value="600"/>
+  <property name="last-separator-position" type="int" value="180"/>
+</channel>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="150" viewBox="0 0 1920 1200">
+  <!-- The elemental layout's preview (tools/make-elemental.py). -->
+  <defs>
+    <linearGradient id="deep" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#05365c"/>
+      <stop offset="0.55" stop-color="#0a5d8e"/>
+      <stop offset="1" stop-color="#1688b3"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="0.3" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#a9b6ba"/>
+      <stop offset="0.3" stop-color="#c8cac7"/>
+      <stop offset="1" stop-color="#dfdbd3"/>
+    </linearGradient>
+    <filter id="ripples" filterUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1200">
+      <feTurbulence type="fractalNoise" baseFrequency="0.0022 0.024" numOctaves="3" seed="11"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 3 -1.6"/>
+    </filter>
+    <filter id="lace" filterUnits="userSpaceOnUse" x="-600" y="-300" width="3100" height="1700">
+      <feTurbulence type="fractalNoise" baseFrequency="0.01 0.035" numOctaves="3" seed="3" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="60" xChannelSelector="R" yChannelSelector="G" result="moved"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.03 0.06" numOctaves="2" seed="5"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 4 -1.6" result="holes"/>
+      <feComposite in="moved" in2="holes" operator="in"/>
+      <feGaussianBlur stdDeviation="1.2"/>
+    </filter>
+    <path id="shore" d="M-500 920C-100 900 300 840 700 880S1300 830 1600 740S2100 660 2400 640"/>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1200" fill="url(#deep)"/>
+  <rect width="1920" height="1200" filter="url(#ripples)" opacity="0.18"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="440" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="400" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="360" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="320" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="280" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="240" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="200" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="160" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="120" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="80" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#4fc0d6" stroke-width="40" opacity="0.1" transform="translate(0 -120)"/>
+  <use href="#shore" fill="none" stroke="#ffffff" stroke-width="18" opacity="0.5" filter="url(#lace)" transform="translate(0 -250)"/>
+  <use href="#shore" fill="none" stroke="#ffffff" stroke-width="34" opacity="0.7" filter="url(#lace)" transform="translate(0 -130)"/>
+  <path d="M-500 920C-100 900 300 840 700 880S1300 830 1600 740S2100 660 2400 640V1240H-500Z" fill="url(#sand)"/>
+  <use href="#shore" fill="none" stroke="#ffffff" stroke-width="80" opacity="0.95" filter="url(#lace)" transform="translate(0 -25)"/>
+  <use href="#shore" fill="none" stroke="#ffffff" stroke-width="26" opacity="0.45" filter="url(#lace)" transform="translate(0 45)"/>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+  <rect x="160" y="200" width="1000" height="740" rx="14" fill="#f6f5f4" stroke="#cdc7c2" stroke-width="3"/>
+  <path d="M202 236L242 276M242 236L202 276" fill="none" stroke="#2e3436" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M1092 236H1120V264M1120 236L1096 260M1088 276H1060V248M1060 276L1084 252" fill="none" stroke="#2e3436" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="520" y="240" width="280" height="32" rx="6" fill="#2e3436" fill-opacity="0.8"/>
+  <rect x="440" y="400" width="440" height="160" rx="10" fill="#ffffff" stroke="#cdc7c2" stroke-width="3"/>
+  <rect x="440" y="600" width="440" height="200" rx="10" fill="#ffffff" stroke="#cdc7c2" stroke-width="3"/>
+  <rect width="1920" height="64" fill="#000000" fill-opacity="0.55"/>
+  <circle cx="40" cy="32" r="15" fill="none" stroke="#ffb13d" stroke-width="6"/>
+  <rect x="72" y="21" width="190" height="22" rx="4" fill="#ffffff"/>
+  <rect x="820" y="21" width="280" height="22" rx="4" fill="#ffffff"/>
+  <circle cx="1860" cy="32" r="13" fill="#ffffff"/><circle cx="1804" cy="32" r="13" fill="#ffffff"/><circle cx="1748" cy="32" r="13" fill="#ffffff"/><circle cx="1692" cy="32" r="13" fill="#ffffff"/>
+  <rect x="520" y="1020" width="880" height="160" rx="32" fill="#ffffff" fill-opacity="0.65" stroke="#ffffff" stroke-opacity="0.7" stroke-width="3"/>
+  <rect x="550" y="1040" width="100" height="100" rx="24" fill="#3689e6"/><rect x="670" y="1040" width="100" height="100" rx="24" fill="#68b723"/><rect x="790" y="1040" width="100" height="100" rx="24" fill="#f9c440"/><rect x="910" y="1040" width="100" height="100" rx="24" fill="#f37329"/><rect x="1030" y="1040" width="100" height="100" rx="24" fill="#c6262e"/><rect x="1150" y="1040" width="100" height="100" rx="24" fill="#a56de2"/><rect x="1270" y="1040" width="100" height="100" rx="24" fill="#485a6c"/>
+  <circle cx="600" cy="1160" r="7" fill="#333333"/><circle cx="1080" cy="1160" r="7" fill="#333333"/>
+</svg>

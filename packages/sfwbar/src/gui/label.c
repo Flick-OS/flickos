@@ -1,0 +1,44 @@
+/* This entire file is licensed under GNU General Public License v3.0
+ *
+ * Copyright 2022- sfwbar maintainers
+ */
+
+#include "gui/label.h"
+
+G_DEFINE_TYPE_WITH_CODE (Label, label, BASE_WIDGET_TYPE, G_ADD_PRIVATE (Label))
+
+static void label_update_value ( GtkWidget *self )
+{
+  LabelPrivate *priv;
+  value_t value;
+
+  g_return_if_fail(IS_LABEL(self));
+  priv = label_get_instance_private(LABEL(self));
+
+  if(!value_is_string(value = base_widget_get_value(self)))
+    return;
+  if(value_get_string(value) && *(value_get_string(value)) &&
+      pango_parse_markup(value_get_string(value), -1, 0, NULL, NULL, NULL,
+        NULL))
+    gtk_label_set_markup(GTK_LABEL(priv->label), value_get_string(value));
+  else
+    gtk_label_set_text(GTK_LABEL(priv->label), value_get_string(value));
+}
+
+static void label_class_init ( LabelClass *kclass )
+{
+  BASE_WIDGET_CLASS(kclass)->update_value = label_update_value;
+}
+
+static void label_init ( Label *self )
+{
+  LabelPrivate *priv;
+
+  priv = label_get_instance_private(LABEL(self));
+
+  priv->label = gtk_label_new("");
+  gtk_label_set_ellipsize(GTK_LABEL(priv->label), PANGO_ELLIPSIZE_END);
+  gtk_label_set_line_wrap(GTK_LABEL(priv->label), TRUE);
+  gtk_label_set_line_wrap_mode(GTK_LABEL(priv->label), PANGO_WRAP_WORD_CHAR);
+  gtk_container_add(GTK_CONTAINER(self), priv->label);
+}

@@ -1,0 +1,1122 @@
+#!/usr/bin/python3
+"""flickos-recovery: restore points of the whole system (docs/design/flickos-recovery.md).
+
+    flickos-recovery list                 the restore points, oldest first: NAME, then what it was taken before
+    flickos-recovery state                everything the Settings page shows, as JSON
+    flickos-recovery get [KEY]            KEY, value, where it comes from (default or the system's choice)
+    flickos-recovery set enabled|auto-recover yes|no|default
+    flickos-recovery create [REASON]      a restore point now
+    flickos-recovery delete NAME|--all
+    flickos-recovery plan NAME            what putting NAME back undoes, as JSON (apt's history since then)
+    flickos-recovery restore NAME         put NAME back; it is used from the next start
+    flickos-recovery settle               at the start after that: the old system becomes read-only
+    flickos-recovery grub                 write the boot menu's Restore points again
+    flickos-recovery start begin|good-watch|status|try-again|keep
+                                          the start counter (ADR-005)
+    flickos-recovery notify               at login, started from a restore point: say so (flickos-settings' autostart)
+    flickos-recovery apt-hook             what apt runs before dpkg (stdin: apt's version 3 package list)
+
+A restore point is a read-only btrfs snapshot of / (the @ subvolume) in
+/.snapshots/NAME, NAME being the time it was taken, plus NAME.json saying why.
+Only snapshots with that file are restore points: the tool never touches
+anything else in /.snapshots.
+
+apt runs the hook before every change, whichever program asked (apt, the
+Software and updates apps through PackageKit, automatic updates), and one
+change gets one restore point: automatic updates run dpkg once per package,
+so none is made while the newest restore point belongs to the same run of the
+same program (ADR-002, phase 0 item 2). Only KEEP are kept, the oldest go
+first, and none is made while less than MIN_FREE or MIN_FREE_SHARE of the
+disk is free.
+
+Nothing happens unless / is FlickOS's btrfs layout (ADR-001: / is the @
+subvolume, /.snapshots the @snapshots one), so on ext4 and in the live
+session every command says so and does nothing (ADR-006). The hook never
+makes apt fail: whatever goes wrong, it is logged and the hook exits 0.
+
+Putting back (ADR-003) swaps subvolumes on the top level of the filesystem:
+the running @ moves into @snapshots as a restore point of its own ("before
+putting back", so it can be undone), and a writable snapshot of NAME becomes
+the new @, which Debian's rootflags=subvol=@ finds at the next start. GRUB is
+installed again from the restored system, so the EFI partition's core image
+matches the restored modules (phase 0 item 3); if that fails, the swap is
+undone. Until the restart apt is refused: changes made then would go into the
+old system and be lost.
+
+The boot menu (ADR-004) gets a "Restore points" submenu: /etc/grub.d/42_flickos-recovery
+sources GRUB_CFG, which this program writes after every change, one entry per
+restore point with the restore point's own kernel and initramfs. Started from
+one, the initramfs (scripts/local-bottom/flickos-recovery) puts a writable
+layer in memory over it, so it works and nothing is kept, and tells the
+system in BOOTED_FILE. Putting back the restore point the system runs from
+makes it the system ("keep").
+
+A start that doesn't work is noticed by the next one (ADR-005): early in
+every start `start begin` counts one more, and `start good-watch` sets the
+count back to 0 once the login screen or the desktop has been up
+GOOD_SECONDS. The counter lives in @snapshots (STATE_JSON), so putting back
+never puts it back, and again in GRUB's words (STATE_CFG), which the menu
+stub sources: GRUB can't write on btrfs, but it can read. At LIMIT failed
+starts the counter file also holds a menu entry for the newest good restore
+point, and GRUB starts it by itself (auto-recover yes, Option B) or waits with
+it highlighted (Option A). The restore point keeps being used until the user
+chooses keep or try-again; if starts from it fail too, GRUB waits (never twice
+in a row). Every file GRUB reads is committed at once (phase 0 item 5).
+
+create, delete, restore and set change the system and need root. Run by
+another user they go through pkexec and HELPER, which asks for a password.
+"""
+import os
+import sys
+
+PROC = "/proc"
+PENDING_NAME = ".flickos-recovery-pending"  # in /.snapshots while a restart is due after putting back
+
+
+def findmnt(target):
+    """(filesystem type, path inside the filesystem) of what is mounted at
+    TARGET, from /proc/self/mountinfo (no findmnt to start: the hook runs at
+    every apt run, also on systems where it does nothing)."""
+    found = None
+    try:
+        with open(f"{PROC}/self/mountinfo", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                head, sep, tail = line.partition(" - ")
+                fields, after = head.split(), tail.split()
+                if not sep or len(fields) < 5 or not after:
+                    continue
+                if fields[4].replace("\\040", " ") == target:
+                    found = (after[0], fields[3])   # the last mount there is the one in use
+    except OSError:
+        pass
+    return found
+
+
+# apt runs the hook at every change, also on the systems where it does nothing
+# (every install from before restore points). Leave those before importing
+# what only the real work needs: it saves about half of the hook's time.
+if __name__ == "__main__" and sys.argv[1:2] == ["apt-hook"] and findmnt("/") != ("btrfs", "/@") \
+        and not os.path.exists("/.snapshots/" + PENDING_NAME):   # after putting back, / looks different
+    sys.stdin.read()                    # apt writes its whole list: read it
+    sys.exit(0)
+
+import contextlib  # noqa: E402
+import datetime  # noqa: E402
+import fcntl  # noqa: E402
+import gzip  # noqa: E402
+import json  # noqa: E402
+import subprocess  # noqa: E402
+import shutil  # noqa: E402
+import time  # noqa: E402
+
+SNAPSHOTS = "/.snapshots"
+# The settings live in @snapshots, like the counter: putting back a restore
+# point doesn't put them back, and a change made while running from one (in
+# the memory layer) isn't lost. Written by `set`.
+CONF = "/.snapshots/.flickos-recovery.conf"
+LOG = "/var/log/flickos-recovery.log"   # in @log: it survives putting back a restore point
+LOCK = SNAPSHOTS + "/.flickos-recovery.lock"
+EXTENDED_STATES = "/var/lib/apt/extended_states"     # apt's "automatically installed" marks
+HISTORY = "/var/log/apt/history.log"    # what apt did, for `plan`
+HELPER = "/usr/libexec/flickos/recovery-helper"
+WORK = "/run/flickos-recovery"          # the top level of the filesystem is mounted here to swap
+REFUSE_APT = 100                        # the hook's exit status that stops apt (80flickos-recovery)
+GRUB_CFG = "/boot/grub/flickos-recovery.cfg"         # sourced by GRUB_STUB's lines in grub.cfg
+GRUB_STUB = "/etc/grub.d/42_flickos-recovery"
+MKCONFIG_LIB = "/usr/share/grub/grub-mkconfig_lib"
+BOOTED_FILE = "/run/flickos/restore-point-boot"      # written by the initramfs when started from one
+LOWER = "/run/flickos-restore-point/lower"           # the restore point under the memory layer
+STATE_JSON = "/.snapshots/.flickos-start.json"       # the start counter
+STATE_CFG = "/.snapshots/.flickos-start.cfg"         # the same for GRUB, sourced by GRUB_STUB's lines
+GRUB_ACCESS = "/.snapshots/.flickos-grub.json"       # write_grub's disk access lines, for STATE_CFG at start
+LIMIT = 2                               # failed starts before the restore point
+GOOD_SECONDS = 5                        # the login screen or desktop up this long: a start that worked
+GOOD_PROCESSES = ("gtkgreet", "labwc")
+RECOVER_ID = "flickos-recover"          # the counter file's menu entry
+KEEP = 5
+MIN_FREE = 2 * 1024 ** 3                # bytes, or MIN_FREE_SHARE of the disk if that is more
+MIN_FREE_SHARE = 0.10
+# Programs that run apt, by the name in their command line, and what to call them.
+FRONT_ENDS = {"apt": "apt", "apt-get": "apt-get", "aptitude": "aptitude",
+              "packagekitd": "Software (PackageKit)", "unattended-upgrade": "automatic updates",
+              "synaptic": "Synaptic"}
+APT_FRONT_ENDS = ("apt", "apt-get", "aptitude")
+# Their options whose value is the next word (apt-get(8), aptitude(8)).
+APT_VALUE_OPTIONS = ("-o", "--option", "-c", "--config-file", "-t", "--target-release", "--default-release",
+                     "-a", "--host-architecture", "-P", "--build-profiles", "-F", "--display-format",
+                     "-O", "--sort", "-w", "--width")
+# key: (file key, default, values)
+SETTINGS = {"enabled": ("Enabled", "yes", ("yes", "no")),
+            "auto-recover": ("AutoRecover", "yes", ("yes", "no"))}
+
+
+class Refused(Exception):
+    """A reason, in words, why nothing was done."""
+
+
+# --- logging and settings ------------------------------------------------------
+
+def log(message):
+    """To stderr and the log file. The file is fsynced: a power cut right
+    after an apt run must not lose what the hook did."""
+    print(f"flickos-recovery: {message}", file=sys.stderr)
+    try:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {message}\n")
+            f.flush()
+            os.fsync(f.fileno())
+    except OSError:
+        pass
+
+
+def read_conf():
+    values = {}
+    try:
+        with open(CONF, encoding="utf-8") as f:
+            for line in f:
+                key, sep, value = line.partition("=")
+                if sep and not key.lstrip().startswith("#"):
+                    values[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return values
+
+
+def get(key):
+    """(value, "default" or "system")."""
+    file_key, default, allowed = SETTINGS[key]
+    value = read_conf().get(file_key)
+    if value in allowed:
+        return value, "system"
+    return default, "default"
+
+
+def set_setting(key, value):
+    if key not in SETTINGS:
+        raise Refused(f"no setting {key}; the settings are: {', '.join(SETTINGS)}")
+    file_key, default, allowed = SETTINGS[key]
+    if value not in allowed + ("default",):
+        raise Refused(f"{key} is {', '.join(allowed)} or default, not {value!r}")
+    problem = layout_problem()
+    if problem:
+        raise Refused(f"no restore points on this system: {problem}")
+    values = read_conf()
+    values.pop(file_key, None)
+    if value != "default":
+        values[file_key] = value
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    tmp = CONF + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("# Written by flickos-recovery set; change it with that command.\n")
+        f.writelines(f"{k}={v}\n" for k, v in sorted(values.items()))
+    os.replace(tmp, CONF)
+    log(f"{key} set to {value}")
+    if key == "auto-recover" and not layout_problem():
+        save_state(load_state())        # GRUB reads it from the counter file
+
+
+def enabled():
+    return get("enabled")[0] == "yes"
+
+
+# --- the system ----------------------------------------------------------------
+
+def mount_source(target):
+    """The device mounted at TARGET (/dev/vda2, /dev/mapper/luks-…)."""
+    found = None
+    with contextlib.suppress(OSError):
+        with open(f"{PROC}/self/mountinfo", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                head, sep, tail = line.partition(" - ")
+                fields, after = head.split(), tail.split()
+                if sep and len(fields) >= 5 and len(after) >= 2 and fields[4] == target:
+                    found = after[1]
+    return found
+
+
+def btrfs(*argv):
+    subprocess.run(["btrfs", *argv], check=True, capture_output=True, text=True)
+
+
+def commit(path):
+    """Make what was just written on PATH's btrfs permanent now. fsync and
+    rename only reach btrfs's log tree or wait for the next commit (up to
+    30 s): after a power cut early in an upgrade, the restore point taken
+    before it would be gone (phase 1 power-cut test)."""
+    btrfs("filesystem", "sync", path)
+
+
+def run(*argv):
+    """Run a command, fail on an error, return how long it took."""
+    started = time.monotonic()
+    subprocess.run(argv, check=True, capture_output=True, text=True)
+    return time.monotonic() - started
+
+
+def free_space():
+    """(bytes free, bytes in all) of the filesystem that holds the restore points."""
+    st = os.statvfs(SNAPSHOTS)
+    return st.f_bavail * st.f_frsize, st.f_blocks * st.f_frsize
+
+
+def booted_restore_point():
+    """The restore point this start runs from (the memory layer), or None."""
+    try:
+        with open(BOOTED_FILE, encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def in_chroot():
+    """Running in a chroot: the installer's own apt runs (Calamares works in a
+    chroot of the new system, whose mountinfo then shows / as @), a package
+    build. As systemd-detect-virt --chroot: / isn't PID 1's root. Only root
+    can look; anyone else counts as not in a chroot."""
+    try:
+        here, init = os.stat("/"), os.stat(f"{PROC}/1/root/")
+    except OSError:
+        return False
+    return (here.st_dev, here.st_ino) != (init.st_dev, init.st_ino)
+
+
+def layout_problem():
+    """Why this system can't have restore points, or None when it can."""
+    if in_chroot():
+        return "running in a chroot (an installer or a package build)"
+    if findmnt(SNAPSHOTS) == ("btrfs", "/@snapshots") and (findmnt("/") or ("",))[0] == "btrfs" \
+            and restart_pending():
+        return None             # put back, not restarted yet: / still shows the old @ under its new name
+    booted = booted_restore_point()
+    if booted and findmnt(SNAPSHOTS) == ("btrfs", "/@snapshots") \
+            and findmnt(LOWER) == ("btrfs", f"/@snapshots/{booted}"):
+        return None             # started from a restore point: / is the memory layer over it
+    if findmnt("/") != ("btrfs", "/@"):
+        return "/ isn't the @ subvolume of a btrfs filesystem (FlickOS's btrfs layout)"
+    if findmnt(SNAPSHOTS) != ("btrfs", "/@snapshots"):
+        return f"{SNAPSHOTS} isn't the @snapshots subvolume"
+    return None
+
+
+def min_free(size):
+    return max(MIN_FREE, int(MIN_FREE_SHARE * size))
+
+
+@contextlib.contextmanager
+def locked():
+    """One change to the restore points at a time (the hook and `create`)."""
+    with open(LOCK, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
+# --- what apt is doing -----------------------------------------------------------
+
+def front_end(proc=None):
+    """Which program asked apt, and which run of it: (label, "PID:start time").
+
+    PackageKit forks a packagekitd per transaction, so the nearest one counts;
+    automatic updates fork a child per step, so the outermost one does
+    (phase 0 item 2)."""
+    proc = proc or PROC
+    found = []                  # (label, session), nearest first
+    pid = os.getppid()
+    while pid > 1:
+        try:
+            with open(f"{proc}/{pid}/cmdline", "rb") as f:
+                argv = [a.decode(errors="replace") for a in f.read().split(b"\0") if a]
+            with open(f"{proc}/{pid}/stat") as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+            ppid, session = int(fields[1]), f"{pid}:{fields[19]}"
+        except (OSError, ValueError, IndexError):
+            break
+        for i, arg in enumerate(argv[:2]):
+            name = os.path.basename(arg)
+            if name in FRONT_ENDS:
+                if name in APT_FRONT_ENDS:
+                    found.append((" ".join([name] + argv[i + 1:])[:200], session))
+                else:
+                    found.append((FRONT_ENDS[name], session))
+                break
+        pid = ppid
+    if not found:
+        return "unknown", None
+    if found[0][0] == FRONT_ENDS["packagekitd"]:
+        return found[0]
+    return found[-1]
+
+
+def changes(stream):
+    """apt's Pre-Install-Pkgs version 3 list: {install|upgrade|remove: [names]}."""
+    found = {"install": [], "upgrade": [], "remove": []}
+    started = False
+    for line in stream:
+        line = line.rstrip("\n")
+        if not started:
+            started = line == ""        # the configuration dump ends at an empty line
+            continue
+        parts = line.split()
+        if len(parts) < 9:
+            continue
+        name, old, new, action = parts[0], parts[1], parts[5], parts[8]
+        if action == "**REMOVE**" or new == "-":
+            found["remove"].append(name)
+        elif old == "-":
+            found["install"].append(name)
+        elif action.endswith(".deb") or old != new:
+            found["upgrade"].append(name)
+    return {k: sorted(set(v)) for k, v in found.items()}
+
+
+def asked_for(reason):
+    """("install"|"remove", [names]) from an apt command line, or None.
+
+    The packages the user named, not the ones apt brought in with them."""
+    words = reason.split()
+    if not words or words[0] not in APT_FRONT_ENDS:
+        return None
+    verbs = {"install": "install", "reinstall": "install", "remove": "remove",
+             "purge": "remove", "autoremove": "remove"}
+    rest, value = [], False
+    for word in words[1:]:
+        if value:                   # -o NAME=VALUE: not a package
+            value = False
+        elif word in APT_VALUE_OPTIONS:
+            value = True
+        elif not word.startswith("-"):
+            rest.append(word)
+    # apt's command is the first word that isn't an option.
+    if len(rest) < 2 or rest[0] not in verbs:
+        return None
+    return verbs[rest[0]], [os.path.basename(n).split("_", 1)[0] for n in rest[1:]]
+
+
+def auto_installed():
+    """Packages apt marks as installed only because another one needed them."""
+    auto, name = set(), None
+    try:
+        with open(EXTENDED_STATES, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                key, _, value = line.partition(":")
+                if key == "Package":
+                    name = value.strip()
+                elif key == "Auto-Installed" and value.strip() == "1" and name:
+                    auto.add(name)
+    except OSError:
+        pass
+    return auto
+
+
+# --- restore points ------------------------------------------------------------
+
+def restore_points():
+    """[(NAME, info)] of the restore points, oldest first."""
+    points = []
+    try:
+        entries = os.listdir(SNAPSHOTS)
+    except OSError:
+        return points
+    for entry in entries:
+        if not entry.endswith(".json") or entry.startswith("."):
+            continue
+        name = entry[:-5]
+        if not os.path.isdir(os.path.join(SNAPSHOTS, name)):
+            continue
+        try:
+            with open(os.path.join(SNAPSHOTS, entry), encoding="utf-8") as f:
+                info = json.load(f)
+        except (OSError, ValueError):
+            info = {}
+        points.append((name, info))
+    return sorted(points)
+
+
+def a_list(names):
+    if len(names) <= 2:
+        return " and ".join(names)
+    return f"{names[0]}, {names[1]} and {len(names) - 2} more"
+
+
+def describe(info, auto=None):
+    """What a restore point was taken before, in plain words.
+
+    PackageKit doesn't say which package was asked for, but afterwards apt
+    marks the ones that only came along as automatically installed (AUTO):
+    those are left out."""
+    when = datetime.datetime.fromtimestamp(info.get("created", 0)).strftime("%-d %B %H:%M")
+    reason = info.get("reason") or ""
+    p = info.get("packages") or {}
+    install, upgrade, remove = (p.get(k, []) for k in ("install", "upgrade", "remove"))
+    asked = asked_for(reason)
+    if info.get("restored"):
+        what = "putting back a restore point"
+    elif asked and asked[0] == "install":
+        what = "installing " + a_list(asked[1])
+    elif asked:
+        what = "removing " + a_list(asked[1])
+    elif reason == FRONT_ENDS["unattended-upgrade"]:
+        what = "automatic updates"
+    elif upgrade and not install and not remove:
+        what = "installing updates"
+    elif install and not remove:
+        asked = [n for n in install if n not in (auto if auto is not None else auto_installed())]
+        what = "installing " + a_list(asked or install)
+    elif remove and not install:
+        what = "removing " + a_list(remove)
+    elif install or upgrade or remove:
+        what = "a software change"
+    else:                               # made by hand: its reason as given
+        return f"{reason or 'Restore point'}, {when}"
+    return f"Before {what}, {when}"
+
+
+def new_name():
+    base = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    name, n = base, 2
+    while os.path.exists(os.path.join(SNAPSHOTS, name)):
+        name, n = f"{base}-{n}", n + 1
+    return name
+
+
+def boot_id():
+    try:
+        with open(f"{PROC}/sys/kernel/random/boot_id") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def pending():
+    """What the last `restore` left for the next start, or None."""
+    try:
+        with open(os.path.join(SNAPSHOTS, PENDING_NAME), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def restart_pending():
+    """The pending restore while this is still the start it was made in."""
+    info = pending()
+    return info if info and info.get("boot") == boot_id() else None
+
+
+def write_json(path, data):
+    tmp = os.path.join(os.path.dirname(path), "." + os.path.basename(path) + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp, path)
+
+
+def delete(name):
+    """Delete one of our restore points (never another snapshot); the boot
+    menu is written again by the caller (update_menu)."""
+    if name not in dict(restore_points()):
+        raise Refused(f"no restore point {name}")
+    started = time.monotonic()
+    btrfs("subvolume", "delete", os.path.join(SNAPSHOTS, name))
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(os.path.join(SNAPSHOTS, name + ".json"))
+    log(f"deleted {name} in {time.monotonic() - started:.2f} s")
+
+
+def settle_if_due():
+    """Finish a restore from before the last start, if the service didn't:
+    the restored system may hold an older flickos-recovery without it."""
+    if pending() and not restart_pending() and os.geteuid() == 0:
+        with contextlib.suppress(Exception):
+            settle()
+
+
+def create(reason, details=None, session=None):
+    """Take a restore point; return its NAME, or raise Refused."""
+    if restart_pending():
+        raise Refused("a restore point was put back: restart the computer first")
+    if booted_restore_point():
+        raise Refused("started from a restore point: nothing changed now is kept, so no restore point")
+    settle_if_due()
+    problem = layout_problem()
+    if problem:
+        raise Refused(f"no restore points on this system: {problem}")
+    if not enabled():
+        raise Refused("restore points are turned off (flickos-recovery set enabled yes)")
+    with locked():
+        points = restore_points()
+        if session and points and points[-1][1].get("session") == session:
+            raise Refused(f"the same run of {reason} as the newest restore point: none made")
+        free, size = free_space()
+        if free < min_free(size):
+            raise Refused(f"only {free / 1024 ** 3:.1f} GiB free, {min_free(size) / 1024 ** 3:.1f} GiB "
+                          "needed: no restore point")
+        name = new_name()
+        started = time.monotonic()
+        btrfs("subvolume", "snapshot", "-r", "/", os.path.join(SNAPSHOTS, name))
+        took = time.monotonic() - started
+        info = {"v": 1, "name": name, "reason": reason, "created": time.time(),
+                "seconds": round(took, 3), "session": session, "boot": boot_id(),
+                # Taken in a start that had already worked: a candidate for recovery.
+                "good": load_state().get("good_boot") == boot_id()}
+        info.update(details or {})
+        write_json(os.path.join(SNAPSHOTS, name + ".json"), info)
+        commit(SNAPSHOTS)
+        log(f"created {name} in {time.monotonic() - started:.2f} s: {reason}")
+        for old, _ in restore_points()[:-KEEP]:
+            delete(old)
+    update_menu()
+    if info["good"]:
+        with contextlib.suppress(Exception):
+            save_state(load_state())    # GRUB's candidate is the newest good one
+    return name
+
+
+# --- the boot menu ---------------------------------------------------------------
+
+def grub_quote(text):
+    return "'" + text.replace("'", "'\\''") + "'"
+
+
+def menu_entry(name, info, access, cmdline, uuid, title=None, entry_id=None):
+    """A GRUB menuentry for restore point NAME: its own newest kernel with an
+    initramfs, root=UUID with rootflags=subvol=@snapshots/NAME. None without one."""
+    boot = os.path.join(SNAPSHOTS, name, "boot")
+    try:
+        kernels = sorted((k for k in os.listdir(boot) if k.startswith("vmlinuz-")), reverse=True)
+    except OSError:
+        kernels = []
+    kernel = next((k for k in kernels if os.path.exists(os.path.join(boot, "initrd.img-" + k[8:]))), None)
+    if not kernel:
+        return None
+    path = f"/@snapshots/{name}/boot"
+    return (f"menuentry {grub_quote(title or describe(info))} --class os --id {entry_id or 'rp-' + name} {{\n"
+            "\tload_video\n\tinsmod gzio\n"
+            + "".join("\t" + line + "\n" for line in access.strip().splitlines()) +
+            "\techo 'Starting the restore point. Nothing you change is kept.'\n"
+            f"\tlinux {path}/{kernel} root=UUID={uuid} ro rootflags=subvol=@snapshots/{name} {cmdline.strip()}\n"
+            f"\tinitrd {path}/initrd.img-{kernel[8:]}\n}}\n")
+
+
+def menu_entries(access, cmdline, uuid):
+    """GRUB menuentries, newest first, one per restore point that has a kernel."""
+    entries = (menu_entry(name, info, access, cmdline, uuid) for name, info in reversed(restore_points()))
+    return [entry for entry in entries if entry]
+
+
+def write_grub(target=None):
+    """The Restore points submenu's entries, into TARGET (GRUB_CFG). Reaching
+    the disk (modules, cryptomount, search) comes from GRUB's own
+    grub-mkconfig_lib, as for the normal entries."""
+    target = target or GRUB_CFG
+    started = time.monotonic()
+    device = subprocess.run(["grub-probe", "--target=device", "/"], capture_output=True,
+                            text=True, check=True).stdout.split()[0]
+    script = (f". {MKCONFIG_LIB}; . /etc/default/grub; "
+              f"prepare_grub_to_access_device {device}; "
+              'echo "@@CMDLINE ${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT}"')
+    out = subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True).stdout
+    access, cmdline = out.split("@@CMDLINE", 1)
+    uuid = subprocess.run(["grub-probe", "--target=fs_uuid", "/"], capture_output=True,
+                          text=True, check=True).stdout.strip()
+    # For the counter file's entry, written early in a start: no probing then.
+    write_json(GRUB_ACCESS, {"access": access, "cmdline": cmdline, "uuid": uuid})
+    entries = menu_entries(access, cmdline, uuid)
+    tmp = target + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("# Written by flickos-recovery; do not edit.\n" + "".join(entries))
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp, target)
+    # GRUB reads the last btrfs commit only (phase 0 item 5).
+    commit(os.path.dirname(target))
+    log(f"boot menu: {len(entries)} restore point(s) in {time.monotonic() - started:.2f} s")
+
+
+def update_menu(target=None):
+    """write_grub, when GRUB is there to read it; a failure is only logged."""
+    if not os.path.exists(GRUB_STUB):
+        return
+    try:
+        write_grub(target)
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        log(f"boot menu not written: {error!r}")
+
+
+# --- putting back -----------------------------------------------------------------
+
+@contextlib.contextmanager
+def top_level(device):
+    """The whole filesystem (subvolid=5), where @ and @snapshots are folders."""
+    top = os.path.join(WORK, "top")
+    os.makedirs(top, exist_ok=True)
+    run("mount", "-o", "subvolid=5", device, top)
+    try:
+        yield top
+    finally:
+        subprocess.run(["umount", top], capture_output=True)
+
+
+def reinstall_bootloader(device):
+    """grub-install from the restored system, in a chroot, as its own grub
+    package would: the boot partition then matches the restored modules."""
+    new = os.path.join(WORK, "new")
+    os.makedirs(new, exist_ok=True)
+    mounts = []
+    try:
+        run("mount", "-o", "subvol=@", device, new)
+        mounts.append(new)
+        # Plain binds, not --rbind: /run holds this folder, and a recursive
+        # bind of it can't be unmounted again (phase 0 item 3).
+        for path in ("/dev", "/proc", "/sys"):
+            run("mount", "--bind", path, new + path)
+            mounts.append(new + path)
+        if os.path.isdir("/sys/firmware/efi"):
+            run("mount", "--bind", "/boot/efi", new + "/boot/efi")
+            mounts.append(new + "/boot/efi")
+            argv = ["grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
+                    "--bootloader-id=FlickOS", "--no-nvram"]
+        else:       # BIOS: not tested in phase 0
+            disk = subprocess.run(["lsblk", "-no", "PKNAME", device], capture_output=True,
+                                  text=True, check=True).stdout.strip().splitlines()[-1]
+            argv = ["grub-install", "--target=i386-pc", "/dev/" + disk]
+        took = run("chroot", new, *argv)
+        log(f"boot loader installed again from the restored system in {took:.1f} s ({argv[1]})")
+    finally:
+        for path in reversed(mounts):
+            if subprocess.run(["umount", path], capture_output=True).returncode:
+                subprocess.run(["umount", "-l", path], capture_output=True)
+
+
+def restore(name):
+    """Put restore point NAME back; it is used from the next start."""
+    problem = layout_problem()
+    if problem:
+        raise Refused(f"no restore points on this system: {problem}")
+    if restart_pending():
+        raise Refused("a restore point was put back already: restart the computer first")
+    settle_if_due()
+    if name not in dict(restore_points()):
+        raise Refused(f"no restore point {name}")
+    device = mount_source(LOWER if booted_restore_point() else "/")
+    with locked(), top_level(device) as top:
+        before = new_name()
+        system = os.path.join(top, "@")
+        kept = os.path.join(top, "@snapshots", before)
+        # The running system can be renamed and moved while in use: it stays
+        # mounted as / until the restart.
+        os.rename(system, kept)
+        try:
+            started = time.monotonic()
+            btrfs("subvolume", "snapshot", os.path.join(top, "@snapshots", name), system)
+            write_json(os.path.join(SNAPSHOTS, before + ".json"),
+                       {"v": 1, "name": before, "reason": f"before putting back {name}",
+                        "created": time.time(), "restored": name, "boot": boot_id()})
+            write_json(os.path.join(SNAPSHOTS, PENDING_NAME),
+                       {"restored": name, "before": before, "boot": boot_id(), "time": time.time()})
+            # The restored system's /boot has the menu of its own time: write it now.
+            update_menu(os.path.join(system, GRUB_CFG.lstrip("/")))
+            # Before GRUB: a power cut after grub-install but before a commit would
+            # leave the restored system's GRUB with the old system.
+            commit(top)
+            log(f"put back {name} in {time.monotonic() - started:.2f} s; the system before is {before}")
+            reinstall_bootloader(device)
+        except Exception as error:
+            # Leave the system as it was: a restored @ with the old GRUB core
+            # doesn't start (phase 0 item 3).
+            with contextlib.suppress(Exception):
+                if os.path.isdir(system):
+                    btrfs("subvolume", "delete", system)
+            os.rename(kept, system)
+            for leftover in (before + ".json", PENDING_NAME):
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(os.path.join(SNAPSHOTS, leftover))
+            with contextlib.suppress(Exception):
+                commit(top)
+            log(f"putting back {name} failed, nothing changed: {error!r}")
+            raise Refused(f"putting back {name} failed, nothing was changed: {error}") from error
+    return before
+
+
+def settle():
+    """At the start after putting back: the old system becomes read-only."""
+    info = pending()
+    if not info:
+        return 0
+    if info.get("boot") == boot_id():
+        raise Refused("restart the computer first")
+    before = info.get("before")
+    if before in dict(restore_points()):
+        btrfs("property", "set", "-ts", os.path.join(SNAPSHOTS, before), "ro", "true")
+    os.remove(os.path.join(SNAPSHOTS, PENDING_NAME))
+    commit(SNAPSHOTS)
+    log(f"started with {info.get('restored')} put back; {before} is read-only now")
+    update_menu()
+    return 0
+
+
+def history_entries(since):
+    """apt's history after the time SINCE: [{date, command, install, upgrade, remove}]."""
+    paths = [HISTORY] + [f"{HISTORY}.{n}.gz" for n in range(1, 13)]
+    entries = []
+    for path in paths:
+        try:
+            if path.endswith(".gz"):
+                with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+            else:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+        except OSError:
+            continue
+        for block in text.split("\n\n"):
+            fields = dict(line.split(": ", 1) for line in block.strip().splitlines() if ": " in line)
+            try:
+                when = datetime.datetime.strptime(fields.get("Start-Date", ""), "%Y-%m-%d  %H:%M:%S")
+            except ValueError:
+                continue
+            if when.timestamp() < since:
+                continue
+            entry = {"date": when.isoformat(sep=" "), "command": fields.get("Commandline", "")}
+            for key, out in (("Install", "install"), ("Upgrade", "upgrade"), ("Remove", "remove"),
+                             ("Purge", "remove")):
+                # Leave out what apt brought in only as needed ("(1.0, automatic)").
+                names = [part.strip().split(":")[0].split(" ")[0]
+                         for part in fields.get(key, "").split("), ")
+                         if part.strip() and "automatic" not in part]
+                entry.setdefault(out, []).extend(names)
+            entries.append(entry)
+    return sorted(entries, key=lambda e: e["date"])
+
+
+def plan(name):
+    points = dict(restore_points())
+    if name not in points:
+        raise Refused(f"no restore point {name}")
+    info = points[name]
+    return {"name": name, "description": describe(info), "created": info.get("created"),
+            "changes": history_entries(info.get("created", 0))}
+
+
+# --- the start counter (ADR-005) ---------------------------------------------------
+
+def load_state():
+    state = {"failed": 0, "mode": "normal", "rp": None, "good_boot": None, "begun_boot": None}
+    try:
+        with open(STATE_JSON, encoding="utf-8") as f:
+            state.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+    return state
+
+
+def newest_good():
+    """The restore point to go back to: the newest taken by the apt hook in a
+    start that had already worked, not a "before putting back" one."""
+    for name, info in reversed(restore_points()):
+        if info.get("session") is not None and info.get("good") and not info.get("restored"):
+            return name
+    return None
+
+
+def state_cfg(state):
+    """STATE_CFG's text: the counter in GRUB's words, and while it is needed
+    the recovery entry itself, so GRUB never depends on GRUB_CFG agreeing."""
+    auto = get("auto-recover")[0]
+    lines = [f"set flickos_start_failed={int(state['failed'])}",
+             f"set flickos_start_mode={state['mode']}",
+             f"set flickos_start_auto={auto}",
+             f"set flickos_start_rp={state['rp'] or ''}"]
+    text = "\n".join(lines) + "\n"
+    needed = state["rp"] and (state["failed"] >= LIMIT or state["mode"] == "recovering")
+    if needed:
+        try:
+            with open(GRUB_ACCESS, encoding="utf-8") as f:
+                grub = json.load(f)
+            info = dict(restore_points()).get(state["rp"], {})
+            entry = menu_entry(state["rp"], info, grub["access"], grub["cmdline"], grub["uuid"],
+                               title=f"Restore point: {describe(info)}", entry_id=RECOVER_ID)
+        except (OSError, ValueError, KeyError):
+            entry = None
+        text += entry or ""
+    return text
+
+
+def save_state(state):
+    if state["mode"] == "normal":
+        state["rp"] = newest_good()
+    for path, text in ((STATE_JSON, json.dumps(state)), (STATE_CFG, state_cfg(state))):
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp, path)
+    # GRUB reads the last commit only: after a power cut it would see an old counter.
+    commit(SNAPSHOTS)
+
+
+def start_begin():
+    """Early in every start: one more start that hasn't worked yet."""
+    state = load_state()
+    if state["begun_boot"] == boot_id():
+        return 0
+    state["begun_boot"] = boot_id()
+    booted = booted_restore_point()
+    if state["mode"] == "normal" and booted and booted == state["rp"] and state["failed"] >= LIMIT:
+        state.update(mode="recovering", failed=1)      # GRUB started it by itself (Option B)
+        log(f"started from restore point {booted} because the last {LIMIT} starts failed")
+    elif state["mode"] == "recovering" and booted != state["rp"]:
+        state.update(mode="normal", failed=1)          # the user chose another entry: a decision
+        log("not started from the restore point: back to normal")
+    else:
+        state["failed"] += 1
+    save_state(state)
+    log(f"start counter: {state['failed']} (mode {state['mode']}, restore point {state['rp']})")
+    return 0
+
+
+def running(names):
+    """Whether a process with one of NAMES (as in /proc/PID/comm) runs."""
+    for pid in os.listdir(PROC):
+        if pid.isdigit():
+            try:
+                with open(f"{PROC}/{pid}/comm", encoding="utf-8") as f:
+                    if f.read().strip() in names:
+                        return True
+            except OSError:
+                continue
+    return False
+
+
+def start_good_watch(sleep=time.sleep):
+    """Waits until the login screen or the desktop has been up GOOD_SECONDS,
+    then counts this start as one that worked."""
+    up_since = None
+    while True:
+        now = time.monotonic()
+        up_since = (up_since or now) if running(GOOD_PROCESSES) else None
+        if up_since is not None and now - up_since >= GOOD_SECONDS:
+            break
+        sleep(1)
+    state = load_state()
+    state.update(failed=0, good_boot=boot_id())
+    save_state(state)
+    log(f"this start worked (mode {state['mode']})")
+    return 0
+
+
+def start_command(verb):
+    if verb == "status":
+        state = load_state()
+        state["auto"] = get("auto-recover")[0]
+        print(json.dumps(state, indent=1))
+        return 0
+    if os.geteuid() != 0:
+        if verb in ("try-again", "keep"):
+            need_root(verb)
+        raise Refused(f"start {verb} runs as root")
+    problem = layout_problem()
+    if problem:
+        raise Refused(f"no restore points on this system: {problem}")
+    if verb == "begin":
+        return start_begin()
+    if verb == "good-watch":
+        return start_good_watch()
+    state = load_state()
+    if verb == "try-again":
+        state.update(mode="normal", failed=0)
+        save_state(state)
+        log("try again: the next start uses the system as it is")
+        print("The next start uses the system as it is.")
+        return 0
+    if verb == "keep":
+        name = booted_restore_point() or state["rp"]
+        if not name:
+            raise Refused("no restore point to keep")
+        before = restore(name)
+        state.update(mode="normal", failed=0)
+        save_state(state)
+        print(f"{name} is put back. Restart the computer to use it. The system as it was is kept as "
+              f"restore point {before}.")
+        return 0
+    raise Refused(f"unknown: start {verb}")
+
+
+NOTIFY_WAIT_SECONDS = 30   # for FlickOS's mako to own the notification service
+
+
+def notifications_ready():
+    """FlickOS's mako owns org.freedesktop.Notifications. Before that, a
+    notification would make D-Bus start a plain mako instead."""
+    out = subprocess.run(["busctl", "--user", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                          "org.freedesktop.DBus", "NameHasOwner", "s", "org.freedesktop.Notifications"],
+                         capture_output=True, text=True).stdout
+    return out.strip() == "b true"
+
+
+def notify_text(booted, info, state):
+    """(title, body) of the notification at login while started from BOOTED."""
+    what = describe(info).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    if state.get("mode") == "recovering" and state.get("rp") == booted:
+        # Short: mako shows three lines of the body.
+        return ("FlickOS started from a restore point",
+                f"\u201c{what}\u201d, because the last starts failed. Nothing you change now is kept. "
+                "Click to choose.")
+    return ("Running from a restore point",
+            f"\u201c{what}\u201d. Nothing you change now is kept. Click to keep it.")
+
+
+def notify(sleep=time.sleep):
+    """At login: started from a restore point, say so once; a click opens the
+    Restore Points page, which has Keep and Try again (mako shows no buttons)."""
+    booted = booted_restore_point()
+    if not booted or not shutil.which("notify-send"):
+        return 0
+    for _ in range(NOTIFY_WAIT_SECONDS):
+        if notifications_ready():
+            break
+        sleep(1)
+    title, body = notify_text(booted, dict(restore_points()).get(booted, {}), load_state())
+    result = subprocess.run(["notify-send", "--app-name=Restore Points", "--urgency=critical",
+                             "--icon=document-revert", "--action=default=Open", title, body],
+                            capture_output=True, text=True)
+    if result.stdout.strip() == "default" and shutil.which("flickos-control"):
+        subprocess.Popen(["flickos-control", "--page", "recovery"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    return 0
+
+
+def apt_hook(stream):
+    """apt's DPkg::Pre-Install-Pkgs. Returns 0, so apt goes on, except right
+    after putting back a restore point (REFUSE_APT, until the restart)."""
+    started = time.monotonic()
+    if restart_pending():
+        with contextlib.suppress(Exception):
+            stream.read()
+        # stdout: the configuration line hides stderr (sh's own errors).
+        print("A restore point was put back: restart the computer before installing or removing "
+              "software. Changes made now would be lost.")
+        log("apt refused: a restore point was put back and the computer hasn't restarted yet")
+        return REFUSE_APT
+    try:
+        details = changes(stream)
+        if layout_problem() or not enabled():
+            return 0                    # ext4, the live session, or turned off: silent and quick
+        reason, session = front_end()
+        try:
+            create(reason, {"changes": {k: len(v) for k, v in details.items()},
+                            "packages": {k: v[:20] for k, v in details.items()}}, session)
+        except Refused as why:
+            log(str(why))
+        log(f"hook took {time.monotonic() - started:.2f} s")
+    except Exception as error:          # never stop apt
+        log(f"failed, apt goes on without a restore point: {error!r}")
+    finally:
+        with contextlib.suppress(Exception):
+            for _ in stream:            # apt writes the whole list: read it all
+                pass
+    return 0
+
+
+def state():
+    problem = layout_problem()
+    points = [] if problem else restore_points()
+    free, size = (0, 0) if problem else free_space()
+    auto = auto_installed()
+    waiting = restart_pending()
+    return {"v": 1, "available": problem is None or bool(waiting), "problem": problem, "enabled": enabled(),
+            "restart_needed": bool(waiting), "restored": waiting.get("restored") if waiting else None,
+            "booted": booted_restore_point(), "start": {k: v for k, v in load_state().items()
+                                                         if k in ("failed", "mode", "rp")},
+            "auto_recover": get("auto-recover")[0] == "yes",
+            "keep": KEEP, "free_bytes": free, "min_free_bytes": min_free(size) if size else None,
+            "points": [{"name": name, "description": describe(info, auto), "created": info.get("created"),
+                        "reason": info.get("reason"), "changes": info.get("changes"),
+                        "packages": info.get("packages"), "restored": info.get("restored")}
+                       for name, info in points]}
+
+
+# --- the command line ----------------------------------------------------------
+
+def need_root(*helper_argv):
+    """Root goes on; anyone else goes through pkexec and HELPER (HELPER_ARGV)."""
+    if os.geteuid() == 0:
+        return
+    if os.path.exists(HELPER) and shutil.which("pkexec"):
+        os.execvp("pkexec", ["pkexec", HELPER, *helper_argv])
+    raise Refused("this changes the system: run it as root (sudo)")
+
+
+def main(argv):
+    command, args = (argv[0], argv[1:]) if argv else ("list", [])
+    try:
+        if command == "apt-hook":
+            return apt_hook(sys.stdin)
+        if command == "list":
+            problem = layout_problem()
+            if problem:
+                raise Refused(f"no restore points on this system: {problem}")
+            auto = auto_installed()
+            for name, info in restore_points():
+                print(f"{name}\t{describe(info, auto)}")
+            return 0
+        if command == "state":
+            print(json.dumps(state(), indent=1))
+            return 0
+        if command == "get":
+            for key in args or list(SETTINGS):
+                if key not in SETTINGS:
+                    raise Refused(f"no setting {key}; the settings are: {', '.join(SETTINGS)}")
+                value, source = get(key)
+                print(f"{key}\t{value}\t{source}")
+            return 0
+        if command == "set" and len(args) == 2:
+            need_root(args[0], args[1])
+            set_setting(*args)
+            return 0
+        if command == "create":
+            need_root("create", *args)
+            print(create(" ".join(args) or "by hand"))
+            return 0
+        if command == "plan" and len(args) == 1:
+            print(json.dumps(plan(args[0]), indent=1))
+            return 0
+        if command == "restore" and len(args) == 1:
+            need_root("restore", args[0])
+            before = restore(args[0])
+            print(f"{args[0]} is put back. Restart the computer to use it. "
+                  f"The system as it was is kept as restore point {before}.")
+            return 0
+        if command == "settle":
+            if os.geteuid() != 0:
+                raise Refused("settle runs as root, at the start after putting back")
+            return settle()
+        if command == "delete" and len(args) == 1:
+            need_root("delete", args[0])
+            if layout_problem():
+                raise Refused(f"no restore points on this system: {layout_problem()}")
+            with locked():
+                for name in ([n for n, _ in restore_points()] if args[0] == "--all" else args):
+                    delete(name)
+            update_menu()
+            return 0
+        if command == "start" and len(args) == 1:
+            return start_command(args[0])
+        if command == "notify" and not args:
+            return notify()
+        if command == "grub" and not args:
+            if os.geteuid() != 0:
+                raise Refused("grub writes the boot menu: run it as root (sudo)")
+            if layout_problem():
+                raise Refused(f"no restore points on this system: {layout_problem()}")
+            write_grub()
+            return 0
+    except Refused as why:
+        print(f"flickos-recovery: {why}", file=sys.stderr)
+        return 1
+    print(__doc__.split("\n\n")[1], file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,33 @@
+Source: flickos-installer
+Section: admin
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-installer
+Architecture: all
+Depends: calamares,
+         squashfs-tools,
+         dosfstools,
+         rsync,
+         cryptsetup,
+         keyutils,
+         libglib2.0-bin,
+         sudo,
+         qt6-wayland,
+         qml6-module-qtquick,
+         qml6-module-qtquick-window,
+         dconf-gsettings-backend | gsettings-backend,
+         flickos-settings (>= 1.23),
+         ${misc:Depends}
+Provides: calamares-settings
+Conflicts: calamares-settings-debian
+Replaces: calamares-settings-debian
+Description: FlickOS live installer (Calamares configuration)
+ Calamares settings, branding and launcher for installing FlickOS from the
+ live session, plus the live-session menu with an "Install FlickOS" entry.
+ .
+ Based on calamares-settings-debian. The installer removes this package from
+ the installed system.

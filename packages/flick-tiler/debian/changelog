@@ -1,0 +1,89 @@
+flick-tiler (1.9) trixie; urgency=medium
+
+  * New command focus-app APP-ID...: brings forward the window of an app
+    that had the focus last, restoring it if minimized. Cupertino's
+    start menu uses it to show an app that is already open instead of
+    starting it again.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 11 Oct 2026 21:48:56 +0800
+
+flick-tiler (1.8) trixie; urgency=medium
+
+  * Float lxtask by default.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 28 Sep 2026 15:21:50 +0800
+
+flick-tiler (1.7) trixie; urgency=medium
+
+  * show-desktop: minimize every window, or restore the ones it
+    minimized, the focused one last (the panel's Show Desktop button;
+    labwc 0.8 has no ToggleShowDesktop).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 12:26:32 +0800
+
+flick-tiler (1.6) trixie; urgency=medium
+
+  * Tests: never read or signal the build host's settings and processes
+    (/etc/xdg/flickos, /proc).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 19:53:59 +0800
+
+flick-tiler (1.5) trixie; urgency=medium
+
+  * Record every change of tiling on or off, arrangement, main window
+    width, gap and the apps that always float in
+    ~/.local/state/flickos/history.jsonl, for Settings > History
+    (flickos-control), unless history.enabled is off.
+  * mode, ratio and gap take default, which removes the user's value;
+    ratio is saved while no daemon runs, like mode and gap.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 08:22:44 +0800
+
+flick-tiler (1.4) trixie; urgency=medium
+
+  * Add debian/copyright: GPL-3.0-or-later.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:45:25 +0800
+
+flick-tiler (1.3) trixie; urgency=medium
+
+  * New command floating list|add|remove PATTERN: the apps that always
+    float (Float=), used by the Settings window (flickos-control). The
+    status JSON also has the main window width (ratio).
+  * New command gap N (pixels, 0-64) for the Settings window; the status
+    JSON also has the gap.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 22 Sep 2026 20:18:13 +0800
+
+flick-tiler (1.2) trixie; urgency=medium
+
+  * The daemon runs for the whole session again, as in 1.0: autostart
+    starts it at login whether tiling is on or off, turning tiling off
+    only drops the fragment, and no daemon is started on demand. The
+    hint about windows that stay floating now comes when tiling is
+    turned on. Unchanged from 1.1: one daemon per session (daemon.lock),
+    a fragment left by a daemon that died is cleared, and the panel
+    button is updated with SIGRTMIN+8.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 20 Sep 2026 07:49:52 +0800
+
+flick-tiler (1.1) trixie; urgency=medium
+
+  * The daemon runs only while tiling is on: at login it exits at once
+    if tiling is off, flick-tiler on (Super+T, the panel button) starts
+    it, and it exits when tiling is turned off. A lock keeps it to one
+    daemon. A fragment left by a daemon that died is removed. The panel
+    button is updated with SIGRTMIN+8 instead of a status --follow
+    process. Depends on flickos-layouts (>= 1.8).
+  * Turning tiling on while windows are open shows a notification: they
+    stay floating until tiled with Super+Shift+T.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 08:41:52 +0800
+
+flick-tiler (1.0) trixie; urgency=medium
+
+  * Initial release: tiling for the labwc session through labwc regions
+    (master and stack, columns, grid, monocle), a panel button and
+    keybinds.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 18 Sep 2026 19:59:14 +0800

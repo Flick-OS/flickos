@@ -1,0 +1,37 @@
+#!/bin/sh
+# Write greetd's configuration for the FlickOS login screen to
+# /run/flickos-greetd/config.toml. Run by greetd.service (ExecStartPre) before
+# every start of greetd.
+#
+# The login screen runs on VT 7 (Debian's default), so tty1 keeps its text
+# login as a fallback. The first member of the group "autologin" is logged in
+# automatically once per boot (greetd's initial_session).
+set -e
+
+dir=/run/flickos-greetd
+mkdir -p "$dir"
+
+user="$(getent group autologin | cut -d: -f4 | cut -d, -f1)"
+# Only plain user names, so the value can't break the TOML quoting.
+case "$user" in
+    *[!A-Za-z0-9._-]*) user="" ;;
+esac
+if [ -n "$user" ] && ! getent passwd "$user" >/dev/null; then
+    user=""
+fi
+
+{
+    echo '[terminal]'
+    echo 'vt = 7'
+    echo
+    echo '[default_session]'
+    echo 'command = "/usr/libexec/flickos/greeter"'
+    echo 'user = "_greetd"'
+    if [ -n "$user" ]; then
+        echo
+        echo '[initial_session]'
+        echo 'command = "flickos-session"'
+        echo "user = \"$user\""
+    fi
+} > "$dir/config.toml.new"
+mv "$dir/config.toml.new" "$dir/config.toml"

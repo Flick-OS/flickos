@@ -1,0 +1,32 @@
+// Redmond: one bottom panel with the apps menu, a window list of icons, then
+// tray, status, clock and Show Desktop at the right edge. Module settings:
+// ../common/modules.jsonc.
+//
+// The window list shows icons only (the title is in the tooltip), like
+// Windows 7 does: waybar 0.12 doesn't ellipsize taskbar titles, so a window
+// list wide enough pushes everything after it (tray, status, clock) off the
+// edge of the bar. An icon button takes 46 px, so about 35 windows fit a
+// 1080p bar. See TODO.md and docs/07-troubleshooting.md.
+//
+// 40 px tall like Windows 7's bar, with 24 px window icons (style.css draws
+// the launcher's logo at the same size).
+{
+    "name": "panel",
+    "layer": "top",
+    "position": "bottom",
+    "height": 40,
+    "spacing": 4,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["custom/launcher", "wlr/taskbar"],
+    "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/recording", "clock", "custom/desktop"],
+
+    "wlr/taskbar": {
+        "icon-size": 24
+    },
+
+    "clock": {
+        "format": "{:%H:%M\n%d/%m/%Y}",
+        "justify": "center"
+    }
+}

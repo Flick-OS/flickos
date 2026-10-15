@@ -1,0 +1,18 @@
+#Api2
+
+Private {
+
+  Var scan_timeout = 20;
+  include("bluez-popup.widget")
+
+  export button "bluez" {
+    value = If(!BluezAdapter("Powered"), "bluetooth-disabled",
+        if(BluezAdapter("Discovering"), "bluetooth-acquiring", "bluetooth-active"))
+    style = If(BluezAdapter("Count"), "bluez", "hidden");
+    class = "module";
+    action = XBluezPop()
+    action[RightClick] = Menu("XBluezAdapter")
+    tooltip = GT("Bluetooth")
+    trigger = "bluez-adapter"
+  }
+}

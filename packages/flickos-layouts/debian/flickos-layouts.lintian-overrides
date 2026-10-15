@@ -1,0 +1,3 @@
+# The first-login marker (flickos-layout first-run) is meant only for accounts
+# created after installation, which is exactly what /etc/skel does.
+package-contains-file-in-etc-skel [etc/skel/.config/*]

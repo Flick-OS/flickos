@@ -1,0 +1,41 @@
+name: Discord
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    env:
+      # Repository secret (Settings → Secrets and variables → Actions): a
+      # Discord channel webhook. Without it, nothing is posted.
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+    steps:
+      - name: Post to Discord
+        if: env.DISCORD_WEBHOOK != ''
+        run: |
+          # Links in <…> so Discord shows no preview; allowed_mentions empty so
+          # an @everyone in a commit message pings nobody; Discord takes at
+          # most 2000 characters.
+          jq '
+            def line: split("\n")[0] | .[:120];
+            if .deleted then empty
+            elif (.ref | startswith("refs/tags/")) then
+              (.ref | ltrimstr("refs/tags/")) as $tag
+              | "**FlickOS \($tag)** tagged by \(.pusher.name). The release appears at "
+                + "<\(.repository.html_url)/releases/tag/\($tag)> once the ISO build passes."
+            elif (.commits | length) == 0 then empty
+            else
+              "**\(.commits | length) commit(s) to \(.ref | ltrimstr("refs/heads/"))** by \(.pusher.name) <\(.compare)>\n"
+              + ([.commits[] | "`\(.id[:7])` \(.message | line)"] | join("\n"))
+            end
+            | if length > 2000 then .[:1996] + "\n…" else . end
+            | {content: ., allowed_mentions: {parse: []}}
+          ' "$GITHUB_EVENT_PATH" > message.json
+          if [ -s message.json ]; then
+            curl -fsS -H 'Content-Type: application/json' -d @message.json "$DISCORD_WEBHOOK"
+          fi

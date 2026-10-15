@@ -1,0 +1,21 @@
+flickos-greeter (1.2) trixie; urgency=medium
+
+  * The login screen offers flickos-session-plain below flickos-session
+    (/etc/greetd/environments). Depends on flickos-settings 1.42 and
+    flickos-layouts 1.47.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 15:29:23 +0800
+
+flickos-greeter (1.1) trixie; urgency=medium
+
+  * Add debian/copyright: GPL-3.0-or-later.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:45:24 +0800
+
+flickos-greeter (1.0) trixie; urgency=medium
+
+  * Initial release: greetd with gtkgreet in cage as the login screen,
+    in the Arc-Dark colors. Logs in the first member of the group
+    autologin automatically. Not started in the live session.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 12:18:47 +0800

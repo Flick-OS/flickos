@@ -1,0 +1,11 @@
+#!/bin/sh
+# Purged: take the "Restore points" submenu out of GRUB's menu again.
+set -e
+
+if [ "$1" = purge ] && command -v update-grub >/dev/null 2>&1 && [ -e /boot/grub/grub.cfg ] \
+        && grep -qs flickos-recovery /boot/grub/grub.cfg; then
+    rm -f /boot/grub/flickos-recovery.cfg
+    update-grub || true
+fi
+
+#DEBHELPER#

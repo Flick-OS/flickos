@@ -1,0 +1,188 @@
+# Swfbar pot file
+# Copyright (C) 2024
+# This file is distributed under the same license as the sfwbar package.
+# FIRST AUTHOR <napcok@gmail.com>, 2024.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: sfwbar\n"
+"Report-Msgid-Bugs-To: https://github.com/LBCrion/sfwbar/issues\n"
+"POT-Creation-Date: 2024-12-26 21:07+1000\n"
+"PO-Revision-Date: 2024-01-08 10:46+1000\n"
+"Last-Translator: napcok <napcok@gmail.com>\n"
+"Language-Team: Polish\n"
+"Language: pl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/config/startmenu.widget
+msgid "Application menu"
+msgstr "Menu"
+
+#: src/config/alsa-module.widget
+msgid "Volume"
+msgstr "Glośność"
+
+msgid "muted"
+msgstr "wyciszony"
+
+msgid "h"
+msgstr "g"
+
+msgid "m"
+msgstr "m"
+
+msgid "Connecting"
+msgstr "Łączenie"
+
+msgid "January"
+msgstr "Styczeń"
+
+msgid "February"
+msgstr "Luty"
+
+msgid "March"
+msgstr "Marzec"
+
+msgid "April"
+msgstr "Kwiecień"
+
+msgid "May"
+msgstr "Maj"
+
+msgid "June"
+msgstr "Czerwiec"
+
+msgid "July"
+msgstr "Lipiec"
+
+msgid "August"
+msgstr "Sierpień"
+
+msgid "September"
+msgstr "Wrzesień"
+
+msgid "October"
+msgstr "Październik"
+
+msgid "November"
+msgstr "Listopad"
+
+msgid "December"
+msgstr "Grudzień"
+
+msgid "Mo"
+msgstr "Po"
+
+msgid "Tu"
+msgstr "Wt"
+
+msgid "We"
+msgstr "Śr"
+
+msgid "Th"
+msgstr "Cz"
+
+msgid "Fr"
+msgstr "Pi"
+
+msgid "Sa"
+msgstr "So"
+
+msgid "Su"
+msgstr "Ni"
+
+msgid "Memory"
+msgstr "Pamięć"
+
+msgid "Notification Center"
+msgstr "Centrum Powiadomień"
+
+msgid "Show Desktop"
+msgstr "Pokaż Pulpit"
+
+msgid "Set As Default Device"
+msgstr "Ustaw jako domyślne"
+
+msgid "expand/collapse channels"
+msgstr "rozwiń/zwiń kanały"
+
+msgid "route to sink"
+msgstr "kieruj do wyjścia"
+
+msgid "Scanning"
+msgstr "Skanowanie"
+
+msgid "Scan"
+msgstr "Skanuj"
+
+msgid "Other"
+msgstr "Inne"
+
+msgid "Known"
+msgstr "Znane"
+
+msgid "Connected"
+msgstr "Połączono"
+
+msgid "Connect"
+msgstr "Połącz"
+
+msgid "Disconnect"
+msgstr "Rozłącz"
+
+msgid "Forget"
+msgstr "Zapomnij"
+
+msgid "Known networks"
+msgstr "Znane sieci"
+
+msgid "Other networks"
+msgstr "Inne sieci"
+
+msgid "focus"
+msgstr "aktywuj"
+
+msgid "close"
+msgstr "zamknij"
+
+msgid "(un)minimize"
+msgstr "pokaż / ukryj"
+
+msgid "(un)maximize"
+msgstr "okno / pełny ekran"
+
+msgid "Form"
+msgstr "Format"
+
+msgid "Port"
+msgstr "Port"
+
+msgid "Monitor"
+msgstr "Monitor"
+
+msgid "sinks"
+msgstr "wyjścia (sinks)"
+
+msgid "clients"
+msgstr "klienty"
+
+msgid "Pair"
+msgstr "Sparuj"
+
+msgid "Remove"
+msgstr "Usuń"
+
+msgid "Available devices"
+msgstr "Dostępne urządzenia"
+
+msgid "Paired devices"
+msgstr "Sparowane urządzenia"
+
+msgid "Battery"
+msgstr "Bateria"
+
+msgid "Set As Default Control Interface"
+msgstr "Ustaw jako domyślne"

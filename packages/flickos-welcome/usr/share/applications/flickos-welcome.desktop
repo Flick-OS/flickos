@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Welcome
+Comment=Set up your desktop, and where to go next
+Exec=flickos-welcome show
+Icon=flickos
+Terminal=false
+Categories=System;
+Keywords=welcome;first;start;help;getting;started;
+StartupNotify=false

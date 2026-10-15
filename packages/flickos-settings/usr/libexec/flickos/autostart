@@ -1,0 +1,136 @@
+#!/bin/sh
+# FlickOS session startup, called from /etc/xdg/labwc/autostart.
+#
+# If you create your own ~/.config/labwc/autostart, labwc stops reading the
+# system one. Put this line at the top of yours to keep the FlickOS desktop:
+#
+#     /usr/libexec/flickos/autostart
+
+live=false
+grep -qw 'boot=live' /proc/cmdline && live=true
+
+# Standard folders (Desktop, Downloads, Pictures, ...). Screenshots use Pictures.
+xdg-user-dirs-update
+
+# Screen arrangements kept in Settings > Displays: kanshi sets up the screens
+# as kept, now and whenever they are plugged in. Nothing runs while no
+# arrangement is kept.
+if command -v flickos-control >/dev/null; then
+    flickos-control displays start &
+fi
+
+# Wallpaper: the one chosen in waypaper (Settings > Wallpaper), else
+# ~/.config/flickos/wallpaper, else the desktop layout's (flickos-layouts),
+# else the FlickOS default.
+if command -v flickos-layout >/dev/null; then
+    flickos-layout wallpaper &
+else
+    wallpaper="$HOME/.config/flickos/wallpaper"
+    [ -e "$wallpaper" ] || wallpaper=/usr/share/backgrounds/flickos/default.jpg
+    swaybg -i "$wallpaper" -m fill -c '#383c4a' &
+fi
+
+# Panel and notifications: the user's own config if present, else FlickOS defaults.
+# (Neither program reads /etc/xdg/flickos, and Debian owns /etc/xdg/waybar.)
+# flickos-layout panel starts both for the chosen desktop layout and style
+# (flickos-layouts), uses the user's own config if there is one, and falls back
+# to the defaults below if anything goes wrong.
+if command -v flickos-layout >/dev/null; then
+    flickos-layout panel &
+else
+    if [ -e "$HOME/.config/waybar/config" ] || [ -e "$HOME/.config/waybar/config.jsonc" ]; then
+        waybar &
+    else
+        waybar -c /usr/share/flickos/waybar/config.jsonc -s /usr/share/flickos/waybar/style.css &
+    fi
+    if [ -e "$HOME/.config/mako/config" ]; then
+        mako &
+    else
+        mako -c /usr/share/flickos/mako/config &
+    fi
+fi
+
+# Do Not Disturb (Settings > Notifications) survives logging out: a new mako
+# starts without it, so it is turned on again once mako runs. Nothing is
+# done while it is off.
+if command -v flickos-control >/dev/null; then
+    flickos-control notifications &
+fi
+
+# Window tiling (flick-tiler, Super+T or the panel button). It only tiles
+# while the user turned it on, but runs always so the button works.
+if command -v flick-tiler >/dev/null; then
+    flick-tiler daemon &
+fi
+
+# Keyboard shortcut sheet while Super is held (flickos-shortcuts).
+if command -v flickos-shortcuts >/dev/null; then
+    flickos-shortcuts daemon &
+fi
+
+# Pages, files and text from and to a phone (flickos-phone). The daemon exits
+# at once while the user hasn't turned it on, and never runs in the live
+# session.
+if ! $live && command -v flickos-phone >/dev/null; then
+    flickos-phone daemon &
+fi
+
+# Once at the first login of a new account on an installed system, never in the
+# live session: the welcome window (flickos-welcome), which offers the Desktop
+# Layout & Style chooser among other things. Without that package, the chooser
+# on its own (flickos-layouts). Only one of the two, so only one window opens.
+if command -v flickos-welcome >/dev/null; then
+    flickos-welcome first-run &
+elif command -v flickos-layout >/dev/null; then
+    flickos-layout first-run &
+fi
+
+# Authentication dialogs for administrative actions.
+/usr/libexec/polkit-mate-authentication-agent-1 &
+# Started from a restore point (flickos-recovery: by itself after starts that
+# failed, or from the boot menu): say so, once. Nothing runs otherwise.
+if [ -e /run/flickos/restore-point-boot ] && command -v flickos-recovery >/dev/null; then
+    flickos-recovery notify &
+fi
+
+# Tray applets. --indicator: waybar's tray only shows StatusNotifierItem icons.
+nm-applet --indicator &
+# blueman-applet (a Python process) only on machines with a Bluetooth adapter.
+# An adapter plugged in later shows up after the next login.
+if command -v blueman-applet >/dev/null && [ -n "$(ls -A /sys/class/bluetooth 2>/dev/null)" ]; then
+    blueman-applet &
+fi
+
+# Clipboard history (Super+V).
+if command -v cliphist >/dev/null; then wl-paste --watch cliphist store & fi
+
+# Warmer screen colors in the evening, timed for the system time zone:
+# flickos-control runs night-light with the warmth chosen in Settings >
+# Displays, or not at all while night light is off there.
+if command -v flickos-control >/dev/null; then
+    flickos-control night-light &
+else
+    /usr/libexec/flickos/night-light &
+fi
+
+# Lock and suspend when idle: the times chosen in Settings > Power & Idle
+# (flickos-control idle runs swayidle), else 5 and 15 minutes. Not in the
+# live session: locking or suspending in the middle of an installation would
+# be harmful.
+if ! $live; then
+    if command -v flickos-control >/dev/null; then
+        flickos-control idle &
+    else
+        swayidle -w \
+            timeout 300 'swaylock -f -c 383c4a' \
+            timeout 900 'systemctl suspend' \
+            before-sleep 'swaylock -f -c 383c4a' &
+    fi
+fi
+
+# Startup applications (Settings > Startup Applications): the XDG autostart
+# entries of ~/.config/autostart and the system's, which labwc doesn't run.
+# The ones FlickOS starts above are hidden in /etc/xdg/flickos/autostart.
+if command -v flickos-control >/dev/null; then
+    flickos-control startup run &
+fi

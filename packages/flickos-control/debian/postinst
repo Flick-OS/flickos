@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+# Phones let through the firewall (Settings > Phone) keep the ports of the
+# version that let them in: the ufw profile and its rules are written at run
+# time, so no declarative file can update them. The helper rewrites FlickOS's
+# profile only when it differs from this version's, and does nothing while
+# there is none. A failure must not stop the upgrade.
+#
+# The same for automatic updates: a choice made in Settings > Updates is kept
+# in /etc/apt/apt.conf.d/60flickos-updates with its list of repositories, which
+# the helper writes again with this version's list (1.38 added FlickOS's
+# community repository).
+if [ "$1" = configure ]; then
+    /usr/libexec/flickos/control-helper firewall-phones refresh || true
+    /usr/libexec/flickos/control-helper updates refresh || true
+fi
+
+#DEBHELPER#
+
+exit 0

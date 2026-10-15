@@ -1,0 +1,13 @@
+flickos-style-seven (1.1) trixie; urgency=medium
+
+  * Tests: Seven is listed after Dark and Light, not last (Aye3 may
+    follow it).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 10:17:21 +0800
+
+flickos-style-seven (1.0) trixie; urgency=medium
+
+  * Seven, a light style with see-through blue title bars and panel
+    (docs/design/flickos-ricing.md, ADR-013).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 21:02:22 +0800

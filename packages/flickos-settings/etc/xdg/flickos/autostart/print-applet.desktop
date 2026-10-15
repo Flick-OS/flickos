@@ -1,0 +1,11 @@
+# The print queue applet (system-config-printer) stayed off in FlickOS before
+# startup applications ran; it stays off until a user turns it on in
+# Settings > Startup Applications.
+[Desktop Entry]
+Type=Application
+Name=Print Queue Applet
+Comment=System tray icon for managing print jobs
+Icon=printer
+TryExec=system-config-printer-applet
+Exec=system-config-printer-applet
+X-GNOME-Autostart-enabled=false

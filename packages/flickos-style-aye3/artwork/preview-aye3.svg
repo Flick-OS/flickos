@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="150" viewBox="0 0 1920 1200">
+  <!-- The aye3 layout's preview (tools/make-aye3.py). -->
+  <defs>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1200" fill="#111111"/>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+  <g stroke-width="8">
+    <rect x="40" y="40" width="560" height="1030" fill="#383c4a" stroke="#4c7899"/>
+    <rect x="44" y="44" width="552" height="70" fill="#285577"/>
+    <rect x="620" y="40" width="400" height="505" fill="#383c4a" stroke="#333333"/>
+    <rect x="624" y="44" width="392" height="70" fill="#222222"/>
+    <rect x="620" y="565" width="400" height="505" fill="#383c4a" stroke="#333333"/>
+    <rect x="624" y="569" width="392" height="70" fill="#222222"/>
+  </g>
+  <rect y="1100" width="1920" height="100" fill="#000000"/>
+  <circle cx="70" cy="1150" r="26" fill="none" stroke="#ffb13d" stroke-width="10"/>
+  <rect x="130" y="1118" width="64" height="64" fill="#285577" stroke="#4c7899" stroke-width="4"/><rect x="210" y="1118" width="64" height="64" fill="#222222" stroke="#333333" stroke-width="4"/><rect x="290" y="1118" width="64" height="64" fill="#222222" stroke="#333333" stroke-width="4"/><rect x="370" y="1118" width="64" height="64" fill="#222222" stroke="#333333" stroke-width="4"/>
+  <rect x="1080" y="1138" width="110" height="24" fill="#ffffff" fill-opacity="0.75"/><rect x="1205" y="1125" width="4" height="50" fill="#ffffff" fill-opacity="0.35"/><rect x="1230" y="1138" width="110" height="24" fill="#ffffff" fill-opacity="0.75"/><rect x="1355" y="1125" width="4" height="50" fill="#ffffff" fill-opacity="0.35"/><rect x="1380" y="1138" width="110" height="24" fill="#ffffff" fill-opacity="0.75"/><rect x="1505" y="1125" width="4" height="50" fill="#ffffff" fill-opacity="0.35"/><rect x="1530" y="1138" width="110" height="24" fill="#ffffff" fill-opacity="0.75"/><rect x="1655" y="1125" width="4" height="50" fill="#ffffff" fill-opacity="0.35"/><rect x="1680" y="1138" width="110" height="24" fill="#ffffff" fill-opacity="0.75"/><rect x="1805" y="1125" width="4" height="50" fill="#ffffff" fill-opacity="0.35"/>
+  <circle cx="1860" cy="1150" r="18" fill="#ffffff" fill-opacity="0.75"/>
+</svg>

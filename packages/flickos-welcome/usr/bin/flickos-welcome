@@ -1,0 +1,433 @@
+#!/usr/bin/python3
+"""Welcome: the window a new FlickOS account sees at login until told not to.
+
+It is a set of cards over the programs that already own each job: the layout
+chooser (flickos-layout pick), Settings (flickos-control), the shortcut sheet
+(flickos-shortcuts show), the network editor, the software manager, and links
+opened in the browser. This program owns no settings and changes nothing by
+itself; a card that FlickOS can't run is left out rather than shown broken.
+
+It replaces the layout chooser at first login: before this package existed,
+autostart ran `flickos-layout first-run`, which opened the chooser on its own.
+`first-run` here consumes both markers, so exactly one window opens.
+
+Markers are in ~/.config/flickos (copied from /etc/skel into new accounts):
+"welcome" for this window, "choose-layout" for the chooser it replaces. The
+window opens at every login while "welcome" exists; its "Do not show on
+startup" check box (and `startup set`) deletes or writes it, so it is off by
+default for a new account. "choose-layout" is deleted at every first-run.
+Existing accounts lost their marker when first-run still deleted it, so an
+upgrade doesn't bring the window back for them. It never opens in the live
+session, and never when Enabled=no in /etc/xdg/flickos/welcome.conf; both
+delete the markers.
+
+The window is a plain GTK 3 window (python3-gi), so it follows the Arc-Dark or
+Arc theme of the chosen style, and it has no CSS of its own. GTK is imported
+only when the window opens, so `list` works without a display.
+One window per session: a second `show` while it is open only says so
+(welcome.lock in $XDG_RUNTIME_DIR/flickos). Escape or Close closes it.
+
+Commands:
+  (none), show       open the window
+  first-run          open it at login while it is shown on startup (autostart)
+  list               print the cards that would be shown: id, title
+  startup current    print whether it opens at login: on or off
+  startup set on|off|default
+                     open it at login or not (default: on)
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import argparse
+import configparser
+import contextlib
+import fcntl
+import os
+import shutil
+import subprocess
+import sys
+
+NAME = "flickos-welcome"
+APP_ID = "flickos-welcome"          # Wayland app id, matches flickos-welcome.desktop
+TITLE = "Welcome to FlickOS"
+ICON = "flickos"
+# Testing hook (unit tests): a root to read /proc, /etc and /usr below.
+PREFIX = os.environ.get("FLICKOS_WELCOME_PREFIX", "")
+PROC = PREFIX + "/proc"
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/welcome.conf"
+RELEASE = PREFIX + "/usr/lib/flickos-release"
+
+# ~/.config/flickos/<name>, copied from /etc/skel into new accounts. "welcome"
+# is this window's and means "open at login" (Do not show on startup deletes
+# it); "choose-layout" belongs to flickos-layouts' chooser, which this window
+# replaces, and is consumed here so both never open at once.
+MARKER = "welcome"
+MARKER_TEXT = "# flickos-welcome opens at login while this file exists.\n"
+# `startup set` values; default is what a new account gets from /etc/skel.
+STARTUP_VALUES = ("on", "off")
+STARTUP_DEFAULT = "on"
+LAYOUT_MARKER = "choose-layout"
+# In $XDG_RUNTIME_DIR/flickos: held while the window is open (one per session).
+LOCK = "welcome.lock"
+
+# Links. A URL is only ever shown when welcome.conf gives one: an address that
+# isn't the project's would send people somewhere FlickOS doesn't control, so
+# nothing here has a built-in default except the project's own repository.
+DEFAULT_LINKS = {
+    "project": "https://github.com/dvbondoy/FlickOS",
+    "docs": "https://github.com/dvbondoy/FlickOS/tree/main/docs",
+    "issues": "https://github.com/dvbondoy/FlickOS/issues",
+    "donate": "",
+}
+
+# The cards, in the order they are shown. command is what the card runs; a card
+# whose program isn't installed is left out (link cards need xdg-open). A link
+# card names a key in [Links] and is left out while that key is empty.
+CARDS = [
+    ("layout", "Choose your desktop", "preferences-desktop-theme",
+     "Pick a layout and a light or dark style. You can change it later in Settings.",
+     ["flickos-layout", "pick"], None),
+    ("settings", "All settings", "preferences-system",
+     "Mouse, keyboard, tiling, default apps, date and time, and everything else.",
+     ["flickos-control"], None),
+    ("network", "Connect to Wi-Fi", "network-wireless",
+     "Join a wireless network or set up a wired connection.",
+     ["nm-connection-editor"], None),
+    ("shortcuts", "Keyboard shortcuts", "preferences-desktop-keyboard-shortcuts",
+     "See every shortcut. Holding Super shows this sheet at any time.",
+     ["flickos-shortcuts", "show"], None),
+    ("software", "Install software", "system-software-install",
+     "Add applications from Debian's archive and Flathub.",
+     ["flickos-software"], None),
+    ("docs", "Read the documentation", "help-browser",
+     "How FlickOS is put together, and how to change it.",
+     None, "docs"),
+    ("support", "Support FlickOS", "help-about",
+     "FlickOS is free and always will be. Starring the project, reporting a bug "
+     "or telling someone about it all help.",
+     None, "project"),
+    ("donate", "Donate", "emblem-favorite",
+     "Help pay for the apt repository, the build machine and the downloads.",
+     None, "donate"),
+]
+
+
+def escape(text):
+    """Escape Pango markup in a card title."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+def config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+
+
+def marker_path(name):
+    return os.path.join(config_home(), "flickos", name)
+
+
+@contextlib.contextmanager
+def single_instance():
+    """Yields True for the first window of the session, False while one is open.
+    Without XDG_RUNTIME_DIR there is nothing to share, so always True."""
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        yield True
+        return
+    folder = os.path.join(base, "flickos")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, LOCK), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+def remove(path):
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)
+
+
+def startup_enabled():
+    """True while the window opens at login (the marker exists)."""
+    return os.path.lexists(marker_path(MARKER))
+
+
+def set_startup(on):
+    """Write (atomically) or delete the marker. Raises OSError."""
+    path = marker_path(MARKER)
+    if not on:
+        remove(path)
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(temp, "w", encoding="utf-8") as f:
+            f.write(MARKER_TEXT)
+        os.replace(temp, path)
+    finally:
+        remove(temp)
+
+
+def live_system():
+    """True when booted from the live image (boot=live on the kernel command line)."""
+    try:
+        with open(os.path.join(PROC, "cmdline"), encoding="utf-8", errors="replace") as f:
+            return "boot=live" in f.read().split()
+    except OSError:
+        return False
+
+
+def read_conf(path=None):
+    """(enabled, links) from welcome.conf. A missing or broken file is the default."""
+    parser = configparser.ConfigParser(interpolation=None)
+    links = dict(DEFAULT_LINKS)
+    enabled = True
+    try:
+        parser.read(path or SYSTEM_CONF, encoding="utf-8")
+    except (OSError, configparser.Error) as error:
+        warn(f"{path or SYSTEM_CONF}: {error}; using the defaults")
+        return enabled, links
+    if parser.has_option("Welcome", "Enabled"):
+        with contextlib.suppress(ValueError):
+            enabled = parser.getboolean("Welcome", "Enabled")
+    for key in links:
+        if parser.has_option("Links", key):
+            links[key] = parser.get("Links", key).strip()
+    return enabled, links
+
+
+def version():
+    """The FlickOS version from flickos-release, or None."""
+    try:
+        with open(RELEASE, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("FLICKOS_VERSION="):
+                    return line.split("=", 1)[1].strip().strip('"') or None
+    except OSError:
+        pass
+    return None
+
+
+def cards(links, which=shutil.which):
+    """The cards to show: those whose program is installed and whose link is set."""
+    shown = []
+    for card_id, title, icon, description, command, link in CARDS:
+        if command is not None:
+            if not which(command[0]):
+                continue
+            action = command
+        else:
+            url = links.get(link) or ""
+            if not url or not which("xdg-open"):
+                continue
+            action = ["xdg-open", url]
+        shown.append((card_id, title, icon, description, action))
+    return shown
+
+
+def run(action):
+    """Start a card's program without waiting for it. The window stays open."""
+    try:
+        subprocess.Popen(action, stdin=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError as error:
+        warn(f"{' '.join(action)}: {error}")
+
+
+def window(shown):
+    """Build and show the window. Returns 0 when it is closed."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import GLib
+        GLib.set_prgname(APP_ID)
+        from gi.repository import Gdk, Gtk
+    except (ImportError, ValueError) as error:
+        warn(f"can't open the window ({error}); python3-gi and gir1.2-gtk-3.0 are needed")
+        return 1
+
+    win = Gtk.Window(title=TITLE, icon_name=ICON)
+    win.set_default_size(760, 560)
+    win.connect("destroy", Gtk.main_quit)
+
+    def key_pressed(_window, event):
+        """Escape closes the window (HIG A11Y-2): it has nothing to lose."""
+        if event.keyval == Gdk.KEY_Escape:
+            win.destroy()
+            return True
+        return False
+
+    win.connect("key-press-event", key_pressed)
+
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+    outer.set_border_width(24)
+    win.add(outer)
+
+    release = version()
+    heading = Gtk.Label()
+    heading.set_markup(f"<span size='xx-large' weight='bold'>{TITLE}</span>")
+    heading.set_xalign(0)
+    outer.pack_start(heading, False, False, 0)
+
+    subtitle = Gtk.Label(label=("Everything here can be changed later." if not release else
+                                f"Version {release}. Everything here can be changed later."))
+    subtitle.set_xalign(0)
+    outer.pack_start(subtitle, False, False, 0)
+
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    outer.pack_start(scroller, True, True, 0)
+
+    grid = Gtk.FlowBox()
+    grid.set_selection_mode(Gtk.SelectionMode.NONE)
+    grid.set_max_children_per_line(2)
+    grid.set_min_children_per_line(1)
+    grid.set_homogeneous(True)
+    grid.set_row_spacing(12)
+    grid.set_column_spacing(12)
+    scroller.add(grid)
+
+    for _card_id, title, icon, description, action in shown:
+        button = Gtk.Button()
+        button.set_relief(Gtk.ReliefStyle.NORMAL)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        row.set_border_width(8)
+        row.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DND), False, False, 0)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        name = Gtk.Label()
+        name.set_markup(f"<b>{escape(title)}</b>")
+        name.set_xalign(0)
+        text.pack_start(name, False, False, 0)
+        body = Gtk.Label(label=description)
+        body.set_xalign(0)
+        body.set_line_wrap(True)
+        body.set_max_width_chars(34)
+        body.get_style_context().add_class("dim-label")
+        text.pack_start(body, False, False, 0)
+        row.pack_start(text, True, True, 0)
+        button.add(row)
+        button.get_accessible().set_name(title)
+        button.get_accessible().set_description(description)
+        button.connect("clicked", lambda _b, a=action: run(a))
+        grid.add(button)
+
+    footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    note_text = "Find this window again in the menu, under Welcome."
+    note = Gtk.Label(label=note_text, selectable=True)
+    note.set_xalign(0)
+    note.get_style_context().add_class("dim-label")
+    note.set_line_wrap(True)
+    hide = Gtk.CheckButton.new_with_mnemonic("_Do not show on startup")
+    hide.set_active(not startup_enabled())
+
+    def hide_toggled(button):
+        try:
+            set_startup(not button.get_active())
+        except OSError as error:
+            warn(f"{marker_path(MARKER)}: {error}")
+            note.set_text("Couldn't save whether this window opens at login. "
+                          "Check that your home folder isn't full or read-only.")
+            button.handler_block_by_func(hide_toggled)
+            button.set_active(not button.get_active())
+            button.handler_unblock_by_func(hide_toggled)
+            return
+        note.set_text(note_text)
+
+    hide.connect("toggled", hide_toggled)
+    left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    left.pack_start(hide, False, False, 0)
+    left.pack_start(note, False, False, 0)
+    footer.pack_start(left, True, True, 0)
+    close = Gtk.Button.new_with_mnemonic("_Close")
+    close.connect("clicked", lambda _b: win.destroy())
+    close.set_valign(Gtk.Align.CENTER)
+    footer.pack_end(close, False, False, 0)
+    outer.pack_start(footer, False, False, 0)
+
+    win.show_all()
+    Gtk.main()
+    return 0
+
+
+def cmd_show(_opts):
+    _enabled, links = read_conf()
+    shown = cards(links)
+    if not shown:
+        warn("no cards to show")
+        return 1
+    with single_instance() as first:
+        if not first:
+            print("Welcome is already open.")
+            return 0
+        return window(shown)
+
+
+def cmd_first_run(opts):
+    """Open the window at login (autostart).
+
+    Only while the marker exists, this isn't the live session and welcome.conf
+    hasn't turned it off. The marker stays while the window is shown on startup;
+    in the live session or with Enabled=no it is deleted. The chooser's marker
+    is deleted in every case."""
+    marker = marker_path(MARKER)
+    if not os.path.lexists(marker):
+        return 0
+    enabled, _links = read_conf()
+    show = enabled and not live_system()
+    if not show:
+        remove(marker)
+    # The chooser this window replaces must not also open.
+    remove(marker_path(LAYOUT_MARKER))
+    return cmd_show(opts) if show else 0
+
+
+def cmd_startup_current(_opts):
+    print("on" if startup_enabled() else "off")
+    return 0
+
+
+def cmd_startup_set(opts):
+    value = STARTUP_DEFAULT if opts.value == "default" else opts.value
+    try:
+        set_startup(value == "on")
+    except OSError as error:
+        warn(f"can't save the choice ({error})")
+        return 1
+    return 0
+
+
+def cmd_list(_opts):
+    _enabled, links = read_conf()
+    for card_id, title, _icon, _description, _action in cards(links):
+        print(f"{card_id}\t{title}")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="The FlickOS welcome window.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    commands.add_parser("show", help="open the window").set_defaults(func=cmd_show)
+    commands.add_parser("first-run", help="open it at login while it is shown on startup (autostart)"
+                        ).set_defaults(func=cmd_first_run)
+    commands.add_parser("list", help="print the cards that would be shown").set_defaults(func=cmd_list)
+    startup = commands.add_parser("startup", help="whether it opens at login").add_subparsers(
+        dest="action", metavar="ACTION", required=True)
+    startup.add_parser("current", help="print on or off").set_defaults(func=cmd_startup_current)
+    setter = startup.add_parser("set", help="open it at login or not")
+    setter.add_argument("value", choices=STARTUP_VALUES + ("default",))
+    setter.set_defaults(func=cmd_startup_set)
+    opts = parser.parse_args(argv)
+    if not getattr(opts, "func", None):
+        opts.func = cmd_show
+    return opts.func(opts)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

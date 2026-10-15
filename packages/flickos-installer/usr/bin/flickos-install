@@ -1,0 +1,14 @@
+#!/bin/sh
+# Start the Calamares installer from the FlickOS live session.
+
+# live-build leaves a stale /etc/fstab that confuses Calamares' partitioning
+# (same workaround as Debian's calamares-install-debian).
+sudo mv /etc/fstab /etc/fstab.orig.calamares 2>/dev/null
+
+# Calamares must run as root. -E keeps WAYLAND_DISPLAY and XDG_RUNTIME_DIR so
+# it opens on the labwc desktop. The live user has passwordless sudo.
+sudo -E calamares "$@"
+status=$?
+
+sudo mv /etc/fstab.orig.calamares /etc/fstab 2>/dev/null
+exit $status

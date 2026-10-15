@@ -1,0 +1,131 @@
+.\" Man page generated from reStructuredText
+.\" by the Docutils 0.22.4 manpage writer.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "sfwbar-mpd" "1" "" ""
+.SH Name
+sfwbar-mpd \- Sfwbar Music Player Daemon module
+.sp
+Filename: mpd.so
+.sp
+Requires: none
+.SH SYNOPSIS
+.sp
+The Music Player Daemon module provides an interface to control an MPD server.
+.SH Functions
+.SS MpdServer(<address>)
+.sp
+Specify an address for an MPD server to use. The address is specified using the
+MPD_HOST convention ([password@]host[:port], where a host can be a local socket
+or an abstract socket prefixed by @). If MpdServer is not called, the MPD
+module will use MPD_HOST/MPD_PORT environment variables and failing that, will
+fallback to $XDG_RUNTIME_DIR/mpd/socket, /run/mpd/socket and localhost:6600.
+.SS MpdCmd(<command>)
+.sp
+Send a command to the MPD server. You can send any command supported by an MPD
+protocol. Output of some MPD commands is processed by the module and made
+available to the configuration layer. (Please note that while you can send
+command lists, the output of a command list will not be processed). The output
+of the following commands is processed:
+.INDENT 0.0
+.TP
+.B \(dqlist\(dq
+upon completion \fImpd\-search\fP trigger is emitted and the results are available
+using \fIMpdList\fP function.
+.TP
+.B \(dqfind\(dq
+upon completion \fImpd\-search\fP trigger is emitted and the results are available
+using \fIMpdList\fP function.
+.TP
+.B \(dqplaylistinfo\(dq
+upon completion \fImpd\-queue\fP trigger is emitted and the results are
+available using \fIMpdList\fP function.
+.TP
+.B \(dqlistplaylistinfo\(dq
+upon completion \fImpd\-playlist\fP trigger is emitted and the results are stored
+in an array variable \fIlist\fP\&.
+.TP
+.B \(dqlist\(dq
+upon completion \fImpd\-list\fP trigger is emitted and the results are stored in
+an array variable \fIlist\fP\&.
+.TP
+.B \(dqlistplaylists\(dq
+upon completion \fImpd\-playlists\fP trigger is emitted and the results are
+available using \fIMpdInfo(\(dqplaylists\(dq)\fP function.
+.UNINDENT
+.SS MpdInfo(<Query>)
+.sp
+Function MpdInfo queries the state of the MPD server. The function provides an
+interface to query the current value of any tag of the \fIstatus\fP and
+\fIcurrentsong\fP MPD protocol commands. The values are returned as strings. In
+addition, MpdInfo supports a few additional query values:
+.INDENT 0.0
+.TP
+.B \(dqage\(dq
+time (in microseconds) elapsed since the MPD server state was last queried
+(this is useful in computing the progress of the current song playback).
+.TP
+.B \(dqcover\(dq
+the cover art of the currently playing album.
+.UNINDENT
+.SH Triggers
+.sp
+The module defines two triggers:
+.INDENT 0.0
+.TP
+.B \(dqmpd\(dq
+Emitted whenever the state of the MPD server changes.
+.TP
+.B \(dqmpd\-error\(dq
+Emitted when MPD server returns an error. An error string is provided in the
+string variable \fImessage\fP\&.
+.TP
+.B \(dqmpd\-list\(dq
+Emitted upon completion of the \fIlist\fP MPD protocol command. Results of the
+query are available in variable \fIlist\fP\&.
+.TP
+.B \(dqmpd\-listplaylists\(dq
+Emitted upon completion of the \fIlistplaylists\fP MPD protocol command. Results
+of the query are available in variable \fIlist\fP\&.
+.TP
+.B \(dqmpd\-search\(dq
+Emitted upon completion of the \fIsearch\fP or \fIfind\fP MPD protocol commands.
+Results of the query can be retrieved using \fIMpdList\fP function.
+.TP
+.B \(dqmpd\-playlistinfo\(dq
+Emitted upon completion of the \fIplaylistinfo\fP MPD protocol command.
+Results of the query can be retrieved using \fIMpdList\fP function.
+.TP
+.B \(dqmpd\-listplaylistinfo\(dq
+Emitted upon completion of the \fIlistplaylistinfo\fP MPD protocol command.
+Results of the query can be retrieved using \fIMpdList\fP function.
+.UNINDENT
+.SH Copyright
+GPLv3+
+.\" End of generated man page.

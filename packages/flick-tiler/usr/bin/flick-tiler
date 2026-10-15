@@ -1,0 +1,1339 @@
+#!/usr/bin/python3
+"""Tile windows in the FlickOS labwc session.
+
+labwc (0.8) has no way for another program to move or resize windows, so
+flick-tiler never does. It uses labwc's regions instead: named rectangles in
+percent of the screen, to which labwc tiles windows (SnapToRegion). When the
+config is reloaded, labwc gives every window the new geometry of its region,
+and releases a window whose region is gone.
+
+So the daemon gives every tiled window its own region (ft1, ft2, ...), and a
+window rule snaps each new window to the next free one. The daemon follows
+the windows over the wlr-foreign-toplevel protocol (a small Wayland client
+below, standard library only). When a window opens, closes, is minimized, or
+the mode or order changes, it computes the geometry of every region and has
+labwc reload. Moving a window to another place only swaps the geometry of two
+regions.
+
+The regions, the rule, the tiling keybinds and the gap are a fragment,
+$XDG_RUNTIME_DIR/flickos/tiler/labwc.xml, which flickos-layout merges into
+its rc.xml overlay (flickos-layout reconfigure). Without the fragment, labwc
+runs with the plain FlickOS config and windows float as usual.
+
+Settings: [Tiler] in /etc/xdg/flickos/tiler.conf, then ~/.config/flickos/tiler
+(toggle, mode, ratio, gap and floating write there; `default` removes the
+user's mode, ratio or gap). Every change that shows is recorded in
+$XDG_STATE_HOME/flickos/history.jsonl, where Settings > History can undo it. The daemon listens on
+$XDG_RUNTIME_DIR/flickos/tiler/control for the other commands.
+
+The daemon runs for the whole session: autostart starts it at login and it
+keeps following the windows whether tiling is on or off, so turning tiling on
+takes effect at once. While tiling is off it writes no fragment, and labwc
+runs with the plain FlickOS config. The panel button runs `flick-tiler status`
+once per change: flick-tiler sends waybar SIGRTMIN+8 (the module's "signal").
+
+`show-desktop` (the panel's Show Desktop button) minimizes every window that
+is shown, and when none is, gives back the ones it minimized, the focused one
+last. labwc 0.8 has no ToggleShowDesktop action, and the daemon already
+follows the windows, so it knows which ones it hid, whether tiling is on or
+off.
+
+Limits: a window dragged out of its place stays counted until it is tiled
+again (Super+Shift+T) or closed; windows already open when tiling is turned
+on stay floating until tiled with Super+Shift+T (labwc runs window rules only
+when a window opens; a notification says so); all outputs use the same
+arrangement.
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import argparse
+import configparser
+import contextlib
+import dataclasses
+import datetime
+import fcntl
+import fnmatch
+import json
+import math
+import os
+import selectors
+import shutil
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+
+# FLICK_TILER_PREFIX: run from a source tree, e.g. packages/flick-tiler.
+PREFIX = os.environ.get("FLICK_TILER_PREFIX", "")
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/tiler.conf"
+FLICKOS_LAYOUT = os.environ.get("FLICKOS_LAYOUT", "flickos-layout")
+REGION_PREFIX = "ft"
+# waybar "signal" of the panel button (custom/tiler in flickos-layouts'
+# layouts/common/modules.jsonc): SIGRTMIN+8 makes waybar run its exec again.
+PANEL_SIGNAL = 8
+SECTION = "Tiler"
+
+
+@dataclasses.dataclass(frozen=True)
+class Mode:
+    id: str
+    name: str
+
+
+# Arrangements, in the order `mode next` cycles through them. The panel
+# button's icons are in flickos-layouts' base.css (#custom-tiler.ID).
+MODES = {mode.id: mode for mode in (
+    Mode("master-stack", "Master and stack"),
+    Mode("columns", "Columns"),
+    Mode("grid", "Grid"),
+    Mode("monocle", "Monocle (one at a time)"),
+)}
+DEFAULT_MODE = "master-stack"
+RATIO_MIN, RATIO_MAX = 20, 80
+# `mode|ratio|gap default` removes the user's value (HIG SET-8; undoing a first change).
+DEFAULT_CHOICE = "default"
+GAP_MIN, GAP_MAX = 0, 64
+
+# Keybinds while tiling is on (labwc key names). The toggle, Super+T, is in
+# flickos-settings' rc.xml, so it works while tiling is off. "{region}" is the
+# region new windows go to.
+KEYBINDS = (
+    ("W-S-t", [("SnapToRegion", "{region}"), ("Execute", "flick-tiler tile")]),
+    ("W-S-f", [("Execute", "flick-tiler float")]),
+    ("W-j", [("Execute", "flick-tiler focus next")]),
+    ("W-k", [("Execute", "flick-tiler focus prev")]),
+    ("W-S-j", [("Execute", "flick-tiler swap next")]),
+    ("W-S-k", [("Execute", "flick-tiler swap prev")]),
+    ("W-S-Return", [("Execute", "flick-tiler promote")]),
+    ("W-m", [("Execute", "flick-tiler mode next")]),
+    ("W-bracketleft", [("Execute", "flick-tiler ratio -5")]),
+    ("W-bracketright", [("Execute", "flick-tiler ratio +5")]),
+)
+KEY_HELP = ("Super+T on/off · Super+M next arrangement · Super+J/K focus · "
+            "Super+Shift+J/K move · Super+Shift+Enter to main · Super+[ ] resize · "
+            "Super+Shift+T tile window · Super+Shift+F float window")
+
+
+class TilerError(Exception):
+    pass
+
+
+def warn(message):
+    print(f"flick-tiler: {message}", file=sys.stderr)
+
+
+# --- Settings -----------------------------------------------------------------
+
+@dataclasses.dataclass
+class Settings:
+    enabled: bool = False
+    mode: str = DEFAULT_MODE
+    ratio: int = 55
+    gap: int = 8
+    floating: tuple = ()
+
+
+def config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+
+
+def user_conf():
+    return os.path.join(config_home(), "flickos", "tiler")
+
+
+def read_ini(path):
+    ini = configparser.ConfigParser(interpolation=None)
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return {}
+    return dict(ini[SECTION]) if ini.has_section(SECTION) else {}
+
+
+def parse_settings(values):
+    """Settings from [Tiler] keys (configparser lowercases them). Bad values
+    keep the default."""
+    settings = Settings()
+    if "enabled" in values:
+        settings.enabled = values["enabled"].strip().lower() in ("yes", "true", "1", "on")
+    if values.get("mode", "").strip() in MODES:
+        settings.mode = values["mode"].strip()
+    elif values.get("mode"):
+        warn(f"unknown mode '{values['mode']}', using {DEFAULT_MODE}")
+    for key, attribute, low, high in (("masterratio", "ratio", RATIO_MIN, RATIO_MAX), ("gap", "gap", GAP_MIN, GAP_MAX)):
+        try:
+            value = int(values[key])
+        except KeyError:
+            continue
+        except ValueError:
+            warn(f"{key}: not a number: '{values[key]}'")
+            continue
+        setattr(settings, attribute, max(low, min(high, value)))
+    if "float" in values:
+        settings.floating = tuple(values["float"].split())
+    return settings
+
+
+def load_settings():
+    values = read_ini(SYSTEM_CONF)
+    values.update(read_ini(user_conf()))
+    return parse_settings(values)
+
+
+def system_settings():
+    """The settings without the user's: what `mode|ratio|gap default` go back to."""
+    return parse_settings(read_ini(SYSTEM_CONF))
+
+
+def write_atomic(path, text):
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def save_choice(**changes):
+    """Write enabled, mode, ratio, gap and/or floating to the user's file,
+    keeping its other keys. None removes one, so the system's applies again.
+    A change that shows is recorded for Settings > History (record)."""
+    names = {"enabled": "Enabled", "mode": "Mode", "ratio": "MasterRatio", "gap": "Gap", "floating": "Float"}
+    saved, before = read_ini(user_conf()), load_settings()
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+        ini.read(user_conf(), encoding="utf-8")
+    if not ini.has_section(SECTION):
+        ini.add_section(SECTION)
+    for key, value in changes.items():
+        for existing in list(ini[SECTION]):
+            if existing.lower() == names[key].lower():
+                ini.remove_option(SECTION, existing)
+        if value is None:
+            continue
+        if key == "enabled":
+            value = "yes" if value else "no"
+        elif key == "floating":
+            value = " ".join(value)
+        ini[SECTION][names[key]] = str(value)
+    out = [f"[{SECTION}]"] + [f"{key}={value}" for key, value in ini[SECTION].items()]
+    write_atomic(user_conf(), "\n".join(out) + "\n")
+    after = load_settings()
+    for key, value in changes.items():
+        if getattr(before, key) == getattr(after, key):
+            continue
+        if key == "enabled":
+            record(key, "on" if before.enabled else "off", "on" if after.enabled else "off")
+        elif key == "floating":
+            record(key, " ".join(before.floating), " ".join(after.floating))
+        else:
+            # What the user had saved, so an undo of a first change removes it again.
+            record(key, saved.get(names[key].lower(), "").strip() or DEFAULT_CHOICE,
+                   DEFAULT_CHOICE if value is None else str(value))
+
+
+# --- History ------------------------------------------------------------------
+# Every change of a setting is recorded for Settings > History, which can undo
+# it (flickos-control history). One JSON line per change, appended; the format
+# is shared with flickos-control and flickos-layout, which record their own
+# settings the same way (docs/design/flickos-history.md, ADR-002).
+
+HISTORY_OWNER = "flick-tiler"
+HISTORY_FILE = "history.jsonl"      # in $XDG_STATE_HOME/flickos
+HISTORY_LOCK = "history.lock"
+HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
+# flickos-control's: [History] Enabled=, then the user's ~/.config/flickos/history.
+HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+
+
+def state_home():
+    return os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+
+
+def history_enabled():
+    enabled = True
+    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+            value = ini.get("History", "Enabled", fallback=None)
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+        if value is not None:
+            enabled = value.strip().lower() not in ("no", "false", "off", "0")
+    return enabled
+
+
+def record(key, old, new):
+    """Add a change to the history. It never stops the change itself: a
+    history that can't be written is only a warning."""
+    if old == new or not history_enabled():
+        return
+    now = time.time_ns()
+    entry = {"v": 1, "id": str(now),
+             "time": datetime.datetime.fromtimestamp(now / 1e9).astimezone().isoformat(timespec="seconds"),
+             "owner": HISTORY_OWNER, "key": key, "old": old, "new": new}
+    folder = os.path.join(state_home(), "flickos")
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        with open(os.path.join(folder, HISTORY_LOCK), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = os.path.join(folder, HISTORY_FILE)
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                size = os.fstat(f.fileno()).st_size
+            if size > HISTORY_BYTES:
+                trim_history(path)
+    except OSError as error:
+        warn(f"the history can't be written: {error}")
+
+
+def trim_history(path):
+    """Keep the newest lines that fit in half of HISTORY_BYTES (under the lock)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    kept, size = [], 0
+    for line in reversed(lines):
+        size += len(line.encode())
+        if size > HISTORY_BYTES // 2:
+            break
+        kept.append(line)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.writelines(reversed(kept))
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def parse_gap(args):
+    """The gap in pixels from `gap N`, kept within GAP_MIN..GAP_MAX, or None
+    for `gap default`."""
+    if args and args[0] == DEFAULT_CHOICE:
+        return None
+    try:
+        return max(GAP_MIN, min(GAP_MAX, int(args[0])))
+    except (IndexError, ValueError):
+        raise TilerError(f"gap: give a number of pixels ({GAP_MIN}-{GAP_MAX}) or default") from None
+
+
+def parse_ratio(args, current):
+    """The main window's width from `ratio N|+N|-N`, kept within
+    RATIO_MIN..RATIO_MAX, or None for `ratio default`."""
+    if args and args[0] == DEFAULT_CHOICE:
+        return None
+    try:
+        value = int(args[0])
+    except (IndexError, ValueError):
+        raise TilerError("ratio: give a number, +N, -N or default") from None
+    ratio = current + value if args[0][0] in "+-" else value
+    return max(RATIO_MIN, min(RATIO_MAX, ratio))
+
+
+def parse_mode(args, current):
+    """The arrangement from `mode ID|next|prev`, or None for `mode default`."""
+    mode = args[0] if args else "next"
+    if mode == DEFAULT_CHOICE:
+        return None
+    if mode in ("next", "prev"):
+        mode = next_mode(current, 1 if mode == "next" else -1)
+    if mode not in MODES:
+        raise TilerError(f"unknown mode '{mode}'. Available: {', '.join(MODES)}, {DEFAULT_CHOICE}")
+    return mode
+
+
+def change_floating(patterns, action, pattern):
+    """The Float= patterns after adding or removing one (the Settings app).
+    A user's Float= replaces the system one, so the result is the whole list."""
+    if not pattern or pattern != pattern.strip() or len(pattern.split()) != 1:
+        raise TilerError(f"floating: give one app id pattern without spaces, not '{pattern}'")
+    kept = [p for p in patterns if p.lower() != pattern.lower()]
+    if action == "add":
+        return tuple(kept) + (pattern,)
+    if len(kept) == len(patterns):
+        raise TilerError(f"'{pattern}' is not in the list of apps that always float")
+    return tuple(kept)
+
+
+# --- Arrangements (percent of the output) ---------------------------------------
+
+def split(parts, total=100):
+    """(start, size) of `parts` integer spans that fill `total` exactly."""
+    edges = [round(i * total / parts) for i in range(parts + 1)]
+    return [(edges[i], edges[i + 1] - edges[i]) for i in range(parts)]
+
+
+def arrange(mode, count, ratio):
+    """(x, y, width, height) in percent for `count` windows, main window first."""
+    if count <= 0:
+        return []
+    if mode == "monocle" or count == 1:
+        return [(0, 0, 100, 100)] * count
+    if mode == "columns":
+        return [(x, 0, w, 100) for x, w in split(count)]
+    if mode == "grid":
+        columns = math.ceil(math.sqrt(count))
+        rows = math.ceil(count / columns)
+        rects = []
+        for row, (y, h) in enumerate(split(rows)):
+            in_row = min(columns, count - row * columns)
+            rects += [(x, y, w, h) for x, w in split(in_row)]
+        return rects
+    # master-stack
+    stack = [(ratio, y, 100 - ratio, h) for y, h in split(count - 1)]
+    return [(0, 0, ratio, 100)] + stack
+
+
+# --- Tiling state (no I/O) -------------------------------------------------------
+
+@dataclasses.dataclass
+class Window:
+    app_id: str = ""
+    title: str = ""
+    parent: int = 0
+    states: frozenset = frozenset()
+    region: str | None = None
+    mapped: bool = False
+    used: int = 0           # when it last had the focus (Tiler.uses), 0 = not since the daemon started
+
+    @property
+    def minimized(self):
+        return 1 in self.states
+
+    @property
+    def activated(self):
+        return 2 in self.states
+
+
+class Tiler:
+    """Which window is in which region, and the fragment that describes it.
+
+    `rule_region` is the region in the window rule labwc has loaded: every
+    window that maps is snapped to it. Once a window took it, commit() moves
+    the rule to a new region name, so names are never reused and a window
+    can't land in another window's region by accident."""
+
+    def __init__(self, settings):
+        self.settings = settings
+        self.windows = {}
+        self.order = []         # regions of tiled windows, main window first
+        self.last_rect = {}     # region -> rect it had last (minimized windows keep it)
+        self.serial = 0
+        self.rule_region = None
+        self.rule_taken = False
+        self.hidden = []        # windows show_desktop() minimized, the focused one last
+        self.uses = 0           # focus changes counted, for Window.used
+
+    # Windows
+
+    def owner(self, region):
+        for handle, window in self.windows.items():
+            if window.region == region:
+                return handle
+        return None
+
+    def should_float(self, window):
+        app_id = window.app_id.lower()
+        return bool(window.parent) or any(fnmatch.fnmatchcase(app_id, pattern.lower())
+                                          for pattern in self.settings.floating)
+
+    def mapped(self, handle, new):
+        """A window's first `done`. new: it mapped now (not already open when
+        the daemon started), so labwc snapped it to rule_region."""
+        window = self.windows[handle]
+        window.mapped = True
+        if window.activated:
+            self.used(handle)
+        if not (new and self.settings.enabled and self.rule_region) or self.rule_taken:
+            return False
+        # It is in rule_region even when it floats: the region is dropped to
+        # release it.
+        self.rule_taken = True
+        if not self.should_float(window):
+            window.region = self.rule_region
+            self.order.append(window.region)
+        return True
+
+    def closed(self, handle):
+        if handle in self.hidden:
+            self.hidden.remove(handle)
+        window = self.windows.pop(handle, None)
+        if window is None or window.region is None:
+            return False
+        self.order.remove(window.region)
+        return True
+
+    def states_changed(self, handle, old):
+        window = self.windows[handle]
+        if window.activated and 2 not in old:
+            self.used(handle)
+        return window.region is not None and (1 in old) != window.minimized
+
+    def used(self, handle):
+        self.uses += 1
+        self.windows[handle].used = self.uses
+
+    def app_window(self, app_ids):
+        """The main window (not a dialog) of an app that had the focus last,
+        or None. app_ids: the app ids its windows may have, any case."""
+        wanted = {app_id.lower() for app_id in app_ids}
+        found = [(window.used, handle) for handle, window in self.windows.items()
+                 if window.mapped and not window.parent and window.app_id.lower() in wanted]
+        return max(found)[1] if found else None
+
+    def focused(self):
+        for handle, window in self.windows.items():
+            if window.activated:
+                return handle
+        return None
+
+    def untiled(self):
+        """Open windows that would be tiled but aren't in a region."""
+        return [handle for handle, window in self.windows.items()
+                if window.mapped and window.region is None and not window.minimized
+                and not self.should_float(window)]
+
+    def visible(self):
+        return [region for region in self.order if not self.windows[self.owner(region)].minimized]
+
+    # Commands
+
+    def show_desktop(self):
+        """Show Desktop: (windows to minimize, windows to restore). Every shown
+        window is minimized; while none is, the ones minimized here come
+        back, the focused one last. Dialogs follow their parent in labwc."""
+        shown = [handle for handle, window in self.windows.items()
+                 if window.mapped and not window.parent and not window.minimized]
+        if shown:
+            self.hidden = sorted(shown, key=lambda handle: self.windows[handle].activated)
+            return self.hidden, []
+        restore = [handle for handle in self.hidden if self.windows[handle].minimized]
+        self.hidden = []
+        return [], restore
+
+    def tile_focused(self):
+        """The keybind has just snapped the focused window to rule_region."""
+        handle = self.focused()
+        if handle is None or not self.rule_region or self.rule_taken:
+            return False
+        window = self.windows[handle]
+        if window.region is not None:
+            self.order.remove(window.region)
+        window.region = self.rule_region
+        self.order.append(window.region)
+        self.rule_taken = True
+        return True
+
+    def float_focused(self):
+        """Dropping its region makes labwc release the window."""
+        handle = self.focused()
+        if handle is None or self.windows[handle].region is None:
+            return False
+        window = self.windows[handle]
+        self.order.remove(window.region)
+        window.region = None
+        return True
+
+    def neighbour(self, step):
+        """Handle of the next or previous visible tiled window from the focused one."""
+        visible = self.visible()
+        if not visible:
+            return None
+        handle = self.focused()
+        region = self.windows[handle].region if handle is not None else None
+        index = visible.index(region) + step if region in visible else 0
+        return self.owner(visible[index % len(visible)])
+
+    def swap(self, step):
+        handle = self.focused()
+        other = self.neighbour(step)
+        if handle is None or other is None or other == handle or self.windows[handle].region is None:
+            return False
+        a, b = self.order.index(self.windows[handle].region), self.order.index(self.windows[other].region)
+        self.order[a], self.order[b] = self.order[b], self.order[a]
+        return True
+
+    def promote(self):
+        """Make the focused window the main one; the main one swaps with the next."""
+        handle = self.focused()
+        visible = self.visible()
+        if handle is None or self.windows[handle].region not in visible or len(visible) < 2:
+            return False
+        region = self.windows[handle].region
+        target = visible[1] if region == visible[0] else visible[0]
+        a, b = self.order.index(region), self.order.index(target)
+        self.order[a], self.order[b] = self.order[b], self.order[a]
+        return True
+
+    def enable(self, on):
+        if on == self.settings.enabled:
+            return False
+        self.settings.enabled = on
+        if not on:
+            # Without the fragment labwc releases every window.
+            for window in self.windows.values():
+                window.region = None
+            self.order.clear()
+            self.rule_region = None
+        return True
+
+    # Output
+
+    def commit(self):
+        """Before writing the fragment: a new rule region if the old one was taken."""
+        if not self.settings.enabled:
+            self.rule_region = None
+        elif self.rule_region is None or self.rule_taken:
+            self.serial += 1
+            self.rule_region = f"{REGION_PREFIX}{self.serial}"
+        self.rule_taken = False
+
+    def regions(self):
+        """Region name -> rect: tiled windows, then the rule region (where the
+        next window goes: the last place with one more window)."""
+        s = self.settings
+        visible = self.visible()
+        rects = dict(zip(visible, arrange(s.mode, len(visible), s.ratio)))
+        self.last_rect.update(rects)
+        result = {}
+        for region in self.order:
+            result[region] = rects.get(region) or self.last_rect.get(region, (0, 0, 100, 100))
+        if self.rule_region:
+            result[self.rule_region] = arrange(s.mode, len(visible) + 1, s.ratio)[-1]
+        for gone in set(self.last_rect) - set(self.order):
+            del self.last_rect[gone]
+        return result
+
+    def fragment(self):
+        """The labwc config fragment for flickos-layout, or None when off."""
+        if not self.settings.enabled:
+            return None
+        top = ET.Element("labwc_config")
+        top.append(ET.Comment(" Generated by flick-tiler. Do not edit. "))
+        ET.SubElement(ET.SubElement(top, "core"), "gap").text = str(self.settings.gap)
+        regions = ET.SubElement(top, "regions")
+        for name, (x, y, w, h) in self.regions().items():
+            ET.SubElement(regions, "region", name=name, x=f"{x}%", y=f"{y}%", width=f"{w}%", height=f"{h}%")
+        rule = ET.SubElement(ET.SubElement(top, "windowRules"), "windowRule", identifier="*")
+        ET.SubElement(rule, "action", name="SnapToRegion", region=self.rule_region)
+        keyboard = ET.SubElement(top, "keyboard")
+        for key, actions in KEYBINDS:
+            bind = ET.SubElement(keyboard, "keybind", key=key)
+            for name, value in actions:
+                if name == "SnapToRegion":
+                    ET.SubElement(bind, "action", name=name, region=value.format(region=self.rule_region))
+                else:
+                    ET.SubElement(ET.SubElement(bind, "action", name=name), "command").text = value
+        ET.indent(top)
+        return ET.tostring(top, encoding="unicode") + "\n"
+
+    def status(self):
+        s = self.settings
+        mode = MODES[s.mode]
+        if not s.enabled:
+            return {"text": " ", "alt": "off", "class": ["off", s.mode], "ratio": s.ratio, "gap": s.gap,
+                    "tooltip": f"Tiling is off (Super+T). Arrangement: {mode.name}\n"
+                               "Click: turn on · Right click: arrangement · Scroll: change arrangement"}
+        count = len(self.visible())
+        return {"text": " ", "alt": s.mode, "class": ["on", s.mode], "ratio": s.ratio, "gap": s.gap,
+                "tooltip": f"Tiling: {mode.name}, {count} window{'' if count == 1 else 's'}\n"
+                           "Click: turn off · Right click: arrangement · Scroll: change arrangement\n"
+                           + KEY_HELP}
+
+
+def next_mode(current, step=1):
+    ids = list(MODES)
+    return ids[(ids.index(current) + step) % len(ids)]
+
+
+# --- Wayland client ---------------------------------------------------------------
+# Just enough of the wire protocol for wl_registry, wl_seat and
+# zwlr_foreign_toplevel_management_v1 (no file descriptors are passed).
+
+MANAGER = "zwlr_foreign_toplevel_manager_v1"
+MANAGER_VERSION = 3
+
+
+def pack_uint(value):
+    return struct.pack("=I", value)
+
+
+def pack_string(text):
+    data = text.encode("utf-8") + b"\0"
+    return pack_uint(len(data)) + data + b"\0" * (-len(data) % 4)
+
+
+class Reader:
+    def __init__(self, data):
+        self.data, self.pos = data, 0
+
+    def uint(self):
+        value, = struct.unpack_from("=I", self.data, self.pos)
+        self.pos += 4
+        return value
+
+    def bytes(self):
+        size = self.uint()
+        data = self.data[self.pos:self.pos + size]
+        self.pos += size + (-size % 4)
+        return data
+
+    def string(self):
+        data = self.bytes()
+        return data[:-1].decode("utf-8", "replace") if data else ""
+
+    def array_uints(self):
+        data = self.bytes()
+        return frozenset(struct.unpack(f"={len(data) // 4}I", data[:len(data) // 4 * 4]))
+
+
+def wayland_socket_path():
+    display = os.environ.get("WAYLAND_DISPLAY")
+    if not display:
+        raise TilerError("WAYLAND_DISPLAY is not set")
+    if os.path.isabs(display):
+        return display
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime:
+        raise TilerError("XDG_RUNTIME_DIR is not set")
+    return os.path.join(runtime, display)
+
+
+class Toplevels:
+    """Follows the compositor's windows and calls the daemon on changes."""
+
+    def __init__(self, sock, daemon):
+        self.sock = sock
+        self.daemon = daemon
+        self.buffer = b""
+        self.next_id = 2
+        self.handlers = {1: self.on_display}
+        self.registry = self.new_object(self.on_registry)
+        self.send(1, 1, pack_uint(self.registry))           # wl_display.get_registry
+        self.seat = None
+        self.manager = None
+        self.initial = True       # windows reported before the first sync existed already
+        self.pending_states = {}
+
+    def new_object(self, handler):
+        object_id = self.next_id
+        self.next_id += 1
+        self.handlers[object_id] = handler
+        return object_id
+
+    def send(self, object_id, opcode, payload=b""):
+        size = 8 + len(payload)
+        self.sock.sendall(struct.pack("=II", object_id, size << 16 | opcode) + payload)
+
+    def bind(self, name, interface, version, handler):
+        object_id = self.new_object(handler)
+        self.send(self.registry, 0, pack_uint(name) + pack_string(interface) + pack_uint(version)
+                  + pack_uint(object_id))
+        return object_id
+
+    def sync(self, handler):
+        self.send(1, 0, pack_uint(self.new_object(handler)))
+
+    def fileno(self):
+        return self.sock.fileno()
+
+    def dispatch(self):
+        """Read and handle what's available. False when the compositor is gone."""
+        data = self.sock.recv(65536)
+        if not data:
+            return False
+        self.buffer += data
+        while len(self.buffer) >= 8:
+            object_id, word = struct.unpack_from("=II", self.buffer)
+            size, opcode = word >> 16, word & 0xFFFF
+            if size < 8:
+                raise TilerError("bad Wayland message")
+            if len(self.buffer) < size:
+                break
+            payload, self.buffer = self.buffer[8:size], self.buffer[size:]
+            handler = self.handlers.get(object_id)
+            if handler is not None:
+                handler(object_id, opcode, Reader(payload))
+        return True
+
+    def on_display(self, _, opcode, args):
+        if opcode == 0:     # error
+            object_id, code, message = args.uint(), args.uint(), args.string()
+            raise TilerError(f"Wayland error on object {object_id} ({code}): {message}")
+        if opcode == 1:     # delete_id
+            self.handlers.pop(args.uint(), None)
+
+    def on_registry(self, _, opcode, args):
+        if opcode != 0:     # only global
+            return
+        name, interface, version = args.uint(), args.string(), args.uint()
+        if interface == "wl_seat" and self.seat is None:
+            self.seat = self.bind(name, interface, 1, lambda *_: None)
+        elif interface == MANAGER and self.manager is None:
+            self.manager = self.bind(name, interface, min(version, MANAGER_VERSION), self.on_manager)
+            self.sync(self.on_initial_done)
+
+    def on_initial_done(self, *_):
+        self.initial = False
+        self.daemon.started()
+
+    def on_manager(self, _, opcode, args):
+        if opcode == 0:     # toplevel
+            handle = args.uint()
+            self.handlers[handle] = self.on_handle
+            self.daemon.tiler.windows[handle] = Window()
+        elif opcode == 1:   # finished
+            raise TilerError("the compositor stopped the window list")
+
+    def on_handle(self, handle, opcode, args):
+        tiler = self.daemon.tiler
+        window = tiler.windows.get(handle)
+        if window is None:
+            return
+        if opcode == 0:
+            window.title = args.string()
+        elif opcode == 1:
+            window.app_id = args.string()
+        elif opcode == 4:
+            self.pending_states.setdefault(handle, window.states)
+            window.states = args.array_uints()
+        elif opcode == 5:   # done
+            old = self.pending_states.pop(handle, window.states)
+            if not window.mapped:
+                self.daemon.changed |= tiler.mapped(handle, new=not self.initial)
+            elif tiler.states_changed(handle, old):
+                self.daemon.changed = True
+        elif opcode == 6:   # closed
+            self.daemon.changed |= tiler.closed(handle)
+            self.handlers.pop(handle, None)
+            self.send(handle, 7)                            # destroy
+        elif opcode == 7:
+            window.parent = args.uint()
+
+    def activate(self, handle):
+        if handle is not None and self.seat is not None and handle in self.handlers:
+            self.send(handle, 4, pack_uint(self.seat))
+
+    def minimize(self, handle, on=True):
+        if handle in self.handlers:
+            self.send(handle, 2 if on else 3)               # set_minimized, unset_minimized
+
+
+# --- Daemon -------------------------------------------------------------------
+
+def runtime_dir():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base) or not os.path.isdir(base):
+        raise TilerError("XDG_RUNTIME_DIR is not set")
+    return os.path.join(base, "flickos", "tiler")
+
+
+def control_path():
+    return os.path.join(runtime_dir(), "control")
+
+
+def fragment_path():
+    return os.path.join(runtime_dir(), "labwc.xml")
+
+
+def reconfigure():
+    """flickos-layout merges the fragment into its rc.xml overlay and reloads labwc."""
+    try:
+        result = subprocess.run([FLICKOS_LAYOUT, "reconfigure"], check=False, timeout=15,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        warn(f"{FLICKOS_LAYOUT} reconfigure failed: {error}")
+        return
+    if result.returncode != 0:
+        warn(f"{FLICKOS_LAYOUT} reconfigure failed: {result.stderr.strip()}")
+
+
+def hint_untiled(count):
+    """Tell that windows open before tiling was turned on stay floating."""
+    windows = "window stays" if count == 1 else "windows stay"
+    try:
+        subprocess.run(["notify-send", "-a", "Tiling", "Tiling is on",
+                        f"{count} open {windows} floating. Press Super+Shift+T in a window to tile it."],
+                       check=False, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+class Daemon:
+    def __init__(self, settings):
+        self.tiler = Tiler(settings)
+        self.changed = False
+        self.ready = False
+        self.watchers = []
+        self.written = None
+        self.shown = None
+
+    def started(self):
+        self.ready = True
+        self.changed = True
+
+    def apply(self):
+        """Write (or delete) the fragment and reload labwc if it changed."""
+        self.changed = False
+        self.tiler.commit()
+        text = self.tiler.fragment()
+        if text != self.written:
+            if text is None:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(fragment_path())
+            else:
+                write_atomic(fragment_path(), text)
+            self.written = text
+            reconfigure()
+        self.notify()
+
+    def notify(self):
+        text = json.dumps(self.tiler.status())
+        if text != self.shown:
+            self.shown = text
+            signal_panel()
+        line = (text + "\n").encode()
+        for conn in list(self.watchers):
+            try:
+                conn.sendall(line)
+            except OSError:
+                self.watchers.remove(conn)
+                conn.close()
+
+    def command(self, words, toplevels):
+        """Run a control command. Returns the reply (a JSON status line)."""
+        tiler, settings = self.tiler, self.tiler.settings
+        name, args = (words[0], words[1:]) if words else ("status", [])
+        if name == "status":
+            pass
+        elif name in ("toggle", "on", "off"):
+            on = not settings.enabled if name == "toggle" else name == "on"
+            if tiler.enable(on):
+                save_choice(enabled=on)
+                self.changed = True
+                # Windows open before this stay floating; labwc runs window
+                # rules only when a window opens.
+                count = len(tiler.untiled()) if on else 0
+                if count:
+                    hint_untiled(count)
+        elif name == "mode":
+            mode = parse_mode(args, settings.mode)
+            settings.mode = system_settings().mode if mode is None else mode
+            save_choice(mode=mode)
+            self.changed = True
+        elif name == "ratio":
+            ratio = parse_ratio(args, settings.ratio)
+            settings.ratio = system_settings().ratio if ratio is None else ratio
+            save_choice(ratio=ratio)
+            self.changed = True
+        elif name == "gap":
+            gap = parse_gap(args)
+            settings.gap = system_settings().gap if gap is None else gap
+            save_choice(gap=gap)
+            self.changed = True
+        elif name == "floating" and len(args) == 2 and args[0] in ("add", "remove"):
+            # Used when the next window opens; nothing to reload.
+            settings.floating = change_floating(settings.floating, args[0], args[1])
+            save_choice(floating=settings.floating)
+        elif name == "focus" and args and args[0] in ("next", "prev"):
+            toplevels.activate(tiler.neighbour(1 if args[0] == "next" else -1))
+        elif name == "swap" and args and args[0] in ("next", "prev"):
+            self.changed |= tiler.swap(1 if args[0] == "next" else -1)
+        elif name == "promote":
+            self.changed |= tiler.promote()
+        elif name == "tile":
+            self.changed |= tiler.tile_focused()
+        elif name == "float":
+            self.changed |= tiler.float_focused()
+        elif name == "focus-app" and args:
+            # The start menu (Cupertino's grid) brings an open app forward
+            # instead of starting it again.
+            handle = tiler.app_window(args)
+            if handle is not None:
+                if tiler.windows[handle].minimized:
+                    toplevels.minimize(handle, on=False)
+                toplevels.activate(handle)
+            return json.dumps(dict(tiler.status(), found=handle is not None))
+        elif name == "show-desktop":
+            # The windows' new states come back as events, like any minimize.
+            hide, restore = tiler.show_desktop()
+            for handle in hide:
+                toplevels.minimize(handle)
+            for handle in restore:
+                toplevels.minimize(handle, on=False)
+            if restore:
+                toplevels.activate(restore[-1])
+        else:
+            raise TilerError(f"unknown command: {' '.join(words)}")
+        if self.changed and self.ready:
+            self.apply()
+        return json.dumps(tiler.status())
+
+
+def lock_path():
+    return os.path.join(runtime_dir(), "daemon.lock")
+
+
+def daemon_lock(wait=0.0):
+    """The lock a daemon holds while it runs (an open file), or None if another
+    process still holds it after `wait` seconds. One daemon at a time, even
+    when two clicks start one each."""
+    os.makedirs(runtime_dir(), mode=0o700, exist_ok=True)
+    lock = open(lock_path(), "w")
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return lock
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                lock.close()
+                return None
+            time.sleep(0.1)
+
+
+def clear_stale_fragment():
+    """Delete a fragment left by a daemon that died: it would keep windows in
+    regions nobody updates. Only while holding the daemon lock."""
+    try:
+        os.unlink(fragment_path())
+    except FileNotFoundError:
+        return False
+    reconfigure()
+    return True
+
+
+def signal_panel():
+    """Make waybar show the new state (custom/tiler's "signal"). waybar ignores
+    real-time signals no module uses, so a user's own panel is unaffected."""
+    try:
+        subprocess.run(["pkill", f"-RTMIN+{PANEL_SIGNAL}", "-u", str(os.getuid()), "-x", "waybar"],
+                       check=False, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def serve_control(path):
+    """Listen on the control socket (the caller holds the daemon lock, so a
+    socket file there is left over)."""
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(8)
+    return server
+
+
+def read_request(conn):
+    conn.settimeout(2)
+    data = b""
+    while b"\n" not in data and len(data) < 4096:
+        chunk = conn.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    return data.split(b"\n", 1)[0].decode("utf-8", "replace").split()
+
+
+def run_daemon():
+    """Follow the windows until the session ends (autostart). One per session."""
+    lock = daemon_lock()
+    if lock is None:
+        return 0
+    with lock:
+        settings = load_settings()
+        # Windows in the regions of a daemon that died are released first:
+        # region names start again at ft1.
+        clear_stale_fragment()
+        return serve(settings)
+
+
+def serve(settings):
+    try:
+        wayland = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        wayland.connect(wayland_socket_path())
+    except OSError as error:
+        raise TilerError(f"cannot connect to the Wayland compositor: {error}") from None
+    server = serve_control(control_path())
+    daemon = Daemon(settings)
+    toplevels = Toplevels(wayland, daemon)
+    selector = selectors.DefaultSelector()
+    selector.register(toplevels, selectors.EVENT_READ, "wayland")
+    selector.register(server, selectors.EVENT_READ, "control")
+    stop = []
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(signum, lambda *_: stop.append(True))
+    deadline = time.monotonic() + 5
+    reload_labwc = True
+    try:
+        while not stop:
+            if not daemon.ready and toplevels.manager is None and time.monotonic() > deadline:
+                warn(f"the compositor has no {MANAGER}; tiling needs labwc")
+                return 1
+            for key, _ in selector.select(timeout=1):
+                if key.data == "wayland":
+                    if not toplevels.dispatch():
+                        stop.append(True)
+                        reload_labwc = False
+                        break
+                    continue
+                conn, _ = server.accept()
+                try:
+                    words = read_request(conn)
+                    if words[:1] == ["watch"]:
+                        conn.sendall((json.dumps(daemon.tiler.status()) + "\n").encode())
+                        daemon.watchers.append(conn)
+                        continue
+                    try:
+                        reply = daemon.command(words, toplevels)
+                    except TilerError as error:
+                        reply = json.dumps({"error": str(error)})
+                    conn.sendall((reply + "\n").encode())
+                except OSError:
+                    pass
+                conn.close()
+            if daemon.ready and daemon.changed:
+                daemon.apply()
+    finally:
+        server.close()
+        with contextlib.suppress(OSError):
+            os.unlink(control_path())
+        if daemon.written is not None:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(fragment_path())
+            if reload_labwc:
+                reconfigure()
+    return 0
+
+
+# --- Client commands ---------------------------------------------------------
+
+def request(words):
+    """Send a command to the daemon. The reply as a dict, or None if none runs."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(20)
+            conn.connect(control_path())
+            conn.sendall((" ".join(words) + "\n").encode())
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+    except OSError:
+        return None
+    try:
+        return json.loads(data)
+    except ValueError:
+        raise TilerError("no answer from the daemon") from None
+
+
+def offline(words):
+    """A settings command while no daemon answers: saved for the next login.
+
+    The daemon normally runs for the whole session, so this happens outside a
+    session (a text console) or when it died."""
+    name, args = words[0], words[1:]
+    if name == "mode":
+        save_choice(mode=parse_mode(args, load_settings().mode))
+    elif name == "ratio":
+        save_choice(ratio=parse_ratio(args, load_settings().ratio))
+    elif name == "gap":
+        save_choice(gap=parse_gap(args))
+    elif name == "floating" and len(args) == 2 and args[0] in ("add", "remove"):
+        save_choice(floating=change_floating(load_settings().floating, args[0], args[1]))
+    elif name in ("toggle", "on", "off"):
+        save_choice(enabled=not load_settings().enabled if name == "toggle" else name == "on")
+        # A daemon that died leaves its fragment behind; the windows in it
+        # would stay tiled with nobody updating them.
+        lock = daemon_lock()
+        if lock is not None:
+            with lock:
+                clear_stale_fragment()
+    else:
+        warn("flick-tiler isn't running")
+        return 1
+    signal_panel()
+    print("flick-tiler isn't running; saved for the next login.")
+    return 0
+
+
+def cmd_send(opts):
+    words = opts.words
+    reply = request(words)
+    if reply is None:
+        return offline(words)
+    if "error" in reply:
+        warn(reply["error"])
+        return 1
+    return 0
+
+
+def cmd_focus_app(opts):
+    """Exit status 0 if a window of the app was brought forward, 1 if none is
+    open (or no daemon runs): then the caller starts the app."""
+    reply = request(["focus-app", *opts.ids])
+    return 0 if reply is not None and reply.get("found") is True else 1
+
+
+def offline_status():
+    """Without a daemon tiling is off, whatever the saved setting says."""
+    return Tiler(dataclasses.replace(load_settings(), enabled=False)).status()
+
+
+def cmd_status(opts):
+    if not opts.follow:
+        reply = request(["status"])
+        print(json.dumps(reply if reply is not None else offline_status()), flush=True)
+        return 0
+    # waybar: a JSON line per change; waits for the daemon while it isn't running.
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    shown = None
+    while True:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                conn.connect(control_path())
+                conn.sendall(b"watch\n")
+                with conn.makefile("r", encoding="utf-8") as lines:
+                    for line in lines:
+                        print(line.strip(), flush=True)
+                        shown = None
+        except (OSError, TilerError):
+            pass
+        line = json.dumps(offline_status())
+        if line != shown:
+            print(line, flush=True)
+            shown = line
+        time.sleep(3)
+
+
+def cmd_menu(opts):
+    """Choose an arrangement (waybar right click) with fuzzel."""
+    settings = load_settings()
+    reply = request(["status"])
+    enabled = reply.get("alt") != "off" if reply else settings.enabled
+    # The daemon's arrangement, or the saved one while it is off or gone.
+    in_use = reply.get("alt") if reply else None
+    if in_use not in MODES:
+        in_use = settings.mode
+    entries = [("Turn tiling off" if enabled else "Turn tiling on", ["toggle"])]
+    current = 0
+    for mode in MODES.values():
+        if mode.id == in_use:
+            current = len(entries)
+        entries.append((f"{'●' if mode.id == in_use else '○'} {mode.name}", ["mode", mode.id]))
+    if shutil.which("fuzzel") is None:
+        warn("fuzzel is not installed")
+        return 1
+    # --index: fuzzel answers with the entry's number, so nothing depends on
+    # matching its text back (flickos-layout's chooser does the same).
+    result = subprocess.run(["fuzzel", "--dmenu", "--index", f"--select-index={current}",
+                             "--prompt", "Tiling: ", "--lines", str(len(entries))],
+                            input="\n".join(label for label, _ in entries) + "\n",
+                            capture_output=True, text=True, check=False)
+    try:
+        index = int(result.stdout.strip())
+    except ValueError:
+        return 0                    # nothing chosen (Escape, or text typed)
+    if not 0 <= index < len(entries):
+        return 0
+    words = entries[index][1]
+    status = cmd_send(argparse.Namespace(words=words))
+    # Choosing an arrangement while tiling is off also turns it on.
+    if words[0] == "mode" and not enabled and status == 0:
+        status = cmd_send(argparse.Namespace(words=["on"]))
+    return status
+
+
+def cmd_floating(opts):
+    if opts.action == "list":
+        for pattern in load_settings().floating:
+            print(pattern)
+        return 0
+    if opts.pattern is None:
+        warn(f"floating {opts.action}: give an app id pattern")
+        return 2
+    return cmd_send(argparse.Namespace(words=["floating", opts.action, opts.pattern]))
+
+
+def cmd_modes(opts):
+    for mode in MODES.values():
+        print(f"{mode.id}\t{mode.name}")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="flick-tiler", description="Tile windows in the FlickOS labwc session.")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    commands.add_parser("daemon", help="follow the windows and tile them (autostart, whole session)"
+                        ).set_defaults(func=lambda opts: run_daemon())
+    status = commands.add_parser("status", help="print the state as JSON (the panel button)")
+    # The panel button of flickos-layouts 1.7 (a process that stays).
+    status.add_argument("--follow", action="store_true", help="a line per change, while the daemon runs")
+    status.set_defaults(func=cmd_status)
+    commands.add_parser("modes", help="list arrangements: id, name").set_defaults(func=cmd_modes)
+    commands.add_parser("menu", help="choose an arrangement with fuzzel").set_defaults(func=cmd_menu)
+    simple = {
+        "toggle": "turn tiling on or off", "on": "turn tiling on", "off": "turn tiling off",
+        "promote": "make the focused window the main one",
+        "tile": "tile the focused window (the Super+Shift+T keybind)",
+        "float": "let the focused window float",
+        "show-desktop": "minimize every window, or restore the ones it minimized (the panel button)",
+    }
+    for name, text in simple.items():
+        commands.add_parser(name, help=text).set_defaults(func=cmd_send, words=[name])
+    for name, text, choices in (("focus", "focus the next or previous tiled window", ("next", "prev")),
+                                ("swap", "move the focused window forward or back", ("next", "prev"))):
+        sub = commands.add_parser(name, help=text)
+        sub.add_argument("direction", choices=choices)
+        sub.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=[opts.command, opts.direction])))
+    focus_app = commands.add_parser("focus-app", help="bring forward the window of an app that had the focus last "
+                                    "(exit status 1 if none is open)")
+    focus_app.add_argument("ids", nargs="+", metavar="APP-ID", help="the app ids its windows may have")
+    focus_app.set_defaults(func=cmd_focus_app)
+    mode = commands.add_parser("mode", help="choose an arrangement: ID, next, prev or default")
+    mode.add_argument("id", nargs="?", default="next")
+    mode.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["mode", opts.id])))
+    ratio = commands.add_parser("ratio", help="main window width in percent: N, +N, -N or default")
+    ratio.add_argument("value")
+    ratio.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["ratio", opts.value])))
+    gap = commands.add_parser("gap", help=f"pixels between tiled windows and the screen edges ({GAP_MIN}-{GAP_MAX}, or default)")
+    gap.add_argument("value")
+    gap.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["gap", opts.value])))
+    floating = commands.add_parser("floating", help="apps that always float: list, add PATTERN, remove PATTERN")
+    floating.add_argument("action", choices=("list", "add", "remove"))
+    floating.add_argument("pattern", nargs="?", help="app id, shell pattern (e.g. gimp*)")
+    floating.set_defaults(func=cmd_floating)
+    # "-5" would otherwise be taken for an option.
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) == 2 and argv[0] == "ratio" and argv[1].startswith("-"):
+        argv.insert(1, "--")
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except (TilerError, OSError) as error:
+        warn(str(error))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

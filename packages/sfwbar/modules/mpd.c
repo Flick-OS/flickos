@@ -1,0 +1,532 @@
+/* This entire file is licensed under GNU General Public License v3.0
+ *
+ * Copyright 2025- Sfwbar maintainers
+ */
+
+
+#include "module.h"
+#include "trigger.h"
+#include "util/string.h"
+#include "gui/scaleimage.h"
+
+gint64 sfwbar_module_signature = 0x73f4d956a1;
+guint16 sfwbar_module_version = MODULE_API_VERSION;
+module_thread_t sfwbar_module_thread = MODULE_THREAD_MODULE;
+
+static gboolean mpd_connect( gpointer );
+
+static GList *address_list, *address_current, *mpd_cmd_queue, *mpd_queue;
+static GList *mpd_db_list, *mpd_search_list, *mpd_playlist_list, *mpd_playlist;
+static GSocketConnection *mpd_connection;
+static GIOChannel *chan;
+static GHashTable *mpd_state, *mpd_song_current;
+static gchar *mpd_error, *mpd_cover;
+static const gchar *mpd_cmd_readpicture, *mpd_cmd_currentsong, *mpd_cmd_idle,
+             *mpd_cmd_albumart, *mpd_cmd_playlistinfo, *mpd_cmd_status,
+             *mpd_cmd_init, *mpd_cmd_list, *mpd_cmd_search, *mpd_cmd_find,
+             *mpd_cmd_listplaylistinfo, *mpd_cmd_listplaylists;
+static const gchar *mpd_cmd_current, *mpd_art_cmd;
+static gint64 mpd_time, mpd_pb_counter;
+static gsize mpd_cover_total, mpd_cover_received, mpd_cover_bufsize;
+static GdkPixbufLoader *mpd_cover_loader;
+static gpointer mpd_cover_buf;
+
+static gint mpd_cmd_cmp ( const void *data, const void *cmd )
+{
+  if(!data || !cmd)
+    return 0;
+
+  return strncmp(data, cmd, strlen(cmd));
+}
+
+static void mpd_cmd_remove ( const gchar *cmd )
+{
+  GList *iter;
+
+  while( (iter = g_list_find_custom(mpd_cmd_queue, cmd, mpd_cmd_cmp)) )
+  {
+    g_free(iter->data);
+    mpd_cmd_queue = g_list_delete_link(mpd_cmd_queue, iter);
+  }
+}
+
+static void mpd_cmd_append ( gchar *cmd, ... )
+{
+  va_list args;
+  
+  if(!cmd)
+    return;
+
+  va_start(args, cmd);
+  mpd_cmd_remove(mpd_cmd_idle);
+  mpd_cmd_queue = g_list_append(mpd_cmd_queue, g_strdup_vprintf(cmd, args));
+  va_end(args);
+  if(mpd_cmd_current == mpd_cmd_idle)
+  {
+    g_io_channel_write_chars(chan, "noidle\n", 7, NULL, NULL);
+    g_io_channel_flush(chan, NULL);
+  }
+}
+
+static void mpd_cmd_cover ( gsize offset, const gchar *cmd )
+{
+  gchar *file;
+
+  mpd_art_cmd = cmd;
+  if(!offset)
+  {
+    mpd_cover_total = 0;
+    mpd_cover_received = 0;
+    if(mpd_cover_loader)
+    {
+      gdk_pixbuf_loader_close(mpd_cover_loader, NULL);
+      g_clear_pointer(&mpd_cover_loader, g_object_unref);
+    }
+    mpd_cover_loader = gdk_pixbuf_loader_new();
+  }
+  if( (file = g_hash_table_lookup(mpd_song_current, "file")) && *file)
+    mpd_cmd_append("%s \"%s\" %d", cmd, file, offset);
+}
+
+static gboolean mpd_idle_handle ( gchar *str )
+{
+  gchar *change;
+
+  if(g_ascii_strncasecmp(str, "changed:", 8))
+    return FALSE;
+
+  change = g_strstrip(str+8);
+
+  if(!g_ascii_strcasecmp(change, "player"))
+  {
+    mpd_cmd_append("status");
+    mpd_cmd_append("currentsong");
+  }
+  mpd_cmd_current = NULL;
+
+  return TRUE;
+}
+
+static gboolean mpd_error_handle ( gchar *str )
+{
+  if(g_ascii_strncasecmp(str, "ACK", 3))
+    return FALSE;
+
+  str_assign(&mpd_error, g_strdup(g_strstrip(str+3)));
+  trigger_emit_with_string("mpd-error", "message", g_strdup(mpd_error));
+  g_io_channel_write_chars(chan, "clearerror\n", 11, NULL, NULL);
+  g_io_channel_flush(chan, NULL);
+
+  return TRUE;
+}
+
+static void mpd_emit_with_array ( gchar *trigger, GList **list )
+{
+  value_t array;
+  vm_store_t *store;
+  GList *iter;
+
+  *list = g_list_sort(*list, (GCompareFunc)g_ascii_strcasecmp);
+  array = value_array_create(g_list_length(*list));
+  for(iter=*list; iter; iter=g_list_next(iter))
+    value_array_append(array, value_take_string(iter->data));
+  g_list_free(g_steal_pointer(list));
+
+  store = vm_store_new(NULL, TRUE);
+  vm_store_insert_full(store, "list", array);
+
+  trigger_emit_with_data(trigger, store);
+  vm_store_unref(store);
+
+}
+
+static gboolean mpd_ok_handle ( gchar *str )
+{
+  gchar *ptr;
+
+  if(g_ascii_strncasecmp(str, "OK", 2))
+    return FALSE;
+
+  if(mpd_cmd_current == mpd_cmd_playlistinfo)
+    trigger_emit("mpd-playlistinfo");
+  else if(mpd_cmd_current == mpd_cmd_search || mpd_cmd_current == mpd_cmd_find)
+    trigger_emit("mpd-search");
+  else if(mpd_cmd_current == mpd_cmd_listplaylistinfo)
+    trigger_emit("mpd-listplaylistinfo");
+  else if(mpd_cmd_current == mpd_cmd_list)
+    mpd_emit_with_array("mpd-list", &mpd_db_list);
+  else if(mpd_cmd_current == mpd_cmd_listplaylists)
+    mpd_emit_with_array("mpd-list", &mpd_playlist_list);
+  else if(mpd_cmd_current == mpd_cmd_readpicture && !mpd_cover_received)
+    mpd_cmd_cover(0, mpd_cmd_albumart);
+  else
+    trigger_emit("mpd");
+  mpd_cmd_current = NULL;
+
+  if(!mpd_cmd_queue)
+  {
+    mpd_cmd_append("status");
+    mpd_cmd_append("currentsong");
+    mpd_cmd_append("idle player playlist");
+  }
+
+  g_debug("mpd: command: %s", (gchar *)mpd_cmd_queue->data);
+  g_io_channel_write_chars(chan, mpd_cmd_queue->data, -1, NULL, NULL);
+  g_io_channel_write_chars(chan, "\n", 1, NULL, NULL);
+  g_io_channel_flush(chan, NULL);
+  if( (ptr = strchr(mpd_cmd_queue->data, ' ')) )
+    *ptr = 0;
+  mpd_cmd_current = g_intern_string(mpd_cmd_queue->data);
+  g_free(mpd_cmd_queue->data);
+  mpd_cmd_queue = g_list_delete_link(mpd_cmd_queue, mpd_cmd_queue);
+  if(mpd_cmd_current == mpd_cmd_list)
+    g_list_free_full(g_steal_pointer(&mpd_db_list), g_free);
+  if(mpd_cmd_current == mpd_cmd_listplaylists)
+    g_list_free_full(g_steal_pointer(&mpd_playlist_list), g_free);
+  if(mpd_cmd_current == mpd_cmd_playlistinfo)
+    g_list_free_full(g_steal_pointer(&mpd_queue),
+        (GDestroyNotify)g_hash_table_destroy);
+  if(mpd_cmd_current == mpd_cmd_listplaylistinfo)
+    g_list_free_full(g_steal_pointer(&mpd_playlist),
+        (GDestroyNotify)g_hash_table_destroy);
+  if(mpd_cmd_current == mpd_cmd_search || mpd_cmd_current == mpd_cmd_find)
+    g_list_free_full(g_steal_pointer(&mpd_search_list),
+        (GDestroyNotify)g_hash_table_destroy);
+
+  return TRUE;
+}
+
+static gboolean mpd_tag_handle ( gchar *str, GHashTable *hash )
+{
+  gchar *ptr, *val, *oldval;
+
+  if( !(ptr = strchr(str, ':')) )
+    return FALSE;
+  *ptr = 0;
+
+  if( !(val = g_strstrip(ptr+1)) )
+    return FALSE;
+
+  if(hash == mpd_state && !g_ascii_strcasecmp(str, "elapsed"))
+    mpd_time = g_get_monotonic_time();
+
+  oldval = g_hash_table_lookup(hash, str);
+  if(oldval && !g_strcmp0(val, oldval))
+    return TRUE;
+
+  g_hash_table_insert(hash, g_strdup(str), g_strdup(g_strstrip(ptr+1)));
+  if(hash == mpd_song_current && !g_ascii_strcasecmp(str, "file"))
+    mpd_cmd_cover(0, mpd_cmd_readpicture);
+
+  return TRUE;
+}
+
+static gboolean mpd_cover_handle ( gchar *str )
+{
+  GdkPixbuf *pixbuf;
+  GIOStatus status;
+  gsize newtotal, chunk;
+
+  if(!g_ascii_strncasecmp(str, "size:", 5))
+  {
+    newtotal = g_ascii_strtoull(g_strstrip(str+5), NULL, 10);
+    if(mpd_cover_total && mpd_cover_total!=newtotal)
+      mpd_cmd_cover(0, mpd_art_cmd);
+    else
+      mpd_cover_total = newtotal;
+  }
+  else if(!g_ascii_strncasecmp(str, "binary:", 7))
+  {
+    chunk = g_ascii_strtoull(g_strstrip(str+7), NULL, 10);
+    if(mpd_cover_bufsize < chunk)
+      mpd_cover_buf = g_realloc(mpd_cover_buf, (mpd_cover_bufsize = chunk) );
+    status = g_io_channel_read_chars(chan, mpd_cover_buf, chunk, NULL, NULL);
+    if(status==G_IO_STATUS_NORMAL)
+    {
+      mpd_cover_received += chunk;
+      gdk_pixbuf_loader_write(mpd_cover_loader, mpd_cover_buf, chunk, NULL);
+      if(mpd_cover_received>=mpd_cover_total)
+      {
+        scale_image_cache_remove(mpd_cover);
+        g_clear_pointer(&mpd_cover, g_free);
+        if(gdk_pixbuf_loader_close(mpd_cover_loader, NULL) &&
+            (pixbuf = gdk_pixbuf_loader_get_pixbuf(mpd_cover_loader)) )
+        {
+          str_assign(&mpd_cover, g_strdup_printf("<pixbufcache/>mpdart-%ld",
+                mpd_pb_counter++));
+          scale_image_cache_insert(mpd_cover, gdk_pixbuf_copy(pixbuf));
+        }
+        if(mpd_cover_loader)
+          g_clear_pointer(&mpd_cover_loader, g_object_unref);
+        trigger_emit("mpd-cover");
+      }
+      else
+        mpd_cmd_cover(mpd_cover_received, mpd_art_cmd);
+    }
+  }
+
+  return TRUE;
+}
+
+static gboolean mpd_playlist_handle ( gchar *str, GList **list )
+{
+  if(!g_ascii_strncasecmp(str, "file:", 5))
+    *list = g_list_prepend(*list, g_hash_table_new_full(
+          (GHashFunc)str_nhash, (GEqualFunc)str_nequal, g_free, g_free));
+  return *list? mpd_tag_handle(str, (*list)->data) : FALSE;
+}
+
+static gboolean mpd_event ( GIOChannel *chan, GIOCondition cond, void *d )
+{
+  gchar *str;
+
+  if(cond & G_IO_ERR || cond & G_IO_HUP)
+  {
+    g_debug("mpd: error cond %d", cond);
+    return G_SOURCE_REMOVE;
+  }
+  if( !(cond & G_IO_IN) && !(cond & G_IO_PRI) )
+    return G_SOURCE_CONTINUE;
+  while(g_io_channel_read_line(chan, &str, NULL, NULL, NULL)==
+      G_IO_STATUS_NORMAL && str)
+  {
+    if(mpd_cmd_current == mpd_cmd_idle)
+      mpd_idle_handle(str);
+    else if(mpd_cmd_current == mpd_cmd_status)
+      mpd_tag_handle(str, mpd_state);
+    else if(mpd_cmd_current == mpd_cmd_currentsong)
+      mpd_tag_handle(str, mpd_song_current);
+    else if(mpd_cmd_current == mpd_cmd_albumart || mpd_cmd_current == mpd_cmd_readpicture)
+      mpd_cover_handle(str);
+    else if(mpd_cmd_current == mpd_cmd_playlistinfo)
+      mpd_playlist_handle(str, &mpd_queue);
+    else if(mpd_cmd_current == mpd_cmd_listplaylistinfo)
+      mpd_playlist_handle(str, &mpd_playlist);
+    else if(mpd_cmd_current == mpd_cmd_search ||
+        mpd_cmd_current == mpd_cmd_find)
+      mpd_playlist_handle(str, &mpd_search_list);
+    else if(mpd_cmd_current == mpd_cmd_list && strchr(str,':'))
+      mpd_db_list = g_list_prepend(mpd_db_list,
+          g_strdup(g_strstrip(strchr(str, ':')+1)));
+    else if(mpd_cmd_current == mpd_cmd_listplaylists &&
+        !g_ascii_strncasecmp(str, "playlist:", 9))
+      mpd_playlist_list = g_list_prepend(mpd_playlist_list,
+          g_strdup(g_strstrip(str+9)));
+
+    if(!mpd_ok_handle(str))
+      mpd_error_handle(str);
+
+    g_free(str);
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static void mpd_reconnect ( void )
+{
+  if( !(address_current = g_list_next(address_current)) )
+  {
+    address_current = address_list;
+    module_timeout_add(1000, mpd_connect, NULL);
+  }
+  else
+    module_idle_add(mpd_connect, NULL);
+}
+
+static void mpd_connect_cb ( GSocketClient *client, GAsyncResult *res,
+    GSocketConnectable *conn )
+{
+  GSocket *sock;
+
+  mpd_connection = g_socket_client_connect_finish(client, res, NULL);
+  g_object_unref(client);
+  if(mpd_connection && !g_socket_connection_is_connected(mpd_connection))
+    g_clear_pointer(&mpd_connection, g_object_unref);
+  if(mpd_connection &&
+      (sock = g_socket_connection_get_socket(mpd_connection)) &&
+      (chan = g_io_channel_unix_new(g_socket_get_fd(sock))) )
+  {
+    g_io_channel_set_flags(chan, G_IO_FLAG_NONBLOCK, NULL);
+    g_io_channel_set_close_on_unref(chan, TRUE);
+    g_io_channel_set_encoding(chan, NULL, NULL);
+    mpd_cmd_append("status");
+    mpd_cmd_append("currentsong");
+    mpd_cmd_current = mpd_cmd_init;
+    module_channel_watch_add(chan, G_PRIORITY_DEFAULT,
+        G_IO_IN | G_IO_PRI | G_IO_HUP | G_IO_ERR,
+        (GIOFunc)mpd_event, NULL, (GDestroyNotify)mpd_reconnect);
+  }
+  else
+    mpd_reconnect();
+}
+
+static gboolean mpd_connect ( gpointer d )
+{
+  GSocketClient *client;
+  gchar *str;
+
+  if(!address_current)
+    address_current = address_list;
+
+  g_return_val_if_fail(address_current, G_SOURCE_REMOVE);
+
+  str = g_socket_connectable_to_string(address_current->data);
+  g_debug("mpd: connecting: %s", str);
+  g_free(str);
+  client = g_socket_client_new();
+  g_socket_client_connect_async(client, address_current->data, NULL,
+      (GAsyncReadyCallback)mpd_connect_cb, address_current->data);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void mpd_address_new ( const gchar *host, guint16 port )
+{
+  GSocketConnectable *conn;
+  const gchar *host_act;
+
+  if(!host)
+    return;
+
+  if(*host != '@' && (host_act = strchr(host, '@')) )
+    host_act++;
+  else
+    host_act = host;
+
+  if(!host_act || !*host_act)
+    return;
+
+  if(*host_act == '@')
+    conn = (GSocketConnectable *)g_unix_socket_address_new_with_type(
+        host_act+1, -1, G_UNIX_SOCKET_ADDRESS_ABSTRACT);
+  else if(*host_act == '/')
+    conn = (GSocketConnectable *)g_unix_socket_address_new(host_act);
+  else
+    conn = g_network_address_parse(host_act, port? port : 6600, NULL);
+
+  if(host_act != host)
+    g_object_set_data_full(G_OBJECT(conn), "password",
+        g_strndup(host, host_act - host), g_free);
+
+  address_list = g_list_prepend(address_list, conn);
+}
+
+static value_t mpd_func_list ( vm_t *vm, value_t p[], gint np )
+{
+  value_t result, row;
+  GList *list, *iter;
+  gint i;
+
+  if(np<2)
+    return value_na;
+
+  vm_param_check_string(vm, p, 0, "MpdList");
+  if(!g_ascii_strcasecmp(value_get_string(p[0]), "queue"))
+    list = mpd_queue;
+  else if(!g_ascii_strcasecmp(value_get_string(p[0]), "listplaylistinfo"))
+    list = mpd_playlist;
+  else if(!g_ascii_strcasecmp(value_get_string(p[0]), "search"))
+    list = mpd_search_list;
+  else
+    return value_na;
+
+  result = value_array_create(g_list_length(list));
+  for(iter=list; iter; iter=g_list_next(iter))
+  {
+    row = value_array_create(np-1);
+    for(i=1; i<np; i++)
+      value_array_append(row, value_new_string(
+              g_hash_table_lookup(iter->data, value_get_string(p[i]))));
+    value_array_append(result, row);
+  }
+
+  return result;
+}
+
+static value_t mpd_func_info ( vm_t *vm, value_t p[], gint np )
+{
+  gchar *val;
+
+  vm_param_check_np(vm, np, 1, "MpdInfo");
+  vm_param_check_string(vm, p, 0, "MpdInfo");
+
+  if(!g_ascii_strcasecmp(value_get_string(p[0]), "age"))
+    return value_take_string(
+        g_strdup_printf("%ld", g_get_monotonic_time() - mpd_time));
+  if(!g_ascii_strcasecmp(value_get_string(p[0]), "cover"))
+    return value_new_string(mpd_cover);
+
+  if((val = g_hash_table_lookup(mpd_state, value_get_string(p[0]))) ||
+      (val = g_hash_table_lookup(mpd_song_current, value_get_string(p[0]))))
+      return value_new_string(val);
+
+  return value_na;
+}
+
+static value_t mpd_func_server ( vm_t *vm, value_t p[], gint np )
+{
+  vm_param_check_np(vm, np, 1, "MpdServer");
+  vm_param_check_string(vm, p, 0, "MpdServer");
+
+  mpd_address_new(value_get_string(p[0]), 0);
+  address_current = NULL;
+  mpd_reconnect();
+
+  return value_na;
+}
+
+static value_t mpd_func_cmd ( vm_t *vm, value_t p[], gint np )
+{
+  vm_param_check_np(vm, np, 1, "MpdCmd");
+  vm_param_check_string(vm, p, 0, "MpdCmd");
+
+  mpd_cmd_append("%s", value_get_string(p[0]));
+
+  return value_na;
+}
+
+gboolean sfwbar_module_init ( void )
+{
+  const gchar *dir, *port;
+  gchar *tmp;
+
+  mpd_cmd_idle = g_intern_static_string("idle");
+  mpd_cmd_init = g_intern_static_string("init");
+  mpd_cmd_currentsong = g_intern_static_string("currentsong");
+  mpd_cmd_status = g_intern_static_string("status");
+  mpd_cmd_playlistinfo = g_intern_static_string("playlistinfo");
+  mpd_cmd_albumart = g_intern_static_string("albumart");
+  mpd_cmd_readpicture = g_intern_static_string("readpicture");
+  mpd_cmd_list = g_intern_static_string("list");
+  mpd_cmd_search = g_intern_static_string("search");
+  mpd_cmd_find = g_intern_static_string("find");
+  mpd_cmd_listplaylistinfo = g_intern_static_string("listplaylistinfo");
+  mpd_cmd_listplaylists = g_intern_static_string("listplaylists");
+
+  mpd_state = g_hash_table_new_full((GHashFunc)str_nhash,
+      (GEqualFunc)str_nequal, g_free, g_free);
+  mpd_song_current = g_hash_table_new_full((GHashFunc)str_nhash,
+      (GEqualFunc)str_nequal, g_free, g_free);
+
+  vm_func_add("mpdlist", mpd_func_list, FALSE, FALSE);
+  vm_func_add("mpdinfo", mpd_func_info, FALSE, FALSE);
+  vm_func_add("mpdserver", mpd_func_server, TRUE, FALSE);
+  vm_func_add("mpdcmd", mpd_func_cmd, TRUE, FALSE);
+
+  mpd_address_new("localhost", 6600);
+  mpd_address_new("/run/mpd/socket", 0);
+
+  if( (dir = g_get_user_runtime_dir()) )
+  {
+    tmp = g_build_filename(dir, "/mpd/socket", NULL);
+    mpd_address_new(tmp, 0);
+    g_free(tmp);
+  }
+
+  port = g_getenv("MPD_PORT");
+  mpd_address_new(g_getenv("MPD_HOST"), port? g_ascii_strtoll(port, NULL, 10) : 0);
+
+  module_idle_add(mpd_connect, NULL);
+
+  return TRUE;
+}

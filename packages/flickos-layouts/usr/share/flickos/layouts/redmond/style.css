@@ -1,0 +1,24 @@
+/* Redmond layout. Shared rules: ../common/base.css. Named colors only. */
+@import url("../common/base.css");
+
+#custom-launcher {
+    min-width: 24px;
+    background-size: 24px 24px;
+}
+
+/* Icon-only buttons (waybar.jsonc), all the same width: 46 px. */
+#taskbar button {
+    min-width: 24px;
+    margin: 4px 1px;
+    padding: 0 10px;
+    border-radius: 4px;
+}
+
+#taskbar button.active {
+    border-bottom: none;
+    box-shadow: inset 0 -2px @selected_bg_color;
+}
+
+#clock {
+    font-size: 11px;
+}

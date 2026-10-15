@@ -1,0 +1,9 @@
+# Changes to what decides which code reaches FlickOS computers need the
+# maintainer's review: the community list and its checks, the repository's
+# configuration, CI, and the package that holds the apt source and key.
+# Takes effect with a branch ruleset on main that requires review from code
+# owners (repo/community/README.md, "Protecting the repository").
+/repo/community/                     @dvbondoy
+/repo/conf/                          @dvbondoy
+/.github/                            @dvbondoy
+/packages/flickos-archive-keyring/   @dvbondoy

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS style is an AppStream add-on of the layout chooser
+     (docs/design/flickos-ricing.md, ADR-006, ADR-013, ADR-014 and ADR-017):
+     Software lists add-ons that extend flickos-layout.desktop under Styles,
+     FlickOS::style names the style's folder in /usr/share/flickos/styles,
+     and FlickOS::layout the layout Use sets with it. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.styles.Elemental</id>
+  <extends>flickos-layout.desktop</extends>
+  <name>Elemental</name>
+  <summary>Light windows, a see-through top bar, a light dock</summary>
+  <description>
+    <p>
+      A light style for the FlickOS desktop: windows in one light grey with the
+      title in the middle and plain buttons, a see-through dark top bar with
+      white text, a dark slate terminal and a seashore seen from above.
+    </p>
+    <p>
+      It comes with a layout of the same name: a thin top bar with Applications
+      on the left and the date and time in the middle, a light dock at the
+      bottom, and the close button on the left of the title bar and maximize
+      on the right. Use sets both; you can still pick another layout in
+      Settings.
+    </p>
+  </description>
+  <icon type="stock">preferences-desktop-theme</icon>
+  <url type="homepage">https://github.com/dvbondoy/FlickOS</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::style">elemental</value>
+    <value key="FlickOS::layout">elemental</value>
+  </custom>
+</component>

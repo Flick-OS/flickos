@@ -1,0 +1,44 @@
+/* Aye3's bar: FlickOS's shared rules, then status as monospace text with
+ * thin separators and the desktops as boxes. Named colors only. */
+@import url("../common/base.css");
+
+window#waybar.aye3bar * {
+    font-family: monospace;
+    font-size: 12px;
+}
+
+/* Status as text: no icons for volume and battery. */
+window#waybar.aye3bar #wireplumber,
+window#waybar.aye3bar #battery {
+    background-image: none;
+    min-width: 0;
+}
+
+window#waybar.aye3bar #network,
+window#waybar.aye3bar #cpu,
+window#waybar.aye3bar #memory,
+window#waybar.aye3bar #wireplumber,
+window#waybar.aye3bar #battery,
+window#waybar.aye3bar #clock {
+    padding: 0 8px;
+    border-left: 1px solid alpha(@fg_color, 0.35);
+}
+
+window#waybar.aye3bar #network.disconnected {
+    color: @error_color;
+}
+
+/* Desktop buttons as boxes: the current one in the accent. */
+window#waybar.aye3bar #custom-desk {
+    margin: 2px 1px;
+    padding: 0 6px;
+    background: @bg_color;
+    color: alpha(@fg_color, 0.55);
+    border: 1px solid @borders;
+}
+
+window#waybar.aye3bar #custom-desk.active {
+    background: @base_color;
+    color: @fg_color;
+    border: 1px solid @selected_bg_color;
+}

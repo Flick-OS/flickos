@@ -1,0 +1,35 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: flickos-branding
+Upstream-Contact: Jon <dvbondoy@gmail.com>
+Source: https://github.com/dvbondoy/FlickOS
+
+Files: *
+Copyright: 2026 Jon <dvbondoy@gmail.com>
+License: GPL-3+
+
+Files: usr/share/icons/hicolor/scalable/apps/flickos.svg
+       usr/share/icons/hicolor/symbolic/apps/flickos-symbolic.svg
+       usr/share/plymouth/themes/flickos/*
+       usr/share/flickos/grub/*
+       usr/share/flickos/fastfetch/flickos.txt
+Copyright: 2026 Jon <dvbondoy@gmail.com>
+License: GPL-3+
+Comment: The FlickOS name and logo are trademarks of the FlickOS
+ maintainer. As an additional term under section 7(e) of the GPL-3, no
+ rights under trademark law are granted for them: a changed system must
+ use its own name and logo. The policy is TRADEMARKS.md in FlickOS's
+ source repository.
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".

@@ -1,0 +1,13 @@
+[Unit]
+Description=Update Flatpak apps with the automatic updates
+Documentation=man:flatpak-update(1)
+ConditionKernelCommandLine=!boot=live
+ConditionPathExists=/usr/bin/flatpak
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/flickos/software-update
+Nice=10
+IOSchedulingClass=idle

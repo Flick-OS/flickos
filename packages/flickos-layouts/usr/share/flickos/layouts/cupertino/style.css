@@ -1,0 +1,16 @@
+/* Cupertino layout: top bar. Shared rules: ../common/base.css. Named colors
+ * only. The dock is sfwbar, styled by dock.css. */
+@import url("../common/base.css");
+
+/* Top bar */
+window#waybar.topbar {
+    background: alpha(@wm_bg, 0.85);
+}
+
+window#waybar.topbar * {
+    font-size: 12px;
+}
+
+window#waybar.topbar #custom-launcher {
+    background-size: 16px 16px;
+}

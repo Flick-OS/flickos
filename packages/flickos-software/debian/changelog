@@ -1,0 +1,68 @@
+flickos-software (1.7) trixie; urgency=medium
+
+  * Elemental on the Styles shelf.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 15 Oct 2026 00:05:41 +0800
+
+flickos-software (1.6) trixie; urgency=medium
+
+  * Footprint on the Styles shelf.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 20:45:23 +0800
+
+flickos-software (1.5) trixie; urgency=medium
+
+  * A style package may bring a layout too (FlickOS::layout, ADR-014 of
+    docs/design/flickos-ricing.md): Use then sets the style and the
+    layout together (flickos-layout set LAYOUT --style STYLE); Try stays
+    style only; never a community package's (INDEX_VERSION 4). Aye3 on
+    the Styles shelf.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 10:16:25 +0800
+
+flickos-software (1.4) trixie; urgency=medium
+
+  * Styles: a community package's style is shown only when it is the
+    package's own (its name), as repo/community/check.py requires:
+    another package's style would get Try and Use under its name.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 23:36:25 +0800
+
+flickos-software (1.3) trixie; urgency=medium
+
+  * Styles: add-ons of the layout chooser (FlickOS's style packages)
+    under Styles and on a shelf, with Try and Use; flickos-style-*
+    packages can be removed.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 22:43:47 +0800
+
+flickos-software (1.2) trixie; urgency=medium
+
+  * A community app's page also says that, like any app installed from
+    Debian, it can use your files.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 09 Oct 2026 13:13:31 +0800
+
+flickos-software (1.1) trixie; urgency=medium
+
+  * Community apps (design phase 2): apps from FlickOS's community
+    repository show as the source FlickOS Community, with a note that
+    FlickOS builds them from the developer's source and reviews them;
+    FlickOS's own apps with metainfo show as FlickOS. Both install
+    through PackageKit.
+  * The front page's shelves come from featured.json: Made for FlickOS,
+    then Apps to start with. The package's copy until the list from the
+    store's Worker is fetched (at most once a day, nothing sent about
+    the user); list --shelves prints them.
+  * The index is built again after the upgrade (its format changed).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 09 Oct 2026 11:13:22 +0800
+
+flickos-software (1.0) trixie; urgency=medium
+
+  * Initial release: the Software window (design phase 1). Debian and
+    Flathub apps in one list, with icons, descriptions, screenshots and
+    what each needs on disk; installs and removals through PackageKit
+    and libflatpak. Replaces gpk-application.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 22:03:20 +0800

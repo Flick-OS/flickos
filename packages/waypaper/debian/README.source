@@ -1,0 +1,29 @@
+waypaper for FlickOS
+====================
+
+Upstream: https://github.com/anufrievroman/waypaper (GPL-3+). Debian trixie
+doesn't have it, so FlickOS packages it natively from an upstream release.
+
+Layout of this folder (installed as is by debian/install, nothing is built):
+
+  usr/lib/python3/dist-packages/waypaper/   upstream's waypaper/ package
+  usr/bin/waypaper                          upstream's entry point (the slideshow
+                                            runs python3 -m waypaper.waypaperd)
+  usr/share/applications/, icons/, man/     upstream's data/ files
+  etc/xdg/waypaper/config.ini               FlickOS defaults (not upstream)
+  LICENSE, README.md, CHANGELOG.md          upstream's
+
+Changes to upstream:
+  - waypaper/config.py: Config.read() reads SYSTEM_CONFIG_FILE
+    (/etc/xdg/waypaper/config.ini) before the user's config.ini.
+  - waypaper.desktop: without the "#!/usr/bin/env xdg-open" first line
+    (lintian).
+
+Updating to upstream release X.Y:
+
+  1. Download https://github.com/anufrievroman/waypaper/archive/refs/tags/X.Y.tar.gz
+  2. Replace usr/lib/python3/dist-packages/waypaper/ with its waypaper/, and
+     the data/ files (gunzip data/waypaper.1.gz into usr/share/man/man1/).
+  3. Make the changes above again.
+  4. Compare setup.py's install_requires with debian/control's Depends.
+  5. dch -v X.Y+flickos1 -D trixie "New upstream release X.Y."

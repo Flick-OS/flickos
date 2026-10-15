@@ -1,0 +1,11 @@
+#!/usr/bin/make -f
+
+# The tests import usr/bin/flickos-menu; no bytecode next to installed files.
+export PYTHONDONTWRITEBYTECODE = 1
+
+%:
+	dh $@
+
+# Skipped with DEB_BUILD_OPTIONS=nocheck.
+override_dh_auto_test:
+	python3 -m unittest discover -s tests -v

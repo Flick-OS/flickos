@@ -1,0 +1,16 @@
+#!/bin/sh
+# Put the "Restore points" submenu into GRUB's menu and write its entries
+# (ADR-004). Only on FlickOS's btrfs layout: on ext4 grub.cfg stays as it is.
+set -e
+
+layout() {
+    [ "$(findmnt -no FSTYPE,FSROOT /.snapshots 2>/dev/null | tr -s ' ')" = "btrfs /@snapshots" ]
+}
+
+if [ "$1" = configure ] && layout && command -v update-grub >/dev/null 2>&1 \
+        && [ -e /boot/grub/grub.cfg ] && ! grep -qs boot=live /proc/cmdline; then
+    update-grub || true
+    flickos-recovery grub || true
+fi
+
+#DEBHELPER#

@@ -1,0 +1,163 @@
+1.0beta17
+  - Implement ext-workspaces protocol.
+  - Add localization support.
+  - Implement vm based code interpreter.
+  - Support multithreaded execution of user functions.
+  - Implement dbus module.
+  - Rewrite mpd module as a primary implementation of the interface.
+  - Implement for pipewire privacy monitor.
+
+1.0beta16.1
+  - Fix linking with newer version of gtk-layer-shell.
+
+1.0beta16
+  - Implement notification center
+  - Add support for cosmic-workspaces protocol
+  - Migrate start menu to a dynamically updated widget
+  - Implement support for idle notifications
+  - Support dynamic SNI menus
+  - Add wayfire custom IPC support
+  - Implement icon shadows
+
+1.0beta15
+  - Implement Network Manager WiFI module
+  - Implement shared interfaces for modules
+  - Add support for pulse audio client sink switching
+  - Support for older versions of gtk-layer-shell
+  - Load configs and modules from trusted locations only
+  - Application icons lookup improvements
+
+1.0beta14
+  - Implement wifi-iwd module
+  - Implement multi-desktop taskbars
+  - Add support for multiple device/channels for pulsectl module
+  - Add Read, Escape and Replace expression functions
+
+1.0beta13
+  - Implement bluez module
+  - Add WidgetId() expression function, assign id's to all widgets
+  - Add Eval action
+  - Add SwitcherEvent action. Support backwards switching.
+  - Allow config to modify widgets. Implement ClearWidget action.
+
+1.0beta12
+  - Implement mirroring of taskbar across multiple monitors
+  - Show on hover taskbar support
+  - Add ALSA module
+  - Emit triggers on RT signals
+  - Support modifier keys in action triggers
+  - Allow closing popup windows on focus out
+
+1.0_beta11
+  - Add BSDCtl module to query BSD sysctl information
+  - Stability improvements for client scanner sources
+  - Update internal mpd client to new client source api
+  - Implement bar reload on SIGHUP
+
+1.0_beta10
+  - Implement loadable modules
+  - Add support for scriptable popup windows
+  - Implement intermediate variables
+  - Support flipping grid sort order
+  - Improve taskbar filtering
+  - Support symbolic icons
+  - Support launching via swaybar_command
+
+1.0_beta9
+  - Implement grouped taskbars
+  - Add support for Hyprland IPC
+  - Implement filtering by workspace (on supported IPCs)
+  - Improve support for dynamically generated menus
+  - Implement second user state
+
+1.0_beta8
+  - Update config files
+
+1.0_beta7
+  - Implement chart widget
+  - Support loading svg images from inline data
+  - Implement centering of widgets in respect to the bar
+  - Support multiple bars, taskbars and pagers
+  - Implement addressable bars / widgets
+  - Allow hiding widgets via css property
+
+1.0_beta6
+  - Improved json path parser
+  - Support for listening to all sway events
+  - Support for show/hide on modifier
+  - Support for continuous listening to output of an executed program or a socket
+  - Support for dynamic recoloring of images
+  - Support for user state of widgets
+  - Support for configuration of layer shell exclusive zone
+  - Fixes for icon matching
+  - Fixes for SNI tray support
+
+1.0_beta4
+  - Implement tooltips
+  - Implement dynamci styling
+  - MPD support
+  - Idle Inhibit protocol support
+  - Taskbar output filter (only show windows from a given output)
+  - SetBarSize action
+  - title_width property to trim long window titles
+  - SetBarID action (listen to events on a specific bar ID)
+  - SetValue / SetStyle actions (control widget visuals via actions)
+
+1.0_beta3
+  - Implement user defined menues, functions and actions
+  - Allow binding actions to multiple mouse events for any widget
+
+1.0_beta2
+  - Implement tray icon menues
+  - Lookup XDG data system directories for resources
+  - Update default configs to be more useful
+
+1.0_beta1
+  - Implement system tray
+  - Move configuration from libucl to custom parser
+  - Move expression parser to custom parser
+  - Move data extraction and expression engine to a separate thread
+
+0.9.10
+  - Add support for wayland foreign toplevel protocol (taskbar support for
+      wayfire and other compositors supporting this protocol)
+  - Implement json parser for scan variables
+  - Add scalabale image widget to have more consistent CSS theming
+  - Bug fixes
+
+0.9.9.3
+  - Bug fixes
+
+0.9.9.2
+  - Bug fixes
+
+0.9.9.1
+  - Bug fixes
+
+0.9.9
+  - Make configuration modular
+  - Implement Df command to check disc free space
+  - Allow placing taskbar on specified edge
+  - Allow specifying timezone for Time command
+
+0.9.8
+  - Implement pager preview
+  - Add icons
+
+0.9.7
+  - Implement task switcher
+  - Improve placement logic
+
+0.9.6
+  - Migrate config to libucl
+  - Implement css theming
+
+0.9.4
+  - Allow specifying config file through command line
+
+0.9.3
+  - Implement pager
+
+
+
+

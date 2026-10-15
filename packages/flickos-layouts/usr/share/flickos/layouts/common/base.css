@@ -1,0 +1,220 @@
+/* Styles shared by every layout, imported at the top of each layout's
+ * style.css. Colors: named colors from the style palette only (@wm_bg,
+ * @fg_color, ...), never color values. Reference: man waybar-styles. */
+
+* {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 13px;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+
+/* Translucent bars: the wallpaper shows through (no blur; labwc has none). */
+window#waybar {
+    background: alpha(@wm_bg, 0.85);
+    color: @fg_color;
+}
+
+/* Launcher: the FlickOS logo (flickos-branding's flickos-symbolic icon),
+ * its ring and dot (class "warning") in the brand amber and the flick in the
+ * text color, all of it in the accent color on hover. Only here does the
+ * desktop show the brand color (docs/design/flickos-accent.md, ADR-003). */
+#custom-launcher {
+    min-width: 20px;
+    padding: 0 10px;
+    font-weight: bold;
+    -gtk-icon-palette: warning @brand_color;
+    background-image: -gtk-icontheme("flickos-symbolic");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 20px 20px;
+}
+
+#custom-launcher:hover {
+    background-color: alpha(@base_color, 0.8);
+    color: @selected_bg_color;
+    -gtk-icon-palette: warning @selected_bg_color;
+}
+
+/* Show Desktop (flick-tiler show-desktop): a slim strip at the right end of
+ * the bar, as in Windows 7, with no icon: only a faint line to its left, and
+ * lit while the pointer is on it. The pointer pushed into the corner hits it. */
+#custom-desktop {
+    min-width: 8px;
+    padding: 0;
+    border-left: 1px solid alpha(@fg_color, 0.2);
+}
+
+#custom-desktop:hover {
+    background-color: alpha(@fg_color, 0.15);
+    border-left-color: alpha(@fg_color, 0.4);
+}
+
+#taskbar button {
+    padding: 0 6px;
+    color: @fg_color;
+}
+
+#taskbar button:hover {
+    background: alpha(@base_color, 0.8);
+}
+
+#taskbar button.active {
+    background: @base_color;
+    border-bottom: 2px solid @selected_bg_color;
+}
+
+/* Desktop buttons (flickos/desktops in a layout's waybar.jsonc): one per
+ * labwc desktop, the current one marked like the window list's active
+ * button. flickos-layout writes their text and class (desktop_json). */
+#custom-desk {
+    min-width: 12px;
+    padding: 0 6px;
+    color: alpha(@fg_color, 0.7);
+}
+
+#custom-desk:hover {
+    background: alpha(@base_color, 0.8);
+}
+
+#custom-desk.active {
+    background: @base_color;
+    color: @fg_color;
+    border-bottom: 2px solid @selected_bg_color;
+}
+
+#clock,
+#wireplumber,
+#battery,
+#custom-tiler,
+#custom-phone,
+#tray {
+    padding: 0 10px;
+}
+
+/* Volume and battery show only an icon (the label is a space): a symbolic
+ * icon from the icon theme, which GTK tints with the text color. */
+#wireplumber,
+#battery {
+    min-width: 16px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 16px 16px;
+}
+
+#wireplumber {
+    background-image: -gtk-icontheme("audio-volume-high-symbolic");
+}
+
+#wireplumber.muted {
+    background-image: -gtk-icontheme("audio-volume-muted-symbolic");
+    color: alpha(@fg_color, 0.5);
+}
+
+#battery {
+    background-image: -gtk-icontheme("battery-good-symbolic");
+}
+
+#battery.warning {
+    background-image: -gtk-icontheme("battery-low-symbolic");
+    color: @warning_color;
+}
+
+#battery.critical {
+    background-image: -gtk-icontheme("battery-caution-symbolic");
+}
+
+#battery.critical:not(.charging) {
+    color: @error_color;
+}
+
+#battery.charging,
+#battery.plugged {
+    background-image: -gtk-icontheme("battery-good-charging-symbolic");
+}
+
+#battery.full {
+    background-image: -gtk-icontheme("battery-full-charged-symbolic");
+}
+
+/* Quick Settings (flickos-menu), while it is on: flickos-layout puts volume
+ * and battery into group/quick, which the pointer lights as one button. */
+#quick:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+/* Tiling (flick-tiler): the arrangement's icon, dimmed while tiling is off. */
+#custom-tiler {
+    min-width: 16px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 16px 16px;
+    background-image: -gtk-icontheme("view-dual-symbolic");
+}
+
+#custom-tiler.columns {
+    background-image: -gtk-icontheme("view-continuous-symbolic");
+}
+
+#custom-tiler.grid {
+    background-image: -gtk-icontheme("view-grid-symbolic");
+}
+
+#custom-tiler.monocle {
+    background-image: -gtk-icontheme("view-fullscreen-symbolic");
+}
+
+#custom-tiler.off {
+    color: alpha(@fg_color, 0.4);
+}
+
+#custom-tiler:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+/* The phone connection (flickos-phone): dimmed while no phone is connected. */
+#custom-phone {
+    min-width: 16px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 16px 16px;
+    background-image: -gtk-icontheme("phone-symbolic");
+}
+
+#custom-phone.waiting {
+    color: alpha(@fg_color, 0.4);
+}
+
+#custom-phone:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+/* A screen recording (flickos-screenshot): the record icon and the time,
+ * in the error color while recording; plain while it counts down. Hidden
+ * while nothing records (waybar hides an empty module). */
+#custom-recording {
+    padding: 0 10px 0 32px;
+    background-repeat: no-repeat;
+    background-position: 10px center;
+    background-size: 16px 16px;
+    background-image: -gtk-icontheme("media-record-symbolic");
+}
+
+#custom-recording.recording {
+    color: @error_color;
+}
+
+#custom-recording:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+tooltip {
+    background: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 6px;
+}
+
+tooltip label {
+    color: @fg_color;
+}

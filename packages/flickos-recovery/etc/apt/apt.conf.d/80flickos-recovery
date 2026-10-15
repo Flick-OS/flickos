@@ -1,0 +1,10 @@
+// flickos-recovery: a restore point before every software change
+// (docs/design/flickos-recovery.md, ADR-002). apt runs the command through
+// sh with its version 3 package list on stdin, and picks the list's version
+// by the first word. Exit status 100 means a restore point was put back and
+// the computer hasn't restarted: apt stops (ADR-003). Anything else lets apt
+// go on: if the program is gone (the package removed, this file kept), sh's
+// error is hidden and cat reads the list. The program does nothing unless /
+// is FlickOS's btrfs layout.
+DPkg::Pre-Install-Pkgs { "/usr/bin/flickos-recovery apt-hook 2>/dev/null || { [ $? -eq 100 ] && exit 1; cat >/dev/null; }"; };
+DPkg::Tools::Options::/usr/bin/flickos-recovery::Version "3";

@@ -1,0 +1,30 @@
+Source: flickos-shortcuts
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-shortcuts
+Architecture: all
+# labwc: the daemon relies on labwc sending the modifier state to clients
+# without keyboard focus. python3-gi, gir1.2-gtk-3.0, gir1.2-gtklayershell-0.1:
+# the sheet, GTK 3 so it follows the Arc theme. python3-gi-cairo: clicks go
+# through the sheet.
+Depends: python3,
+         python3-gi,
+         python3-gi-cairo,
+         gir1.2-gtk-3.0,
+         gir1.2-gtklayershell-0.1,
+         labwc,
+         ${misc:Depends}
+Description: keyboard shortcut sheet for the FlickOS labwc session
+ Press and hold the Super (Windows) key in the FlickOS session and a sheet
+ with the keyboard shortcuts appears until the key is let go. The shortcuts
+ keep working while it is shown. It is also in the Settings menu.
+ .
+ The sheet lists the shortcuts labwc actually uses, read from its rc.xml:
+ the FlickOS defaults, the tiling keys while tiling is on, or the user's
+ own configuration.

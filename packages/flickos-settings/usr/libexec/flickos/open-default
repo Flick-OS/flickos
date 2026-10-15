@@ -1,0 +1,28 @@
+#!/bin/sh
+# Start the user's default web browser or file manager: the app chosen in
+# Settings > Default Applications (xdg-mime, ~/.config/mimeapps.list), else
+# FlickOS's (/etc/xdg/flickos/mimeapps.list). Used by Super+B, Super+E and the
+# menu. Falls back to Debian's x-www-browser, and to Thunar, else pcmanfm
+# (on systems installed before Thunar replaced it).
+#
+#   open-default browser|files
+
+case "$1" in
+    browser) type=x-scheme-handler/https; fallback=x-www-browser ;;
+    files) type=inode/directory; fallback=thunar
+           command -v thunar >/dev/null || fallback=pcmanfm ;;
+    *) echo "usage: open-default browser|files" >&2; exit 2 ;;
+esac
+
+id="$(xdg-mime query default "$type" 2>/dev/null)"
+if [ -n "$id" ] && command -v gio >/dev/null; then
+    IFS=:
+    for dir in "${XDG_DATA_HOME:-$HOME/.local/share}" ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+        if [ -f "$dir/applications/$id" ]; then
+            gio launch "$dir/applications/$id" && exit 0
+            break
+        fi
+    done
+    unset IFS
+fi
+exec "$fallback"

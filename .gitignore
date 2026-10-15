@@ -1,0 +1,39 @@
+.build/
+cache/
+chroot/
+binary/
+*.iso
+*.contents
+*.files
+*.packages
+*.log
+config/binary
+config/bootstrap
+config/chroot
+config/common
+config/source
+config/packages.chroot/
+repo/db/
+repo/public/
+repo/.gh-pages/
+repo/.extras-build/
+# Symlinks to live-build's standard hooks, created by lb config.
+# FlickOS's own hooks use numbers 0001-0999 so they are not matched.
+config/hooks/live/
+config/hooks/normal/[1-9][0-9][0-9][0-9]-*.hook.chroot
+build.log
+packages/.build/
+SHA256SUMS
+.test-vm/
+boot-test/
+wget-log*
+network-manager-gnome.deb
+chroot.packages.*
+binary.modified_timestamps
+__pycache__/
+TODOs.md
+# wrangler state and build output (server/countme, server/store)
+server/countme/.wrangler/
+server/store/.wrangler/
+# repo/community/build.py output
+/build/

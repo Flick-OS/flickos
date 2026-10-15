@@ -1,0 +1,82 @@
+<?xml version="1.0"?>
+<!--
+  FlickOS labwc defaults. Reference: man labwc-config, man labwc-actions.
+  A user's ~/.config/labwc/rc.xml replaces this whole file.
+-->
+<labwc_config>
+  <theme>
+    <!-- Window borders, title bars and menus in Arc-Dark colors:
+         /usr/share/themes/FlickOS-Arc-Dark/labwc/themerc (man labwc-theme) -->
+    <name>FlickOS-Arc-Dark</name>
+    <cornerRadius>6</cornerRadius>
+    <icon>Numix-Circle</icon>
+  </theme>
+
+  <keyboard>
+    <!--
+      Load labwc's built-in bindings: Alt+Tab, Alt+F4, window snapping,
+      window menu, brightness keys. Bindings below override defaults
+      that use the same key (W-Return, A-F3, audio keys).
+    -->
+    <default />
+
+    <!-- Applications. Super+D and Alt+F3 open the app launcher, or close it. -->
+    <keybind key="W-Return"><action name="Execute"><command>foot</command></action></keybind>
+    <keybind key="W-d"><action name="Execute"><command>sh -c 'pkill -x fuzzel || fuzzel'</command></action></keybind>
+    <keybind key="A-F3"><action name="Execute"><command>sh -c 'pkill -x fuzzel || fuzzel'</command></action></keybind>
+    <keybind key="W-e"><action name="Execute"><command>pcmanfm</command></action></keybind>
+    <keybind key="W-b"><action name="Execute"><command>x-www-browser</command></action></keybind>
+    <keybind key="W-v"><action name="Execute"><command>sh -c 'cliphist list | fuzzel --dmenu --prompt "Clipboard: " | cliphist decode | wl-copy'</command></action></keybind>
+
+    <!-- Windows and session -->
+    <keybind key="W-q"><action name="Close" /></keybind>
+    <keybind key="W-l"><action name="Execute"><command>swaylock -f -c 383c4a</command></action></keybind>
+    <keybind key="W-S-e"><action name="Exit" /></keybind>
+
+    <!-- Screenshots: Print = select region, Shift+Print = full screen (saved to ~/Pictures/Screenshots);
+         Ctrl+Print = region to clipboard -->
+    <keybind key="Print"><action name="Execute"><command>sh -c 'd="$(xdg-user-dir PICTURES)/Screenshots"; mkdir -p "$d"; f="$d/$(date +%Y%m%d-%H%M%S).png"; grim -g "$(slurp)" "$f" &amp;&amp; notify-send -i "$f" "Screenshot saved" "$f"'</command></action></keybind>
+    <keybind key="S-Print"><action name="Execute"><command>sh -c 'd="$(xdg-user-dir PICTURES)/Screenshots"; mkdir -p "$d"; f="$d/$(date +%Y%m%d-%H%M%S).png"; grim "$f" &amp;&amp; notify-send -i "$f" "Screenshot saved" "$f"'</command></action></keybind>
+    <keybind key="C-Print"><action name="Execute"><command>sh -c 'grim -g "$(slurp)" - | wl-copy --type image/png'</command></action></keybind>
+
+    <!-- Volume through PipeWire (labwc's defaults use amixer, which is not installed) -->
+    <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+</command></action></keybind>
+    <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-</command></action></keybind>
+    <keybind key="XF86AudioMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle</command></action></keybind>
+    <keybind key="XF86AudioMicMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle</command></action></keybind>
+
+    <!-- Media players (any app supporting MPRIS: VLC, Firefox, ...) -->
+    <keybind key="XF86AudioPlay"><action name="Execute"><command>playerctl play-pause</command></action></keybind>
+    <keybind key="XF86AudioPause"><action name="Execute"><command>playerctl pause</command></action></keybind>
+    <keybind key="XF86AudioStop"><action name="Execute"><command>playerctl stop</command></action></keybind>
+    <keybind key="XF86AudioNext"><action name="Execute"><command>playerctl next</command></action></keybind>
+    <keybind key="XF86AudioPrev"><action name="Execute"><command>playerctl previous</command></action></keybind>
+
+    <!-- Brightness (same as labwc's defaults; explicit so they are easy to change) -->
+    <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>brightnessctl set 5%+</command></action></keybind>
+    <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>brightnessctl set 5%-</command></action></keybind>
+  </keyboard>
+
+  <mouse>
+    <!-- labwc's built-in bindings: window title bars, borders, buttons, Alt+drag. -->
+    <default />
+
+    <!--
+      Clicks on the empty desktop. Every click closes the app launcher (fuzzel
+      closes by itself only when a window takes the keyboard focus).
+      These are the "right-menu" desktop clicks of flickos-layouts; another
+      choice in Settings > Desktop Layout & Style (flickos-layout clicks set ID)
+      replaces the Left and Right bindings through a generated copy of this
+      file in $XDG_RUNTIME_DIR/flickos. Middle click: labwc's default (menu).
+    -->
+    <context name="Root">
+      <mousebind button="Left" action="Press">
+        <action name="Execute"><command>pkill -x fuzzel</command></action>
+      </mousebind>
+      <mousebind button="Right" action="Press">
+        <action name="Execute"><command>pkill -x fuzzel</command></action>
+        <action name="ShowMenu" menu="root-menu" />
+      </mousebind>
+    </context>
+  </mouse>
+</labwc_config>

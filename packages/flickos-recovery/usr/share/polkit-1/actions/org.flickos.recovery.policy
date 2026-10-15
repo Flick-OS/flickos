@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Restore points (flickos-recovery, Settings -> Restore Points) through
+     pkexec /usr/libexec/flickos/recovery-helper VERB: one action per verb
+     (HIG SET-10). -->
+<policyconfig>
+  <vendor>FlickOS</vendor>
+  <vendor_url>https://github.com/dvbondoy/FlickOS</vendor_url>
+
+  <action id="org.flickos.recovery.create">
+    <description>Make a restore point</description>
+    <message>Authentication is required to make a restore point of the system.</message>
+    <icon_name>document-revert</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">create</annotate>
+  </action>
+
+  <action id="org.flickos.recovery.restore">
+    <description>Put a restore point back</description>
+    <message>Authentication is required to put the system back to a restore point. Software, settings, passwords and accounts go back to how they were then; your files stay.</message>
+    <icon_name>document-revert</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">restore</annotate>
+  </action>
+
+  <action id="org.flickos.recovery.delete">
+    <description>Delete restore points</description>
+    <message>Authentication is required to delete restore points.</message>
+    <icon_name>document-revert</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">delete</annotate>
+  </action>
+
+  <action id="org.flickos.recovery.enabled">
+    <description>Turn restore points on or off</description>
+    <message>Authentication is required to turn restore points on or off.</message>
+    <icon_name>document-revert</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">enabled</annotate>
+  </action>
+  <action id="org.flickos.recovery.auto-recover">
+    <description>Recover by itself after failed starts</description>
+    <message>Authentication is required to change whether FlickOS starts a restore point by itself after starts that failed.</message>
+    <icon_name>document-revert</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">auto-recover</annotate>
+  </action>
+
+  <action id="org.flickos.recovery.keep">
+    <description>Keep the restore point</description>
+    <message>Authentication is required to keep the restore point the computer started from: the system goes back to it for good. The system before is kept as a restore point.</message>
+    <icon_name>document-revert</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">keep</annotate>
+  </action>
+
+  <action id="org.flickos.recovery.try-again">
+    <description>Try the system again</description>
+    <message>Authentication is required to start the system as it is again, instead of the restore point.</message>
+    <icon_name>document-revert</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">try-again</annotate>
+  </action>
+</policyconfig>

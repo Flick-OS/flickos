@@ -1,0 +1,147 @@
+#!/usr/bin/python3 -IS
+"""Go to another labwc desktop: what a desktop button in the panel runs.
+
+  desktop N          the Nth desktop, in the order labwc lists them
+  desktop next       the one after the current desktop (none after the last)
+  desktop previous   the one before it
+
+flickos-layout puts the buttons into the panel (flickos/desktops in a
+layout's waybar.jsonc, docs/design/flickos-ricing.md phase 5 step 5a). This
+is a separate program because a click must be quick: Python with only these
+imports starts in about 45 ms, flickos-layout in about 280. It speaks
+ext-workspace-v1 itself: get the desktops, activate one, commit, and wait
+until labwc has the request. The opcodes are the same as flickos-layout's
+ScreenWatch (a test compares them).
+"""
+
+import os
+import select
+import socket
+import struct
+import sys
+import time
+
+DISPLAY, REGISTRY, SYNC, MANAGER = 1, 2, 3, 4
+WORKSPACE_MANAGER = b"ext_workspace_manager_v1"
+MANAGER_COMMIT = 0                                       # request
+MANAGER_WORKSPACE, MANAGER_DONE = 1, 2                   # events
+WORKSPACE_NAME, WORKSPACE_STATE, WORKSPACE_REMOVED = 1, 3, 5
+WORKSPACE_ACTIVATE = 1                                   # request
+STATE_ACTIVE = 1
+TIMEOUT_SECONDS = 2.0
+USAGE = "usage: desktop N|next|previous"
+
+
+class Connection:
+    def __init__(self, path):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(path)
+        self.buffer = b""
+        self.next_id = SYNC + 2              # MANAGER is SYNC + 1
+        self.bound = False
+        self.done = False
+        self.callbacks, self.synced = {SYNC}, set()
+        self.workspaces = {}                 # id: [announced, name, active]
+        self.announced = 0
+        self.send(DISPLAY, 1, struct.pack("=I", REGISTRY))       # get_registry
+        self.send(DISPLAY, 0, struct.pack("=I", SYNC))           # sync: every global has come
+
+    def send(self, object_id, opcode, payload=b""):
+        self.sock.sendall(struct.pack("=II", object_id, (8 + len(payload)) << 16 | opcode) + payload)
+
+    def sync(self):
+        callback = self.next_id
+        self.next_id += 1
+        self.callbacks.add(callback)
+        self.send(DISPLAY, 0, struct.pack("=I", callback))
+        return callback
+
+    def handle(self, object_id, opcode, payload):
+        if object_id == DISPLAY and opcode == 0:                  # error
+            raise OSError("Wayland error")
+        if object_id == REGISTRY and opcode == 0:                 # global
+            name, size = struct.unpack_from("=II", payload)
+            if payload[8:8 + size - 1] == WORKSPACE_MANAGER and not self.bound:
+                interface = WORKSPACE_MANAGER + b"\0"
+                self.send(REGISTRY, 0, struct.pack("=II", name, len(interface)) + interface
+                          + b"\0" * (-len(interface) % 4) + struct.pack("=II", 1, MANAGER))
+                self.bound = True
+        elif object_id in self.callbacks and opcode == 0:          # wl_callback.done
+            self.synced.add(object_id)
+        elif object_id == MANAGER and opcode == MANAGER_WORKSPACE:
+            self.announced += 1
+            self.workspaces[struct.unpack_from("=I", payload)[0]] = [self.announced, "", False]
+        elif object_id == MANAGER and opcode == MANAGER_DONE:
+            self.done = True
+        elif object_id in self.workspaces:
+            workspace = self.workspaces[object_id]
+            if opcode == WORKSPACE_NAME:
+                size = struct.unpack_from("=I", payload)[0]
+                workspace[1] = payload[4:4 + size - 1].decode(errors="replace")
+            elif opcode == WORKSPACE_STATE:
+                workspace[2] = bool(struct.unpack_from("=I", payload)[0] & STATE_ACTIVE)
+            elif opcode == WORKSPACE_REMOVED:
+                del self.workspaces[object_id]
+
+    def wait(self, ready):
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while not ready():
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([self.sock], [], [], left)[0]:
+                raise TimeoutError("the compositor didn't answer")
+            data = self.sock.recv(65536)
+            if not data:
+                raise OSError("the compositor closed the connection")
+            self.buffer += data
+            while len(self.buffer) >= 8:
+                object_id, word = struct.unpack_from("=II", self.buffer)
+                size = word >> 16
+                if size < 8:
+                    raise OSError("bad Wayland message")
+                if len(self.buffer) < size:
+                    break
+                payload, self.buffer = self.buffer[8:size], self.buffer[size:]
+                self.handle(object_id, word & 0xFFFF, payload)
+
+
+def target(desktops, current, wanted):
+    """The index of the desktop to go to, or None (nothing to do)."""
+    if wanted in ("next", "previous"):
+        index = current + (1 if wanted == "next" else -1)
+        return index if 0 <= index < len(desktops) else None
+    number = int(wanted)
+    return number - 1 if 1 <= number <= len(desktops) else None
+
+
+def main(argv):
+    if len(argv) != 1 or not (argv[0] in ("next", "previous") or argv[0].isdigit()):
+        print(USAGE, file=sys.stderr)
+        return 2
+    display, base = os.environ.get("WAYLAND_DISPLAY"), os.environ.get("XDG_RUNTIME_DIR")
+    if not display or not (os.path.isabs(display) or base):
+        print("desktop: no Wayland session", file=sys.stderr)
+        return 1
+    try:
+        conn = Connection(display if os.path.isabs(display) else os.path.join(base, display))
+        conn.wait(lambda: SYNC in conn.synced)
+        if not conn.bound:
+            print("desktop: the compositor has no desktops to switch (ext-workspace-v1)", file=sys.stderr)
+            return 1
+        conn.wait(lambda: conn.done)
+        desktops = sorted(conn.workspaces.items(), key=lambda item: item[1][0])
+        current = next((i for i, (_, w) in enumerate(desktops) if w[2]), 0)
+        index = target(desktops, current, argv[0])
+        if index is None or index == current:
+            return 0
+        conn.send(desktops[index][0], WORKSPACE_ACTIVATE)
+        conn.send(MANAGER, MANAGER_COMMIT)
+        callback = conn.sync()
+        conn.wait(lambda: callback in conn.synced)
+    except (OSError, TimeoutError) as error:
+        print(f"desktop: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

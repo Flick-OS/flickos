@@ -1,0 +1,14 @@
+etc/xdg/labwc/*                  etc/xdg/labwc/
+etc/xdg/flickos/*                etc/xdg/flickos/
+etc/xdg/xfce4/*                  etc/xdg/xfce4/
+etc/profile.d/*                  etc/profile.d/
+etc/firefox-esr/*                etc/firefox-esr/
+usr/libexec/flickos/*            usr/libexec/flickos/
+usr/share/flickos/*              usr/share/flickos/
+usr/share/backgrounds/flickos/*  usr/share/backgrounds/flickos/
+usr/share/glib-2.0/schemas/*     usr/share/glib-2.0/schemas/
+usr/share/themes/*               usr/share/themes/
+usr/bin/*                        usr/bin/
+usr/share/wayland-sessions/*     usr/share/wayland-sessions/
+usr/lib/firefox-esr/distribution/*  usr/lib/firefox-esr/distribution/
+usr/lib/systemd/user/*         usr/lib/systemd/user/

@@ -1,0 +1,41 @@
+#!/bin/sh
+set -e
+
+BRANDED_FILES="/usr/lib/os-release /etc/issue /etc/issue.net"
+
+case "$1" in
+    remove)
+        # Put Debian's original files back, then drop the diversions. Only act
+        # while our diversion still exists, so running this twice is harmless.
+        for file in $BRANDED_FILES; do
+            if dpkg-divert --listpackage "$file" 2>/dev/null | grep -qx flickos-branding; then
+                if [ -e "$file.debian" ]; then
+                    mv -f "$file.debian" "$file"
+                else
+                    rm -f "$file"
+                fi
+                dpkg-divert --package flickos-branding --remove --no-rename \
+                    --divert "$file.debian" "$file" >/dev/null
+            fi
+        done
+        # Stop using the removed theme.
+        if command -v plymouth-set-default-theme >/dev/null \
+           && [ "$(plymouth-set-default-theme)" = flickos ]; then
+            plymouth-set-default-theme --reset || true
+        fi
+        ;;
+esac
+
+# The boot menu's theme is gone (its conffile skips it then): write
+# grub.cfg again without it. Same conditions as the postinst.
+case "$1" in
+    remove|purge)
+        if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null; then
+            update-grub || echo "flickos-branding: update-grub failed" >&2
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

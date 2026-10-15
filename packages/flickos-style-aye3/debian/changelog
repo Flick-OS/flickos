@@ -1,0 +1,14 @@
+flickos-style-aye3 (1.1) trixie; urgency=medium
+
+  * Shown as Aye3wm in Desktop Layout & Style and Software; the package,
+    the aye3 ids and the theme keep their names.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 15 Oct 2026 09:35:48 +0800
+
+flickos-style-aye3 (1.0) trixie; urgency=medium
+
+  * Aye3, a dark style with flat slate blue title bars and a layout with
+    one bar at the bottom: desktop numbers and the status as text
+    (docs/design/flickos-ricing.md, ADR-014).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 10:15:15 +0800

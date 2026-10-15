@@ -1,0 +1,44 @@
+#!/bin/sh
+# Start wlsunset (warmer screen colors at night) for the approximate location
+# of the system time zone, so sunset and sunrise follow the seasons.
+#
+# The location is the reference city of the time zone from tzdata's
+# zone1970.tab (e.g. Europe/Berlin -> Berlin). Nothing is sent over the network.
+# Without a usable time zone (e.g. UTC in the live session) it falls back to
+# fixed times.
+#
+# Options given to this script are passed on to wlsunset: flickos-control
+# night-light (Settings > Displays) runs it with -t for the chosen warmth, or
+# not at all while night light is off.
+#
+# Users can override this by running wlsunset themselves with exact
+# coordinates: wlsunset -l LATITUDE -L LONGITUDE
+
+command -v wlsunset >/dev/null || exit 0
+
+timezone="$(timedatectl show --property=Timezone --value 2>/dev/null)"
+if [ -z "$timezone" ] && [ -L /etc/localtime ]; then
+    timezone="$(readlink /etc/localtime | sed 's#.*/zoneinfo/##')"
+fi
+
+# zone1970.tab coordinates are ISO 6709: +DDMM+DDDMM or +DDMMSS+DDDMMSS.
+coords="$(awk -F '\t' -v tz="$timezone" '
+    function degrees(s,   sign, len, d) {
+        sign = substr(s, 1, 1) == "-" ? -1 : 1
+        s = substr(s, 2); len = length(s)
+        if (len == 4 || len == 6) { d = 2 } else { d = 3 }
+        return sign * (substr(s, 1, d) + substr(s, d + 1, 2) / 60 + (len > d + 2 ? substr(s, d + 3, 2) / 3600 : 0))
+    }
+    !/^#/ && $3 == tz {
+        c = $2
+        split_at = (length(c) == 11) ? 6 : 8
+        printf "%.2f %.2f\n", degrees(substr(c, 1, split_at - 1)), degrees(substr(c, split_at))
+        exit
+    }' /usr/share/zoneinfo/zone1970.tab 2>/dev/null)"
+
+if [ -n "$coords" ]; then
+    set -- "$@" -l "${coords% *}" -L "${coords#* }"
+else
+    set -- "$@" -S 06:30 -s 18:30
+fi
+exec wlsunset "$@"

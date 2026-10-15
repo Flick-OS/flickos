@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Keyboard Shortcuts
+Comment=Show the keyboard shortcuts (or hold the Super key)
+Exec=flickos-shortcuts show
+Icon=preferences-desktop-keyboard
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=keys;hotkeys;keybindings;help;
+StartupNotify=false

@@ -1,0 +1,22 @@
+# FlickOS defaults for GTK applications (theme, icons, cursor, fonts, dark mode).
+# Compiled automatically by glib's package trigger. Users change these with
+# gsettings or nwg-look; their changes are stored in dconf and win over these
+# defaults.
+#
+# Arc-Dark (arc-theme) and Numix-Circle (numix-icon-theme-circle) are
+# dependencies of flickos-settings. libadwaita apps ignore gtk-theme.
+[org.gnome.desktop.interface]
+gtk-theme='Arc-Dark'
+color-scheme='prefer-dark'
+icon-theme='Numix-Circle'
+cursor-theme='Adwaita'
+cursor-size=24
+font-name='DejaVu Sans 10'
+document-font-name='DejaVu Sans 10'
+monospace-font-name='DejaVu Sans Mono 10'
+
+# Buttons of windows that draw their own title bar (Firefox, GTK header bars,
+# libadwaita through the settings portal). The default 'appmenu:close' shows
+# only a close button. labwc's own title bars are set in rc.xml.
+[org.gnome.desktop.wm.preferences]
+button-layout='appmenu:minimize,maximize,close'

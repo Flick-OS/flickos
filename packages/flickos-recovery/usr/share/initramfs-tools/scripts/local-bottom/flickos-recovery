@@ -1,0 +1,52 @@
+#!/bin/sh
+# flickos-recovery (docs/design/flickos-recovery.md, ADR-004, phase 0 item 4).
+# When the system starts from a restore point (the boot menu put
+# rootflags=...subvol=@snapshots/NAME on the kernel line), put a writable
+# layer in memory over the read-only snapshot, so everything works and
+# nothing is written to it. Runs after initramfs-tools mounted the root
+# at ${rootmnt}. On any error it leaves the root as it is: a read-only
+# snapshot still starts.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+
+. /scripts/functions
+
+name=
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in
+        rootflags=*subvol=*@snapshots/*)
+            name=${arg##*@snapshots/}; name=${name%%,*}; name=${name%\"}; name=${name%/}
+            ;;
+    esac
+done
+[ -n "$name" ] || exit 0
+
+log_begin_msg "Starting restore point $name with a writable layer in memory"
+base=/run/flickos-restore-point
+mkdir -p "$base/lower" "$base/rw"
+if ! modprobe overlay; then
+    log_failure_msg "no overlay module: the restore point starts read-only"
+    exit 0
+fi
+mount -n -t tmpfs -o mode=0755,size=50% tmpfs "$base/rw" &&
+mkdir -p "$base/rw/upper" "$base/rw/work" &&
+mount -n --move "${rootmnt}" "$base/lower" || {
+    log_failure_msg "could not prepare the layer: the restore point starts read-only"
+    exit 0
+}
+if ! mount -n -t overlay overlay \
+        -o "lowerdir=$base/lower,upperdir=$base/rw/upper,workdir=$base/rw/work" "${rootmnt}"; then
+    mount -n --move "$base/lower" "${rootmnt}"
+    log_failure_msg "overlay failed: the restore point starts read-only"
+    exit 0
+fi
+# fstab's / line says btrfs subvol=/@: systemd would remount the overlay with
+# it. Leave it out (the change only lands in the memory layer).
+sed '/^[^#][^[:space:]]*[[:space:]][[:space:]]*\/[[:space:]]/d' "${rootmnt}/etc/fstab" > "$base/fstab" &&
+    cat "$base/fstab" > "${rootmnt}/etc/fstab"
+# For the desktop: which restore point this is (/run moves into the system).
+mkdir -p /run/flickos
+echo "$name" > /run/flickos/restore-point-boot
+log_end_msg
+exit 0

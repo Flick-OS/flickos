@@ -1,0 +1,15 @@
+/* FlickOS Light style: waybar colors (Arc), imported before every layout's
+ * CSS. Same names as ../dark/waybar-colors.css. tools/check-palette.py
+ * verifies the values. */
+@define-color wm_bg #e7e8eb;
+@define-color bg_color #f5f6f7;
+@define-color base_color #ffffff;
+@define-color fg_color #5c616c;
+@define-color selected_bg_color #5294e2;
+@define-color selected_fg_color #ffffff;
+@define-color borders #dcdfe3;
+@define-color warning_color #f27835;
+@define-color error_color #fc4138;
+/* FlickOS's brand amber, the deeper one readable on light: only the start
+ * button's logo (base.css). */
+@define-color brand_color #c98000;

@@ -1,0 +1,116 @@
+/* This entire file is licensed under GNU General Public License v3.0
+ *
+ * Copyright 2023- Sfwbar maintainers
+ */
+
+#include <glib.h>
+#include <gtk/gtk.h>
+#include <gdk/gdkwayland.h>
+#include "module.h"
+#include "trigger.h"
+#include "wayland.h"
+#include "idle-inhibit-unstable-v1.h"
+#include "vm/vm.h"
+#include "gui/basewidget.h"
+
+gint64 sfwbar_module_signature = 0x73f4d956a1;
+guint16 sfwbar_module_version = MODULE_API_VERSION;
+module_thread_t sfwbar_module_thread = MODULE_THREAD_MAIN;
+
+static struct zwp_idle_inhibit_manager_v1 *idle_inhibit_manager;
+
+static value_t idle_inhibit_state ( vm_t *vm, value_t p[], gint np )
+{
+  GtkWidget *widget = vm_widget_get(vm, np==1? value_get_string(p[0]) : NULL);
+  return value_new_string((widget && g_object_get_data(
+            G_OBJECT(widget), "inhibitor"))? "on" : "off");
+}
+
+static void idle_inhibitor_map_event_cb ( GtkWidget *w, GdkEvent *e, void *d )
+{
+  struct zwp_idle_inhibitor_v1 *inhibitor;
+  struct wl_surface *surface;
+
+  if(!(surface = gdk_wayland_window_get_wl_surface(gtk_widget_get_window(w))))
+    return;
+  inhibitor = zwp_idle_inhibit_manager_v1_create_inhibitor(
+      idle_inhibit_manager, surface);
+  g_object_set_data(G_OBJECT(w), "inhibitor", inhibitor);
+  trigger_emit("idleinhibitor");
+}
+
+static void idle_inhibitor_unmap_cb ( GtkWidget *w, gpointer d )
+{
+  struct zwp_idle_inhibitor_v1 *inhibitor;
+
+  if( (inhibitor = g_object_get_data(G_OBJECT(w), "inhibitor")) )
+    zwp_idle_inhibitor_v1_destroy(inhibitor);
+  g_object_set_data(G_OBJECT(w), "inhibitor", NULL);
+  trigger_emit("idleinhibitor");
+}
+
+static value_t idle_inhibitor_action ( vm_t *vm, value_t p[], gint np )
+{
+  GtkWidget *widget = vm_widget_get(vm, NULL);
+  struct wl_surface *surface;
+  struct zwp_idle_inhibitor_v1 *inhibitor;
+  gboolean inhibit;
+
+  vm_param_check_np_range(vm, np, 1, 2, "SetIdleInhibitor");
+  vm_param_check_string(vm, p, 0, "SetIdleInhibitor");
+  if(np==2)
+    vm_param_check_string(vm, p, 1, "SetIdleInhibitor");
+
+  if( !(widget = vm_widget_get(vm, np==2? value_get_string(p[0]) : NULL)) )
+    return value_na;
+
+  inhibitor = g_object_get_data(G_OBJECT(widget), "inhibitor");
+
+  if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "on"))
+    inhibit = TRUE;
+  else if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "off"))
+    inhibit = FALSE;
+  else if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "toggle"))
+    inhibit = !inhibitor;
+  else
+    return value_na;
+
+  if(inhibit && !inhibitor)
+  {
+    if( !(surface = gdk_wayland_window_get_wl_surface(
+        gtk_widget_get_window(widget))) )
+      return value_na;
+
+    gtk_widget_add_events(widget, GDK_STRUCTURE_MASK);
+    g_signal_connect(widget, "map-event",
+        G_CALLBACK(idle_inhibitor_map_event_cb), NULL);
+    g_signal_connect(widget, "unmap",
+        G_CALLBACK(idle_inhibitor_unmap_cb), NULL);
+
+    inhibitor = zwp_idle_inhibit_manager_v1_create_inhibitor(
+        idle_inhibit_manager, surface );
+    g_object_set_data(G_OBJECT(widget), "inhibitor", inhibitor);
+    trigger_emit("idleinhibitor");
+  }
+  else if( !inhibit && inhibitor )
+  {
+    g_signal_handlers_disconnect_by_func(widget,
+        idle_inhibitor_unmap_cb, NULL);
+    g_signal_handlers_disconnect_by_func(widget,
+        idle_inhibitor_map_event_cb, NULL);
+    g_object_set_data(G_OBJECT(widget), "inhibitor", NULL);
+    zwp_idle_inhibitor_v1_destroy(inhibitor);
+    trigger_emit("idleinhibitor");
+  }
+  return value_na;
+}
+
+gboolean sfwbar_module_init ( void )
+{
+  vm_func_add("idleinhibitstate", idle_inhibit_state, FALSE, FALSE);
+  vm_func_add("setidleinhibitor", idle_inhibitor_action, TRUE, FALSE);
+  idle_inhibit_manager = wayland_iface_register(
+          zwp_idle_inhibit_manager_v1_interface.name, 1, 1,
+          &zwp_idle_inhibit_manager_v1_interface);
+  return TRUE;
+}

@@ -1,0 +1,15 @@
+# Takes the place of wdisplays' own entry (same id; flickos-session puts
+# /usr/share/flickos first in XDG_DATA_DIRS): while wdisplays is open, a
+# screen it turns on over another moves beside them (flickos-control
+# displays arrange).
+[Desktop Entry]
+Type=Application
+Name=Displays
+GenericName=Displays configuration
+Comment=Resolution, scale and arrangement of the screens
+Exec=flickos-control displays arrange
+TryExec=wdisplays
+Icon=network.cycles.wdisplays
+Terminal=false
+Categories=GTK;Settings;DesktopSettings;
+StartupNotify=false

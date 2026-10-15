@@ -1,0 +1,448 @@
+/* This entire file is licensed under GNU General Public License v3.0
+ *
+ * Copyright 2022- sfwbar maintainers
+ */
+
+#include "appinfo.h"
+#include "exec.h"
+#include "window.h"
+#include "wintree.h"
+#include "gui/capture.h"
+#include "gui/css.h"
+#include "gui/monitor.h"
+#include "gui/popup.h"
+#include "gui/scaleimage.h"
+#include "gui/taskbarpopup.h"
+#include "gui/taskbarshell.h"
+#include "vm/vm.h"
+
+G_DEFINE_TYPE_WITH_CODE (TaskbarPopup, taskbar_popup, FLOW_ITEM_TYPE,
+    G_ADD_PRIVATE(TaskbarPopup))
+
+GtkWidget *taskbar_popup_get_taskbar ( GtkWidget *shell, window_t *win,
+    gboolean create )
+{
+  TaskbarPopupPrivate *priv;
+  GtkWidget *holder;
+
+  g_return_val_if_fail(win, NULL);
+
+  if( !(holder = flow_grid_find_child(shell, win->appid)) )
+  {
+    if(!create)
+      return NULL;
+    holder = taskbar_popup_new(win->appid, shell);
+  }
+
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(holder));
+  return priv->tgroup;
+}
+
+static void taskbar_popup_dimensions_set ( GtkWidget *self )
+{
+  TaskbarPopupPrivate *priv;
+  GdkRectangle space;
+  GtkRequisition minimum, natural;
+  GdkMonitor *mon;
+  GList *l;
+  gint max_span, span, dir, count;
+  gboolean homogeneous, horizontal;
+
+  g_return_if_fail(IS_TASKBAR_POPUP(self));
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  if( !(mon = monitor_from_widget(self)) )
+    return;
+
+  gdk_monitor_get_workarea(mon, &space);
+  gtk_widget_style_get(base_widget_get_child(priv->tgroup),
+      "direction", &dir, NULL);
+  horizontal = (dir == GTK_POS_LEFT || dir == GTK_POS_RIGHT);
+
+  homogeneous = horizontal?
+    gtk_grid_get_column_homogeneous(GTK_GRID(base_widget_get_child(priv->tgroup))) :
+    gtk_grid_get_row_homogeneous(GTK_GRID(base_widget_get_child(priv->tgroup)));
+
+  count = 0;
+  max_span = 1;
+  for(l=flow_grid_children_get(priv->tgroup); l; l=g_list_next(l))
+    if(flow_item_get_active(l->data))
+    {
+      gtk_widget_get_preferred_size(l->data, &minimum, &natural);
+      if(homogeneous)
+        max_span = MAX(max_span, horizontal? natural.width : natural.height);
+      else /* need to calculate non-homogeneous size correctly */
+        max_span = MAX(max_span, horizontal? natural.width : natural.height);
+      count++;
+    }
+  span = MAX(1, MIN(count, (horizontal? space.width : space.height)/max_span));
+  g_object_set(G_OBJECT(priv->tgroup), horizontal? "rows" : "cols",
+      count/span + !!(count%span), NULL);
+  flow_grid_update(priv->tgroup);
+}
+
+static gboolean taskbar_popup_enter_cb ( GtkWidget *widget,
+    GdkEventCrossing *event, gpointer self )
+{
+  TaskbarPopupPrivate *priv;
+
+  g_return_val_if_fail(IS_TASKBAR_POPUP(self),FALSE);
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+  if(priv->single)
+    return FALSE;
+
+  if(gtk_widget_is_visible(priv->popover))
+  {
+    window_ref(priv->popover, widget);
+    return FALSE;
+  }
+  window_ref(priv->popover, widget);
+
+  flow_grid_update(priv->tgroup);
+  taskbar_popup_dimensions_set(self);
+
+  popup_show(priv->button, priv->popover,
+      gdk_device_get_seat(gdk_event_get_device((GdkEvent *)event)));
+
+  return FALSE;
+}
+
+static gboolean taskbar_popup_timeout_cb ( GtkWidget *popover )
+{
+  if(!window_ref_check(popover))
+  {
+    window_collapse_popups(popover);
+    gtk_widget_hide(popover);
+  }
+  return FALSE;
+}
+
+static void taskbar_popup_grab_cb ( GtkWidget *popover, gboolean grab,
+    GtkWidget *self )
+{
+  if(!grab)
+  {
+    window_unref(self, popover);
+    window_unref(popover, popover);
+  }
+}
+
+static void taskbar_popup_timeout_set ( GtkWidget *popover )
+{
+  g_timeout_add(10, (GSourceFunc)taskbar_popup_timeout_cb, popover);
+}
+
+static gboolean taskbar_popup_leave_cb ( GtkWidget *widget,
+    GdkEventCrossing *event, gpointer self )
+{
+  TaskbarPopupPrivate *priv;
+
+  g_return_val_if_fail(IS_TASKBAR_POPUP(self),FALSE);
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  window_unref(widget, priv->popover);
+
+  return FALSE;
+}
+
+static void taskbar_popup_destroy ( GtkWidget *self )
+{
+  TaskbarPopupPrivate *priv;
+
+  g_return_if_fail(IS_TASKBAR_POPUP(self));
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  gtk_widget_destroy(priv->popover);
+  priv->popover = NULL;
+  GTK_WIDGET_CLASS(taskbar_popup_parent_class)->destroy(self);
+}
+
+static gchar *taskbar_popup_get_appid ( GtkWidget *self )
+{
+  TaskbarPopupPrivate *priv;
+
+  g_return_val_if_fail(IS_TASKBAR_POPUP(self), NULL);
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  return priv->appid;
+}
+
+static void taskbar_popup_decorate ( GtkWidget *parent, GParamSpec *spec,
+    GtkWidget *self )
+{
+  TaskbarPopupPrivate *priv;
+  GtkWidget *box;
+  gboolean labels, icons;
+  gint dir, title_width;
+
+  g_return_if_fail(IS_TASKBAR_POPUP(self));
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  g_object_get(G_OBJECT(parent), "labels", &labels, "icons", &icons,
+      "title-width", &title_width, NULL);
+
+  if(!labels && !icons)
+    labels = TRUE;
+
+  if(!!priv->icon != icons || !!priv->label != labels)
+  {
+    box = gtk_bin_get_child(GTK_BIN(priv->button));
+    if(!labels && priv->label)
+    {
+      gtk_container_remove(GTK_CONTAINER(box), priv->label);
+      priv->label = NULL;
+    }
+    if(!icons && priv->icon)
+    {
+      gtk_container_remove(GTK_CONTAINER(box), priv->icon);
+      priv->icon = NULL;
+    }
+    gtk_widget_style_get(priv->button, "direction", &dir, NULL);
+    if(icons && !priv->icon)
+    {
+      priv->icon = scale_image_new();
+      gtk_grid_attach_next_to(GTK_GRID(box), priv->icon, NULL, dir, 1, 1);
+      capture_window_image_set_appid(priv->icon, priv->appid);
+    }
+    if(labels && !priv->label)
+    {
+      priv->label = gtk_label_new(priv->appid);
+      gtk_label_set_ellipsize (GTK_LABEL(priv->label), PANGO_ELLIPSIZE_END);
+      gtk_grid_attach_next_to(GTK_GRID(box), priv->label, priv->icon, dir, 1, 1);
+    }
+  }
+  if(priv->label)
+    gtk_label_set_max_width_chars(GTK_LABEL(priv->label), title_width);
+}
+
+static void taskbar_popup_update ( GtkWidget *self )
+{
+  TaskbarPopupPrivate *priv;
+  GPtrArray *pins;
+  window_t *win;
+  gboolean tooltips;
+
+  g_return_if_fail(IS_TASKBAR_POPUP(self));
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+  if(!priv->invalid)
+    return;
+
+  css_set_class(priv->button, "focused", !!flow_grid_find_child(
+        priv->tgroup, wintree_from_id(wintree_get_focus())));
+
+  if(priv->icon)
+    capture_window_image_set_appid(priv->icon, priv->appid);
+
+  if(priv->label)
+    if(g_strcmp0(gtk_label_get_text(GTK_LABEL(priv->label)), priv->appid))
+      gtk_label_set_text(GTK_LABEL(priv->label), priv->appid);
+
+  gtk_widget_unset_state_flags(priv->button, GTK_STATE_FLAG_PRELIGHT);
+
+  flow_grid_update(priv->tgroup);
+  flow_item_set_active(self, flow_grid_n_children(priv->tgroup, TRUE)>0);
+  priv->single = (flow_grid_n_children(priv->tgroup, TRUE)==1);
+  /* FlickOS: .running when the group has a window, not just its pin (a pin
+   * is only active while its app has no window). */
+  win = flow_grid_get_sole_source(priv->tgroup);
+  css_set_class(priv->button, "running",
+      flow_grid_n_children(priv->tgroup, TRUE) > 1 || (win && !win->pin));
+
+  window_collapse_popups(priv->popover);
+  gtk_widget_hide(priv->popover);
+
+  g_object_get(G_OBJECT(priv->shell), "tooltips", &tooltips, "pins",
+      &pins, NULL);
+  gtk_widget_set_has_tooltip(priv->button, tooltips);
+  if(tooltips)
+  {
+    if( (win = flow_grid_get_sole_source(priv->tgroup)) )
+      gtk_widget_set_tooltip_text(priv->button, win->title);
+    else
+      gtk_widget_set_tooltip_text(priv->button,
+          priv->appname? priv->appname : priv->appid);
+  }
+
+  if(g_ptr_array_find_with_equal_func(pins, priv->appid, g_str_equal, NULL))
+  {
+    gtk_drag_dest_unset(self);
+    gtk_drag_source_unset(priv->button);
+    css_add_class(self, "pin");
+  }
+  else
+  {
+    flow_item_dnd_enable(priv->shell, self, priv->button);
+    css_remove_class(self, "pin");
+  }
+  if(pins->len && g_str_equal(priv->appid, pins->pdata[pins->len-1]))
+    css_add_class(self, "last-pin");
+  else
+    css_remove_class(self, "last-pin");
+
+  priv->invalid = FALSE;
+}
+
+static gint taskbar_popup_compare ( GtkWidget *a, GtkWidget *b,
+    GtkWidget *parent )
+{
+  TaskbarPopupPrivate *p1, *p2;
+
+  g_return_val_if_fail(IS_TASKBAR_POPUP(a), 0);
+  g_return_val_if_fail(IS_TASKBAR_POPUP(b), 0);
+
+  p1 = taskbar_popup_get_instance_private(TASKBAR_POPUP(a));
+  p2 = taskbar_popup_get_instance_private(TASKBAR_POPUP(b));
+
+  return g_strcmp0(p1->appid, p2->appid);
+}
+
+static gint taskbar_popup_alt_cmp ( GtkWidget *i1, GtkWidget *i2,
+    GtkWidget *parent )
+{
+  TaskbarPopupPrivate *p1, *p2;
+  GPtrArray *pins;
+  guint n1, n2;
+
+  g_return_val_if_fail(IS_TASKBAR_POPUP(i1), 0);
+  g_return_val_if_fail(IS_TASKBAR_POPUP(i2), 0);
+
+  p1 = taskbar_popup_get_instance_private(TASKBAR_POPUP(i1));
+  p2 = taskbar_popup_get_instance_private(TASKBAR_POPUP(i2));
+
+  g_object_get(G_OBJECT(parent), "pins", &pins, NULL);
+
+  if(!g_ptr_array_find_with_equal_func(pins, p1->appid, g_str_equal, &n1))
+    n1 = G_MAXINT;
+  if(!g_ptr_array_find_with_equal_func(pins, p2->appid, g_str_equal, &n2))
+    n2 = G_MAXINT;
+
+  return n1 - n2;
+}
+
+static gboolean taskbar_popup_action_exec ( GtkWidget *self, gint slot,
+    GdkEvent *ev )
+{
+  TaskbarPopupPrivate *priv;
+  window_t *win;
+  GBytes *action;
+
+  g_return_val_if_fail(IS_TASKBAR_POPUP(self),FALSE);
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  if(slot==2 && (win = wintree_pin_get(priv->appid)) )
+    exec_launch(win->pin);
+  else if((win = flow_grid_get_sole_source(priv->tgroup)))
+  {
+    if(!win->pin && (action = base_widget_get_action(priv->shell, slot,
+            base_widget_get_modifiers(self))))
+      vm_run_action(action, self, (GdkEvent *)ev, win, NULL,
+          base_widget_get_store(priv->shell), NULL);
+    else if(win->pin && slot==1)
+      exec_launch(win->pin);
+  }
+
+  return TRUE;
+}
+
+static void taskbar_popup_invalidate ( GtkWidget *self )
+{
+  TaskbarPopupPrivate *priv;
+
+  if(!self)
+    return;
+
+  g_return_if_fail(IS_TASKBAR_POPUP(self));
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  flow_grid_invalidate(priv->shell);
+  priv->invalid = TRUE;
+}
+
+static void taskbar_popup_class_init ( TaskbarPopupClass *kclass )
+{
+  GTK_WIDGET_CLASS(kclass)->destroy = taskbar_popup_destroy;
+  BASE_WIDGET_CLASS(kclass)->action_exec = taskbar_popup_action_exec;
+  FLOW_ITEM_CLASS(kclass)->update = taskbar_popup_update;
+  FLOW_ITEM_CLASS(kclass)->invalidate = taskbar_popup_invalidate;
+  FLOW_ITEM_CLASS(kclass)->comp_source = (GCompareFunc)g_strcmp0;
+  FLOW_ITEM_CLASS(kclass)->compare = taskbar_popup_compare;
+  FLOW_ITEM_CLASS(kclass)->get_source =
+    (void * (*)(GtkWidget *))taskbar_popup_get_appid;
+  FLOW_ITEM_CLASS(kclass)->alt_cmp = (GCompareDataFunc)taskbar_popup_alt_cmp;
+}
+
+static void taskbar_popup_init ( TaskbarPopup *self )
+{
+}
+
+GtkWidget *taskbar_popup_new( const gchar *appid, GtkWidget *shell )
+{
+  TaskbarPopupPrivate *priv;
+  GDesktopAppInfo *app;
+  GtkWidget *self, *box;
+
+  g_return_val_if_fail(IS_TASKBAR_SHELL(shell), NULL);
+
+  self = GTK_WIDGET(g_object_new(taskbar_popup_get_type(), NULL));
+  priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+
+  priv->shell = shell;
+  priv->tgroup = taskbar_new(self);
+  gtk_widget_set_name(base_widget_get_child(priv->tgroup), "taskbar_popup_grid");
+  g_object_set(G_OBJECT(priv->tgroup), "preview", TRUE, NULL);
+  g_object_bind_property(G_OBJECT(priv->shell), "store",
+      G_OBJECT(priv->tgroup), "store", G_BINDING_SYNC_CREATE);
+  taskbar_shell_init_child(shell, priv->tgroup);
+  priv->appid = g_strdup(appid);
+  priv->button = gtk_button_new();
+  gtk_container_add(GTK_CONTAINER(self), priv->button);
+  gtk_widget_set_name(priv->button, "taskbar_popup");
+  box = gtk_grid_new();
+  gtk_container_add(GTK_CONTAINER(priv->button), box);
+  flow_item_dnd_enable(shell, self, priv->button);
+
+  if( (app = app_info_from_id(appid)) )
+  {
+    priv->appname = strdup(g_app_info_get_display_name((GAppInfo *)app));
+    g_object_unref(G_OBJECT(app));
+  }
+
+  priv->popover = gtk_window_new(GTK_WINDOW_POPUP);
+  gtk_widget_set_name(priv->popover, "taskbar_popup");
+  window_set_unref_func(priv->popover,
+      (void(*)(gpointer))taskbar_popup_timeout_set);
+  g_object_ref(G_OBJECT(priv->popover));
+  gtk_container_add(GTK_CONTAINER(priv->popover), priv->tgroup);
+  gtk_widget_show(priv->tgroup);
+
+  gtk_widget_add_events(GTK_WIDGET(self),GDK_ENTER_NOTIFY_MASK |
+      GDK_LEAVE_NOTIFY_MASK | GDK_FOCUS_CHANGE_MASK | GDK_SCROLL_MASK);
+  g_signal_connect(self, "enter-notify-event",
+      G_CALLBACK(taskbar_popup_enter_cb), self);
+  g_signal_connect(priv->button, "enter-notify-event",
+      G_CALLBACK(taskbar_popup_enter_cb), self);
+  g_signal_connect(priv->popover, "enter-notify-event",
+      G_CALLBACK(taskbar_popup_enter_cb), self);
+  g_signal_connect(self, "leave-notify-event",
+      G_CALLBACK(taskbar_popup_leave_cb), self);
+  g_signal_connect(priv->button, "leave-notify-event",
+      G_CALLBACK(taskbar_popup_leave_cb), self);
+  g_signal_connect(priv->popover, "leave-notify-event",
+      G_CALLBACK(taskbar_popup_leave_cb), self);
+  g_signal_connect(priv->popover, "grab-notify",
+      G_CALLBACK(taskbar_popup_grab_cb), self);
+
+  g_signal_connect(G_OBJECT(shell), "notify::labels",
+      G_CALLBACK(taskbar_popup_decorate), self);
+  g_signal_connect(G_OBJECT(shell), "notify::icons",
+      G_CALLBACK(taskbar_popup_decorate), self);
+  g_signal_connect(G_OBJECT(shell), "notify::title-width",
+      G_CALLBACK(taskbar_popup_decorate), self);
+  taskbar_popup_decorate(shell, NULL, self);
+
+  g_object_ref_sink(G_OBJECT(self));
+  flow_grid_add_child(shell, self);
+
+  flow_item_invalidate(self);
+  return self;
+}

@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --buildsystem=meson
+
+# Features are set explicitly so the result doesn't depend on which -dev
+# packages the build host happens to have. The modules left on need no
+# extra libraries. The man pages are upstream's prebuilt ones in doc/.
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-Dbuild-docs=disabled \
+		-Dpulse=disabled \
+		-Dpipewire=disabled \
+		-Dalsa=disabled \
+		-Dxkb=disabled \
+		-Dbsdctl=disabled
+
+# packages/build.sh stages every .deb it builds into the image and the apt
+# repo, so don't build a -dbgsym package. Without one, dh_dwz's
+# usr/lib/debug/.dwz/ would end up in sfwbar itself.
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
+
+override_dh_dwz:

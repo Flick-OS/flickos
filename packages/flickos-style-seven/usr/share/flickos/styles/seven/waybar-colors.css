@@ -1,0 +1,13 @@
+/* Seven: a see-through dark blue panel (tools/make-seven.py). Same names
+ * as the Dark style's waybar-colors.css. */
+@define-color wm_bg rgba(14, 42, 76, 0.82);
+@define-color bg_color #16365c;
+@define-color base_color #2a5a8f;
+@define-color fg_color #ffffff;
+@define-color selected_bg_color #2f7fd1;
+@define-color selected_fg_color #ffffff;
+@define-color borders #0b2440;
+@define-color warning_color #f27835;
+@define-color error_color #fc4138;
+/* FlickOS's brand amber: only the start button's logo (base.css). */
+@define-color brand_color #ffb13d;

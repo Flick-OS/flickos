@@ -1,0 +1,28 @@
+Source: flickos-branding
+Section: misc
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-branding
+Architecture: all
+Depends: base-files,
+         plymouth,
+         plymouth-themes,
+         plymouth-label,
+         fonts-dejavu-core,
+         ${misc:Depends}
+Description: FlickOS branding: logo, boot splash, boot menu, OS name and login banner
+ Installs the FlickOS logo icons (flickos, flickos-symbolic) and the FlickOS
+ Plymouth boot splash, and makes the splash the default theme.
+ .
+ Gives the GRUB boot menu FlickOS's theme (/etc/default/grub.d/flickos-theme.cfg
+ points update-grub at /usr/share/flickos/grub/).
+ .
+ Shows "FlickOS" in /etc/os-release (PRETTY_NAME, VARIANT) and on the text
+ console login banner (/etc/issue, /etc/issue.net). Debian's originals are
+ kept via dpkg-divert and the FlickOS versions are regenerated from them
+ whenever base-files is upgraded. ID=debian and all version fields stay
+ unchanged, so software that detects Debian keeps working.

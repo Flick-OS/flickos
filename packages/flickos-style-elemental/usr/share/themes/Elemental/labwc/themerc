@@ -1,0 +1,47 @@
+# Elemental: FlickOS's own window theme (flickos-style-elemental, written
+# by tools/make-elemental.py; man labwc-theme). Title bars in the window's own
+# light grey, the title in the middle, plain glyph buttons that get a faint
+# round face on hover: this folder's SVGs.
+border.width: 1
+window.active.border.color: #cdc7c2
+window.inactive.border.color: #cdc7c2
+window.active.indicator.toggled-keybind.color: #c6262e
+window.titlebar.padding.width: 6
+window.titlebar.padding.height: 0
+window.active.title.bg.color: #f6f5f4
+window.inactive.title.bg.color: #fafafa
+window.active.label.text.color: #2e3436
+window.inactive.label.text.color: #666a6b
+window.label.text.justify: center
+window.button.width: 28
+window.button.height: 28
+window.button.spacing: 2
+window.button.hover.bg.corner-radius: 14
+window.active.button.unpressed.image.color: #2e3436
+window.inactive.button.unpressed.image.color: #666a6b
+menu.border.width: 1
+menu.border.color: #cdc7c2
+menu.items.bg.color: #ffffff
+menu.items.text.color: #2e3436
+menu.items.active.bg.color: #1c71d8
+menu.items.active.text.color: #ffffff
+menu.items.padding.x: 8
+menu.items.padding.y: 4
+menu.separator.color: #e1dedb
+menu.title.bg.color: #fafafa
+menu.title.text.color: #2e3436
+osd.bg.color: #ffffff
+osd.border.color: #cdc7c2
+osd.border.width: 1
+osd.label.text.color: #2e3436
+osd.window-switcher.preview.border.color: #3689e6
+osd.window-switcher.width: 640
+osd.window-switcher.padding: 8
+osd.window-switcher.item.padding.x: 12
+osd.window-switcher.item.padding.y: 6
+osd.window-switcher.item.active.border.width: 2
+snapping.overlay.region.bg.color: #3689e64c
+snapping.overlay.region.border.color: #3689e6
+snapping.overlay.edge.bg.color: #3689e64c
+snapping.overlay.edge.border.color: #3689e6
+magnifier.border.color: #3689e6

@@ -1,0 +1,16 @@
+// Automatic updates (unattended-upgrades) also install FlickOS's own packages
+// and the community apps: this adds FlickOS's two distributions to the origins
+// that Debian's 50unattended-upgrades allows. Shipped by
+// flickos-archive-keyring, with the repository itself
+// (sources.list.d/flickos.sources); origin, codename and label are the
+// distributions' own (repo/conf/distributions). Community apps update this
+// way because every version is built from public source, checked and
+// reviewed before it is signed (Software design, Q10).
+//
+// Settings > Updates (flickos-control) replaces the whole list in
+// 60flickos-updates when a choice is made there, so this file then no longer
+// counts; "Security fixes only" leaves FlickOS out.
+Unattended-Upgrade::Origins-Pattern {
+        "origin=FlickOS,codename=${distro_codename},label=FlickOS";
+        "origin=FlickOS,codename=${distro_codename}-community,label=FlickOS Community";
+};

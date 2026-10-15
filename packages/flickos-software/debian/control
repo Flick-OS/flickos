@@ -1,0 +1,44 @@
+Source: flickos-software
+Section: admin
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-software
+Architecture: all
+# python3-gi, gir1.2-gtk-3.0: the window, GTK 3 so it follows the Arc theme.
+# appstream: its apt hook keeps Debian's app catalog (DEP-11) and the system
+# cache that gir1.2-appstream-1.0 reads when the index is built; the FlickOS
+# image had no catalog without it.
+# packagekit, gir1.2-packagekitglib-1.0: Debian apps are installed and
+# removed through PackageKit, which asks polkit (no helper of our own).
+# gir1.2-flatpak-1.0: Flathub apps, through libflatpak into the system
+# installation. flatpak itself stays a Recommends of flickos-desktop: without
+# it Software shows Debian's apps only.
+Depends: python3,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         appstream,
+         gir1.2-appstream-1.0,
+         packagekit,
+         gir1.2-packagekitglib-1.0,
+         gir1.2-flatpak-1.0,
+         ${misc:Depends}
+Recommends: flatpak
+Description: Software: find, install and remove apps on FlickOS
+ A window for apps, not packages: every desktop app in Debian's archive, in
+ FlickOS's repository (with the community apps other developers publish
+ there, built by FlickOS from their source and reviewed) and on Flathub,
+ with its icon, description, screenshots and what it needs on disk before
+ it is installed. An app that more than one offer shows once, with an apt
+ source as the default and Flathub for the newer version. Apt apps are
+ installed through PackageKit and ask for the password; Flathub apps go
+ into the system installation. The front page's shelves, Made for FlickOS
+ among them, come from a list FlickOS publishes.
+ .
+ A daily timer updates Flatpak apps and Flathub's catalog while the
+ automatic updates are on. Nothing runs while the window is closed, and
+ nothing is sent about its user.

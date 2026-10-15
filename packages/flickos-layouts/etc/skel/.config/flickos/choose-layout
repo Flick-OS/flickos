@@ -1,0 +1,3 @@
+# Copied into new accounts. At the first login, flickos-layout first-run opens
+# the Desktop Layout & Style chooser, then deletes this file. Remove it from
+# /etc/skel to stop new accounts from seeing the chooser.

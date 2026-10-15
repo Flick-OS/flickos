@@ -1,0 +1,281 @@
+#!/usr/bin/python3
+"""Count FlickOS installs: one anonymous request a week.
+
+Once a week (ISO weeks, UTC) the timer flickos-countme.timer runs
+`flickos-countme run`, which sends one request to the FlickOS counting server:
+
+    GET URL?version=2.0&age=1
+
+and nothing else: no machine id, no user or host name, no hardware, no list of
+programs. The server adds up the requests of each week, so it knows how many
+computers run which FlickOS version, never which ones. This is Fedora's
+"countme" idea (DNF), without a package manager around it.
+
+  version  FLICKOS_VERSION from flickos-branding's /usr/lib/flickos-release.
+  age      how long ago FlickOS was installed (AGE_BUCKETS): 1 = the first
+           week, 2 = the first month, 3 = the first half year, 4 = longer.
+           Only a computer's first request can be 1 (its first week may
+           reach into a second ISO week), so each install is counted once.
+
+The install date is Installed= in /etc/flickos/countme (written only by
+installers up to flickos-installer 1.24), else the day of the first run.
+
+Nothing is sent in the live session (boot=live), while Enabled=no is in
+/etc/flickos/countme (Settings -> Privacy, an older installer's question,
+`flickos-countme disable`), or while no server is set (URL below, or Url= in
+/etc/flickos/countme for testing). A request that fails is not recorded, so
+the next daily run tries again. The server keeps only the weekly counts (not
+the internet address a request comes from): server/countme in the FlickOS
+source, PRIVACY.md.
+
+Commands:
+  run [--dry-run]    send this week's count if not sent yet (the timer);
+                     --dry-run prints what would happen and sends nothing
+  status             print the state as JSON (Settings -> Privacy)
+  show               print exactly what is sent
+  enable | disable   turn the count on or off (pkexec countme-helper)
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import argparse
+import contextlib
+import datetime
+import json
+import os
+import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+
+# FLICKOS_COUNTME_PREFIX: run from a source tree, e.g. packages/flickos-countme.
+PREFIX = os.environ.get("FLICKOS_COUNTME_PREFIX", "")
+HELPER = PREFIX + "/usr/libexec/flickos/countme-helper"
+CONF = "/etc/flickos/countme"       # Enabled=, Installed=, Url= (countme-helper)
+RELEASE = "/usr/lib/flickos-release"
+PROC = "/proc"
+# The unit's StateDirectory (systemd sets STATE_DIRECTORY): readable by all,
+# so `status` can show the last week.
+STATE_DIR = os.environ.get("STATE_DIRECTORY", "/var/lib/flickos-countme")
+LAST_WEEK = "last-week"             # the ISO week last counted, e.g. 2026-W39
+FIRST_RUN = "first-run"             # the install date when Installed= is missing
+# The counting server (server/countme, deployed on Cloudflare). Empty: nothing is sent.
+URL = "https://flickos-countme.dvbondoy.workers.dev/v1/countme"
+TIMEOUT = 20                        # seconds
+USER_AGENT = "flickos-countme/1"
+# (age, days since the install up to which it applies); older: LAST_AGE.
+AGE_BUCKETS = ((1, 7), (2, 28), (3, 168))
+LAST_AGE = 4
+
+
+class CountmeError(Exception):
+    pass
+
+
+def read_conf(path=None):
+    """KEY=VALUE lines (shell style, quotes optional); # starts a comment."""
+    values = {}
+    with contextlib.suppress(FileNotFoundError), open(path or CONF, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip("\"'")
+    return values
+
+
+def enabled(conf):
+    """On unless Enabled= says otherwise."""
+    return conf.get("Enabled", "yes").lower() not in ("no", "false", "0", "off")
+
+
+def flickos_version(path=None):
+    for key, value in read_conf(path or RELEASE).items():
+        if key == "FLICKOS_VERSION" and value:
+            return value
+    raise CountmeError(f"no FLICKOS_VERSION in {path or RELEASE}")
+
+
+def live_session():
+    with contextlib.suppress(OSError):
+        with open(os.path.join(PROC, "cmdline"), encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    return False
+
+
+def parse_date(text):
+    try:
+        return datetime.date.fromisoformat(text.strip())
+    except (AttributeError, ValueError):
+        return None
+
+
+def week_of(day):
+    year, week, _ = day.isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def age_bucket(installed, today, first=True):
+    """first: this computer has sent nothing yet (only then 1: the install)."""
+    days = (today - installed).days
+    age = next((age for age, up_to in AGE_BUCKETS if days < up_to), LAST_AGE)
+    return age if first else max(age, 2)
+
+
+def request_url(url, version, age):
+    return f"{url}?{urllib.parse.urlencode({'version': version, 'age': age})}"
+
+
+def read_state(name):
+    with contextlib.suppress(OSError), open(os.path.join(STATE_DIR, name), encoding="utf-8") as f:
+        return f.read().strip()
+    return None
+
+
+def write_state(name, value):
+    fd, tmp = tempfile.mkstemp(dir=STATE_DIR, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(value + "\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, os.path.join(STATE_DIR, name))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def install_date(conf):
+    """Installed= (an older installer), else the first run's date, else None."""
+    return parse_date(conf.get("Installed", "")) or parse_date(read_state(FIRST_RUN) or "")
+
+
+def server(conf):
+    return conf.get("Url") or URL
+
+
+def not_sending(conf):
+    """Why nothing is sent here, or None."""
+    if live_session():
+        return "live session"
+    if not enabled(conf):
+        return "turned off"
+    if not server(conf):
+        return "no server set"
+    return None
+
+
+def today_utc():
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def planned_request(conf, today):
+    """The URL of this week's request (the install counted as today when unknown)."""
+    age = age_bucket(install_date(conf) or today, today, first=read_state(LAST_WEEK) is None)
+    return request_url(server(conf) or "URL", flickos_version(), age)
+
+
+def send(url):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            if not 200 <= response.status < 300:
+                raise CountmeError(f"server answered {response.status}")
+    except (urllib.error.URLError, OSError) as error:
+        raise CountmeError(f"not sent: {getattr(error, 'reason', error)}") from None
+
+
+def cmd_run(opts, sender=send):
+    conf = read_conf()
+    today = today_utc()
+    if live_session():
+        print("Not sent: live session.")
+        return 0
+    # The unit creates STATE_DIR (at the timer's first run) and owns it.
+    if not opts.dry_run and not os.access(STATE_DIR, os.W_OK):
+        raise CountmeError("run is the timer's job: sudo systemctl start flickos-countme "
+                           "(or flickos-countme run --dry-run)")
+    if not opts.dry_run and not install_date(conf):
+        write_state(FIRST_RUN, today.isoformat())
+    reason = not_sending(conf)
+    week = week_of(today)
+    if reason:
+        print(f"Not sent: {reason}.")
+        return 0
+    if read_state(LAST_WEEK) == week:
+        print(f"Already counted in {week}.")
+        return 0
+    url = planned_request(conf, today)
+    if opts.dry_run:
+        print(f"Would send: GET {url}")
+        return 0
+    try:
+        sender(url)
+    except CountmeError as error:
+        # Tried again at the next daily run; not a failed unit (offline laptops).
+        print(f"{error} (tried again tomorrow)", file=sys.stderr)
+        return 0
+    write_state(LAST_WEEK, week)
+    print(f"Counted in {week}.")
+    return 0
+
+
+def status(conf, today):
+    reason = not_sending(conf)
+    try:
+        request = planned_request(conf, today)
+    except CountmeError:
+        request = None
+    return {"enabled": enabled(conf), "sending": reason is None, "reason": reason,
+            "last_week": read_state(LAST_WEEK), "this_week": week_of(today), "request": request}
+
+
+def cmd_status(_opts):
+    print(json.dumps(status(read_conf(), today_utc())))
+    return 0
+
+
+def cmd_show(_opts):
+    conf = read_conf()
+    print(f"Once a week: GET {planned_request(conf, today_utc())}")
+    print(f"User-Agent: {USER_AGENT}")
+    print("Nothing else is sent: no machine id, no user or computer name, no hardware, no list of programs.")
+    print("The server keeps only the number of requests per week, version and age.")
+    reason = not_sending(conf)
+    if reason:
+        print(f"Not sent now: {reason}.")
+    return 0
+
+
+def cmd_toggle(opts):
+    verb = "on" if opts.command == "enable" else "off"
+    command = [HELPER, verb] if os.geteuid() == 0 else ["pkexec", HELPER, verb]
+    try:
+        os.execvp(command[0], command)
+    except OSError as error:
+        raise CountmeError(f"{command[0]}: {error}") from None
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="flickos-countme",
+                                     description="Count FlickOS installs: one anonymous request a week.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    run = commands.add_parser("run", help="send this week's count if not sent yet (the timer)")
+    run.add_argument("--dry-run", action="store_true", help="print what would happen, send nothing")
+    run.set_defaults(func=cmd_run)
+    commands.add_parser("status", help="print the state as JSON").set_defaults(func=cmd_status)
+    commands.add_parser("show", help="print exactly what is sent").set_defaults(func=cmd_show)
+    commands.add_parser("enable", help="turn the weekly count on").set_defaults(func=cmd_toggle)
+    commands.add_parser("disable", help="turn the weekly count off").set_defaults(func=cmd_toggle)
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except (CountmeError, OSError) as error:
+        print(f"flickos-countme: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

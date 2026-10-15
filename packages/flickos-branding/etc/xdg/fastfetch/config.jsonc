@@ -1,0 +1,52 @@
+// FlickOS: fastfetch's defaults with the FlickOS logo instead of Debian's
+// (os-release keeps ID=debian, so fastfetch would pick Debian's). Your own
+// ~/.config/fastfetch/config.jsonc replaces this file; `fastfetch
+// --gen-config` writes one to start from.
+//
+// The logo is generated from flickos.svg by tools/make-fastfetch-logo.py.
+// Keys and title are the terminal palette's blue, the style's accent.
+// A config without "modules" shows none, so this lists fastfetch 2.40's
+// default modules (`fastfetch --gen-config`).
+{
+  "logo": {
+    "type": "file-raw",
+    "source": "/usr/share/flickos/fastfetch/flickos.txt"
+  },
+  "display": {
+    "color": {
+      "keys": "blue",
+      "title": "blue"
+    }
+  },
+  "modules": [
+    "title",
+    "separator",
+    "os",
+    "host",
+    "kernel",
+    "uptime",
+    "packages",
+    "shell",
+    "display",
+    "de",
+    "wm",
+    "wmtheme",
+    "theme",
+    "icons",
+    "font",
+    "cursor",
+    "terminal",
+    "terminalfont",
+    "cpu",
+    "gpu",
+    "memory",
+    "swap",
+    "disk",
+    "localip",
+    "battery",
+    "poweradapter",
+    "locale",
+    "break",
+    "colors"
+  ]
+}

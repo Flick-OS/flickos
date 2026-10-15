@@ -1,0 +1,58 @@
+#!/bin/sh
+# Remove firmware for hardware FlickOS can't run on or that desktop and laptop
+# users don't have. --firmware-chroot installs every firmware package in the
+# archive; these are the large ones that are useless on an amd64 desktop.
+#
+#   firmware-qcom-soc              ~300 MB  Qualcomm ARM SoCs (phones, ARM laptops)
+#   firmware-qcom-media                     empty transitional package for the above
+#     (live-build does not install the two Qualcomm packages today; they stay on
+#      the list in case a future kernel pulls them in)
+#   firmware-netronome             ~140 MB  Netronome datacenter SmartNICs
+#   firmware-marvell-prestera       ~60 MB  Marvell Prestera network switch ASICs
+#   firmware-nvidia-tesla-*-gsp     ~60 MB  NVIDIA Tesla datacenter GPUs
+#   firmware-qlogic, firmware-cavium, firmware-myricom, firmware-bnx2x,
+#   firmware-netxen                         server HBAs and 10G+ network adapters
+#
+# Kept: Wi-Fi, Bluetooth, GPU (incl. firmware-nvidia-gsp for GeForce), sound,
+# and everything else. In the FlickOS 2.0 build this removes ~277 MB and leaves
+# ~555 MB of firmware installed.
+#
+# Safety: the hook simulates the removal first and fails the build if apt would
+# remove anything not in this list (e.g. after a Debian package reorganisation).
+set -e
+
+TRIM="firmware-qcom-soc firmware-qcom-media firmware-netronome firmware-marvell-prestera
+firmware-qlogic firmware-cavium firmware-myricom firmware-bnx2x firmware-netxen"
+# Versioned Tesla GSP packages (e.g. firmware-nvidia-tesla-535-gsp).
+TRIM="$TRIM $(dpkg-query -W -f='${Package}\n' 'firmware-nvidia-tesla-*' 2>/dev/null || true)"
+# Collapse the list above (and dpkg-query's newlines) into a single
+# space-separated line, so the "is this package on the list?" test below also
+# matches the names that sit at a line break.
+TRIM="$(echo $TRIM)"
+
+installed=""
+for pkg in $TRIM; do
+    if dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null | grep -q '^ii'; then
+        installed="$installed $pkg"
+    fi
+done
+
+if [ -z "$installed" ]; then
+    echo "trim-firmware: nothing to remove"
+    exit 0
+fi
+
+# Everything apt would remove must be in the trim list.
+unexpected="$(apt-get purge --simulate $installed \
+    | awk '/^Purg / { print $2 }' \
+    | while read -r pkg; do
+          case " $TRIM " in *" $pkg "*) ;; *) echo "$pkg" ;; esac
+      done)"
+if [ -n "$unexpected" ]; then
+    echo "trim-firmware: removing$installed would also remove:" $unexpected >&2
+    echo "trim-firmware: update the list in this hook." >&2
+    exit 1
+fi
+
+echo "trim-firmware: removing$installed"
+apt-get purge -y $installed

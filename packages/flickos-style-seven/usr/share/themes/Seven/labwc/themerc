@@ -1,0 +1,47 @@
+# Seven: FlickOS's own window theme (flickos-style-seven, written by
+# tools/make-seven.py; man labwc-theme). See-through sky blue title bars and
+# frame: labwc 0.8.3 draws one color with an alpha, no gradient or blur. The
+# buttons are this folder's SVGs.
+border.width: 4
+window.active.border.color: #8cbdf0bf
+window.inactive.border.color: #bcd7f3bf
+window.active.indicator.toggled-keybind.color: #fc4138
+window.titlebar.padding.width: 6
+window.titlebar.padding.height: 0
+window.active.title.bg.color: #8cbdf0bf
+window.inactive.title.bg.color: #bcd7f3bf
+window.active.label.text.color: #000000
+window.inactive.label.text.color: #2a3a4a
+window.label.text.justify: left
+window.button.width: 28
+window.button.height: 24
+window.button.spacing: 0
+window.button.hover.bg.corner-radius: 0
+window.active.button.unpressed.image.color: #1c2a3a
+window.inactive.button.unpressed.image.color: #1c2a3a99
+menu.border.width: 1
+menu.border.color: #97b4d6
+menu.items.bg.color: #f5f8fc
+menu.items.text.color: #1e1e1e
+menu.items.active.bg.color: #cce4fb
+menu.items.active.text.color: #000000
+menu.items.padding.x: 8
+menu.items.padding.y: 4
+menu.separator.color: #d5e1ee
+menu.title.bg.color: #dce9f7
+menu.title.text.color: #1e1e1e
+osd.bg.color: #f5f8fc
+osd.border.color: #2f7fd1
+osd.border.width: 1
+osd.label.text.color: #1e1e1e
+osd.window-switcher.preview.border.color: #2f7fd1
+osd.window-switcher.width: 640
+osd.window-switcher.padding: 8
+osd.window-switcher.item.padding.x: 12
+osd.window-switcher.item.padding.y: 6
+osd.window-switcher.item.active.border.width: 2
+snapping.overlay.region.bg.color: #2f7fd14c
+snapping.overlay.region.border.color: #2f7fd1
+snapping.overlay.edge.bg.color: #2f7fd14c
+snapping.overlay.edge.border.color: #2f7fd1
+magnifier.border.color: #2f7fd1

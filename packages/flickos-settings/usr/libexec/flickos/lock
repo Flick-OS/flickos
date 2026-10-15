@@ -1,0 +1,7 @@
+#!/bin/sh
+# Lock the screen (Super+L, the menus): with the background chosen in
+# Settings > Power & Idle (flickos-control lock), else in the Arc-Dark color.
+if command -v flickos-control >/dev/null; then
+    exec flickos-control lock
+fi
+exec swaylock -f -c 383c4a

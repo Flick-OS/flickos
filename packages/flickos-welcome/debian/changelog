@@ -1,0 +1,45 @@
+flickos-welcome (1.5) trixie; urgency=medium
+
+  * The Install software card opens Software (flickos-software), which
+    replaces gpk-application.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 22:08:39 +0800
+
+flickos-welcome (1.4) trixie; urgency=medium
+
+  * Do not show on startup: the window opens at every login until it is
+    ticked (off by default for a new account; accounts that already saw
+    the window aren't affected). flickos-welcome startup current|set
+    on|off|default.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 21:41:49 +0800
+
+flickos-welcome (1.3) trixie; urgency=medium
+
+  * Tests: never read or signal the build host's settings and processes
+    (/etc/xdg/flickos, /proc).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 19:53:58 +0800
+
+flickos-welcome (1.2) trixie; urgency=medium
+
+  * One window per session: a second start says it is already open.
+  * Escape closes the window; Close has a mnemonic; cards have
+    accessible names.
+  * Set the Wayland app id explicitly.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 01:28:20 +0800
+
+flickos-welcome (1.1) trixie; urgency=medium
+
+  * Donate card: the new donation address,
+    https://flickos.vercel.app/donate (the same as the installer's).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 25 Sep 2026 22:16:37 +0800
+
+flickos-welcome (1.0) trixie; urgency=medium
+
+  * Initial release: the window a new account sees once at its first
+    login.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 23:09:50 +0800

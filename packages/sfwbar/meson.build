@@ -1,0 +1,348 @@
+project('sfwbar','c')
+cc = meson.get_compiler('c')
+fs = import('fs')
+lbrt = cc.find_library('rt', required: false)
+gtk3 = dependency('gtk+-3.0')
+glib = dependency('glib-2.0', version: '>=2.68')
+ggio = dependency('gio-2.0')
+gio_unix = dependency('gio-unix-2.0')
+gmod = dependency('gmodule-2.0')
+json  = dependency('json-c')
+glsh = dependency('gtk-layer-shell-0')
+wayl = dependency('wayland-client')
+wayp = dependency('wayland-protocols', version: '>=1.32')
+puls = dependency('libpulse', required: get_option('pulse'))
+pulg = dependency('libpulse-mainloop-glib', required: get_option('pulse'))
+xkbr = dependency('xkbregistry', required: get_option('xkb'))
+xkbc = dependency('xkbcommon', required: get_option('xkb'))
+alsa = dependency('alsa', required: get_option('alsa'))
+pipe = dependency('libpipewire-0.3', required: get_option('pipewire'))
+
+conf_data = configuration_data()
+glsh_ver = glsh.version().split('.')
+conf_data.set('glsh_major',glsh_ver[0])
+conf_data.set('glsh_minor',glsh_ver[1])
+conf_data.set('glsh_micro',glsh_ver[2])
+conf_data.set('module_dir',
+    get_option('prefix') / get_option('libdir') / 'sfwbar')
+conf_data.set('conf_dir',
+    get_option('prefix') / get_option('datadir') / 'sfwbar')
+conf_data.set('locale_dir',
+    get_option('prefix') / get_option('datadir') / 'locale')
+configure_file(input: 'meson.h.meson', output: 'meson.h',
+    configuration: conf_data )
+
+wayland_scanner = find_program('wayland-scanner')
+wayland_protodir = wayp.get_variable(pkgconfig: 'pkgdatadir')
+wayland_protos = [
+  ['stable/xdg-shell/xdg-shell'],
+  ['staging/ext-image-capture-source/ext-image-capture-source-v1'],
+  ['staging/ext-image-copy-capture/ext-image-copy-capture-v1'],
+  ['staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1'],
+  ['staging/ext-background-effect/ext-background-effect-v1'],
+  ['staging/ext-workspace/ext-workspace-v1'],
+  ['unstable/xdg-output/xdg-output-unstable-v1'],
+  ['protocols/wlr-foreign-toplevel-management-unstable-v1'],
+  ['protocols/wlr-layer-shell-unstable-v1'],
+  ['protocols/cosmic-workspace-unstable-v1'],
+]
+wayland_targets=[]
+
+foreach proto : wayland_protos
+  if fs.exists(join_paths(wayland_protodir, proto) + '.xml')
+    target = join_paths(wayland_protodir, proto)
+  else
+    target = join_paths('protocols', fs.stem(proto)) 
+  endif
+
+  wayland_targets += custom_target(
+      input: join_paths(target) + '.xml', output:  '@BASENAME@.h',
+      command: [ wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@' ])
+  wayland_targets += custom_target(
+      input: join_paths(target) + '.xml', output:  '@BASENAME@.c',
+      command: [ wayland_scanner, 'public-code', '@INPUT@', '@OUTPUT@' ])
+endforeach
+
+headers = [ 'src' ]
+
+libsrc = [
+    'src/appinfo.c',
+    'src/client.c',
+    'src/exec.c',
+    'src/input.c',
+    'src/locale1.c',
+    'src/module.c',
+    'src/mpd.c',
+    'src/scanner.c',
+    'src/signal.c',
+    'src/sni.c',
+    'src/sniitem.c',
+    'src/snimenu.c',
+    'src/trigger.c',
+    'src/wayland.c',
+    'src/window.c',
+    'src/wintree.c',
+    'src/workspace.c',
+    'src/vm/expr.c',
+    'src/vm/func.c',
+    'src/vm/parser.c',
+    'src/vm/value.c',
+    'src/vm/var.c',
+    'src/vm/vm.c',
+    'src/gui/background.c',
+    'src/gui/bar.c',
+    'src/gui/basewidget.c',
+    'src/gui/button.c',
+    'src/gui/capture.c',
+    'src/gui/cchart.c',
+    'src/gui/chart.c',
+    'src/gui/css.c',
+    'src/gui/entry.c',
+    'src/gui/filter.c',
+    'src/gui/flowgrid.c',
+    'src/gui/flowitem.c',
+    'src/gui/grid.c',
+    'src/gui/image.c',
+    'src/gui/label.c',
+    'src/gui/menu.c',
+    'src/gui/menuitem.c',
+    'src/gui/monitor.c',
+    'src/gui/pager.c',
+    'src/gui/pageritem.c',
+    'src/gui/popup.c',
+    'src/gui/scale.c',
+    'src/gui/scaleimage.c',
+    'src/gui/switcher.c',
+    'src/gui/switcheritem.c',
+    'src/gui/taskbar.c',
+    'src/gui/taskbaritem.c',
+    'src/gui/taskbarpager.c',
+    'src/gui/taskbarpopup.c',
+    'src/gui/taskbarshell.c',
+    'src/gui/toplevel.c',
+    'src/gui/tray.c',
+    'src/gui/trayitem.c',
+    'src/config/base.c',
+    'src/config/init.c',
+    'src/config/layout.c',
+    'src/config/menu.c',
+    'src/config/scanner.c',
+    'src/config/toplevel.c',
+    'src/ipc/cosmic-workspaces.c',
+    'src/ipc/ext-ftl.c',
+    'src/ipc/ext-workspace.c',
+    'src/ipc/foreign-toplevel.c',
+    'src/ipc/hyprland.c',
+    'src/ipc/niri.c',
+    'src/ipc/sway.c',
+    'src/ipc/wayfire.c',
+    'src/lib/builtin.c',
+    'src/lib/compositor.c',
+    'src/lib/config.c',
+    'src/lib/control.c',
+    'src/lib/io.c',
+    'src/lib/lib.c',
+    'src/lib/sys.c',
+    'src/lib/ui.c',
+    'src/lib/value.c',
+    'src/util/datalist.c',
+    'src/util/file.c',
+    'src/util/hash.c',
+    'src/util/json.c',
+    'src/util/string.c',
+    wayland_targets ]
+deps = [gtk3, glib, gio_unix, gmod, glsh, wayl, json, lbrt ]
+doc_list = [ 'sfwbar' ]
+
+subdir('po')
+
+cargs = ['-DGLIB_DISABLE_DEPRECATION_WARNINGS',
+    '-DGDK_DISABLE_DEPRECATED',
+    '-DGTK_DISABLE_DEPRECATED',
+    '-Wall', '-Wextra', '-Wno-unused-parameter', '-Wno-cast-function-type',
+    '-Wno-missing-field-initializers']
+
+sfwbar = library ('sfwbar', sources: libsrc,
+    c_args: cargs, install_dir: get_option('libdir') / 'sfwbar',
+    include_directories: headers,
+    dependencies: deps, install: true)
+
+deps = [deps, declare_dependency(link_with: sfwbar)]
+
+if get_option('network').enabled() or get_option('network').auto()
+  library('network', sources: 'modules/network.c', c_args: cargs,
+      dependencies: deps, include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-network'
+endif
+
+if get_option('bluez').enabled() or get_option('bluez').auto()
+  library('bluez', sources: 'modules/bluez.c', c_args: cargs,
+      include_directories: headers,
+      dependencies: deps, name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-bluez'
+endif
+
+if get_option('dbus').enabled() or get_option('dbus').auto()
+  library('dbus', sources: 'modules/dbus.c', c_args: cargs,
+      include_directories: headers,
+      dependencies: deps, name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-dbus'
+endif
+
+if get_option('iwd').enabled() or get_option('iwd').auto()
+  library('wifi-iwd', sources: 'modules/wifi-iwd.c', c_args: cargs,
+      include_directories: headers,
+      dependencies: deps, name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-wifi'
+endif
+
+if get_option('nm').enabled() or get_option('nm').auto()
+  library('wifi-nm', sources: 'modules/wifi-nm.c', c_args: cargs,
+      include_directories: headers,
+      dependencies: deps, name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  if 'sfwbar-wifi' not in doc_list
+    doc_list += 'sfwbar-wifi'
+  endif
+endif
+
+if get_option('ncenter').enabled() or get_option('ncenter').auto()
+  library('ncenter', sources: 'modules/ncenter.c', c_args: cargs,
+      include_directories: headers,
+      dependencies: deps, name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-ncenter'
+endif
+
+if puls.found() and pulg.found()
+  library('pulsectl', sources: 'modules/pulsectl.c', c_args: cargs,
+      include_directories: headers,
+      dependencies: [deps, puls, pulg],name_prefix: '',
+      install: true, install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-volume'
+endif
+
+if pipe.found()
+  library('pipewire', sources: 'modules/pipewire.c', c_args: cargs,
+      include_directories: headers,
+      dependencies: [deps, pipe],name_prefix: '',
+      install: true, install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-pipewire'
+endif
+
+if get_option('mpd').enabled() or get_option('mpd').auto()
+  library('mpd', sources: 'modules/mpd.c', c_args: cargs,
+      dependencies: deps, include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-mpd'
+endif
+
+if alsa.found()
+  library('alsactl', sources: 'modules/alsactl.c', c_args: cargs,
+      dependencies: [deps, alsa], include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  if 'sfwbar-volume' not in doc_list
+    doc_list += 'sfwbar-volume'
+  endif
+endif
+
+if xkbr.found()
+  library('xkbmap', sources: 'modules/xkbmap.c', c_args: cargs,
+      dependencies: [deps, xkbr, xkbc], include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-xkbmap'
+endif
+
+if get_option('appmenu').enabled() or get_option('appmenu').auto()
+  library('appmenu', sources: 'modules/appmenu.c', c_args: cargs,
+      dependencies: deps, include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-appmenu'
+endif
+
+if get_option('bsdctl').enabled()
+  library('bsdctl', sources: 'modules/bsdctl.c', c_args: cargs,
+      dependencies: deps, include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-bsdctl'
+endif
+
+if get_option('idle').enabled() or get_option('idle').auto()
+  idle_targets = [
+    custom_target('ext-idle-notify-v1.h',
+      output:'ext-idle-notify-v1.h',
+      input: wayland_protodir /
+        'staging/ext-idle-notify/ext-idle-notify-v1.xml',
+      command: [ wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@' ] ),
+    custom_target('ext-idle-notify-v1.c',
+      output:'ext-idle-notify-v1.c',
+      input: wayland_protodir /
+        'staging/ext-idle-notify/ext-idle-notify-v1.xml',
+      command: [ wayland_scanner, 'public-code', '@INPUT@', '@OUTPUT@' ] ) ]
+  library('idle', sources: ['modules/idle.c',idle_targets], dependencies: deps,
+      include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-idle'
+endif
+
+if get_option('idleinhibit').enabled() or get_option('idleinhibit').auto()
+  inhibit_targets = [
+    custom_target('idle-inhibit-unstable-v1.h',
+      output:'idle-inhibit-unstable-v1.h',
+      input: wayland_protodir /
+        'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml',
+      command: [ wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@' ] ),
+    custom_target('idle-inhibit-unstable-v1.c',
+      output:'idle-inhibit-unstable-v1.c',
+      input: wayland_protodir /
+        'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml',
+      command: [ wayland_scanner, 'public-code', '@INPUT@', '@OUTPUT@' ] ) ]
+
+  library('idleinhibit', sources: ['modules/idleinhibit.c', inhibit_targets],
+      dependencies: deps,
+      include_directories: headers,
+      name_prefix: '', install: true,
+      install_dir: get_option('libdir') / 'sfwbar' )
+  doc_list += 'sfwbar-idleinhibit'
+endif
+
+executable ('sfwbar', sources: 'src/sfwbar.c',
+    include_directories: headers,
+    install_rpath: get_option('prefix') / get_option('libdir') / 'sfwbar',
+    dependencies: [deps], install: true)
+
+build_docs = get_option('build-docs')
+rst2man = find_program('rst2man', 'rst2man.py',
+    required: build_docs )
+foreach doc: doc_list
+  if rst2man.found() and not get_option('build-docs').disabled()
+    custom_target(input: 'doc' / doc + '.rst' , output: '@BASENAME@.1',
+        command: [rst2man, '@INPUT@', '@OUTPUT@' ],
+        install: true,
+        install_dir: get_option('mandir') / 'man1' )
+  else
+      install_man('doc' / doc + '.1' )
+  endif
+endforeach
+
+install_subdir('config',
+    install_dir: get_option('datadir') / 'sfwbar', strip_directory : true )
+install_subdir('icons/weather',
+    install_dir: get_option('datadir') / 'sfwbar/icons' )
+install_subdir('icons/misc',
+    install_dir: get_option('datadir') / 'sfwbar/icons' )
+install_data('icons/sfwbar.svg',
+    install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps' )
+install_subdir('data/desktop-directories',
+    install_dir: get_option('datadir') / 'sfwbar' )

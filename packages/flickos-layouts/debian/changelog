@@ -1,0 +1,610 @@
+flickos-layouts (1.62) trixie; urgency=medium
+
+  * check --layout: a dock whose Show Apps runs Exec("flickos/launcher")
+    is the layout's apps button, so its bar needs none.
+  * Tests: the tweaks starter's selectors are checked against
+    Elemental's CSS too.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 21:34:00 +0800
+
+flickos-layouts (1.61) trixie; urgency=medium
+
+  * A dock's Exec("flickos/launcher") runs what the apps button runs:
+    the start menu while it is on, else fuzzel.
+  * Cupertino's dock lists an app's windows one under another on hover.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 20:10:44 +0800
+
+flickos-layouts (1.60) trixie; urgency=medium
+
+  * The clock's calendar marks today in the style's selection colors.
+    Scroll over the clock for another month, right click for the year,
+    middle click for today's month.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 19:43:15 +0800
+
+flickos-layouts (1.59) trixie; urgency=medium
+
+  * A new layout or style replaces the wallpaper also when the one shown
+    came from a user's own style or layout folder
+    (~/.local/share/flickos); before, it stayed until the next login.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 12:00:15 +0800
+
+flickos-layouts (1.58) trixie; urgency=medium
+
+  * Your own panel tweaks (ricing phase 7, ADR-015):
+    ~/.config/flickos/tweaks/style.css is imported last into the panel's
+    CSS and copied after the dock's, and tweaks new writes a starter
+    whose examples win over every layout's own rules.
+  * waybar stops on any CSS error, so every CSS file of the user's
+    (tweaks, their add-ons', their own layout's) is parsed by GTK first
+    (/usr/libexec/flickos/check-css, remembered by content) and left out
+    when it can't be read; check, doctor, explain, state and watch show
+    it.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 10:58:28 +0800
+
+flickos-layouts (1.57) trixie; urgency=medium
+
+  * The chooser marks a user's own layout "Yours" and gives a layout
+    without a picture a tile with its name (docs/design/flickos-
+    ricing.md, phase 5 step 5c); a user's item without a description
+    says only "Yours".
+  * InterfaceTest lists the names users' layouts use (HIG VIS-11).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 09:53:58 +0800
+
+flickos-layouts (1.56) trixie; urgency=medium
+
+  * Users' own layouts (docs/design/flickos-ricing.md, phase 5 step 5b):
+    layouts are read from ~/.local/share/flickos/layouts and
+    XDG_DATA_DIRS' flickos/layouts too, the first of each id winning; a
+    user's layout is waybar only (Dock= is left out). layout new ID [--
+    from ID] [--name] copies a layout with FlickOS's shared files by
+    their full paths; check --layout ID, and check, say what a layout
+    lacks; watch reloads the panel when the layout in use changes;
+    doctor names a user's layout that hides FlickOS's; state and explain
+    say whose a layout is.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 09:41:00 +0800
+
+flickos-layouts (1.55) trixie; urgency=medium
+
+  * Desktop buttons in waybar (docs/design/flickos-ricing.md, phase 5
+    step 5a): flickos/desktops in a layout's waybar.jsonc becomes one
+    button per labwc desktop; waybar's supervisor follows labwc's ext-
+    workspace-v1 events and signals its waybar (SIGRTMIN+11), and a
+    click runs /usr/libexec/flickos/desktop. No FlickOS layout uses them
+    yet.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 14 Oct 2026 09:31:23 +0800
+
+flickos-layouts (1.54) trixie; urgency=medium
+
+  * supervise reloads waybar once the screens settle after one is turned
+    on or off: waybar 0.12 kept a second bar on a screen turned on while
+    it ran.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 23:09:41 +0800
+
+flickos-layouts (1.53) trixie; urgency=medium
+
+  * check tests panel text on the panel itself, and see-through palette
+    colors over black and white wallpapers instead of skipping them; the
+    chooser's swatches show the alpha.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 22:43:47 +0800
+
+flickos-layouts (1.52) trixie; urgency=medium
+
+  * flickos-layout try, export and import: try a style until logout,
+    share one as a file (ricing phase 4a).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 20:12:48 +0800
+
+flickos-layouts (1.51) trixie; urgency=medium
+
+  * flickos-layout watch: applies each save to your styles, add-ons and
+    labwc files at once (ricing phase 3).
+  * doctor and watch: a <default /> added while labwc merges loses
+    FlickOS's keys now, and how to get them back.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 19:19:16 +0800
+
+flickos-layouts (1.50) trixie; urgency=medium
+
+  * doctor's message about a user rc.xml that replaces FlickOS's reads
+    as one sentence with a colon.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 18:59:41 +0800
+
+flickos-layouts (1.49) trixie; urgency=medium
+
+  * labwc merges the user's own labwc files over FlickOS's: prepare
+    writes the labwc-merge marker at login unless merging would break
+    FlickOS (the live or plain session, a copy of FlickOS's rc.xml,
+    <default />, FlickOS's menu ids, an own labwc autostart). doctor and
+    explain say whether it merges, and why not and what to change. A
+    foot or fuzzel config that includes the style's colors is no longer
+    warned about. Breaks flickos-shortcuts << 1.16.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 17:53:24 +0800
+
+flickos-layouts (1.48) trixie; urgency=medium
+
+  * explain: for the style, labwc, the panel, the dock, foot, fuzzel,
+    mako, the GTK themes and the wallpaper, the files read in order and
+    whose each one is, includes followed.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 15:38:55 +0800
+
+flickos-layouts (1.47) trixie; urgency=medium
+
+  * The plain session (FLICKOS_PLAIN=1): users' own styles, add-ons,
+    ~/.config/waybar and ~/.config/mako are left out (a user style in
+    use becomes its FlickOS ancestor), choices can't be changed, and
+    plain/labwc in the runtime folder links to FlickOS's own labwc files
+    for labwc -C. state says plain; doctor explains it. User styles'
+    lookup no longer lists the user's folder twice.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 15:29:23 +0800
+
+flickos-layouts (1.46) trixie; urgency=medium
+
+  * The chooser marks a user's own style ("· Yours"), and state names
+    the default layout and style (Settings' Back to FlickOS's Look). Run
+    from a source tree, its styles come before the installed ones.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 15:19:16 +0800
+
+flickos-layouts (1.45) trixie; urgency=medium
+
+  * Users' own styles: ~/.local/share/flickos/styles/ID first, Inherits=
+    (only what differs; the parent's palette files, then the style's), a
+    missing theme falls back to the parent's. style new makes one from a
+    style; check says what is wrong with a style, or with all of the
+    user's styles, labwc files, add-ons and includes; style set refuses
+    a style with errors. The style in use's foot and fuzzel colors in
+    $XDG_RUNTIME_DIR/flickos/style/ for users' own configs. style list
+    and state show each style's folder.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 13 Oct 2026 15:03:09 +0800
+
+flickos-layouts (1.44) trixie; urgency=medium
+
+  * The start button's logo has its ring and dot in FlickOS's brand
+    amber (brand_color in each style: #ffb13d Dark, #c98000 Light);
+    still blue on hover.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 11:48:48 +0800
+
+flickos-layouts (1.43) trixie; urgency=medium
+
+  * New style wallpapers: the halo in the brand amber, Dark and Light
+    (sources in artwork/, not installed); no Debian logo, so no LGPL-3+
+    stanza. Previews redrawn.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 12 Oct 2026 11:24:58 +0800
+
+flickos-layouts (1.42) trixie; urgency=medium
+
+  * Tray icons are 16 px like the panel's other icons, so an app's full-
+    size icon no longer looks bigger than the volume and battery icons.
+  * Tray icons are as far apart as the panel's other icons (20 px, was
+    8).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 08 Oct 2026 09:49:02 +0800
+
+flickos-layouts (1.41) trixie; urgency=medium
+
+  * The title bar's window icons follow the GTK icon theme (the style's,
+    or the user's own), so they match the apps' icons in both styles.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 06 Oct 2026 14:17:50 +0800
+
+flickos-layouts (1.40) trixie; urgency=medium
+
+  * Clicking the active window in the panel's window list minimizes it,
+    as clicking a window in the dock or Traditional's bottom panel
+    already does.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 06 Oct 2026 10:38:39 +0800
+
+flickos-layouts (1.39) trixie; urgency=medium
+
+  * The phone button opens the phone popup while the phone connection is
+    on, and keeps the fuzzel menu when it is not.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 05 Oct 2026 19:53:56 +0800
+
+flickos-layouts (1.38) trixie; urgency=medium
+
+  * New default wallpapers: the FlickOS logo next to Debian's, dark for
+    the Dark style and light for the Light style (Wallpaper= in
+    style.ini, shown unless the layout or the user has one). Switching
+    the style switches the wallpaper.
+  * The layouts' photos are no longer their wallpapers but stay choices
+    in waypaper, at the same /usr/share/backgrounds/flickos/ID.jpg
+    paths; the new ones are there too (flickos-dark.png, flickos-
+    light.png).
+  * Layout previews redrawn on the Dark wallpaper.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 03 Oct 2026 11:34:53 +0800
+
+flickos-layouts (1.37) trixie; urgency=medium
+
+  * The <magnifier> options of flickos-control's labwc fragment (its
+    zoom settings) are set over the system rc.xml's.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 03 Oct 2026 10:28:58 +0800
+
+flickos-layouts (1.36) trixie; urgency=medium
+
+  * Cupertino's dock pins Thunar instead of pcmanfm.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 01 Oct 2026 18:51:57 +0800
+
+flickos-layouts (1.35) trixie; urgency=medium
+
+  * Quick Settings (flickos-layout quick-settings list|current|set
+    on|off|default, QuickSettings= in layouts.conf, off by default):
+    while on, the volume and battery icons (grouped) and Super+A open
+    it, desktop clicks close it, and the panel runs flickos-menu's
+    daemon. Quick= in each layout.ini. Breaks flickos-menu << 1.6.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 30 Sep 2026 08:52:17 +0800
+
+flickos-layouts (1.34) trixie; urgency=medium
+
+  * Panel: flickos-screenshot's recording button (custom/recording) next
+    to the clock in every layout, hidden while nothing records.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 20:54:13 +0800
+
+flickos-layouts (1.33) trixie; urgency=medium
+
+  * Add-ons: programs that aren't FlickOS packages yet plug into the
+    desktop from ~/.config/flickos/addons/NAME/ (or
+    /usr/share/flickos/addons/NAME/): labwc.xml keybinds and window
+    rules (never a key the desktop binds; description= goes to the
+    shortcut sheet), waybar.jsonc custom/ panel buttons placed before
+    the tiling button, style.css. New command: addons.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 14:50:19 +0800
+
+flickos-layouts (1.32) trixie; urgency=medium
+
+  * Redmond's panel is 40 px tall (was 34), with 24 px window list icons
+    and launcher logo (were 18 and 20).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 29 Sep 2026 09:51:08 +0800
+
+flickos-layouts (1.31) trixie; urgency=medium
+
+  * Traditional's desktops also have Super+1 to Super+4 (go to that
+    desktop) and Super+Shift+1 to Super+Shift+4 (move the window there).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 18:05:41 +0800
+
+flickos-layouts (1.30) trixie; urgency=medium
+
+  * The phone connection's panel button (custom/phone, before the tiling
+    button) while flickos-phone's connection is on, and nowhere while
+    it's off; reload-panel generates the panel again and restarts it
+    (flickos-phone runs it when turned on or off).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 17:25:49 +0800
+
+flickos-layouts (1.29) trixie; urgency=medium
+
+  * Show Desktop: a slim strip without an icon at the right end of the
+    panel (last module of modules-right), as in Windows 7, instead of an
+    icon after the apps button. Previews redrawn.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 13:04:55 +0800
+
+flickos-layouts (1.28) trixie; urgency=medium
+
+  * Show Desktop button right after the apps button in every layout
+    (flick-tiler show-desktop; Breaks flick-tiler << 1.7). Previews
+    redrawn.
+  * Show Desktop's tooltip names its key, Super+Shift+D.
+  * Traditional: the bottom panel is sfwbar: window list with titles,
+    which get shorter as windows open instead of running past the edge,
+    and a switcher for 4 desktops at its right end (Desktops= in
+    layout.ini: labwc desktops 1 to 4, Super+Ctrl+Left/Right, with Shift
+    to take the window along; Depends sfwbar +flickos4).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 12:26:32 +0800
+
+flickos-layouts (1.27) trixie; urgency=medium
+
+  * Traditional: window list of icons only too, so many open windows can
+    no longer run past the right edge of its bar.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 12:08:29 +0800
+
+flickos-layouts (1.26) trixie; urgency=medium
+
+  * Redmond: window list of icons only, so many open windows can no
+    longer push the tray, status and clock off the panel (waybar doesn't
+    shrink taskbar buttons).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 27 Sep 2026 11:09:54 +0800
+
+flickos-layouts (1.25) trixie; urgency=medium
+
+  * Tests: never read or signal the build host's settings and processes
+    (/etc/xdg/flickos, /proc).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 19:53:58 +0800
+
+flickos-layouts (1.24) trixie; urgency=medium
+
+  * Taskbar buttons (Redmond, Traditional) are all the same width:
+    titles cut at 22 characters inside a 200px minimum.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 19:03:59 +0800
+
+flickos-layouts (1.23) trixie; urgency=medium
+
+  * The start menu (flickos-menu) is the apps button's default while it
+    is installed: Launcher=menu in layouts.conf. Users who chose the app
+    launcher keep it; without flickos-menu the app launcher is the
+    default, without a warning.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 10:57:10 +0800
+
+flickos-layouts (1.22) trixie; urgency=medium
+
+  * Record every change of layout, style, desktop clicks, apps button,
+    start menu style and clock that shows in
+    ~/.local/state/flickos/history.jsonl, for Settings > History
+    (flickos-control), unless history.enabled is off.
+  * set default (and style, clicks, launcher, menu-style, clock set
+    default) removes the user's choice, so the system default applies
+    again.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 08:22:44 +0800
+
+flickos-layouts (1.21) trixie; urgency=medium
+
+  * The chooser fits a 1366x768 screen: the choices scroll, the buttons
+    stay in view.
+  * Say why the chooser keeps Apply.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 01:28:21 +0800
+
+flickos-layouts (1.20) trixie; urgency=medium
+
+  * The panel clock's hours: flickos-layout clock list|current|set
+    24h|12h (~/.config/flickos/clock, Clock= in layouts.conf, default
+    24h; also in state). With 12h the generated panel's clock formats,
+    the bar's own or the included modules.jsonc's, get %I:%M %p for
+    %H:%M.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 26 Sep 2026 00:06:52 +0800
+
+flickos-layouts (1.19) trixie; urgency=medium
+
+  * flickos-layout state: every choice, the ones in use and doctor's
+    warnings as JSON in one run, so the Settings window reads its layout
+    page with one command instead of sixteen.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 25 Sep 2026 22:52:11 +0800
+
+flickos-layouts (1.18) trixie; urgency=medium
+
+  * Users can choose the start menu style for all layouts: flickos-
+    layout menu-style list|current|set layout|classic|categories|grid,
+    set --menu-style, MenuStyle= in layouts.conf (default layout: each
+    layout's own).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 18:27:30 +0800
+
+flickos-layouts (1.17) trixie; urgency=medium
+
+  * Layouts choose their kind of start menu (MenuStyle=: Redmond
+    classic, Traditional categories, Cupertino grid), written to
+    menu/anchor after the corner. set tells a running start menu
+    (SIGWINCH) so it gets the new layout's style ready.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 18:09:50 +0800
+
+flickos-layouts (1.16) trixie; urgency=medium
+
+  * Add debian/copyright: GPL-3.0-or-later.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 15:45:24 +0800
+
+flickos-layouts (1.15) trixie; urgency=medium
+
+  * The apps button can open the start menu (flickos-menu) instead of
+    fuzzel: flickos-layout launcher list|current|set, set --launcher,
+    Launcher= in layouts.conf. Off by default; while off nothing
+    changes. While on, the overlay points the apps button, a tap of
+    Super (onRelease keybind) and desktop clicks at it, menu/anchor
+    holds the corner (new layout key Menu=), and the panel runs its
+    daemon; turning it off stops the daemon.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 13:03:41 +0800
+
+flickos-layouts (1.14) trixie; urgency=medium
+
+  * flickos-layout set gives windows that draw their own title bar
+    (Firefox, GTK header bars) the layout's window buttons: GSettings
+    button-layout from TitlebarLayout, or its default for a layout
+    without one, only while it holds the default or a layout's value.
+    doctor warns about a value the user set.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 24 Sep 2026 11:39:29 +0800
+
+flickos-layouts (1.13) trixie; urgency=medium
+
+  * Merge flickos-control's labwc fragment (control/labwc.xml: libinput
+    device categories, appended after the system ones, and keyboard
+    options) before flick-tiler's, and write an overlay labwc
+    environment file (the system one, then control/environment: the
+    keyboard layout). doctor warns when ~/.config/labwc/environment
+    hides the layout.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 22 Sep 2026 20:35:05 +0800
+
+flickos-layouts (1.12) trixie; urgency=medium
+
+  * Rebuild: the 1.11 changelog was reworded after 1.11 was published.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 22 Sep 2026 15:10:53 +0800
+
+flickos-layouts (1.11) trixie; urgency=medium
+
+  * The panel, notifications and the dock run under a supervisor
+    (flickos-layout supervise), which restarts one that fails with a
+    growing delay and gives up after five failures in a row, and leaves
+    alone one that was stopped on purpose or outlived the compositor.
+    autostart starts the panel once, so before this a waybar that exited
+    (an output changing under it, common in the first seconds of a
+    session) left the session without a panel for good.
+  * What the panel, the dock and notifications print, and every restart,
+    goes to $XDG_RUNTIME_DIR/flickos/panel.log: the session's stderr is
+    nowhere a user can read, so a failed panel left no trace.
+  * Waiting for layout.lock gives up after 10 seconds and carries on
+    without it. autostart starts wallpaper, panel, first-run and the
+    tiler at once, and one of them hanging while holding the lock must
+    not cost the panel.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 21 Sep 2026 19:04:22 +0800
+
+flickos-layouts (1.10) trixie; urgency=medium
+
+  * Cupertino's dock stays shown and hides only while the active window
+    is maximized or fullscreen on its monitor (sfwbar sensor_maximized).
+    Depends on sfwbar +flickos3.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 21:57:17 +0800
+
+flickos-layouts (1.9) trixie; urgency=medium
+
+  * Cupertino's dock is sfwbar: it hides until the pointer touches the
+    bottom edge and takes no screen space. Layouts can have a dock
+    (Dock=, DockStyle=); flickos-layout generates
+    $XDG_RUNTIME_DIR/flickos/dock/sfwbar.config with the pinned apps and
+    the style's palette, and starts, replaces and stops sfwbar with the
+    panel. Depends on sfwbar.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 20:55:28 +0800
+
+flickos-layouts (1.8) trixie; urgency=medium
+
+  * Panel tiling button runs flick-tiler status once per change (waybar
+    signal 8) instead of keeping a status --follow process. Breaks
+    flick-tiler (<< 1.1).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 19 Sep 2026 08:41:52 +0800
+
+flickos-layouts (1.7) trixie; urgency=medium
+
+  * Tiling (flick-tiler): flickos-layout merges flick-tiler's labwc
+    fragment (regions, window rule, keybinds, gap) into the rc.xml
+    overlay; new flickos-layout reconfigure regenerates the overlay and
+    reloads labwc. Panel button custom/tiler in all layouts. doctor
+    mentions tiling for a user rc.xml.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 18 Sep 2026 20:02:04 +0800
+
+flickos-layouts (1.6) trixie; urgency=medium
+
+  * Each layout has its own wallpaper (layout.ini Wallpaper=), shown
+    with swaybg by the new flickos-layout wallpaper command at login and
+    switched live with the layout. A wallpaper the user chose in
+    waypaper (or ~/.config/flickos/wallpaper) is kept; flickos-layout
+    doctor reports it. The wallpapers are linked into
+    /usr/share/backgrounds/flickos/ID.jpg for waypaper, and the chooser
+    previews show them.
+  * Desktop clicks: what a left or right click on the empty desktop does
+    (right-menu, both-menu, left-launcher; flickos-layout clicks
+    list/current/set, Clicks= in layouts.conf), applied through the
+    rc.xml overlay. Every desktop click closes the app launcher.
+  * The chooser has a Desktop clicks section and a Wallpaper button
+    (waypaper, Recommended). flickos-layout set takes --clicks and no
+    longer needs a layout id.
+  * The panel's launcher button closes the launcher when it is open.
+    Depends on flickos-settings (>= 1.10) for the desktop click
+    bindings.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 18 Sep 2026 14:16:09 +0800
+
+flickos-layouts (1.5) trixie; urgency=medium
+
+  * Panel status: volume and battery are symbolic icons from the icon
+    theme, with the value in the tooltip. The waybar network module is
+    removed from all layouts; nm-applet's tray icon shows the
+    connection.
+  * Cupertino dock fits its icons instead of a fixed 640 px width, and
+    the separator before open windows is hidden while no window is open.
+  * The launcher button shows the FlickOS logo instead of the word Apps
+    (Traditional: logo and Applications), drawn in the style's text
+    color. Depends on flickos-branding (>= 1.4) for the icon.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 20:21:16 +0800
+
+flickos-layouts (1.4) trixie; urgency=medium
+
+  * flickos-layout first-run: opens the chooser once at the first login
+    of a new account on an installed system, through the marker
+    /etc/skel/.config/flickos/choose-layout. Not in the live session or
+    when a layout was already chosen; the marker is deleted either way.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 19:13:52 +0800
+
+flickos-layouts (1.3) trixie; urgency=medium
+
+  * Dark and Light styles (flickos-layout style list, current, set; set
+    ID --style STYLE): GTK theme Arc-Dark/Arc, Numix-Circle/-Light
+    icons, labwc window theme, and the palettes of panel, terminal,
+    launcher and notifications, applied live through the runtime
+    overlay.
+  * GTK theme and icon theme are only switched while they are one of the
+    styles' themes, so a theme chosen in Appearance (nwg-look) is kept.
+  * flickos-layout panel also starts mako with a generated config for
+    the style.
+  * The chooser is now Desktop Layout & Style: layout, then Dark or
+    Light.
+  * doctor also reports user foot, fuzzel and mako configs and custom
+    GTK or icon themes.
+  * Depend on flickos-settings (>= 1.8).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 19:04:41 +0800
+
+flickos-layouts (1.2) trixie; urgency=medium
+
+  * Desktop Layout chooser (flickos-layout pick, Settings menu and app
+    launcher): a GTK 3 window with a preview of each layout that applies
+    the choice right away and shows doctor warnings; fuzzel --dmenu
+    without GTK. Single instance.
+  * Preview images for Redmond, Cupertino and Traditional (Preview= in
+    layout.ini).
+  * Depend on python3-gi and gir1.2-gtk-3.0.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 18:49:55 +0800
+
+flickos-layouts (1.1) trixie; urgency=medium
+
+  * Redmond, Cupertino and Traditional layouts, with Redmond as the
+    default. The transitional FlickOS layout is removed.
+  * The panel always runs from generated files in
+    $XDG_RUNTIME_DIR/flickos/waybar: shared modules and CSS, the Dark
+    palette, and dock launchers for pinned apps (icons from the current
+    icon theme, clicks run gio launch).
+  * Depend on libglib2.0-bin (gsettings, gio).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 18:29:31 +0800
+
+flickos-layouts (1.0) trixie; urgency=medium
+
+  * Initial release: layout engine and flickos-layout tool (list,
+    current, set, prepare, panel, doctor) with the transitional FlickOS
+    layout.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 17 Sep 2026 15:24:06 +0800

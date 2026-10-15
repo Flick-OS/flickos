@@ -1,0 +1,10 @@
+#!/bin/sh
+# The image is built with --apt-recommends false, so flickos-desktop's
+# Recommends are not pulled in automatically. Install exactly that list,
+# without recursing into their own recommends.
+set -e
+
+recommends="$(dpkg-query -W -f='${Recommends}' flickos-desktop \
+    | sed -e 's/([^)]*)//g' -e 's/,/ /g')"
+
+apt-get install -y --no-install-recommends $recommends

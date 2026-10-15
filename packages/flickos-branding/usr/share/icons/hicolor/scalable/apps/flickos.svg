@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- FlickOS logo, the halo: a flick through an open amber ring, on an
+       Arc-Dark tile. Amber is the brand color (docs/design/flickos-accent.md);
+       colors: tools/check-palette.py. The one-color panel version is
+       ../../symbolic/apps/flickos-symbolic.svg. -->
+  <title>FlickOS</title>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#383c4a"/>
+  <path d="M113.9 142.1L202.9 72.9L183.1 53.1Z" fill="#d3dae3"/>
+  <path d="M197.5 109.4A72 72 0 1 1 146.6 58.5" fill="none" stroke="#ffb13d" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="193" cy="63" r="20" fill="#ffb13d"/>
+</svg>

@@ -1,0 +1,7 @@
+etc/calamares/*               etc/calamares/
+etc/xdg/flickos-live/*        etc/xdg/flickos-live/
+usr/bin/*                     usr/bin/
+usr/lib/calamares/*           usr/lib/calamares/
+usr/share/calamares/*         usr/share/calamares/
+usr/share/applications/*      usr/share/applications/
+usr/share/pixmaps/*           usr/share/pixmaps/

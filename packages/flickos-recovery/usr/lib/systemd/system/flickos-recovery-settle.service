@@ -1,0 +1,15 @@
+# The start after putting back a restore point (flickos-recovery restore):
+# the old system, kept as a restore point, becomes read-only. Runs only while
+# the marker that restore leaves exists.
+[Unit]
+Description=Finish putting back a restore point
+RequiresMountsFor=/.snapshots
+ConditionPathExists=/.snapshots/.flickos-recovery-pending
+ConditionKernelCommandLine=!boot=live
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flickos-recovery settle
+
+[Install]
+WantedBy=multi-user.target

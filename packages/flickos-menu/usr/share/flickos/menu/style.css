@@ -1,0 +1,199 @@
+/* The FlickOS start menu (flickos-menu). Only the GTK theme's named colors,
+   so the Dark and Light styles (Arc-Dark, Arc) recolor it. */
+
+.flickos-menu .menu {
+    background-color: @theme_bg_color;
+    border: 1px solid @borders;
+}
+
+/* Left column: pinned apps, All apps, search. */
+.flickos-menu .left {
+    background-color: @theme_base_color;
+    padding: 6px;
+}
+
+.flickos-menu list {
+    background-color: transparent;
+}
+
+.flickos-menu .app {
+    padding: 4px 8px;
+    border-radius: 3px;
+}
+
+.flickos-menu .pinned .app {
+    padding: 6px 8px;
+}
+
+.flickos-menu .app:hover {
+    background-color: alpha(@theme_selected_bg_color, 0.25);
+}
+
+.flickos-menu .app:selected,
+.flickos-menu .app:selected:hover {
+    background-color: @theme_selected_bg_color;
+    color: @theme_selected_fg_color;
+}
+
+.flickos-menu .section title {
+    padding: 4px 4px;
+}
+
+.flickos-menu .section-apps {
+    margin-left: 12px;
+}
+
+.flickos-menu .all-apps,
+.flickos-menu .back {
+    font-weight: bold;
+}
+
+.flickos-menu .search {
+    margin-top: 6px;
+}
+
+/* Right column: user, folders, tools, power. */
+.flickos-menu .right {
+    padding: 10px 8px 6px 8px;
+}
+
+.flickos-menu .right button {
+    padding: 4px 8px;
+}
+
+.flickos-menu .user {
+    font-weight: bold;
+    padding: 0 8px 8px 8px;
+}
+
+.flickos-menu .power button {
+    padding: 6px;
+}
+
+/* A power button waiting for its second click, and the line asking for it
+   (PowerRow). */
+.flickos-menu .power button.destructive-action,
+.flickos-quick .power button.destructive-action {
+    background-image: none;
+    background-color: @error_color;
+    color: @theme_selected_fg_color;
+}
+
+.flickos-menu .confirm,
+.flickos-quick .confirm {
+    color: @error_color;
+}
+
+/* categories (Traditional): search on top, categories left, apps right. */
+.flickos-menu.style-categories .menu {
+    padding: 6px;
+}
+
+.flickos-menu.style-categories .search {
+    margin-bottom: 6px;
+}
+
+.flickos-menu.style-categories .apps {
+    background-color: @theme_base_color;
+}
+
+.flickos-menu .category {
+    padding: 4px 8px;
+    border-radius: 3px;
+}
+
+.flickos-menu .category:hover {
+    background-color: alpha(@theme_selected_bg_color, 0.25);
+}
+
+.flickos-menu .category:selected,
+.flickos-menu .category:selected:hover {
+    background-color: @theme_selected_bg_color;
+    color: @theme_selected_fg_color;
+}
+
+.flickos-menu.style-categories .bar {
+    padding: 6px 2px 0 2px;
+}
+
+.flickos-menu.style-categories .user {
+    padding: 0 6px;
+}
+
+/* grid (Cupertino): full screen, see-through, big icons. */
+window.flickos-menu.style-grid {
+    background-color: alpha(@theme_bg_color, 0.9);
+}
+
+.flickos-menu.style-grid .menu {
+    background-color: transparent;
+    border: none;
+    padding: 40px 32px 16px 32px;
+}
+
+.flickos-menu.style-grid .search {
+    margin-bottom: 28px;
+}
+
+.flickos-menu.style-grid .apps {
+    background-color: transparent;
+}
+
+.flickos-menu.style-grid .apps flowboxchild {
+    padding: 10px 6px;
+    border-radius: 12px;
+}
+
+/* The pointer selects the tile it is over (GridView.on_pointer). */
+.flickos-menu.style-grid .apps flowboxchild:selected {
+    background-color: alpha(@theme_selected_bg_color, 0.6);
+    color: @theme_selected_fg_color;
+}
+
+/* Quick Settings: switches as tiles, lit in the accent color while on. */
+.flickos-quick .quick {
+    background-color: @theme_bg_color;
+    border: 1px solid @borders;
+    padding: 12px;
+}
+
+.flickos-quick .tile,
+.flickos-phone .tile {
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
+.flickos-quick .tile:checked {
+    background-image: none;
+    background-color: @theme_selected_bg_color;
+    color: @theme_selected_fg_color;
+}
+
+.flickos-quick .tile .subtitle {
+    font-size: smaller;
+    opacity: 0.8;
+}
+
+.flickos-quick .slider-icon {
+    padding: 0 8px;
+}
+
+.flickos-quick .message {
+    color: @error_color;
+}
+
+/* The phone popup: the same corner as Quick Settings, and its tiles. */
+.flickos-phone .phone {
+    background-color: @theme_bg_color;
+    border: 1px solid @borders;
+    padding: 12px;
+}
+
+/* Its own class: the theme's dim-label keeps the theme's size. */
+.flickos-phone .subtitle {
+    font-size: smaller;
+}
+
+.flickos-phone .message {
+    color: @error_color;
+}

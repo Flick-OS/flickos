@@ -1,0 +1,68 @@
+Source: flickos-phone
+Section: net
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+# openssl: the tests make certificates for a pretend phone.
+Build-Depends: debhelper-compat (= 13),
+               python3,
+               openssl
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-phone
+Architecture: all
+# openssl: this computer's certificate, made once when it's turned on.
+# libnotify-bin: what comes from the phone shows as a notification (--action).
+# libglib2.0-bin: gdbus, to close one of those notifications. busctl 257
+# can't call CloseNotification (its signature is only a number).
+# wl-clipboard: text and the clipboard go to and come from the clipboard.
+# xdg-utils: opening a page or file from the phone; xdg-user-dirs: the
+# Downloads folder. network-manager: nmcli, to listen only on the networks
+# where a phone was paired. openssh-client: ssh-keyscan, to check the
+# phone's file-server key, and the ssh the file manager's SFTP backend
+# runs. python3-gi, gir1.2-gtk-3.0: the file chooser of Send Files to
+# Phone, and the Phone window (only those commands use GTK).
+Depends: python3,
+         openssl,
+         libnotify-bin (>= 0.8),
+         libglib2.0-bin,
+         wl-clipboard,
+         xdg-utils,
+         xdg-user-dirs,
+         network-manager,
+         openssh-client,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         ${misc:Depends}
+Description: send pages, files and text between a phone and FlickOS
+ Share a page, a photo or some text on an Android phone with the KDE
+ Connect app, choose this computer, and it arrives here as a notification:
+ click it to open the page or the file. The other way, Send to Phone in
+ the file manager sends files, and so does the panel button, which also
+ sends typed text, the clipboard (a copied web address arrives as a page
+ the phone offers to open) or a screenshot. The button also rings the phone when
+ it's lost, shows its battery, opens the phone's files and lists what
+ came from it. The phone popup shows what the phone plays, with play,
+ pause and next (flickos-phone player). Phone in the apps menu (while
+ the connection is on) is a window for the same actions and for
+ everything a phone has sent.
+ .
+ It is off until turned on (flickos-phone set enabled yes), and then pairs
+ with a phone once (flickos-phone pair). It speaks only the part of KDE
+ Connect's protocol that moving things, ringing, the battery,
+ browsing the phone's files and the choices below need. The phone's
+ notifications can be shown here too, for the apps you allow and never
+ while the screen is locked
+ (flickos-phone set notifications yes); that is off until turned on.
+ The phone's calls can be shown too: who is calling, with Mute, and what
+ is playing pauses until the call ends (flickos-phone set calls yes).
+ That is off until turned on, and nothing is shown while the screen is
+ locked.
+ The phone can control what's playing here too, and sees its name and picture
+ (flickos-phone set media yes). That is off until turned on, and it
+ changes nothing while the screen is locked.
+ The phone can run commands named on this computer: it is sent only the
+ names (flickos-phone commands add NAME COMMAND). The list is empty
+ until one is added, and nothing runs while the screen is locked.
+ It listens only on the networks where a phone was paired, and nothing
+ runs while it is off.

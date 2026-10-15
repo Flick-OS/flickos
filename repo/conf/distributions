@@ -1,0 +1,19 @@
+Origin: FlickOS
+Label: FlickOS
+Codename: trixie
+Architectures: amd64
+Components: main
+Description: FlickOS package repository
+SignWith: 52010189F405561121FD968C9B188FF94ED19E68
+Suite: trixie
+DebIndices: Packages Release . .gz dep11.py
+
+Origin: FlickOS
+Label: FlickOS Community
+Codename: trixie-community
+Architectures: amd64
+Components: main
+Description: Apps by other developers, built by FlickOS from their source and reviewed
+SignWith: 52010189F405561121FD968C9B188FF94ED19E68
+Suite: trixie-community
+DebIndices: Packages Release . .gz dep11.py

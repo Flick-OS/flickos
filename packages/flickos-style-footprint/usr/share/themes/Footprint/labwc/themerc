@@ -1,0 +1,46 @@
+# Footprint: FlickOS's own window theme (flickos-style-footprint, written
+# by tools/make-footprint.py; man labwc-theme). Grey title bars with the
+# title in the middle and round buttons: this folder's SVGs.
+border.width: 1
+window.active.border.color: #1b1b1b
+window.inactive.border.color: #1b1b1b
+window.active.indicator.toggled-keybind.color: #cc0000
+window.titlebar.padding.width: 6
+window.titlebar.padding.height: 0
+window.active.title.bg.color: #303030
+window.inactive.title.bg.color: #242424
+window.active.label.text.color: #ffffff
+window.inactive.label.text.color: #919190
+window.label.text.justify: center
+window.button.width: 30
+window.button.height: 30
+window.button.spacing: 2
+window.button.hover.bg.corner-radius: 15
+window.active.button.unpressed.image.color: #eeeeec
+window.inactive.button.unpressed.image.color: #919190
+menu.border.width: 1
+menu.border.color: #1b1b1b
+menu.items.bg.color: #383838
+menu.items.text.color: #eeeeec
+menu.items.active.bg.color: #3584e4
+menu.items.active.text.color: #ffffff
+menu.items.padding.x: 8
+menu.items.padding.y: 4
+menu.separator.color: #303030
+menu.title.bg.color: #303030
+menu.title.text.color: #ffffff
+osd.bg.color: #383838
+osd.border.color: #1b1b1b
+osd.border.width: 1
+osd.label.text.color: #eeeeec
+osd.window-switcher.preview.border.color: #3584e4
+osd.window-switcher.width: 640
+osd.window-switcher.padding: 8
+osd.window-switcher.item.padding.x: 12
+osd.window-switcher.item.padding.y: 6
+osd.window-switcher.item.active.border.width: 2
+snapping.overlay.region.bg.color: #3584e44c
+snapping.overlay.region.border.color: #3584e4
+snapping.overlay.edge.bg.color: #3584e44c
+snapping.overlay.edge.border.color: #3584e4
+magnifier.border.color: #3584e4
