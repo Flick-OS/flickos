@@ -26,10 +26,10 @@ This repository contains everything needed to build it:
 ## Contributors
 
 Package Tester and Community Manager
-**Ryan Hines** [rthines81@gmail.com](rthines81@gmail.com)
+- **Ryan Hines** [rthines81@gmail.com](rthines81@gmail.com)
 
 Translator
-**kurkimusic_74955**
+- **kurkimusic_74955**
 
 
 ## Documentation
