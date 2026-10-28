@@ -23,24 +23,14 @@ This repository contains everything needed to build it:
 - the **apt repository tooling** that publishes those packages so installed systems get updates,
 - the **CI workflow** that builds the ISO on GitHub.
 
-## Quick start
+## Contributors
 
-On a Debian 13 machine:
+Package Tester and Community Manager
+**Ryan Hines** [rthines81@gmail.com](rthines81@gmail.com)
 
-```sh
-sudo apt install live-build build-essential debhelper dpkg-dev devscripts reprepro rsync wget \
-                 qemu-system-x86 qemu-utils ovmf xorriso \
-                 meson pkgconf gettext libgtk-3-dev \
-                 libgtk-layer-shell-dev libjson-c-dev libwayland-dev wayland-protocols
+Translator
+**kurkimusic_74955**
 
-tools/build-iso.sh            # clean + build packages + build FlickOS-64bit-v2.0.iso (30–50 min)
-tools/boot-test.py            # headless boot test: boots, logs in, checks the desktop
-tools/test-iso.sh             # boot it in a QEMU window (UEFI; --bios for BIOS)
-```
-
-`packages/build.sh` needs the repository public key to exist, and the ISO build
-needs the apt repository to be online. On a fresh checkout, follow the one-time
-setup in [docs/05-apt-repository.md](docs/05-apt-repository.md) first.
 
 ## Documentation
 
