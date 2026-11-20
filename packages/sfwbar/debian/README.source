@@ -50,6 +50,21 @@ Changes to upstream (marked "FlickOS:" in the code):
     it. Upstream asked for the monitor's length, so the Footprint layout's
     left dock, below the top bar's exclusive zone, ran 30 px past the
     bottom of the screen and cut off its Show Apps button.
+  - src/appinfo.c, src/gui/scaleimage.c: app_info_icon_get() returns a
+    desktop file's Icon= when it is a readable file's full path, and
+    scale_image_set() draws such a result as a file (SI_FILE). Upstream
+    looked every Icon= up in the icon theme, which only knows names, so
+    Firefox's web apps (Icon= a PNG in the profile) got the default icon
+    in the Cupertino dock and Traditional's window list.
+  - src/gui/taskbarpopup.c, src/lib/compositor.c: with group = popup, a
+    right click (slot 3) always runs the taskbar's RightClick action
+    (upstream ignored it on a pin without a window and on a group of several
+    windows), and WindowInfo() on such a button answers "appid" (the
+    group's app) and "pinned" (1 while the app is pinned). The Footprint
+    dock's Pin to Dock / Unpin from Dock menu is built on them:
+    action[RightClick] = Menu(If(WindowInfo("pinned"), ...)), and a menu
+    item's WindowInfo("appid") reads the clicked button, as a menu runs with
+    its caller's widget.
 
 Why a git commit and not a release: the latest release, 1.0_beta17, lacks
 taskbar pins (documented but only implemented for the pager) and its

@@ -10,8 +10,12 @@
 //
 // 40 px tall like Windows 7's bar, with 24 px window icons (style.css draws
 // the launcher's logo at the same size).
+//
+// waybar gives the bar's window its name as a CSS class, and GTK themes style
+// some classes (THEMED_CLASSES in flickos-layout): named "panel", Arc's .panel
+// rule made the tray's menus white bold text on a white menu.
 {
-    "name": "panel",
+    "name": "redmond",
     "layer": "top",
     "position": "bottom",
     "height": 40,
@@ -25,8 +29,16 @@
         "icon-size": 24
     },
 
+    "tray": {
+        "spacing": 12
+    },
+
+    // The date in words: 06/11/2026 reads as two different days, and %x is
+    // too long for the bar in some locales ("Friday, 06 November, 2026").
+    // The time in semibold over the date in the regular weight, so the time
+    // reads first. {0:...}: both lines format the same time.
     "clock": {
-        "format": "{:%H:%M\n%d/%m/%Y}",
+        "format": "<span weight=\"600\">{0:%H:%M}</span>\n{0:%a %d %b}",
         "justify": "center"
     }
 }

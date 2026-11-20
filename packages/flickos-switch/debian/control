@@ -1,0 +1,40 @@
+Source: flickos-switch
+Section: utils
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+# gettext: the translations (msgfmt) and the test that the template is current.
+Build-Depends: debhelper-compat (= 13),
+               gettext,
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-switch
+Architecture: all
+# python3-gi, gir1.2-glib-2.0: udisks2 over D-Bus (Gio) on the command line.
+# gir1.2-gtk-3.0: the window, GTK 3 so it follows the style's theme.
+# udisks2: finds, mounts (read only) and unlocks the Windows disk; the
+# kernel's ntfs3 reads NTFS, so ntfs-3g isn't needed.
+# xdg-user-dirs: where Documents, Pictures and the rest are (xdg-user-dir).
+# xdg-utils: Open Folder (xdg-open).
+Depends: python3,
+         python3-gi,
+         gir1.2-glib-2.0,
+         gir1.2-gtk-3.0,
+         udisks2,
+         xdg-user-dirs,
+         xdg-utils,
+         ${misc:Depends}
+Description: bring files over from a Windows disk to FlickOS
+ Bring Files from Windows finds a Windows disk, in this computer, a second
+ one or an old disk in a USB case, opens it read only and copies an
+ account's Desktop, Documents, Downloads, Music, Pictures and Videos, and
+ the same folders in OneDrive, into the matching folders at home. In the
+ live session it copies to a USB drive, so files can be saved before
+ Windows is erased.
+ .
+ Nothing on the Windows disk is changed. Files already there are never
+ overwritten, Windows' own files and shortcuts are left out, and files that
+ are only in OneDrive are listed with where to download them. Bookmarks
+ from Chrome and Edge are saved as a file Firefox imports. Nothing runs in
+ the background.

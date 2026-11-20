@@ -1,0 +1,31 @@
+{
+  "name": "Tasks",
+  "kind": "index",
+  "domain": "flickos-menu",
+  "limit": 5,
+  "rows": [
+    {"name": "Restart Panel", "keys": "panel taskbar bar waybar dock reload refresh fix",
+     "icon": "view-refresh-symbolic", "command": ["flickos-layout", "reload-panel"]},
+    {"name": "Reload Desktop", "keys": "desktop reload refresh reconfigure labwc keyboard shortcuts",
+     "icon": "view-refresh-symbolic", "command": ["flickos-layout", "reconfigure"]},
+    {"name": "Fix Desktop Problems…", "keys": "fix repair problems broken doctor layout style panel",
+     "icon": "dialog-warning-symbolic", "command": ["flickos-control", "--page", "layout"]},
+    {"name": "Screenshot of an Area", "keys": "screenshot screen shot capture picture print snip area",
+     "icon": "camera-photo-symbolic", "command": ["flickos-screenshot", "shot", "region"]},
+    {"name": "Screenshot of the Whole Screen", "keys": "screenshot screen shot capture picture print full",
+     "icon": "camera-photo-symbolic", "command": ["flickos-screenshot", "shot", "screen"]},
+    {"name": "Turn Tiling On or Off", "keys": "tiling tile tiler windows side by side",
+     "icon": "view-grid-symbolic", "command": ["flick-tiler", "toggle"]},
+    {"name": "Show Desktop", "keys": "desktop minimize hide windows",
+     "icon": "user-desktop-symbolic", "command": ["flick-tiler", "show-desktop"]},
+    {"name": "Log Out", "keys": "log out logout sign out exit end session",
+     "icon": "system-log-out-symbolic", "command": ["labwc", "--exit"],
+     "confirm": "Press Enter again to log out"},
+    {"name": "Restart", "keys": "restart reboot",
+     "icon": "system-reboot-symbolic", "command": ["systemctl", "reboot"],
+     "confirm": "Press Enter again to restart"},
+    {"name": "Shut Down", "keys": "shut down shutdown power off poweroff turn off halt",
+     "icon": "system-shutdown-symbolic", "command": ["systemctl", "poweroff"],
+     "confirm": "Press Enter again to shut down"}
+  ]
+}

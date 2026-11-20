@@ -1,0 +1,30 @@
+Source: flickos-kit-base
+Section: devel
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-base
+Architecture: all
+Depends: git,
+         build-essential,
+         gdb,
+         make,
+         curl,
+         jq,
+         ripgrep,
+         fd-find,
+         shellcheck,
+         sqlite3,
+         gh,
+         ${misc:Depends}
+Description: FlickOS developer kit: Git, a C compiler and the everyday command-line tools
+ The tools most programmers reach for first: git, the GNU compiler and
+ make, the gdb debugger, curl, jq, ripgrep, fd, shellcheck, sqlite3 and
+ GitHub's gh. The other kits depend on this one.
+ .
+ A kit is installed from Software's Developer Tools and removed there too.
+ Nothing it installs runs until it is used (docs/design/flickos-dev.md).

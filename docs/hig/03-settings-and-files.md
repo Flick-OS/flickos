@@ -19,7 +19,7 @@ included, asks that program. No two programs write the same file.
 | Mouse, touchpad, keyboard, idle, language, night light, Do Not Disturb, startup apps | `flickos-control` |
 | Time, time zone | `timedatectl` (systemd) |
 | Animations (`enable-animations`) | GSettings; `flickos-control animations` changes it and records it |
-| System language | `localectl` (systemd) |
+| System language | `flickos-control` (its helper; Debian's localed refuses changes) |
 
 A page in Settings for a setting it doesn't own is a view: it reads with the
 owner's `list`/`current`/`status`/`state` and changes things by running the
@@ -138,7 +138,7 @@ A change outside the user's account (another user, `/etc`, a system service)
 runs through polkit, never through `sudo` or a root GUI.
 
 1. Prefer a system service that already asks polkit itself: `timedatectl`,
-   `localectl`, logind.
+   logind. (Not `localectl`: Debian's localed refuses every change.)
 2. Otherwise add a verb to the package's helper, `/usr/libexec/flickos/NAME-helper`
    (today only `control-helper`), run with `pkexec`:
    - one polkit action per verb (`org.flickos.control.VERB`, matched with

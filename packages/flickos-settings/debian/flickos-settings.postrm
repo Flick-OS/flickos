@@ -1,0 +1,26 @@
+#!/bin/sh
+set -e
+
+# Give Thunar its wallpaper plugin back (the preinst diverted it).
+PLUGIN=/usr/lib/x86_64-linux-gnu/thunarx-3/thunar-wallpaper-plugin.so
+
+remove_diversion() {
+    dpkg-divert --package flickos-settings --remove --rename \
+        --divert "$PLUGIN.flickos-off" "$PLUGIN" >/dev/null
+}
+
+case "$1" in
+    remove|abort-install|disappear)
+        remove_diversion
+        ;;
+    abort-upgrade)
+        # An upgrade from a version without the diversion, given up.
+        if dpkg --compare-versions "$2" lt 1.56; then
+            remove_diversion
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

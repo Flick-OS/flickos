@@ -12,8 +12,24 @@
   Super+Enter). Send to Phone: flickos-phone. Thunar can't hide an action
   while a program is off, so it is always there and says in a notification
   when the phone connection is off.
+
+  Set as Wallpaper: waypaper (the Wallpaper app) shows the picture and saves
+  it as the user's choice, as choosing it in its window does. It stands in for
+  Thunar's wallpaper plugin, which sets one only on Xfce and GNOME and which
+  the package diverts (preinst). The types are those swaybg, waypaper's
+  backend, shows; Thunar's patterns are case-sensitive, so both cases.
 -->
 <actions>
+  <action>
+    <icon>preferences-desktop-wallpaper</icon>
+    <name>Set as Wallpaper</name>
+    <unique-id>flickos-set-wallpaper</unique-id>
+    <command>waypaper --wallpaper %f</command>
+    <description>Use this picture as the desktop's wallpaper</description>
+    <patterns>*.png;*.jpg;*.jpeg;*.PNG;*.JPG;*.JPEG</patterns>
+    <range>1</range>
+    <image-files/>
+  </action>
   <action>
     <icon>utilities-terminal</icon>
     <name>Open Terminal Here</name>

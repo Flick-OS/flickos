@@ -1,3 +1,165 @@
+flickos-desktop (1.45) trixie; urgency=medium
+
+  * Depends unzip, zip and 7zip: Xarchiver and Thunar's archive menu
+    couldn't open or make .zip and .7z files (Xarchiver only Recommends
+    them).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:36:00 +0800
+
+flickos-desktop (1.44) trixie; urgency=medium
+
+  * Release of 1.44~test1: Depends flickos-hooks (>= 1.1) and the
+    programs that fire its events at their releases.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:24 +0800
+
+flickos-desktop (1.44~test1) trixie; urgency=medium
+
+  * flickos-hooks 1.1~test1 and the programs that fire its new events:
+    flickos-control 1.81~test1, flickos-layouts 1.89~test1, flickos-
+    phone 1.32~test1, flickos-screenshot 1.10~test1, flick-tiler
+    1.14~test1, flickos-media 1.8~test1, flickos-weather 1.3~test1,
+    flickos-software 1.23~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:33:09 +0800
+
+flickos-desktop (1.43) trixie; urgency=medium
+
+  * Release of 1.43~test1: Depends flickos-hooks (>= 1.0), flickos-lock
+    (>= 1.5) and flickos-control (>= 1.80).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:00:30 +0800
+
+flickos-desktop (1.43~test1) trixie; urgency=medium
+
+  * flickos-hooks 1.0~test1, flickos-lock 1.5~test1 and flickos-control
+    1.80~test1: your own programs run when the screen locks or unlocks
+    or the computer wakes.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 18:58:30 +0800
+
+flickos-desktop (1.42) trixie; urgency=medium
+
+  * Release of 1.42~test1: Depends flickos-kits (>= 1.0) and flickos-
+    control (>= 1.71).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 20:33:06 +0800
+
+flickos-desktop (1.42~test1) trixie; urgency=medium
+
+  * Depends flickos-kits (>= 1.0~test1): the Tool Kits window for the
+    opt-in developer kits.
+  * Depends flickos-control (>= 1.71~test1): the settings behind Tool
+    Kits' ports and DHCP steps.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 12:39:51 +0800
+
+flickos-desktop (1.41) trixie; urgency=medium
+
+  * Depends flickos-weather (>= 1.1): the Wind speed setting that
+    Settings' Weather page sets.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 10:48:53 +0800
+
+flickos-desktop (1.40) trixie; urgency=medium
+
+  * Release of 1.40~test1: Depends flickos-theme (seamless 2.x).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 20:32:15 +0800
+
+flickos-desktop (1.40~test1) trixie; urgency=medium
+
+  * Depends on flickos-theme, the GTK themes the Dark and Light styles
+    name (seamless 2x phase 2).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 08:30:22 +0800
+
+flickos-desktop (1.39) trixie; urgency=medium
+
+  * Release of 1.39~test1: flickos-control 1.64 and flickos-archive-
+    keyring 1.7.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 14:34:25 +0800
+
+flickos-desktop (1.39~test1) trixie; urgency=medium
+
+  * flickos-control 1.64 and flickos-archive-keyring 1.7: apps bought
+    from the FlickOS store.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 13:28:34 +0800
+
+flickos-desktop (1.38) trixie; urgency=medium
+
+  * Release of 1.38~test1: flickos-cursor.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:37 +0800
+
+flickos-desktop (1.38~test1) trixie; urgency=medium
+
+  * Depends on flickos-cursor, and on flickos-settings with the new
+    look.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:14:05 +0800
+
+flickos-desktop (1.37) trixie; urgency=medium
+
+  * Release of 1.37~test1: Depends on rtkit and flickos-settings (>=
+    1.50).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 20:32:15 +0800
+
+flickos-desktop (1.37~test1) trixie; urgency=medium
+
+  * Depends on rtkit, so sound gets real-time priority and no longer
+    breaks up under load, and on flickos-settings (>= 1.50~test1), which
+    makes PipeWire use it.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 20:09:57 +0800
+
+flickos-desktop (1.36) trixie; urgency=medium
+
+  * Release of 1.36~test1: Depends on flickos-switch (>= 1.0).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 11:43:29 +0800
+
+flickos-desktop (1.36~test1) trixie; urgency=medium
+
+  * Depend on flickos-switch: Bring Files from Windows.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 21:08:13 +0800
+
+flickos-desktop (1.35) trixie; urgency=medium
+
+  * Depends on file: xdg-open finds a local file's or folder's type with
+    it on labwc. Without it xdg-open gave every path to the web browser,
+    so Show in Folder (the phone's received files) and Settings' folder
+    buttons opened Firefox instead of Thunar.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 31 Oct 2026 14:12:06 +0800
+
+flickos-desktop (1.34) trixie; urgency=medium
+
+  * Depends on flickos-weather: the weather in the panel, off by
+    default; nothing of it runs or is sent while off.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 25 Oct 2026 10:26:35 +0800
+
+flickos-desktop (1.33) trixie; urgency=medium
+
+  * Depends on flickos-media: media controls and a sound spectrum for
+    the panel, off by default.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 15:24:12 +0800
+
+flickos-desktop (1.32) trixie; urgency=medium
+
+  * Depend on flickos-lock, FlickOS's own lock screen
+    (docs/design/flickos-lock.md, phase 3): Super+L, the menus and the
+    idle lock use it instead of swaylock. swaylock stays as its
+    fallback; a swaylock config of your own keeps swaylock.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 20 Oct 2026 14:06:56 +0800
+
 flickos-desktop (1.31) trixie; urgency=medium
 
   * Recommend fastfetch (2 MB with libyyjson0), which shows the FlickOS

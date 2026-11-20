@@ -1,0 +1,32 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: flickos-cursor
+Upstream-Contact: Jon <dvbondoy@gmail.com>
+Source: https://github.com/Flick-OS/flickos
+
+Files: *
+Copyright: 2026 Jon <dvbondoy@gmail.com>
+License: GPL-3+
+
+Files: usr/share/icons/FlickOS-Bibata/*
+Copyright: 2017-2022 Abdulkaiz Khatri <24286590+KaizIqbal@users.noreply.github.com>
+Comment: Bibata Modern Classic, from https://github.com/ful1e5/Bibata_Cursor
+ through Debian's bibata-cursor-theme 2.0.6-1, in four of its sizes
+ (debian/README.source).
+License: GPL-3
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".

@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 """Welcome: the window a new FlickOS account sees at login until told not to.
 
-It is a set of cards over the programs that already own each job: the layout
-chooser (flickos-layout pick), Settings (flickos-control), the shortcut sheet
-(flickos-shortcuts show), the network editor, the software manager, and links
-opened in the browser. This program owns no settings and changes nothing by
+It is a set of cards over the programs that already own each job: copying
+files from a Windows disk (flickos-switch, only when one is found), the
+layout chooser (flickos-layout pick), Settings (flickos-control), the
+shortcut sheet (flickos-shortcuts show), the network editor, the software
+manager, and links opened in the browser. This program owns no settings and changes nothing by
 itself; a card that FlickOS can't run is left out rather than shown broken.
 
 It replaces the layout chooser at first login: before this package existed,
@@ -24,8 +25,15 @@ delete the markers.
 The window is a plain GTK 3 window (python3-gi), so it follows the Arc-Dark or
 Arc theme of the chosen style, and it has no CSS of its own. GTK is imported
 only when the window opens, so `list` works without a display.
+A card in WHEN is shown only when its check finds something; the check runs
+in a thread after the window is shown, so it never delays it.
 One window per session: a second `show` while it is open only says so
 (welcome.lock in $XDG_RUNTIME_DIR/flickos). Escape or Close closes it.
+
+Text people read in the window is translated with gettext (domain
+flickos-welcome, /usr/share/locale; docs/12-translating.md). Output other
+programs read (`startup current`, the ids of `list`) and messages on stderr
+stay as they are.
 
 Commands:
   (none), show       open the window
@@ -42,20 +50,36 @@ import argparse
 import configparser
 import contextlib
 import fcntl
+import gettext
+import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
 
 NAME = "flickos-welcome"
 APP_ID = "flickos-welcome"          # Wayland app id, matches flickos-welcome.desktop
-TITLE = "Welcome to FlickOS"
 ICON = "flickos"
 # Testing hook (unit tests): a root to read /proc, /etc and /usr below.
 PREFIX = os.environ.get("FLICKOS_WELCOME_PREFIX", "")
 PROC = PREFIX + "/proc"
 SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/welcome.conf"
+# The site's defaults (a variant package, flickos-fleet): key by key over SYSTEM_CONF.
+SITE_CONF = PREFIX + "/etc/xdg/flickos-site/flickos/welcome.conf"
 RELEASE = PREFIX + "/usr/lib/flickos-release"
+LOCALE_DIR = PREFIX + "/usr/share/locale"
+
+# Translations: English when there is none for the user's language.
+_ = gettext.translation(NAME, LOCALE_DIR, fallback=True).gettext
+
+
+def N_(text):
+    """Marks text for the translation template; _() translates it where it is shown."""
+    return text
+
+
+TITLE = N_("Welcome to FlickOS")
 
 # ~/.config/flickos/<name>, copied from /etc/skel into new accounts. "welcome"
 # is this window's and means "open at login" (Do not show on startup deletes
@@ -72,11 +96,12 @@ LOCK = "welcome.lock"
 
 # Links. A URL is only ever shown when welcome.conf gives one: an address that
 # isn't the project's would send people somewhere FlickOS doesn't control, so
-# nothing here has a built-in default except the project's own repository.
+# nothing here has a built-in default except the project's own site and
+# repository.
 DEFAULT_LINKS = {
-    "project": "https://github.com/dvbondoy/FlickOS",
-    "docs": "https://github.com/dvbondoy/FlickOS/tree/main/docs",
-    "issues": "https://github.com/dvbondoy/FlickOS/issues",
+    "project": "https://github.com/Flick-OS/flickos",
+    "docs": "https://flickos.org/docs/",
+    "issues": "https://github.com/Flick-OS/flickos/issues",
     "donate": "",
 }
 
@@ -84,32 +109,62 @@ DEFAULT_LINKS = {
 # whose program isn't installed is left out (link cards need xdg-open). A link
 # card names a key in [Links] and is left out while that key is empty.
 CARDS = [
-    ("layout", "Choose your desktop", "preferences-desktop-theme",
-     "Pick a layout and a light or dark style. You can change it later in Settings.",
+    ("windows", N_("Bring files from Windows"), "drive-harddisk",
+     N_("Copy your documents, pictures and other files from a Windows disk."),
+     ["flickos-switch", "files"], None),
+    ("layout", N_("Choose your desktop"), "preferences-desktop-theme",
+     N_("Pick a layout and a light or dark style. You can change it later in Settings."),
      ["flickos-layout", "pick"], None),
-    ("settings", "All settings", "preferences-system",
-     "Mouse, keyboard, tiling, default apps, date and time, and everything else.",
+    ("settings", N_("All settings"), "preferences-system",
+     N_("Mouse, keyboard, tiling, default apps, date and time, and everything else."),
      ["flickos-control"], None),
-    ("network", "Connect to Wi-Fi", "network-wireless",
-     "Join a wireless network or set up a wired connection.",
+    ("network", N_("Connect to Wi-Fi"), "network-wireless",
+     N_("Join a wireless network or set up a wired connection."),
      ["nm-connection-editor"], None),
-    ("shortcuts", "Keyboard shortcuts", "preferences-desktop-keyboard-shortcuts",
-     "See every shortcut. Holding Super shows this sheet at any time.",
+    ("shortcuts", N_("Keyboard shortcuts"), "preferences-desktop-keyboard-shortcuts",
+     N_("See every shortcut. Holding Super shows this sheet at any time."),
      ["flickos-shortcuts", "show"], None),
-    ("software", "Install software", "system-software-install",
-     "Add applications from Debian's archive and Flathub.",
+    ("software", N_("Install software"), "system-software-install",
+     N_("Add applications from Debian's archive and Flathub."),
      ["flickos-software"], None),
-    ("docs", "Read the documentation", "help-browser",
-     "How FlickOS is put together, and how to change it.",
+    ("kits", N_("Tools for your work"), "applications-development",
+     N_("Install what you need to program: Python, Node.js, C and C++, containers."),
+     ["flickos-kits", "window"], None),
+    ("docs", N_("Read the documentation"), "help-browser",
+     N_("How FlickOS is put together, and how to change it."),
      None, "docs"),
-    ("support", "Support FlickOS", "help-about",
-     "FlickOS is free and always will be. Starring the project, reporting a bug "
-     "or telling someone about it all help.",
+    ("support", N_("Support FlickOS"), "help-about",
+     N_("FlickOS is free and always will be. Starring the project, reporting a bug "
+        "or telling someone about it all help."),
      None, "project"),
-    ("donate", "Donate", "emblem-favorite",
-     "Help pay for the apt repository, the build machine and the downloads.",
+    ("donate", N_("Donate"), "emblem-favorite",
+     N_("Help pay for the apt repository, the build machine and the downloads."),
      None, "donate"),
 ]
+
+
+# Cards shown only when a check finds something: the command must exit 0 and
+# print a non-empty JSON list. Checks run after the window is shown.
+WHEN = {
+    # flickos-switch: Windows partitions udisks2 knows, without mounting them.
+    "windows": ["flickos-switch", "find", "--json"],
+}
+CHECK_TIMEOUT = 10  # seconds
+
+
+def check(card_id, run=subprocess.run):
+    """True when the card's check found something."""
+    try:
+        result = run(WHEN[card_id], capture_output=True, text=True, timeout=CHECK_TIMEOUT,
+                     stdin=subprocess.DEVNULL)
+        return result.returncode == 0 and bool(json.loads(result.stdout or "[]"))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
+def pending(which=shutil.which):
+    """The WHEN cards whose check can run (their program is installed)."""
+    return [card_id for card_id, command in WHEN.items() if which(command[0])]
 
 
 def escape(text):
@@ -184,15 +239,18 @@ def live_system():
 
 
 def read_conf(path=None):
-    """(enabled, links) from welcome.conf. A missing or broken file is the default."""
+    """(enabled, links) from welcome.conf: FlickOS's file, then the site's over
+    it key by key (or just path). A missing or broken file is left out."""
     parser = configparser.ConfigParser(interpolation=None)
     links = dict(DEFAULT_LINKS)
     enabled = True
-    try:
-        parser.read(path or SYSTEM_CONF, encoding="utf-8")
-    except (OSError, configparser.Error) as error:
-        warn(f"{path or SYSTEM_CONF}: {error}; using the defaults")
-        return enabled, links
+    for conf in ([path] if path else [SYSTEM_CONF, SITE_CONF]):
+        try:
+            parser.read(conf, encoding="utf-8")
+        except (OSError, configparser.Error) as error:
+            warn(f"{conf}: {error}; using the defaults")
+            if conf == path:
+                return enabled, links
     if parser.has_option("Welcome", "Enabled"):
         with contextlib.suppress(ValueError):
             enabled = parser.getboolean("Welcome", "Enabled")
@@ -214,10 +272,14 @@ def version():
     return None
 
 
-def cards(links, which=shutil.which):
-    """The cards to show: those whose program is installed and whose link is set."""
+def cards(links, which=shutil.which, found=()):
+    """The cards to show: those whose program is installed and whose link is set
+    (and, for a WHEN card, whose check is in found), with their title and
+    description translated."""
     shown = []
     for card_id, title, icon, description, command, link in CARDS:
+        if card_id in WHEN and card_id not in found:
+            continue
         if command is not None:
             if not which(command[0]):
                 continue
@@ -227,7 +289,7 @@ def cards(links, which=shutil.which):
             if not url or not which("xdg-open"):
                 continue
             action = ["xdg-open", url]
-        shown.append((card_id, title, icon, description, action))
+        shown.append((card_id, _(title), icon, _(description), action))
     return shown
 
 
@@ -240,8 +302,9 @@ def run(action):
         warn(f"{' '.join(action)}: {error}")
 
 
-def window(shown):
-    """Build and show the window. Returns 0 when it is closed."""
+def window(shown, links=None):
+    """Build and show the window. Returns 0 when it is closed. WHEN cards are
+    checked in a thread once it is shown, and added where they belong."""
     try:
         import gi
         gi.require_version("Gtk", "3.0")
@@ -253,7 +316,8 @@ def window(shown):
         warn(f"can't open the window ({error}); python3-gi and gir1.2-gtk-3.0 are needed")
         return 1
 
-    win = Gtk.Window(title=TITLE, icon_name=ICON)
+    title = _(TITLE)
+    win = Gtk.Window(title=title, icon_name=ICON)
     win.set_default_size(760, 560)
     win.connect("destroy", Gtk.main_quit)
 
@@ -272,12 +336,16 @@ def window(shown):
 
     release = version()
     heading = Gtk.Label()
-    heading.set_markup(f"<span size='xx-large' weight='bold'>{TITLE}</span>")
+    heading.set_markup(f"<span size='xx-large' weight='bold'>{escape(title)}</span>")
     heading.set_xalign(0)
     outer.pack_start(heading, False, False, 0)
 
-    subtitle = Gtk.Label(label=("Everything here can be changed later." if not release else
-                                f"Version {release}. Everything here can be changed later."))
+    if release:
+        # Translators: {version} is the FlickOS version, such as 2.0.
+        subtitle_text = _("Version {version}. Everything here can be changed later.").format(version=release)
+    else:
+        subtitle_text = _("Everything here can be changed later.")
+    subtitle = Gtk.Label(label=subtitle_text)
     subtitle.set_xalign(0)
     outer.pack_start(subtitle, False, False, 0)
 
@@ -294,7 +362,8 @@ def window(shown):
     grid.set_column_spacing(12)
     scroller.add(grid)
 
-    for _card_id, title, icon, description, action in shown:
+    def card_button(card):
+        _card_id, title, icon, description, action = card
         button = Gtk.Button()
         button.set_relief(Gtk.ReliefStyle.NORMAL)
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -316,15 +385,36 @@ def window(shown):
         button.get_accessible().set_name(title)
         button.get_accessible().set_description(description)
         button.connect("clicked", lambda _b, a=action: run(a))
-        grid.add(button)
+        return button
+
+    for card in shown:
+        grid.add(card_button(card))
+
+    found = set()
+
+    def add_found(card_id):
+        found.add(card_id)
+        everything = cards(links or {}, found=found)
+        for position, card in enumerate(everything):
+            if card[0] == card_id:
+                button = card_button(card)
+                grid.insert(button, position)
+                button.show_all()
+        return False
+
+    def run_check(card_id):
+        if check(card_id):
+            GLib.idle_add(add_found, card_id)
 
     footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-    note_text = "Find this window again in the menu, under Welcome."
+    # Translators: "Welcome" is the window's name in the menu (its desktop file's Name).
+    note_text = _("Find this window again in the menu, under Welcome.")
     note = Gtk.Label(label=note_text, selectable=True)
     note.set_xalign(0)
     note.get_style_context().add_class("dim-label")
     note.set_line_wrap(True)
-    hide = Gtk.CheckButton.new_with_mnemonic("_Do not show on startup")
+    # Translators: the letter after the underscore is the Alt key shortcut.
+    hide = Gtk.CheckButton.new_with_mnemonic(_("_Do not show on startup"))
     hide.set_active(not startup_enabled())
 
     def hide_toggled(button):
@@ -332,8 +422,8 @@ def window(shown):
             set_startup(not button.get_active())
         except OSError as error:
             warn(f"{marker_path(MARKER)}: {error}")
-            note.set_text("Couldn't save whether this window opens at login. "
-                          "Check that your home folder isn't full or read-only.")
+            note.set_text(_("Couldn't save whether this window opens at login. "
+                            "Check that your home folder isn't full or read-only."))
             button.handler_block_by_func(hide_toggled)
             button.set_active(not button.get_active())
             button.handler_unblock_by_func(hide_toggled)
@@ -345,13 +435,16 @@ def window(shown):
     left.pack_start(hide, False, False, 0)
     left.pack_start(note, False, False, 0)
     footer.pack_start(left, True, True, 0)
-    close = Gtk.Button.new_with_mnemonic("_Close")
+    # Translators: the letter after the underscore is the Alt key shortcut.
+    close = Gtk.Button.new_with_mnemonic(_("_Close"))
     close.connect("clicked", lambda _b: win.destroy())
     close.set_valign(Gtk.Align.CENTER)
     footer.pack_end(close, False, False, 0)
     outer.pack_start(footer, False, False, 0)
 
     win.show_all()
+    for card_id in pending():
+        threading.Thread(target=run_check, args=(card_id,), daemon=True).start()
     Gtk.main()
     return 0
 
@@ -364,9 +457,9 @@ def cmd_show(_opts):
         return 1
     with single_instance() as first:
         if not first:
-            print("Welcome is already open.")
+            print(_("Welcome is already open."))
             return 0
-        return window(shown)
+        return window(shown, links)
 
 
 def cmd_first_run(opts):
@@ -405,7 +498,8 @@ def cmd_startup_set(opts):
 
 def cmd_list(_opts):
     _enabled, links = read_conf()
-    for card_id, title, _icon, _description, _action in cards(links):
+    found = {card_id for card_id in pending() if check(card_id)}
+    for card_id, title, _icon, _description, _action in cards(links, found=found):
         print(f"{card_id}\t{title}")
     return 0
 

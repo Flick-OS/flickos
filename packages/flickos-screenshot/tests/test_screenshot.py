@@ -167,6 +167,16 @@ class Sandbox(unittest.TestCase):
             code = fs.main(list(argv))
         return code, out.getvalue(), err.getvalue()
 
+    @staticmethod
+    def own_sleeps(waited):
+        """A time.sleep that adds to waited what flickos-screenshot waits.
+        subprocess's waits are left out: it sleeps in a loop when a stub has
+        closed its output but not yet exited, as often as it takes."""
+        def sleep(seconds):
+            if sys._getframe(1).f_globals.get("__name__") != "subprocess":
+                waited.append(seconds)
+        return sleep
+
 
 class GeometryTest(unittest.TestCase):
     def test_union(self):
@@ -488,9 +498,8 @@ class ShotScreenTest(Sandbox):
 
     def test_delay_waits_before_the_grab(self):
         waited = []
-        with mock.patch.object(fs.time, "sleep", waited.append):
+        with mock.patch.object(fs.time, "sleep", self.own_sleeps(waited)):
             self.run_main("shot", "screen", "--delay", "3")
-        # subprocess also sleeps while it waits for the stubs.
         self.assertEqual(waited[0], 3)
         self.assertIsNotNone(self.logged("grim"))
 
@@ -1412,7 +1421,7 @@ class RecorderTest(unittest.TestCase):
 
 class FakeRecorder:
     """Writes a few bytes into the file and ends as told."""
-    result, started = "stopped", True
+    result, started, pictures = "stopped", True, 1
 
     def __init__(self, gi, pipeline, countdown, folder=None, on_status=None):
         self.pipeline, self.countdown, self.on_status = pipeline, countdown, on_status
@@ -1477,6 +1486,15 @@ class RecordTest(Sandbox):
         self.portal.close.assert_called_once()
         self.assertEqual(os.listdir(os.path.join(self.runtime, "flickos", "screenshot")), [fs.RECORDING_LOCK])
 
+    def test_an_odd_sized_screen_is_cropped_to_even(self):
+        # x264 refuses odd sizes: a VM's window can be 1920x989.
+        head = dict(HEADS[1], modes=[{"width": 1921, "height": 989, "current": True}])
+        os.environ["WLR_RANDR_JSON"] = json.dumps([HEADS[0], head])
+        self.assertEqual(self.run_main("record", "screen")[0], 0)
+        self.assertIn("videocrop left=0 top=0 right=1 bottom=1 ", self.descriptions[0])
+        self.assertEqual(fs.even_crop((1920, 989)), (0, 0, 0, 1))
+        self.assertIsNone(fs.even_crop((1920, 1080)))
+
     def test_several_screens_let_the_portal_ask(self):
         os.environ["WLR_RANDR_JSON"] = json.dumps(HEADS)
         self.assertEqual(self.run_main("record", "screen", "--sound", "both")[0], 0)
@@ -1509,6 +1527,15 @@ class RecordTest(Sandbox):
                 mock.patch.object(FakeRecorder, "started", False):
             code, _out, _err = self.run_main("record", "screen")
         self.assertEqual((code, self.notices), (1, []))
+        self.assertEqual(os.listdir(self.folder), [])
+
+    def test_a_screen_that_never_changed_keeps_nothing(self):
+        # The gate opened, but no picture came after it: only the file's header.
+        with mock.patch.object(FakeRecorder, "pictures", 0):
+            code, _out, _err = self.run_main("record", "screen")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.notices, [("record-failed", None,
+                                         {"error": "Nothing was recorded: nothing on the screen changed."})])
         self.assertEqual(os.listdir(self.folder), [])
 
     def test_failure_before_anything_was_recorded(self):
@@ -1591,7 +1618,7 @@ class BarVideoTest(Sandbox):
         with mock.patch.object(fs, "load_gtk", return_value="gtk"), \
                 mock.patch.object(fs, "run_bar", return_value=choice), \
                 mock.patch.object(fs, "capture", return_value=0) as capture, \
-                mock.patch.object(fs.time, "sleep", waited.append):
+                mock.patch.object(fs.time, "sleep", self.own_sleeps(waited)):
             self.assertEqual(self.run_main("bar")[0], 0)
         self.assertEqual(waited, [fs.HIDE_SECONDS])
         capture.assert_called_once_with("region", False, False, "gtk", 5, text=False)
@@ -1868,9 +1895,58 @@ class EditTest(Sandbox):
         self.assertEqual(sorted(os.listdir(runtime)), [fs.EDIT_LOCK])
 
 
+class PortalStopTest(unittest.TestCase):
+    """`stop` (SIGTERM) while the portal's chooser asks: Portal.request raises
+    Cancelled, so run_recording deletes the reserved file. In a child process:
+    a SIGTERM nothing catches ends only that one."""
+
+    SCRIPT = """
+import importlib.machinery, importlib.util, os, signal, sys
+loader = importlib.machinery.SourceFileLoader("fs", sys.argv[1])
+fs = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(fs)
+from gi.repository import Gio, GLib
+
+class Bus:
+    def get_unique_name(self):
+        return ":1.42"
+    def signal_subscribe(self, *_args):
+        return 1
+    def signal_unsubscribe(self, _watch):
+        pass
+    def call_sync(self, *_args):
+        GLib.timeout_add(50, lambda: os.kill(os.getpid(), signal.SIGTERM))
+
+class Gi:
+    pass
+
+gi = Gi()
+gi.GLib, gi.Gio = GLib, Gio
+portal = fs.Portal.__new__(fs.Portal)
+portal.gi, portal.bus, portal.tokens = gi, Bus(), 0
+try:
+    portal.request("SelectSources", "(oa{sv})", ("/session",), {})
+except fs.Cancelled:
+    print("cancelled")
+"""
+
+    def test_stop_while_the_portal_asks_is_cancelled(self):
+        try:
+            from gi.repository import GLib  # noqa: F401
+        except ImportError:
+            self.skipTest("no python3-gi")
+        result = subprocess.run([sys.executable, "-c", self.SCRIPT, PROGRAM],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual((result.returncode, result.stdout), (0, "cancelled\n"), result.stderr)
+
+
 class ChooserTest(unittest.TestCase):
-    """screencast-chooser, with a fake runtime folder and PATH: the fallback
-    (slurp) is a stub that only says it was asked."""
+    """screencast-chooser, with a fake runtime folder and PATH: the fallbacks
+    (slurp, fuzzel) are stubs that leave a mark and pick something."""
+
+    # portal-wlr 0.8's lines ("Monitor: NAME DESCRIPTION"); before 0.8 the bare names.
+    LINES = ["Monitor: eDP-1 BOE 0x0BCA (eDP-1)", "Monitor: HDMI-A-10 Dell P2419H (HDMI-A-10)",
+             "Monitor: HDMI-A-1 Dell U2415 (HDMI-A-1)"]
 
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="flickos-chooser-test-")
@@ -1882,11 +1958,23 @@ class ChooserTest(unittest.TestCase):
         self.request = os.path.join(self.root, "flickos", "screenshot", "screencast-request")
         os.makedirs(os.path.dirname(self.request))
 
-    def fallback(self):
-        path = os.path.join(self.bin, "slurp")
+    def stub(self, name, script):
+        path = os.path.join(self.bin, name)
         with open(path, "w") as f:
-            f.write("#!/bin/sh\necho asked\n")
+            f.write(f"#!/bin/sh\n: > {self.root}/asked-{name}\n{script}")
         os.chmod(path, 0o755)
+
+    def fallback(self, picks="HDMI-A-1"):
+        """slurp, which prints the bare name of the screen clicked."""
+        self.stub("slurp", f"echo {picks}\n" if picks else "exit 1\n")
+
+    def asked(self, name):
+        """Whether the stub NAME ran since the last call."""
+        try:
+            os.remove(os.path.join(self.root, f"asked-{name}"))
+        except FileNotFoundError:
+            return False
+        return True
 
     def choose(self, outputs, request=None, age=0):
         if request is not None:
@@ -1905,13 +1993,38 @@ class ChooserTest(unittest.TestCase):
     def test_answers_a_fresh_request_for_a_listed_screen(self):
         self.fallback()
         self.assertEqual(self.choose(["eDP-1", "HDMI-A-1"], "HDMI-A-1"), "HDMI-A-1\n")
+        self.assertFalse(self.asked("slurp"))
+
+    def test_answers_portal_wlr_0_8_with_the_whole_line(self):
+        self.fallback()
+        self.assertEqual(self.choose(self.LINES, "HDMI-A-1"), self.LINES[2] + "\n")
+        self.assertEqual(self.choose(self.LINES, "HDMI-A-10"), self.LINES[1] + "\n")
+        # Without a description: "Monitor: %s %s" ends in a space.
+        self.assertEqual(self.choose(["Monitor: DP-1 "], "DP-1"), "Monitor: DP-1 \n")
+        self.assertEqual(self.choose(["Monitor: DP-1"], "DP-1"), "Monitor: DP-1\n")
+        self.assertFalse(self.asked("slurp"))
 
     def test_asks_for_a_stale_or_unknown_request_or_none(self):
         self.fallback()
-        self.assertEqual(self.choose(["HDMI-A-1"], "HDMI-A-1", age=10), "asked\n")
-        self.assertEqual(self.choose(["HDMI-A-1"], "DP-9"), "asked\n")
-        self.assertEqual(self.choose(["HDMI-A-1"], ""), "asked\n")
-        self.assertEqual(self.choose(["HDMI-A-1"]), "asked\n")
+        for request, age in (("HDMI-A-1", 10), ("DP-9", 0), ("", 0), (None, 0)):
+            self.assertEqual(self.choose(["HDMI-A-1"], request, age), "HDMI-A-1\n")
+            self.assertTrue(self.asked("slurp"))
+        self.assertEqual(self.choose(self.LINES, "HDMI-A"), self.LINES[2] + "\n")
+        self.assertTrue(self.asked("slurp"))
+
+    def test_slurp_cancelled_answers_nothing(self):
+        self.fallback(picks=None)
+        self.assertEqual(self.choose(self.LINES), "")
+        self.assertTrue(self.asked("slurp"))
+
+    def test_windows_offered_are_asked_in_fuzzel(self):
+        # slurp can only click a screen.
+        self.fallback()
+        self.stub("fuzzel", 'read -r line\nprintf "%s\\n" "$line"\n')
+        lines = [self.LINES[0], "Window: Mozilla Firefox (firefox)"]
+        self.assertEqual(self.choose(lines), self.LINES[0] + "\n")
+        self.assertFalse(self.asked("slurp"))
+        self.assertTrue(self.asked("fuzzel"))
 
     def test_without_a_chooser_only_one_screen_is_answered(self):
         self.assertEqual(self.choose(["HDMI-A-1"]), "HDMI-A-1\n")

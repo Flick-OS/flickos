@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Hills at dusk and a house with one light on, for FlickOS 2.3's people
+       coming from Windows. No logo. Dark's and Light's wallpaper until
+       flickos-layouts 1.81, now only a choice in waypaper. Render it to
+       usr/share/backgrounds/flickos/flickos-home.png with rsvg-convert. -->
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d3d6e"/><stop offset="0.55" stop-color="#3a6aa8"/><stop offset="0.8" stop-color="#8fb0d2"/></linearGradient>
+<radialGradient id="glow" cx="1330" cy="596" r="110" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffd9a0" stop-opacity="0.32"/><stop offset="1" stop-color="#ffd9a0" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1920" height="1080" fill="url(#sky)"/>
+<path d="M0 640C260 560 520 540 820 600S1400 690 1920 560L1920 1080L0 1080Z" fill="#4f7aae"/>
+<path d="M0 760C340 660 700 640 1050 650S1560 640 1920 700L1920 1080L0 1080Z" fill="#2b5590"/>
+<path d="M0 930C420 830 860 830 1240 880S1700 930 1920 860L1920 1080L0 1080Z" fill="#1d3d6e"/>
+<rect width="1920" height="1080" fill="url(#glow)"/>
+<path d="M1290 652L1290 606L1330 574L1370 606L1370 652Z" fill="#16305a"/>
+<rect x="1322" y="612" width="16" height="20" fill="#ffd9a0"/>
+</svg>

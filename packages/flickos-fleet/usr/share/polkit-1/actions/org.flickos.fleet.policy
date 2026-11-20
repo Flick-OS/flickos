@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Joining and leaving an organization (Settings -> About, through pkexec
+     /usr/bin/flickos-fleet join|leave): one action per verb. Both need an
+     administrator: who may leave is decided by who knows the password
+     (docs/design/flickos-fleet.md ADR-005). -->
+<policyconfig>
+  <vendor>FlickOS</vendor>
+  <vendor_url>https://github.com/Flick-OS/flickos</vendor_url>
+
+  <action id="org.flickos.fleet.join">
+    <description>Let an organization manage this computer</description>
+    <message>Authentication is required to let an organization manage this computer's settings, apps and updates.</message>
+    <icon_name>preferences-system</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/flickos-fleet</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">join</annotate>
+  </action>
+
+  <action id="org.flickos.fleet.leave">
+    <description>Stop an organization managing this computer</description>
+    <message>Authentication is required to stop the organization managing this computer.</message>
+    <icon_name>preferences-system</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/flickos-fleet</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">leave</annotate>
+  </action>
+</policyconfig>

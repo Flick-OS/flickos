@@ -1,0 +1,4136 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the flickos-control package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: flickos-control\n"
+"Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
+"POT-Creation-Date: 2026-11-19 21:24+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#. Translators: how warm night light makes the screen.
+#: usr/bin/flickos-control
+msgid "Slight"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Medium"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Strong"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Very strong"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Security fixes only"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Security fixes, Debian's stable updates and FlickOS"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "All: also Debian's recommended updates"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Security fixes and Debian's stable updates, not FlickOS"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "As set in /etc/apt/apt.conf.d"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Never: you restart"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "When nobody is logged in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Right away, even while someone is logged in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Earlier Default"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Left"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Middle"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Right"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Power button"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Close the lid"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Close the lid while plugged in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Shut down"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Sleep"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lock the screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Do nothing"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Same as on battery"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Hibernate"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Hybrid sleep"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Sleep, then hibernate"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restart"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Halt"
+msgstr ""
+
+#. Translators: the window's title, the same as the menu entry's Name.
+#: usr/bin/flickos-control usr/share/applications/flickos-control.desktop
+msgid "Settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Desktop Layout & Style"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Desktop"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Tiling"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Notifications"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Media Controls"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Weather"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Accessibility"
+msgstr ""
+
+#: usr/bin/flickos-control
+#: usr/share/flickos/applications/network.cycles.wdisplays.desktop
+msgid "Displays"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Devices"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Mouse & Touchpad"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keyboard"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keyboard Shortcuts"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Power & Idle"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Default Applications"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Apps"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Startup Applications"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Screenshots"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Language & Region"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "System"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Date & Time"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Memory"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Updates"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restore Points"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Users"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Accounts and security"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Login Screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Firewall"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Classroom"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Privacy"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "History"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "More Settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "About"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Web browser"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "File manager"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Text editor"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Image viewer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Document viewer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Media player"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Wallpaper"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Appearance"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Network"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Sound"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Bluetooth"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Printers"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Software Updates"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Software"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Tool Kits"
+msgstr ""
+
+#. Translators: every text of this kind is words a search finds the page by,
+#. separated by spaces, not a sentence. Give the words people of your
+#. language would type, as many as you like; the English ones are searched
+#. as well.
+#: usr/bin/flickos-control
+msgid ""
+"restore points snapshot snapshots rollback roll back undo upgrade update "
+"broken system recovery repair btrfs put back before"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"theme dark light mode style look appearance panel taskbar bar dock desktop "
+"start menu apps button clicks window buttons title bar close minimize "
+"maximize redmond cupertino traditional floating quick settings control "
+"centre center wifi wi-fi brightness volume own yours custom rice ricing "
+"default reset back folder watch tweaks css"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "tile tiling windows snap arrange gaps master stack columns grid float"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"media music video player playback controls play pause next previous skip "
+"song track title now playing panel spectrum visualizer visualiser equalizer "
+"analyzer bars sound audio over windows radial ring circle round middle "
+"center centre rainbow colors colours"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"classroom class school teacher student students share sharing screen monitor "
+"watch see lock pair pairing code lesson"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"weather forecast temperature degrees celsius fahrenheit rain sun sunny cloud "
+"cloudy snow storm wind speed kilometers kilometres meters metres per second "
+"m/s knots mph km/h humidity place town city location widget panel"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"screen monitor display resolution scale scaling hidpi refresh rate rotate "
+"external projector arrangement night light blue light warm colors"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"mouse touchpad trackpad pointer cursor speed tap click scroll natural "
+"scrolling left-handed acceleration"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "keyboard layout input repeat num lock typing"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "language locale region formats date number currency units translation"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "keyboard shortcuts hotkeys keybindings keys super"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"phone android mobile smartphone tablet kde connect send share pair transfer "
+"files photos pictures open phone window clipboard link page continue "
+"notifications alerts messages apps lock screen call calls ringing caller "
+"mute ringer browse folders storage media music player playback song album "
+"pause volume command commands run script"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"default applications browser web file manager terminal editor image viewer "
+"pdf video music media open with"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "startup autostart login items apps at login start automatically"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"screenshot screen shot print screen snip snipping capture record recording "
+"screencast video pointer mouse cursor folder pictures videos"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"notifications do not disturb dnd alerts popups quiet volume brightness "
+"microphone mute level keys ring osd on-screen display feedback"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"accessibility a11y zoom magnifier magnify magnification enlarge bigger "
+"larger lens low vision see read eyes animations animation motion reduce "
+"motion fade fading effects transitions shadows shadow window shadows old "
+"computer slow"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"power sleep suspend idle screen lock timeout lid power button battery lock "
+"screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"memory ram speed slow performance old computer resources firefox browser tabs"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"date time clock timezone time zone network time ntp 12-hour 24-hour am pm"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"updates upgrade security patches automatic restart reboot software purchase "
+"purchased key buy bought paid apps store"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"login screen autologin automatic login password greeter background wallpaper "
+"picture position language keyboard layout"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"users accounts user account password administrator admin sudo picture photo "
+"avatar"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"firewall ufw security ports incoming local network development server dev "
+"devices reach open port"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "privacy telemetry statistics anonymous count usage data tracking"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"history undo changes changed revert restore put back recent mistake software "
+"installed removed packages"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "other settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"about system information version computer hardware memory processor cpu "
+"graphics disk bug report problem log logs organization managed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "background wallpaper picture desktop image"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "theme gtk icons cursor fonts font size look"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "screen monitor arrange resolution scale"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "wifi wi-fi wireless ethernet internet vpn proxy connection network"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "sound audio volume speaker speakers headphones microphone output input"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "bluetooth pair devices headphones"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "printer printers printing print scanner"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "software updates upgrade install"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"software apps app store install remove flathub flatpak paid buy price prices "
+"bought"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"developer programming python node nodejs npm compiler gcc clang cmake "
+"containers podman distrobox git ssh key rust kit kits tools study student "
+"students learning education children kids school flashcards"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Small"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Large"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "behind windows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "over windows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "above the panel"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "in the middle of the screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "the style's color"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "rainbow"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Automatic"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Celsius (°C)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Fahrenheit (°F)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Kilometers per hour (km/h)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Meters per second (m/s)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Miles per hour (mph)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Knots (kn)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No sound"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Computer sound"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Microphone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Computer and microphone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Tap to click"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Touchpad natural scrolling"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Touchpad disabled while typing"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Touchpad pointer speed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Touchpad click with"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Left-handed mouse"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Mouse natural scrolling"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Mouse pointer speed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Mouse acceleration"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Key repeat delay"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Key repeat rate"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Num Lock at login"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keyboard layout"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keyboard layout variant"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lock the screen after"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Sleep after"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lock before sleep"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lock screen background"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Language"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Formats"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Night light"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Night light warmth"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Do Not Disturb"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Show volume and brightness"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Zoom"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Zoom lens size"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Zoom step"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Smooth zoom"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Window shadows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Desktop layout"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Style"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Desktop clicks"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Apps button"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Start menu style"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Time format"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Window buttons"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Quick Settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Floating panel"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Tiling arrangement"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Main window width"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Gap between tiled windows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Apps that always float"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Tile open windows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Phone connection"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This computer's name on the phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Networks for the phone connection"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Phone notifications"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Apps that show phone notifications"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Phone calls"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Control what's playing from the phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Commands the phone can run"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Screenshots folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Recordings folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pointer in screenshots"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Sound in a recording"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Media controls in the panel"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Sound spectrum"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Where the sound spectrum shows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Shape of the sound spectrum"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Colors of the sound spectrum"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Weather in the panel"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Weather temperature"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Weather wind speed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Weather place"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Share this screen with a teacher"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Paid apps in Software"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The history can't be read: {error}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"This setting was changed again since. Only its newest change can be undone."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "History can't undo this change."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This setting was changed since without FlickOS, so nothing was undone."
+msgstr ""
+
+#. Translators: a moment in History, after "Settings put back as they were":
+#. {date} is the weekday and the date, {time} the time.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "on {date} at {time}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Putting back the settings as they were {when}:"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Nothing to put back: no setting that can be put back has changed since then."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{change} (now {value})"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "the default"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "on"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "off"
+msgstr ""
+
+#. Translators: {key} is the last four characters of a key, such as qrst.
+#: usr/bin/flickos-control
+msgid "no key"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "key ending in {key}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "none"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "not in the list"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "no account"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "standard user"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "administrator"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} a second"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} network"
+msgid_plural "{count} networks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid "the layout's own"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Restore point: {description}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Put Back takes the system back to it"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "User account added: {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "User account removed: {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Settings put back as they were {when}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Undo puts back what they were before"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Language added: {language}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Phone paired: {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Phone forgotten: {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Pinned apps of {layout}: {apps}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Was {value}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{apps} added"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{apps} removed"
+msgstr ""
+
+#. Translators: a change in History, "Desktop layout: Cupertino"; below it
+#. "Was Redmond".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{setting}: {value}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "changed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Settings put back"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Animations"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Your picture"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Key for bought apps"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{app} at login"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "User account {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Closing the lid"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Closing the lid while plugged in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Firewall lets phones in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Firewall lets a teacher's computer in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lab computer: every account shares its screen with the teacher"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Ports open to devices on this network"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Containers can get addresses by DHCP"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Capture packets without administrator rights"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Wireless adapter for testing"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "mise, from its maker's repository"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Metasploit Framework, from Rapid7's repository"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Firefox uses less memory"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Support for 32-bit programs"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Log in automatically"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Install updates automatically"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Which updates"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restart when an update needs it"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Time zone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Set the time automatically"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keyboard layout of the login screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Login screen background"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Login box position"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restore points before software changes"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Start a restore point by itself after failed starts"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"'{value}' isn't an adapter's address: give one like 00:11:22:33:44:55, or "
+"off."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"'{item}' isn't a port: give ports like 8000/tcp or 5000:5010/udp, or off."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Give ports like 8000/tcp, or off."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The firewall (ufw) isn't installed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Classroom (flickos-classroom-view) isn't installed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Podman's DHCP helper (netavark) isn't installed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Wireshark isn't installed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Firefox ESR isn't installed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Logging in automatically needs the FlickOS login screen of an installed "
+"system."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restore points (flickos-recovery) aren't installed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This key isn't valid. Check that it was copied whole."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This order was refunded, so it has no key."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The store doesn't know this order."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The store can't tell which app this order bought."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This isn't a claim code from Software."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The key of this purchase was already handed out, to the buy page in your "
+"browser."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Your FlickOS Store key was turned off, so the apps bought with it no longer "
+"update. Remove the key in Settings > Updates."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A key can't be added in the live session, where it would be lost at "
+"shutdown. Add it after installing FlickOS."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The store's answer had no key in it. Try again later."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The FlickOS store answered {status}."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The receipt email's order number gets the key from the store's page."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"No payment arrived. If you paid, the receipt email's order number gets the "
+"key from the store's page."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Apps can't be bought in the live session. Buy them after installing FlickOS."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Your key wasn't added. Keep it, and add it later with Add Key…: {key}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Apps you bought no longer update"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Terminal"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "control-helper gave no answer"
+msgstr ""
+
+#. Translators: {apps} is a list of programs, such as "vlc, gimp".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "installs {apps}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "updates {apps}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "removes {apps}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "and {count} more software change"
+msgid_plural "and {count} more software changes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Put the system back: {description}?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "These software changes are undone:"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No software has changed since then."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"System settings, passwords, accounts and Wi-Fi networks changed since then "
+"go back too. Your own files stay as they are."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The system as it is now is kept as a restore point, so this can be undone."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"It takes effect when the computer restarts. Putting back needs an "
+"administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Cancel"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Put Back"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Waiting for the password…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Put back. Restart the computer to use it. The system as it was is kept as a "
+"restore point, so this can be undone."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not put back."
+msgstr ""
+
+#. Translators: {apps} is a list of the first three, such as "vlc, gimp, inkscape".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{apps} and {count} more"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Installed: {apps}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "And {count} package it needed"
+msgid_plural "And {count} packages it needed"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Removed {count} package that was no longer needed"
+msgid_plural "Removed {count} packages that were no longer needed"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Removed: {apps}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Its settings were deleted too"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Updates installed: {count} package"
+msgid_plural "Updates installed: {count} packages"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Software installed and removed: {apps}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Undone from History"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Undone"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Removes: {packages}."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Installs: {packages}."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Packages it updated stay updated."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "They are downloaded, so the computer needs to be online."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Their settings were deleted when they were removed, so they start fresh."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "the keyboard layouts are not installed (xkb-data)"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{language}, formats {formats}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "logind gave no power button and lid settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "wlr-randr gave no list of screens"
+msgstr ""
+
+#. Translators: {first} and {second} are screens, such as "Dell U2419H". Arrange
+#. Screens is the Displays page's button of that name.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"{first} and {second} overlap, so one shows part of the other. Move them "
+"apart with Arrange Screens, then keep the arrangement."
+msgstr ""
+
+#. Translators: {name} is the screen's connector, such as HDMI-A-1.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{name}: off"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "scale {scale}"
+msgstr ""
+
+#. Translators: {turn} is wlr-randr's word, such as 90 or flipped-180.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "turned {turn}"
+msgstr ""
+
+#. Translators: where the screen is, in pixels from the top left: "at 1920,0".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "at {x},{y}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"{path} replaces FlickOS's notification settings and has no [{mode}] section, "
+"so Do Not Disturb hides nothing. Add one with invisible=1 (man 5 mako)."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A picture of yours"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "pictures can't be read here ({error})"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{file} can't be used as a picture: it can't be read."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{file} is too large for the login screen."
+msgstr ""
+
+#. Translators: Send to Phone is the file manager's menu entry of that
+#. name, Edit → Configure custom actions its own menu (in Thunar's words).
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Send to Phone is missing from the file manager's right-click menu: {path} "
+"has right-click actions of its own, and the file manager reads only that "
+"file. If you didn't add any, delete it and run thunar -q. Otherwise add Send "
+"to Phone in the file manager's Edit → Configure custom actions, with the "
+"command {command}."
+msgstr ""
+
+#. Translators: {memory} is an amount, such as 2.0 GB.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "This computer has {memory} of memory."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Its graphics have no acceleration, so the processor draws the screen."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Choose a user name."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A user name has lowercase letters, digits, - and _, starts with a letter and "
+"is at most 32 characters long."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{name} is already taken."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "A full name is at most {count} characters long."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A full name can't start with -."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A full name can't contain : , = or \\."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Choose a password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The passwords don't match."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Processor"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Graphics"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Disk"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Can't save the report: {error}. Choose another folder."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-countme gave no status"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-fleet gave no status"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not managed by an organization."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "an organization"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "not yet"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Managed by {org}: its settings, apps and updates are set by {org}. Last "
+"check-in: {time}."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} of its settings couldn't be applied."
+msgid_plural "{count} of its settings couldn't be applied."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid "The code couldn't be checked."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flick-tiler gave no status"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Yours"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-layout gave no state"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Loading…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Changes apply right away."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Layout"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Styles Folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Layouts Folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Tweaks Folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Your own styles and layouts"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Their folders, and your panel tweaks' (CSS). Make one with flickos-layout "
+"style new, layout new or tweaks new; flickos-layout watch in a terminal "
+"applies each save"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Keep"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_End"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Trying a style"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Back to FlickOS's Look"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "FlickOS's look"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The default layout and style. Settings → History can undo it"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pinned Apps"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Add App…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Reset to the Layout's Apps"
+msgstr ""
+
+#. Translators: {layout} is a desktop layout's name, such as Cupertino.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"The apps in the dock of {layout}, in this order, also while they aren't "
+"open. Each layout has its own. Settings → History can undo a change."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"The apps in the panel of {layout}, in this order, also while they aren't "
+"open. Each layout has its own. Settings → History can undo a change."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Move Up"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Move Down"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Remove"
+msgstr ""
+
+#. Translators: a button's name for screen readers: "Move Up: Firefox".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{action}: {app}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "None"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add an app to have it in the dock."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add an app to have it in the panel."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pin an App"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Pin"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Can't make {folder}: {error}"
+msgstr ""
+
+#. Translators: {style} is a style's name. Keep and End are the buttons beside it.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"{style} until you log out. Keep makes it your style; End goes back to yours "
+"now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "While the start menu is off, it keeps a program of about 31 MB running."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Can't read the desktop layouts: {error}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Applying…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Could not apply the change."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Dark color"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The wallpaper"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Areas at the bottom of the pad"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Number of fingers (two for a right click)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Adaptive (faster movement goes further)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Flat (no acceleration)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The whole screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A lens around the pointer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Never"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} hour"
+msgid_plural "{count} hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} minute"
+msgid_plural "{count} minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} second"
+msgid_plural "{count} seconds"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: a slider's value: milliseconds, or how often a held key repeats.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} ms"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} per second"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Slow"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Default"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Fast"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Device default"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Changes apply right away to every touchpad or mouse."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Touchpad"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Tap with two fingers for a right click"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Natural scrolling"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The content moves with your fingers"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Disable while typing"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pointer speed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Click with"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "How pressing the pad gives a right click"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Mouse"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Mice and trackpoints"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Left-handed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Swap the left and right buttons"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Acceleration"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The layout applies right away to your account. The login screen and the "
+"console keep the system layout until you change it too."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Use for Login Screen and Console…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Type here to try the layout"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Variant"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Try it"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Login screen and console"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Needs an administrator's password. Also on the Login Screen page."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Typing"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Repeat delay"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "How long a key is held before it repeats"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Repeat rate"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Num Lock on"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "When you log in"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Same as the system: {value}"
+msgstr ""
+
+#. Translators: what the system uses now: "Now: English (US)".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Now: {value}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The system already uses this layout."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The apps that open web links, folders and files, and the terminal. Super+B, "
+"Super+E, Super+Enter and the menu use them too."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "None chosen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not changed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"When the computer is not used for a while, the screen is locked and later "
+"the computer goes to sleep."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Not in the live session: locking or sleeping there could interrupt an "
+"installation."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "When idle"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Lock Now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lock screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Turned off, the computer wakes up without asking for the password"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Background"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lock the screen now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Also Super+L"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Buttons and lid"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"For everyone who uses this computer. Changing these needs an administrator's "
+"password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Change the resolution, scale and arrangement of the screens with Arrange "
+"Screens; such changes last until you log out. Keep an arrangement to get it "
+"back at every login and whenever the same screens are plugged in."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Screens now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Arrange Screens…"
+msgstr ""
+
+#. Translators: {program} is the program's command, wdisplays.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Open Displays ({program})"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Keep This Arrangement"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Kept arrangements"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Warmer colors from sunset to sunrise, timed for the time zone (Date & Time), "
+"so evenings are easier on the eyes."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Warmth"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "How warm the colors get at night"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keeping…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Forgetting…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not kept: this arrangement lasts until you log out."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Kept: these screens are set up this way whenever they are connected."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Kept, but changed since: keep it again to use it from now on."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Forget"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The screens connected now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "None yet"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Each screen starts with its own best resolution."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Another kanshi is running (your own setup), so FlickOS doesn't start its "
+"own; the arrangements kept here apply when it isn't running."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The login screen uses it from its next start, accounts without a choice of "
+"their own from their next login."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The system language was not changed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The system layout was not changed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The language of menus and apps, and how dates, times, numbers and money "
+"look. Apps you open from now on use them; the panel and the apps already "
+"open use them after you log out and in again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Use for the Whole System…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Your account"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Example"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Login screen and new accounts"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Some apps bring their translations in a package of their own, for example "
+"Firefox (firefox-esr-l10n-…) and LibreOffice (libreoffice-l10n-…)."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Same as the language"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Adding {language}: this needs an administrator's password and takes a moment…"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{language} was not added."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Notifications appear at the edge of the screen for a few seconds. Click one "
+"to close it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Notifications are not shown, except urgent ones such as a nearly empty "
+"battery. It stays on until you turn it off."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Volume and Brightness"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Show the level"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A ring shows the new level for a moment when you press a volume, microphone "
+"or brightness key."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Zoom in to see small things larger: Super+= zooms in and Super+- zooms out, "
+"or hold Super and scroll. Super+0 turns zoom off, and back on."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The part of the screen that zooms follows the pointer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lens size"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "How much each key press or scroll zooms"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Smooth"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Off shows sharp square pixels"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Effects"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The start menu and other pop-ups fade in and out, and apps animate their "
+"controls. Off shows everything at once"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A soft shadow shows which window is in front. Off can help on an old computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Apps that start when you log in. An app you tell to start with the desktop "
+"in its own settings appears here too. Changes apply from the next login."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add a Startup App"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Add"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Only the desktop itself starts at login."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Previous, play and next, and the title of what is playing, while an app "
+"plays music or video."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-format
+msgid ""
+"Bars just above the panel that move with the sound while something plays. "
+"They use about 6 % of a processor while they show. The bars button in the "
+"panel turns them on and off too."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Show the spectrum in the middle of the screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"As bars around a ring, instead of above the panel. It is always behind "
+"windows and clicks go through it. It uses a little more of the processor "
+"than the bars above the panel."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Show the spectrum over windows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Instead of behind them; a full-screen window still covers it. Clicks go "
+"through it. A right click on the bars button in the panel switches it too. "
+"Only for the bars above the panel."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Rainbow colors"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Every color instead of the style's: round the ring from cyan at the top to "
+"red at the bottom, or along the bars from the left, with a white ring."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-media gave no settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The temperature and the sky where you are. Point at it for the next hours "
+"and days; click it to come here."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Place"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Temperature"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Wind speed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Find your town or city"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Town or city"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Find"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-weather gave no settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "None chosen yet: find yours below"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "°F"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "°C"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Automatic follows your region: {units} here"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Automatic follows the temperature: {unit} here"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "the weather service"
+msgstr ""
+
+#. Translators: {service} is the weather service's name, such as Open-Meteo.com.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"While the weather is on, this computer asks {service} for the forecast once "
+"an hour. It sends only the place's position, to about 1 km; like any "
+"request, it comes from your internet address. Finding a place sends what you "
+"type. Nothing is sent while it is off."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Weather data by Open-Meteo.com (CC BY 4.0)."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The forecast couldn't be updated: {error}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Forecast updated at {time}."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Type at least two letters of the place."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Finding…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-weather gave no places"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No place of that name. Try the nearest town or city."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Use"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A screenshot is saved and copied. A recording is a video. These apply to the "
+"next one."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Save screenshots in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Save Screenshots In"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pictures/Screenshots, unless you choose another folder."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Save recordings in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Save Recordings In"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Videos/Screen Recordings, unless you choose another folder."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Include the pointer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "In screenshots. A recording always shows it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Screenshot keys"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Choose…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Choose a folder."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Usual Folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The folder FlickOS uses for this computer."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-screenshot gave no settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No screenshot keys are set."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Choose"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Updates are installed in the background every day, so security fixes arrive "
+"without anyone having to remember."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Apps installed from Flathub are updated with them."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Software Updates shows and installs every update at any time."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Some updates (the Linux kernel) take effect after a restart"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Add Key…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Remove"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Purchased apps"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Check for Updates Now…"
+msgstr ""
+
+#. Translators: {program} is the program's command, gpk-update-viewer.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Open Software Updates ({program})"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Changing these needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Checking for updates…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"No key on this computer. The key of apps you bought lets them install and "
+"update."
+msgstr ""
+
+#. Translators: {key} is the last four characters of the key, such as qrst.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"The key ending in {key} was turned off, so the apps bought with it no longer "
+"update"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Key ending in {key}: the apps bought with it install and update"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add Key"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Key"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The key from the page or the email of your purchase. Adding it needs an "
+"administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Remove the key?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The apps bought with it stay installed but no longer update, and they can't "
+"be installed again. Adding the key again needs the key itself, from the page "
+"or the email of your purchase."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Last run: {time}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Time zone region"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Time zone city"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The clock on the panel"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The time zone was not changed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "From time servers on the internet (synchronized)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "From time servers on the internet (not synchronized yet)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Needs systemd-timesyncd, which is not installed"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"What everyone sees before the desktop starts. Changes here are for the whole "
+"computer: they need an administrator's password and show from the login "
+"screen's next start."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Logging in"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Starts the desktop without asking for your password when the computer "
+"starts. Anyone who switches the computer on gets your desktop, so only use "
+"it on a computer nobody else uses."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Use _Your Language…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Use Your _Layout…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Language and keyboard"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The login screen uses the system's. Yours become the system's: also the "
+"console's and new accounts'."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Choose Picture…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Look"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Dimmed a little, so the login box stays easy to read"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Login box"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Where it sits on the screen"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "C_hange…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Next to your name in the list of users. The Users page keeps it."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{user} is logged in automatically now; turning this on replaces them."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "As {user}, once per start of the computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Choose Picture"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The firewall blocks connections that other computers start to this one. "
+"Programs on this computer can still connect out and get their answers, so "
+"the internet, updates and finding printers on the network all work with it "
+"on."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Changing this needs an administrator's password. To let one program in while "
+"the firewall is on, for example SSH, type sudo ufw allow 22/tcp in a "
+"terminal."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Servers you run"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A server you start yourself, such as a website you are building, can be "
+"reached from a phone or another computer on your home or office network once "
+"its port is listed here. Type ports like 8000/tcp, separated by commas, and "
+"leave it empty to close them again. Only ports from 1024 up can be listed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Ports open to this network"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "On: other computers can't connect to this one"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Off: other computers can connect to programs that wait for them"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "(in the live session until it restarts)"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No ports are open to other devices."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Devices on home and office networks can reach: {ports}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"FlickOS counts how many computers run it, without knowing which ones. Once a "
+"week this computer sends only the FlickOS version and roughly how long ago "
+"it was installed: no name, no machine id, no hardware, no list of programs. "
+"The server keeps only the weekly totals."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Count this computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "What is sent"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Turning it on needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Privacy details"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Never sent from the live session"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Nothing is sent"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Not sent now: {reason}"
+msgstr ""
+
+#. Translators: {week} is an ISO week, such as 2026-W45.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Last counted in week {week}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not counted yet"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Before every software change FlickOS takes a restore point. If an update "
+"breaks something, put the system back to before it: the software, system "
+"settings, passwords and accounts go back to how they were then. Your own "
+"files stay as they are."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A restore point is not a backup: it is on the same disk as the system. Keep "
+"copies of your files somewhere else too."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Keep…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Try Again"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Restart Now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restore points"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Make a Restore Point Now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Made in Settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Making a restore point…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restore point made."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Take a restore point before software changes"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Delete All…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Disk space"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"After 2 starts that didn't reach the login screen. When off, the boot menu "
+"waits with it highlighted."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Changing restore points needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"FlickOS started from the restore point “{name}” because the last starts "
+"didn't reach the login screen. Nothing you change now is kept. Keep it, or "
+"try the system as it is again."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"The computer runs from the restore point “{name}”. Nothing you change now is "
+"kept. Keep it to make it the system."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A restore point was put back. Restart the computer to use it; until then, "
+"software can't be installed or removed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Put Back…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No restore points yet"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "One is taken before the next software change."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The newest {count} is kept"
+msgid_plural "The newest {count} are kept"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid "No restore point is taken"
+msgstr ""
+
+#. Translators: {free} and {minimum} are numbers of gigabytes, such as 12.5.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{free} GB free. None is taken with less than {minimum} GB free."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The next start uses the system as it is. Restart the computer to try it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keep this restore point?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The system goes back to it for good: software, system settings, passwords "
+"and accounts as they were then. Your own files stay as they are. The system "
+"as it was is kept as a restore point, so this can be undone. It takes effect "
+"when the computer restarts, and needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Kept. Restart the computer to use it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Checking what would change…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Delete all restore points?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"This frees the space they hold. The system can then not be put back to "
+"before the changes made so far. A new restore point is taken before the next "
+"software change."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Delete All"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "All restore points deleted."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The computer didn't restart."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"People who can log in to this computer. Each has their own files and "
+"settings. Administrators can install software and change settings for "
+"everyone."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Choose P_icture…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Remove Pic_ture"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "On the login screen, the lock screen and in the start menu"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Add User…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Changing these needs an administrator's password. A change to administrator "
+"takes effect at that user's next login."
+msgstr ""
+
+#. Translators: after the account's name and role: "jon · administrator · you".
+#: usr/bin/flickos-control
+msgid "you"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Ad_ministrator"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Password…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Remove…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "You can't remove the account you are using"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No user accounts found"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add User"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Full name"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_User name"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Password"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Confirm password"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Ad_ministrator: can install software and change settings for everyone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Change Password"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "C_hange"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The new password of {name} ({user})."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_New password"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Remove {name}?"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{user} can no longer log in. They have to be logged out."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Also _delete their files ({folder})"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Arrange windows side by side automatically. Super+T turns tiling on or off; "
+"while it is on, its keys are listed under Keyboard Shortcuts."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Tile windows"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "New windows are tiled; open windows with Super+Shift+T"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Arrangement"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Turning tiling on also tiles the windows already open, focusing each in turn"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "In the arrangements with a main window"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Gap"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Space between tiled windows and around them"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Windows of these apps are never tiled. An app id can be a pattern such as "
+"gimp*. Dialogs always float."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "App id, e.g. org.gnome.Calculator"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Can't read the tiling settings: {error}"
+msgstr ""
+
+#. Translators: {app} is an app id or a pattern, such as gimp*.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Tile {app} again"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Hold the Super (Windows) key on its own to see these at any time."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Show the Shortcut Sheet"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Share a page, a photo or some text on your phone, choose this computer, and "
+"it arrives here. Files and addresses go the other way too. The phone needs "
+"the KDE Connect app, from F-Droid or Google Play."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Use your phone with this computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Name on the phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "What the KDE Connect app calls this computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Open Phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Let phones through the firewall"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Only from home and office networks. Needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Phones"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Add Phone…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Networks"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Phones can connect only while this computer is on one of these networks. The "
+"network a phone pairs on is added."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Use on This Network"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "From the apps you allow. Nothing is shown while the screen is locked."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Show the phone's notifications"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Off"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Calls"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"When the phone rings, a notification names the caller. Click it to mute the "
+"ringer. What is playing pauses until the call ends. Nothing is shown while "
+"the screen is locked."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Show the phone's calls"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Media"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"What's playing on this computer shows in the phone's app, with its name and "
+"picture. The phone can play, pause, skip and change the volume."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Commands"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The phone is sent these names and can run one of them. A command runs as "
+"you. Nothing runs while the screen is locked."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add _Command…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Received"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-phone state gave no answer"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Can't read the phone connection: {error}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "On"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Forget {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Connected"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not connected"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add Phone pairs one"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A network that's gone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This network"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pairing a phone adds the network it's on"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Open"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Open {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "no longer there"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Show in Folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Show {name} in its folder"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Text"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Clipboard"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Copy"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Copy {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Open the address in {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Nothing yet"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "What a phone sends shows here for a week"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "An app appears here after the phone sends a notification from it"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Command"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Remove {name}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add Command adds one. The phone sees the name."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add Command"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"It runs as you, on this computer. The phone is sent the name, and can run "
+"only this command."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Name"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Comman_d"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add Phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Pair"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "this computer"
+msgstr ""
+
+#. Translators: {name} is this computer's name in the KDE Connect app; Pair
+#. is that app's button (in its words in your language).
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"1. Install the KDE Connect app on the phone, from F-Droid or Google Play.\n"
+"2. Connect the phone to the same network as this computer.\n"
+"3. In the app, choose {name} and tap Pair."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Waiting for the phone…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pairing stopped. Try again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Waiting for the phone… The firewall is on, so the phone can't reach this "
+"computer until Let phones through the firewall is on."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{phone} asks to pair. Pair only if the phone shows the same key:"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Paired with {phone}."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "the phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "No phone asked to pair in {count} minute. Try again."
+msgid_plural "No phone asked to pair in {count} minutes. Try again."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid "The phone went away before pairing finished. Try again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pairing…"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Connected to {phones}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"KDE Connect is already running on this computer. Use it, or quit it to use "
+"this."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not running: turn it off and on again"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "On. Add a phone below."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Waiting for a network where a phone was paired"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Waiting for the phone"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Yesterday {time}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Changes to your desktop's settings and to the installed software, newest "
+"first. Undo puts a setting back the way it was before, or removes an app "
+"that was installed, or installs one again that was removed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Put Back as It Was…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Put the settings back as they were on an earlier day"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keeping a history"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Keep a history of changes"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Only for your account, and only on this computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "C_lear History…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Forget the changes kept so far"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The software changes can't be read: {error}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Changes you make to your desktop's settings and your software will show here."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The history is off."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Today"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Yesterday"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Changed again since"
+msgstr ""
+
+#. Translators: a button's name for screen readers, then the restore point.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Put back: {change}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Undo"
+msgstr ""
+
+#. Translators: a button's name for screen readers, then the change.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Undo: {change}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Remove it again"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Install it again"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Change it back to {value}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Change it back"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} older change is left out here. {command} lists them all."
+msgid_plural ""
+"{count} older changes are left out here. {command} lists them all."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid "Not undone."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Put Back as It Was"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Put your settings back as they were before the changes of:"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Day"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "System settings and software stay as they are: each has its own Undo."
+msgstr ""
+
+#. Translators: the value a setting has now, before it is put back.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Now {value}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Nothing to put back"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No setting that can be put back has changed since then."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Putting the settings back…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Settings put back. The first row below undoes it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Not everything was put back."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Remove {apps}?"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Install {apps} again?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Changing the software needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Install"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Waiting for the password… Installing and removing software can take a few "
+"minutes."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Turn off and clear the history?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Clear the history?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The changes made so far can no longer be undone here."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Turn Off"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "C_lear History"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "These settings open in their own window."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "None of these apps is installed: {apps}."
+msgstr ""
+
+#. Translators: {app} is the tile's name, {program} the app's command: "Open Sound (pavucontrol)".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Open {app} ({program})"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Fewer processes: tabs of one site share one, and no spare one waits for the "
+"next tab. For everyone on this computer. Firefox uses it the next time it "
+"starts."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"How much memory this computer has and uses, and what can make it use less."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "In use"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "What can't be freed without moving it to swap"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Firefox: use less memory"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Unknown"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Recommended for this computer."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "In the live session until it restarts."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Copy System Info"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"For a bug report: the facts above and the versions of FlickOS's packages"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Save Report…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"For a bug report: the facts above and what the desktop logged, in a file. "
+"Nothing is sent"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Open Report"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Report a Problem"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Copied. Paste it into your bug report."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Save Report"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Save"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Saved as {path}. Nothing has been sent. Read it, then attach it to your bug "
+"report."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Saving…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "What Is _Sent"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Everything this computer sends to the organization's service"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Join an Organization…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Leave…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Organization"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Join an Organization"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Next"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Join code"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The code from your organization's dashboard. You'll see the organization's "
+"name before anything changes."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Checking the code…"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Let {org} manage this computer?"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Its settings, apps and updates will be set from {org}'s dashboard, and it "
+"will send what “What Is Sent” lists. An administrator of this computer can "
+"leave at any time."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Join"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "the organization"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Stop {org} managing this computer?"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"This computer stops checking in with {org}. Its settings and apps stay as "
+"they are, and the desktop's defaults are FlickOS's own again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Leave"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A light Debian desktop"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A teacher's computer you pair with can see this screen while you're on the "
+"same network, lock it during a class, show you a message or open a web page. "
+"The icon in the panel shows when your screen can be seen, and turns red "
+"while the teacher is looking. Nothing is recorded."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Changes apply right away. Off: nothing of it runs."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Teachers"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Pair With a Teacher…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Let the teacher's computer through the firewall"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Only from school and home networks. Needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Lab computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"For a school's computers: every account on this computer shares its screen "
+"with the teachers paired here, and can't turn it off. The panel still shows "
+"it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This is a lab computer"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pair This _Computer With a Teacher…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Teaching a class"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The Classroom window shows the screens of the students who paired with this "
+"computer."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Open Classroom"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "On for every account on this lab computer."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Every account shares with the teacher above. Set by an administrator."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The firewall is on: the teacher's computer can't reach this one until you "
+"let it through."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "None paired yet: pair this computer below"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "None paired yet"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Looking at this screen now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Connected now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Set by your organization"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Paired on {date}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Forget…"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Forget {name}?"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"No account on this computer shares with {name} any more until the computer "
+"is paired with them again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Their computer can't see or lock this screen any more until you pair with it "
+"again, with a new code from the teacher."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Forget"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Pair This Computer With a Teacher"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Type the _code the teacher's computer shows under Add Students:"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The code has 6 digits."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Waiting for the password, then for the teacher's computer…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Page"
+msgstr ""
+
+#. Translators: where a search result leads: "Opens pavucontrol".
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Opens {program}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Search settings"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No settings found"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The device's own default comes back at the next login."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "History turned off and cleared."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "History turned on. Changes are kept from now on."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Saved. It applies at the next login."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Saved. It applies when notifications start."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Saved. The screen locks this way from now on."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Saved. There is no idle lock in the live session."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Saved, but not applied."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Apps you open from now on use it; the panel and open apps after the next "
+"login."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "not in a Wayland session: there are no screens to keep"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "no screens are connected"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Forgotten. The screens stay as they are until they change or you log out."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "History cleared."
+msgstr ""
+
+#: usr/share/applications/flickos-control.desktop
+msgid "Desktop layout, tiling, keyboard shortcuts and all other settings"
+msgstr ""
+
+#: usr/share/applications/flickos-control.desktop
+msgid "preferences;control;center;configuration;layout;tiling;users;accounts;"
+msgstr ""
+
+#: usr/share/flickos/applications/network.cycles.wdisplays.desktop
+msgid "Displays configuration"
+msgstr ""
+
+#: usr/share/flickos/applications/network.cycles.wdisplays.desktop
+msgid "Resolution, scale and arrangement of the screens"
+msgstr ""

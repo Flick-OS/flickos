@@ -1,0 +1,85 @@
+flickos-media (1.8) trixie; urgency=medium
+
+  * Release of 1.8~test1: changed once a setting is applied.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:23 +0800
+
+flickos-media (1.8~test1) trixie; urgency=medium
+
+  * Hooks: a setting that changed fires changed once applied, History on
+    or off (docs/design/flickos-hooks.md, ADR-007).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:57 +0800
+
+flickos-media (1.7) trixie; urgency=medium
+
+  * A Flatpak player (Flathub's Spotify) no longer counts as silent 5 s
+    into every song: its D-Bus name belongs to its xdg-dbus-proxy, so
+    every process of its Flatpak instance now stands for it when its
+    sound is looked for.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 01 Nov 2026 00:35:41 +0800
+
+flickos-media (1.6) trixie; urgency=medium
+
+  * Rainbow colors for the sound spectrum, by choice: spectrum-colors
+    style|rainbow (style by default). Round the ring from cyan at the
+    top to red at the bottom with a white ring, or along the strip from
+    the left; drawn once per size, so no dearer than the style's color.
+    A change redraws a running spectrum without restarting it.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 30 Oct 2026 10:43:00 +0800
+
+flickos-media (1.5) trixie; urgency=medium
+
+  * Media controls only while something plays or is paused: a stopped
+    player isn't shown, and one that says it plays but has had no audio
+    stream in PipeWire for 5 seconds counts as stopped (Firefox kept
+    saying Playing for a video Discord took off the page). pw-dump runs
+    only while a player says it plays; Depends pipewire-bin.
+  * The follower says why it ended in the panel's log, and reads
+    playerctl's lines without keeping one back in a buffer.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 27 Oct 2026 16:53:16 +0800
+
+flickos-media (1.4) trixie; urgency=medium
+
+  * A long title scrolls through once when its track plays, then stands
+    still with … (the tooltip has all of it); waybar can't tell anyone
+    the pointer is over it.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 21:28:09 +0800
+
+flickos-media (1.3) trixie; urgency=medium
+
+  * The title is 24 characters long; a longer one scrolls while it
+    plays, with the class scrolling, which flickos-layouts gives a fixed
+    width.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 20:42:23 +0800
+
+flickos-media (1.2) trixie; urgency=medium
+
+  * The sound spectrum can be a ring in the middle of the screen
+    (spectrum-shape radial): the bars mirrored around it, always behind
+    windows, clicks going through it.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 20:27:49 +0800
+
+flickos-media (1.1) trixie; urgency=medium
+
+  * The title of a file without tags is its name: VLC sends such a file
+    with no title, only its address, and the panel showed only the app's
+    name. Players are told apart by instance (playerctl's
+    playerInstance), so VLC counts once and two Firefox windows twice.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 17:04:09 +0800
+
+flickos-media (1.0) trixie; urgency=medium
+
+  * Media controls in the panel (previous, play or pause, next, what is
+    playing) and a sound spectrum just above it, behind windows or over
+    them; clicks go through it. Off by default; Settings > Media
+    Controls turns it on (docs/design/flickos-media.md).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 15:24:11 +0800

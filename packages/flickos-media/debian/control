@@ -1,0 +1,38 @@
+Source: flickos-media
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-media
+Architecture: all
+# playerctl: the follower watches the players with one playerctl --follow and
+# the buttons run it. cava: the spectrum's sound analysis (244 KB, with
+# libiniparser4 and SDL2 about 2.4 MB in the image). python3-gi,
+# gir1.2-gtk-3.0, gir1.2-gtklayershell-0.1: the spectrum strip, only while it
+# shows. python3-gi-cairo: its drawing, and clicks go through it.
+# flickos-layouts (>= 1.66): the panel modules (custom/media-*), inserted
+# while controls is on, their icons in base.css and the scrolling title's
+# fixed width. pipewire-bin: pw-dump, whether a player that says it plays
+# makes a sound (already in the image: flickos-screenshot's pw-play).
+Depends: python3,
+         playerctl,
+         pipewire-bin,
+         cava,
+         python3-gi,
+         python3-gi-cairo,
+         gir1.2-gtk-3.0,
+         gir1.2-gtklayershell-0.1,
+         flickos-layouts (>= 1.66),
+         ${misc:Depends}
+Description: media controls and a sound spectrum for the FlickOS panel
+ Previous, play or pause, next and the title of what is playing, in the
+ FlickOS panel while an app plays music or video. A spectrum that moves with
+ the sound can be shown just above the panel, behind windows or over them;
+ clicks go through it.
+ .
+ Off by default: turned on in Settings > Media Controls, and nothing of it
+ runs while off.

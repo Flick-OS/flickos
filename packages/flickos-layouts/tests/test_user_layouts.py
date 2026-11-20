@@ -259,6 +259,19 @@ class CheckTest(UserLayoutTest):
                      "Desktops=3 without flickos/desktops"):
             self.assert_problem("bare", "warning", text)
 
+    def test_a_pager_in_the_dock_shows_the_desktops(self):
+        self.flickos_layout("docked", FULL_BAR, "Dock=dock.config\nDockStyle=dock.css\nDesktops=4\n")
+        self.write("layouts/docked/dock.css", "\n")
+
+        def desktops_lacking():
+            with contextlib.redirect_stderr(io.StringIO()):
+                return [p for p in fl.layout_problems("docked") if "without flickos/desktops" in p.message]
+
+        self.write("layouts/docked/dock.config", "#Api2\nbar {\n  # pager {\n  taskbar { }\n}\n")
+        self.assertTrue(desktops_lacking())
+        self.write("layouts/docked/dock.config", "#Api2\nbar {\n  pager {\n    cols = 2\n  }\n}\n")
+        self.assertEqual(desktops_lacking(), [])
+
     def test_dock_apps_button_counts(self):
         """A FlickOS layout whose dock runs DOCK_LAUNCHER needs no apps button in a bar."""
         bar = FULL_BAR.replace('"modules-left": ["custom/launcher"]', '"modules-left": []')
@@ -276,12 +289,30 @@ class CheckTest(UserLayoutTest):
         self.assert_problem("corner", "warning", "Menu=bottom-left, but the apps button is in the top bar")
         self.assert_problem("corner", "warning", "Quick=bottom-right, but no bottom bar")
 
+    def test_centered_apps_button(self):
+        """An apps button in the middle of a bottom bar opens the menu above it."""
+        common = self.layouts_dir + "/common"
+        bar = FULL_BAR.replace("../common", common).replace(
+            '"modules-left": ["custom/launcher"], "modules-center": ["clock", "custom/recording"]',
+            '"modules-center": ["custom/launcher"], "modules-left": ["clock", "custom/recording"]')
+        self.user_layout("centered", bar=bar)
+        self.assert_problem("centered", "warning", "the start menu opens away from it (Menu=bottom-center)")
+        self.write("home/.local/share/flickos/layouts/centered/layout.ini",
+                   "[Layout]\nName=Centered\nWaybar=waybar.jsonc\nStyle=style.css\n"
+                   "Menu=bottom-center\nQuick=bottom-right\n")
+        self.assertEqual(self.problems("centered"), [])
+
     def test_signal_clash(self):
         bar = FULL_BAR.replace("../common", self.layouts_dir + "/common").replace(
             '"modules-left": ["custom/launcher"]', '"modules-left": ["custom/launcher", "custom/mine"], '
                                                    '"custom/mine": {"exec": "date", "signal": 9}')
         self.user_layout("clash", bar=bar)
         self.assert_problem("clash", "warning", "custom/mine uses signal 9, which the phone button use")
+
+    def test_themed_bar_name(self):
+        bar = FULL_BAR.replace("../common", self.layouts_dir + "/common").replace('"name": "bar"', '"name": "panel"')
+        self.user_layout("themed", bar=bar)
+        self.assert_problem("themed", "warning", '"name": "panel" is a class GTK themes style')
 
     def test_desktop_buttons_count_as_a_switcher(self):
         bar = FULL_BAR.replace("../common", self.layouts_dir + "/common").replace(

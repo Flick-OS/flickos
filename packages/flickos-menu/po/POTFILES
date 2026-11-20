@@ -1,0 +1,6 @@
+# Files with text to translate, relative to the package folder.
+# tools/update-po.sh flickos-menu reads them into flickos-menu.pot.
+usr/bin/flickos-menu
+usr/share/flickos/menu/quick.py
+usr/share/flickos/menu/phone.py
+usr/share/flickos/menu/osd.py

@@ -1,0 +1,28 @@
+flickos-hooks (1.1) trixie; urgency=medium
+
+  * Release of 1.1~test1: the events screens, phone-connected, phone-
+    disconnected, changed, screenshot and recording.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:22 +0800
+
+flickos-hooks (1.1~test1) trixie; urgency=medium
+
+  * The events screens, phone-connected, phone-disconnected, changed,
+    screenshot and recording (hooks design, phase 2).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:56 +0800
+
+flickos-hooks (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1: your own programs on locked, unlocked and
+    woke.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:00:23 +0800
+
+flickos-hooks (1.0~test1) trixie; urgency=medium
+
+  * Hooks (docs/design/flickos-hooks.md, phase 1): run your own programs
+    when the screen locks or unlocks or the computer wakes. Nothing runs
+    while there are no hooks.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 19:54:45 +0800

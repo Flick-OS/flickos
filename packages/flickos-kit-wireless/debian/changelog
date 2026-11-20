@@ -1,0 +1,18 @@
+flickos-kit-wireless (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test2: the first version (flickos-security.md).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 22:27:12 +0800
+
+flickos-kit-wireless (1.0~test2) trixie; urgency=medium
+
+  * tests/test_kit.py: one copy for the study, classroom and security
+    kits.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:47:07 +0800
+
+flickos-kit-wireless (1.0~test1) trixie; urgency=medium
+
+  * A security kit, opt-in (docs/design/flickos-security.md, phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 15:20:09 +0800

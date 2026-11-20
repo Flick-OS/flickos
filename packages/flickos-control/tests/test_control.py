@@ -1,5 +1,6 @@
 """Tests for usr/bin/flickos-control. Run: python3 -m unittest discover -s tests"""
 
+import base64
 import configparser
 import datetime
 import gzip
@@ -13,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import xml.etree.ElementTree as ET
 from unittest import mock
@@ -69,6 +71,9 @@ class ParseTest(unittest.TestCase):
         on = {"text": " ", "alt": "master-stack", "class": ["on", "master-stack"], "ratio": 55, "gap": 8}
         self.assertEqual(fc.tiler_state(json.dumps(off)), fc.TilerState(False, "columns", 60, 4))
         self.assertEqual(fc.tiler_state(json.dumps(on)), fc.TilerState(True, "master-stack", 55, 8))
+        # flick-tiler 1.12 adds tile_open.
+        self.assertEqual(fc.tiler_state(json.dumps(dict(on, tile_open=False))),
+                         fc.TilerState(True, "master-stack", 55, 8, False))
         # flick-tiler before 1.3 had neither.
         self.assertEqual(fc.tiler_state('{"alt": "grid", "class": ["on", "grid"]}'), fc.TilerState(True, "grid"))
         with self.assertRaises(fc.ControlError):
@@ -88,6 +93,18 @@ class ParseTest(unittest.TestCase):
         state = fc.layout_state(json.dumps(choices))
         self.assertEqual(state.choices["quick-settings"], [fc.Item("off", "Off"), fc.Item("on", "On", "Panel")])
         self.assertEqual(state.current["quick-settings"], "off")
+        self.assertFalse(state.floating_offered)                # flickos-layouts before 1.76
+        choices["floating-panel"] = {"current": "off", "offered": True,
+                                     "choices": [{"id": "off", "name": "Off"}, {"id": "on", "name": "On"}]}
+        state = fc.layout_state(json.dumps(choices))
+        self.assertEqual(state.current["floating-panel"], "off")
+        self.assertTrue(state.floating_offered)
+        self.assertNotIn("buttons", state.choices)              # flickos-layouts before 1.84
+        choices["buttons"] = {"current": "layout", "choices": [{"id": "layout", "name": "Follow the layout"},
+                                                              {"id": "left", "name": "Left"}]}
+        state = fc.layout_state(json.dumps(choices))
+        self.assertEqual(state.choices["buttons"], [fc.Item("layout", "Follow the layout"), fc.Item("left", "Left")])
+        self.assertEqual(state.current["buttons"], "layout")
         del choices["menu-style"]
         for text in ("", "[]", json.dumps(choices)):
             with self.assertRaises(fc.ControlError):
@@ -144,6 +161,13 @@ class ParseTest(unittest.TestCase):
         state = fc.layout_state(json.dumps(choices))
         self.assertEqual(state.yours, frozenset({"bar"}))
         self.assertEqual(state.choices["layout"][1], fc.Item("bar", "Bar", "Mine · Yours"))
+
+    def test_layout_state_pinned(self):
+        choices = {kind: {"current": "a", "choices": [{"id": "a", "name": "A", "comment": ""}]}
+                   for kind in fc.LAYOUT_KINDS}
+        self.assertIsNone(fc.layout_state(json.dumps(choices)).pinned)     # before flickos-layouts 1.70
+        choices["pinned"] = {"layout": "a", "shown": True, "apps": []}
+        self.assertEqual(fc.layout_state(json.dumps(choices)).pinned["layout"], "a")
 
     def test_layout_state_trying(self):
         choices = {kind: {"current": "a", "choices": [{"id": "a", "name": "A", "comment": ""}]}
@@ -402,7 +426,7 @@ class SettingsTest(unittest.TestCase):
         rules = self.write("evdev.lst", RULES)
         self.keyboard = self.write("default-keyboard", KEYBOARD_FILE)
         self.locale = self.write("default-locale", 'LANG=en_US.UTF-8\nLC_TIME="en_GB.UTF-8"\n')
-        for name, value in (("SYSTEM_CONF_DIR", os.path.join(self.tmp, "etc")), ("XKB_RULES", rules),
+        for name, value in (("SYSTEM_CONF_DIR", os.path.join(self.tmp, "etc")), ("SITE_CONF_DIR", os.path.join(self.tmp, "site")), ("XKB_RULES", rules),
                             ("KEYBOARD_DEFAULTS", self.keyboard), ("LOCALE_DEFAULTS", self.locale)):
             patcher = mock.patch.object(fc, name, value)
             patcher.start()
@@ -495,6 +519,22 @@ class SettingsTest(unittest.TestCase):
         self.assertIn("next login", out)
         self.assertFalse(os.path.exists(os.path.join(self.control, "labwc.xml")))
 
+    def test_window_shadows(self):
+        """On in the system rc.xml, so nothing is written until it is changed;
+        off is a <theme> option, and default stores on (labwc keeps a value
+        that disappears)."""
+        self.assertFalse(os.path.exists(os.path.join(self.control, "labwc.xml")))
+        self.assertEqual(self.set("windows.shadows", "no")[0], 0)
+        self.assertEqual(self.fragment().find("theme/dropShadows").text, "no")
+        self.assertEqual(self.set("windows.shadows", "default")[0], 0)
+        self.assertEqual(self.fragment().find("theme/dropShadows").text, "yes")
+        with open(fc.user_file("windows"), encoding="utf-8") as f:
+            self.assertIn("Shadows=yes\n", f.read())
+
+    def test_window_shadows_can_be_found_and_undone(self):
+        self.assertEqual(fc.HISTORY_LABELS[(fc.HISTORY_OWNER, "windows.shadows")], "Window shadows")
+        self.assertIn("shadows", fc.SEARCH_KEYWORDS["accessibility"])
+
     def test_zoom(self):
         """Accessibility: labwc's <magnifier>, the area as width and height."""
         magnifier = lambda: {o.tag: o.text for o in self.fragment().find("magnifier")}
@@ -542,6 +582,42 @@ class SettingsTest(unittest.TestCase):
             fc.main(["get", "touchpad.tap"])
             fc.main(["get", "mouse.pointer-speed"])
         self.assertEqual(out.getvalue().splitlines(), ["touchpad.tap\tyes\tuser", "mouse.pointer-speed\t0.00\tdefault"])
+
+    def test_site_defaults_go_between_the_system_and_the_user(self):
+        self.write("etc/input.conf", "[Touchpad]\nTap=no\n[Mouse]\nPointerSpeed=0.5\n")
+        self.write("site/input.conf", "[Touchpad]\nTap=yes\n")
+        with mock.patch.object(fc, "warn"):
+            values, sources = fc.load_values()
+        self.assertEqual(values, {"touchpad.tap": "yes", "mouse.pointer-speed": "0.50"})
+        self.assertEqual(sources, {"touchpad.tap": "site", "mouse.pointer-speed": "system"})
+        with mock.patch.object(fc, "warn"):
+            self.set("touchpad.tap", "no")
+            self.assertEqual(fc.load_values()[1]["touchpad.tap"], "user")
+
+    def test_a_broken_site_file_is_left_out(self):
+        self.write("etc/input.conf", "[Touchpad]\nTap=no\n")
+        self.write("site/input.conf", "[Touchpad]\nTap=maybe\n")
+        with mock.patch.object(fc, "warn") as warn:
+            values = fc.load_values()[0]
+        warn.assert_called_once()
+        self.assertEqual(values, {"touchpad.tap": "no"})
+
+    def test_apply_defaults_in_the_session(self):
+        self.write("site/input.conf", "[Touchpad]\nTap=no\n")
+        os.environ.update(WAYLAND_DISPLAY="wayland-0", LABWC_PID="1")
+        with mock.patch.object(fc, "restart_idle") as idle, \
+                mock.patch.object(fc, "restart_night_light") as night_light, \
+                mock.patch.object(fc, "live_session", return_value=False):
+            self.assertEqual(fc.main(["apply-defaults"]), 0)
+        idle.assert_called_once()
+        night_light.assert_called_once()
+        with open(os.path.join(self.control, "labwc.xml"), encoding="utf-8") as f:
+            self.assertIn('<tap>no</tap>', f.read())
+
+    def test_apply_defaults_outside_a_session(self):
+        with mock.patch.object(fc, "restart_idle") as idle, mock.patch.object(fc, "warn"):
+            self.assertEqual(fc.main(["apply-defaults"]), 1)
+        idle.assert_not_called()
 
     def test_the_conffiles_document_real_settings(self):
         """Uncommented, the examples in input.conf and keyboard.conf are valid.
@@ -630,19 +706,56 @@ class IdleTest(SettingsTest):
         patcher = mock.patch.object(fc, "PROC", self.proc)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Never the build host's flickos-lock: tests that want it give a stand-in.
+        patcher = mock.patch.object(fc, "FLICKOS_LOCK", os.path.join(self.tmp, "no-flickos-lock"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_command(self):
         self.assertEqual(fc.SWAYLOCK, "swaylock -f -c 383c4a")
         self.assertEqual(fc.LOCK_SCREEN, "flickos-control lock")
-        self.assertEqual(fc.idle_command({}), ["swayidle", "-w", "timeout", "300", fc.LOCK_SCREEN,
+        self.assertEqual(fc.LOCK_SCREEN_IDLE, "flickos-control lock --grace")
+        self.assertEqual(fc.idle_command({}), ["swayidle", "-w", "timeout", "300", fc.LOCK_SCREEN_IDLE,
                                                "timeout", "900", fc.SUSPEND, "before-sleep", fc.LOCK_SCREEN,
-                                               "lock", fc.LOCK_SCREEN])
-        # Never: left out; the lock before sleep and on logind's request stay.
+                                               "after-resume", fc.WOKE_COMMAND, "lock", fc.LOCK_SCREEN])
+        # Never: left out; the lock before sleep, the hooks and logind's request stay.
         self.assertEqual(fc.idle_command({"idle.lock-after": "0", "idle.suspend-after": "0"}),
-                         ["swayidle", "-w", "before-sleep", fc.LOCK_SCREEN, "lock", fc.LOCK_SCREEN])
+                         ["swayidle", "-w", "before-sleep", fc.LOCK_SCREEN, "after-resume", fc.WOKE_COMMAND,
+                          "lock", fc.LOCK_SCREEN])
         # No lock before sleep: only logind's request still locks.
-        self.assertEqual(fc.idle_command({"idle.lock-before-sleep": "no"})[-4:],
-                         ["900", fc.SUSPEND, "lock", fc.LOCK_SCREEN])
+        self.assertEqual(fc.idle_command({"idle.lock-before-sleep": "no"})[-6:],
+                         ["900", fc.SUSPEND, "after-resume", fc.WOKE_COMMAND, "lock", fc.LOCK_SCREEN])
+
+    def test_woke_command_runs_hooks_only_when_there_is_a_folder(self):
+        """What swayidle does with it: sh -c, with a stand-in flickos-hooks on PATH."""
+        bin_dir = os.path.join(self.tmp, "wokebin")
+        os.makedirs(bin_dir)
+        stand_in = os.path.join(bin_dir, "flickos-hooks")
+        with open(stand_in, "w", encoding="utf-8") as f:
+            f.write('#!/bin/sh\necho "$@" >> "$(dirname "$0")/ran"\n')
+        os.chmod(stand_in, 0o755)
+        home = os.path.join(self.tmp, "wokehome")
+        os.makedirs(home)
+        base = {"PATH": bin_dir + ":/usr/bin:/bin", "HOME": home}
+
+        def wake(env):
+            result = subprocess.run(["sh", "-c", fc.WOKE_COMMAND], env=env, capture_output=True, text=True)
+            time.sleep(0.3)         # setsid -f returns before the stand-in has run
+            return result
+
+        ran = os.path.join(bin_dir, "ran")
+        result = wake(base)
+        self.assertEqual((result.returncode, result.stderr), (0, ""))       # no folder: nothing, and not a failure
+        self.assertFalse(os.path.exists(ran))
+        os.makedirs(os.path.join(home, ".config/flickos/hooks/woke.d"))     # $HOME/.config when XDG isn't set
+        self.assertEqual(wake(base).returncode, 0)
+        with open(ran, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "run woke\n")
+        os.unlink(ran)
+        other = os.path.join(self.tmp, "otherconfig")
+        os.makedirs(os.path.join(other, "flickos/hooks/woke.d"))
+        wake({**base, "XDG_CONFIG_HOME": other, "HOME": os.path.join(self.tmp, "nowhere")})
+        self.assertTrue(os.path.exists(ran))
 
     def test_idle_execs_swayidle_with_the_mark(self):
         self.set("idle.lock-after", "600")
@@ -650,7 +763,7 @@ class IdleTest(SettingsTest):
              mock.patch.object(fc.os, "execvpe") as execvpe:
             fc.main(["idle"])
         command, args, env = execvpe.call_args.args
-        self.assertEqual(args[:5], ["swayidle", "-w", "timeout", "600", fc.LOCK_SCREEN])
+        self.assertEqual(args[:5], ["swayidle", "-w", "timeout", "600", fc.LOCK_SCREEN_IDLE])
         self.assertEqual(env[fc.IDLE_MARK], "1")
 
     def test_nothing_in_the_live_session(self):
@@ -698,7 +811,8 @@ class IdleTest(SettingsTest):
     def test_lock_command(self):
         self.assertEqual(self.set("lock.background", "wallpaper"),
                          (0, "Saved. The screen locks this way from now on.\n"))
-        with mock.patch.object(fc.shutil, "which", return_value="/usr/bin/swaylock"), \
+        with mock.patch.object(fc.shutil, "which", side_effect=lambda n: "/usr/bin/swaylock" if n == "swaylock"
+                               else None), \
              mock.patch.object(fc, "wallpaper_images", return_value=[(None, "/w.jpg", "fill")]), \
              mock.patch.object(fc.os, "execvp") as execvp:
             fc.main(["lock"])
@@ -706,6 +820,57 @@ class IdleTest(SettingsTest):
                                                               "-s", "fill"]))
         with mock.patch.object(fc, "warn"):
             self.assertEqual(self.set("lock.background", "blurred")[0], 1)
+
+    def test_lock_in_the_styles_colors(self):
+        """flickos-layout's style/swaylock with -C, unless swaylock has a config of its own."""
+        os.environ["HOME"] = os.path.join(self.tmp, "home")
+        system = os.path.join(self.tmp, "etc-swaylock")      # not the build host's /etc
+        self.assertEqual(fc.SWAYLOCK_CONFIGS[2], "/etc/swaylock/config")
+        patcher = mock.patch.object(fc, "SWAYLOCK_CONFIGS", fc.SWAYLOCK_CONFIGS[:2] + (system,))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        style = self.write("run/flickos/style/swaylock", "color=383c4aff\n")
+        styled = ["swaylock", "-f", "-C", style, *fc.SWAYLOCK_OPTIONS]
+        self.assertEqual(fc.lock_command({}), styled)
+        self.assertEqual(fc.lock_command({"lock.background": "wallpaper"}, [(None, "/p/a.jpg", "fill")]),
+                         styled + ["-i", "/p/a.jpg", "-s", "fill"])
+        for own in ("home/.swaylock/config", "config/swaylock/config", "etc-swaylock"):
+            path = self.write(own, "color=000000\n")
+            self.assertEqual(fc.lock_command({}), ["swaylock", "-f", "-c", "383c4a"], own)
+            os.unlink(path)
+        os.unlink(style)                    # flickos-layouts before 1.64
+        self.assertEqual(fc.lock_command({}), ["swaylock", "-f", "-c", "383c4a"])
+
+    def test_flickos_lock_when_installed(self):
+        """flickos-lock (docs/design/flickos-lock.md) with the same background,
+        --grace only for swayidle's idle timeout; swaylock while swaylock has a
+        config of its own (ADR-009's way back)."""
+        os.environ["HOME"] = os.path.join(self.tmp, "home")
+        stand_in = self.write("flickos-lock", "#!/bin/sh\n")
+        os.chmod(stand_in, 0o755)
+        system = os.path.join(self.tmp, "etc-swaylock")
+        for name, value in (("FLICKOS_LOCK", stand_in), ("SWAYLOCK_CONFIGS", fc.SWAYLOCK_CONFIGS[:2] + (system,))):
+            patcher = mock.patch.object(fc, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        images = [("DP-1", "/p/a.jpg", "fit"), (None, "/p/b.jpg", "fit"), (None, "/p/c:d.jpg", "fit")]
+        self.assertEqual(fc.lock_command({}), [stand_in, "lock"])
+        self.assertEqual(fc.lock_command({}, grace=True), [stand_in, "lock", "--grace"])
+        self.assertEqual(fc.lock_command({"lock.background": "wallpaper"}, images, grace=True),
+                         [stand_in, "lock", "--image", "DP-1:/p/a.jpg", "--image", "/p/b.jpg", "--scaling", "fit",
+                          "--grace"])
+        self.assertEqual(fc.lock_command({"lock.background": "wallpaper"}, []), [stand_in, "lock"])
+        path = self.write("config/swaylock/config", "color=000000\n")
+        self.assertEqual(fc.lock_command({}, grace=True), ["swaylock", "-f", "-c", "383c4a"])
+        os.unlink(path)
+        with mock.patch.object(fc.os, "execvp") as execvp:
+            fc.main(["lock", "--grace"])
+        self.assertEqual(execvp.call_args.args, (stand_in, [stand_in, "lock", "--grace"]))
+
+    def test_lock_needs_its_program(self):
+        with mock.patch.object(fc.shutil, "which", return_value=None), mock.patch.object(fc, "warn") as warned:
+            self.assertEqual(fc.main(["lock"]), 1)
+        self.assertIn("swaylock is not installed", warned.call_args.args[0])
 
     def test_duration_names(self):
         self.assertEqual([fc.duration_name(s) for s in (0, 60, 300, 3600, 7200, 90)],
@@ -1318,6 +1483,7 @@ Unattended-Upgrade::Package-Blacklist "";
 # whose Origin and Label it names.
 KEYRING_ORIGINS = os.path.join(PACKAGE, "../flickos-archive-keyring/etc/apt/apt.conf.d/51flickos-origins")
 REPO_DISTRIBUTIONS = os.path.join(PACKAGE, "../../repo/conf/distributions")
+STORE_NEW_REPO = os.path.join(PACKAGE, "../../server/store/new-repo.sh")
 
 
 class UpdatesTest(unittest.TestCase):
@@ -1364,10 +1530,18 @@ class UpdatesTest(unittest.TestCase):
         for pattern in patterns:
             self.assertNotIn(pattern, fc.UPDATE_SCOPES["security"])
             self.assertIn(pattern, fc.UPDATE_SCOPES["all"])
-        # One per distribution, FlickOS's own then the community's.
+        # One per distribution, FlickOS's own then the community's; not the
+        # testers' trixie-testing, which automatic updates never use.
         with open(REPO_DISTRIBUTIONS) as f:
             stanzas = [dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
                        for block in f.read().split("\n\n") if block.strip()]
+        stanzas = [s for s in stanzas if not s["Codename"].endswith("-testing")]
+        # Then the store's, whose repository is built outside repo/ (it holds the paid apps).
+        if os.path.exists(STORE_NEW_REPO):
+            with open(STORE_NEW_REPO) as f:
+                store = f.read().split('> "$DIR/conf/distributions" <<EOF\n', 1)[1].split("\nEOF", 1)[0]
+            stanzas.append(dict(line.split(": ", 1) for line in store.splitlines() if ": " in line))
+            stanzas[-1]["Codename"] = stanzas[-1]["Codename"].replace("$FLICKOS_DEBIAN", stanzas[0]["Codename"])
         release = stanzas[0]["Codename"]
         self.assertEqual(patterns, [f"origin={s['Origin']},codename=${{distro_codename}}"
                                     f"{s['Codename'].removeprefix(release)},label={s['Label']}" for s in stanzas])
@@ -1448,6 +1622,84 @@ class UsersTest(unittest.TestCase):
             self.assertEqual(fc.accounts(), [fc.Account("ann", "Ann Lee", 1001, "/home/ann", False),
                                              fc.Account("jon", "Jon", 1000, "/home/jon", True)])
 
+    def test_picture_is_cropped_to_the_middle(self):
+        self.assertEqual(fc.crop_square(400, 300), (50, 0, 300))
+        self.assertEqual(fc.crop_square(300, 401), (0, 50, 300))
+        self.assertEqual(fc.crop_square(5, 5), (0, 0, 5))
+
+    def test_picture_file_is_small_and_square(self):
+        try:
+            import gi
+            gi.require_version("GdkPixbuf", "2.0")
+            from gi.repository import GdkPixbuf
+        except (ImportError, ValueError):
+            self.skipTest("no GdkPixbuf")
+        with tempfile.TemporaryDirectory() as folder:
+            source, target = os.path.join(folder, "photo.png"), os.path.join(folder, "picture.png")
+            for width, height, side in ((1200, 800, fc.PICTURE_PIXELS), (100, 60, 60)):
+                photo = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, width, height)
+                photo.fill(0x5294e2ff)
+                photo.savev(source, "png", [], [])
+                fc.write_picture(source, target)
+                written = GdkPixbuf.Pixbuf.new_from_file(target)
+                self.assertEqual((written.get_width(), written.get_height()), (side, side))
+            with open(source, "w", encoding="utf-8") as f:
+                f.write("not a picture")
+            with self.assertRaisesRegex(fc.ControlError, "photo.png can't be used as a picture"):
+                fc.write_picture(source, target)
+
+    def picture_command(self, *words):
+        """Run `picture WORDS` with a fake accountsservice; (exit code, the commands, the history)."""
+        commands, history = [], []
+
+        def run(command):
+            commands.append(command)
+            return 'o "/org/freedesktop/Accounts/User1000"\n'
+
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(fc, "PICTURES", folder), \
+             mock.patch.object(fc, "user_name", return_value="jo"), \
+             mock.patch.object(fc, "run", side_effect=run), \
+             mock.patch.object(fc, "record", side_effect=lambda *change: history.append(change)), \
+             mock.patch.object(fc, "write_picture") as write, \
+             mock.patch("sys.stdout", io.StringIO()) as stdout, \
+             mock.patch("sys.stderr", io.StringIO()):
+            with open(os.path.join(folder, "jo"), "w", encoding="utf-8") as f:
+                f.write("picture")
+            code = fc.main(["picture", *words])
+        self.printed = stdout.getvalue()
+        self.written = write.call_args
+        return code, commands, history
+
+    def test_picture_commands(self):
+        code, commands, history = self.picture_command("set", "/photos/me.jpg")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.written.args[0], "/photos/me.jpg")
+        self.assertEqual(commands[0], ["busctl", "call", *fc.ACCOUNTS, "FindUserById", "x", str(os.getuid())])
+        self.assertEqual(commands[1], ["busctl", "call", fc.ACCOUNTS[0], "/org/freedesktop/Accounts/User1000",
+                                       fc.ACCOUNTS_USER, "SetIconFile", "s", self.written.args[1]])
+        self.assertEqual(history, [("picture", "a picture", "me.jpg")])
+
+        code, commands, history = self.picture_command("set", "default")
+        self.assertEqual(code, 0)
+        self.assertIsNone(self.written)
+        self.assertEqual(commands[1][-3:], ["SetIconFile", "s", ""])
+        self.assertEqual(history, [("picture", "a picture", "none")])
+
+        self.assertEqual(self.picture_command("current")[0], 0)
+        self.assertTrue(self.printed.strip().endswith("/jo"))
+        self.assertEqual(self.picture_command("set")[0], 2)
+        self.assertEqual(self.picture_command("current", "x")[0], 2)
+
+    def test_no_picture(self):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(fc, "PICTURES", folder):
+            self.assertIsNone(fc.picture_file())
+
+    def test_history_shows_the_picture_but_cannot_put_it_back(self):
+        change = fc.Change("1", None, fc.HISTORY_OWNER, fc.PICTURE_KEY, "none", "me.jpg")
+        self.assertEqual(fc.history_label(fc.HISTORY_OWNER, fc.PICTURE_KEY), "Your picture")
+        self.assertFalse(fc.can_undo(change))
+
     def test_suggested_user_names(self):
         self.assertEqual(fc.suggest_user_name("Ann Lee"), "ann")
         self.assertEqual(fc.suggest_user_name("Ann Lee", taken={"ann"}), "annlee")
@@ -1459,10 +1711,10 @@ class UsersTest(unittest.TestCase):
 
     def test_problems(self):
         self.assertIsNone(fc.user_name_problem("ann-lee_2", {"jon"}))
-        for name in ("", "Ann", "2ann", "ann lee", "ann;id", "a" * 33, "jon"):
+        for name in ("", "Ann", "2ann", "ann lee", "ann;id", "a" * 33, "jon", "ann\n"):
             self.assertIsNotNone(fc.user_name_problem(name, {"jon"}), name)
         self.assertIsNone(fc.full_name_problem("Ann Lee-Roth"))
-        for full_name in ("Ann, Lee", "Ann:Lee", "a=b", "back\\slash", "new\nline", "x" * 101):
+        for full_name in ("Ann, Lee", "Ann:Lee", "a=b", "back\\slash", "new\nline", "x" * 101, "--system"):
             self.assertIsNotNone(fc.full_name_problem(full_name), full_name)
         self.assertIsNone(fc.password_problem("secret", "secret"))
         self.assertIsNotNone(fc.password_problem("", ""))
@@ -1488,6 +1740,10 @@ class AboutTest(unittest.TestCase):
         with open(path, "w") as f:
             f.write(text)
         return path
+
+    def read_file(self, path):
+        with open(path, encoding="utf-8") as f:
+            return f.read()
 
     def test_release_file(self):
         # Shaped like flickos-branding's usr/lib/flickos-release.
@@ -1524,6 +1780,82 @@ class AboutTest(unittest.TestCase):
              mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(fc.main(["about"]), 0)
         self.assertEqual(out.getvalue(), "x\n")
+
+    def report_folder(self, **logs):
+        """The runtime folder with these logs, and a flickos-layout that
+        finds a problem (exit code 1, as doctor does)."""
+        for name, text in logs.items():
+            self.write(f"run/flickos/{'lock/lock.log' if name == 'lock' else 'panel.log'}", text)
+        os.makedirs(os.path.join(self.tmp, "run"), exist_ok=True)
+        layout = self.write("flickos-layout", f"#!/bin/sh\necho \"$1: {self.tmp}/home/.config/waybar\"\nexit 1\n")
+        os.chmod(layout, 0o755)
+        for patch in (mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": os.path.join(self.tmp, "run"),
+                                                   "HOME": os.path.join(self.tmp, "home")}),
+                      mock.patch.object(fc, "LAYOUT", layout),
+                      mock.patch.object(fc, "system_info_text", return_value="FlickOS: FlickOS 2.0\n")):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_report_leaves_out_whose_computer_it_is(self):
+        user = fc.pwd.getpwuid(os.getuid()).pw_name
+        uname = mock.Mock(nodename="flickos")
+        with mock.patch.dict(os.environ, {"HOME": "/home/ann"}), mock.patch.object(fc.os, "uname", return_value=uname):
+            self.assertEqual(fc.without_names("open /home/ann/a.txt"), "open ~/a.txt")
+            self.assertEqual(fc.without_names(f"{user}@flickos: ok"), "[user]@[computer]: ok")
+            # Not a whole word outside a path: it stays readable.
+            self.assertEqual(fc.without_names("/usr/share/flickos/x flickos-layout: ok"),
+                             "/usr/share/flickos/x flickos-layout: ok")
+            self.assertEqual(fc.without_names("GET https://example.org/a?key=1 failed, file:///x too"),
+                             "GET [address] failed, [address] too")
+            self.assertEqual(fc.without_names("\x1b[90m[main]\x1b[0m ok"), "[main] ok")
+
+    def test_report_counts_repeats_at_their_last_place(self):
+        self.assertEqual(fc.repeats_counted(["11:13:28 no cursor", "", "panel died", "11:13:30 no cursor"]),
+                         ["panel died", "11:13:30 no cursor  (× 2)"])
+
+    def test_report_keeps_the_end_of_a_long_log(self):
+        self.report_folder(panel="".join(f"line {'x' * n}\n" for n in range(fc.REPORT_LOG_LINES + 5)))
+        lines = fc.report_log("panel.log").splitlines()
+        self.assertEqual(len(lines), fc.REPORT_LOG_LINES)
+        self.assertEqual(lines[-1], "line " + "x" * (fc.REPORT_LOG_LINES + 4))
+
+    def test_report_reads_a_log_that_is_not_text(self):
+        self.report_folder()
+        os.makedirs(os.path.join(self.tmp, "run/flickos"))
+        with open(os.path.join(self.tmp, "run/flickos/panel.log"), "wb") as f:
+            f.write(b"bad \xff byte\n")
+        self.assertEqual(fc.report_log("panel.log"), "bad \ufffd byte")
+
+    def test_report_has_every_part(self):
+        self.report_folder(panel="waybar died\n", lock="locked\n")
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(fc.main(["report"]), 0)
+        text = out.getvalue()
+        self.assertIn("Nothing has been sent.", text)
+        self.assertIn("== System ==\nFlickOS: FlickOS 2.0\n", text)
+        self.assertIn("== Desktop check ==\ndoctor: ~/.config/waybar\n", text)
+        self.assertIn("== Panel log ==\nwaybar died\n", text)
+        self.assertIn("== Lock screen log ==\nlocked\n", text)
+
+    def test_report_without_logs_or_a_runtime_folder(self):
+        self.report_folder()
+        self.assertIn("== Panel log ==\nNothing logged since login.\n", fc.report_text())
+        with mock.patch.dict(os.environ):
+            del os.environ["XDG_RUNTIME_DIR"]
+            self.assertIn("== Lock screen log ==\nNothing logged since login.\n", fc.report_text())
+
+    def test_report_without_flickos_layout(self):
+        self.report_folder()
+        with mock.patch.object(fc, "LAYOUT", os.path.join(self.tmp, "missing")):
+            self.assertIn("== Desktop check ==\nThe check did not run.\n", fc.report_text())
+
+    def test_saving_a_report(self):
+        self.report_folder(panel="waybar died\n")
+        path = os.path.join(self.tmp, "report.txt")
+        fc.save_report(path)
+        self.assertIn("waybar died", self.read_file(path))
+        with self.assertRaisesRegex(fc.ControlError, "Choose another folder"):
+            fc.save_report(os.path.join(path, "report.txt"))    # a file where a folder should be
 
     def test_plain_session(self):
         with mock.patch.object(fc, "FLICKOS_RELEASE", self.write("flickos-release", 'FLICKOS_VERSION="2.2"\n')), \
@@ -1651,7 +1983,11 @@ class HelperTest(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         by_uid = {uid: name for name, uid in users.items()}
+        pictures = tempfile.TemporaryDirectory()
+        self.addCleanup(pictures.cleanup)
+        self.pictures = pictures.name
         for patcher in (mock.patch.dict(os.environ, {"PKEXEC_UID": str(users.get(caller, ""))}),
+                        mock.patch.object(helper, "PICTURES", pictures.name),
                         mock.patch.object(helper.os, "geteuid", return_value=0),
                         mock.patch.object(helper.pwd, "getpwnam", side_effect=getpwnam),
                         mock.patch.object(helper.pwd, "getpwuid", side_effect=lambda uid: getpwnam(by_uid[uid])),
@@ -1669,7 +2005,8 @@ class HelperTest(unittest.TestCase):
         with mock.patch("sys.stdin", io.StringIO("pass:word 1\nignored\n")):
             self.assertEqual(helper.main(["user-add", "ann", "Ann Lee", "yes"]), 0)
         groups = "cdrom,floppy,audio,dip,video,plugdev,netdev,lpadmin,bluetooth,sudo"
-        self.assertEqual(runs, [(["adduser", "--quiet", "--disabled-password", "--comment", "Ann Lee", "ann"], None),
+        self.assertEqual(runs, [(["adduser", "--quiet", "--disabled-password", "--comment=Ann Lee", "--", "ann"],
+                                 None),
                                 (["chpasswd"], "ann:pass:word 1\n"),
                                 (["usermod", "--append", "--groups", groups, "ann"], None)])
         runs.clear()
@@ -1682,10 +2019,29 @@ class HelperTest(unittest.TestCase):
         for args, stdin in ((["jon", "Jon", "no"], "secret\n"), (["Ann", "Ann", "no"], "secret\n"),
                             (["-ann", "Ann", "no"], "secret\n"), (["ann", "Ann, Lee", "no"], "secret\n"),
                             (["ann", "Ann", "maybe"], "secret\n"), (["ann", "Ann", "no"], "\n"),
-                            (["ann", "Ann", "no"], ""), (["ann", "Ann"], "secret\n")):
+                            (["ann", "Ann", "no"], ""), (["ann", "Ann"], "secret\n"),
+                            # Audit F-1: a full name read as adduser's options; F-2: a name
+                            # with a newline after it, which adduser made and userdel then missed.
+                            (["ann", "--system", "no"], "secret\n"), (["ann", "-q", "no"], "secret\n"),
+                            (["ann\n", "Ann", "no"], "secret\n")):
             with mock.patch("sys.stdin", io.StringIO(stdin)):
                 self.assertEqual(helper.main(["user-add", *args]), 1, args)
         self.assertEqual(runs, [])
+
+    def test_argument_checks_take_the_whole_value(self):
+        """A trailing newline passes a "^...$" pattern's match(); the helper's
+        checks use fullmatch (audit F-2), so it reaches no file and no tool."""
+        self.assertIsNone(helper.USER_NAME.fullmatch("ann\n"))
+        self.assertIsNotNone(helper.USER_NAME.match("ann\n"))        # why: match() would take it
+        for pattern, value in ((helper.LOCALE_WORD, "en_US.UTF-8\n"), (helper.DEB_PACKAGE, "gimp\n"),
+                               (helper.TRANSACTION_ID, "2026-11-18T10:00:00\n"), (helper.PRODUCT, "write\n"),
+                               (helper.BACKGROUND_NAME, "a.png\n")):
+            self.assertIsNone(pattern.fullmatch(value), value)
+        with open(_helper_loader.path, encoding="utf-8") as f:
+            source = f.read()
+        for name in ("USER_NAME", "LOCALE_WORD", "LANGUAGE_LIST", "DEB_PACKAGE", "PRODUCT", "TRANSACTION_ID",
+                     "BACKGROUND_NAME", "LOCAL_PORT", "KEY_PATTERN", "RELEASE_NAME"):
+            self.assertNotIn(f"{name}.match(", source, name)
 
     def test_user_add_is_undone_when_the_password_fails(self):
         runs = self.account_mocks({"jon": 1000}, ["jon"])
@@ -1702,7 +2058,11 @@ class HelperTest(unittest.TestCase):
 
     def test_user_remove(self):
         runs = self.account_mocks({"jon": 1000, "ann": 1001, "root": 0}, ["jon"], caller="jon")
+        for name in ("ann", "jon"):
+            with open(os.path.join(self.pictures, name), "w", encoding="utf-8") as f:
+                f.write("picture")
         self.assertEqual(helper.main(["user-remove", "ann", "delete"]), 0)
+        self.assertEqual(os.listdir(self.pictures), ["jon"])    # a new ann doesn't get it
         self.assertEqual(helper.main(["user-remove", "ann", "keep"]), 0)
         self.assertEqual(runs, [(["userdel", "--remove", "ann"], None), (["userdel", "ann"], None)])
         runs.clear()
@@ -1762,6 +2122,88 @@ class HelperTest(unittest.TestCase):
             with self.assertRaisesRegex(helper.HelperError, "not installed"):
                 helper.cmd_firewall_on([])
 
+    def i386_mocks(self, foreign, packages, manual=(), also_removes=()):
+        """A fake dpkg and apt: foreign architectures, dpkg-query's lines for
+        packages ({name: (status, arch)}), apt-mark's manual ones, and what
+        apt-get -s purge removes besides what it is given. Purging removes the
+        packages from dpkg's list. Returns the changing commands run."""
+        runs = []
+        packages = dict(packages)
+
+        def run(cmd, **_kw):
+            if cmd[1:] == ["--print-foreign-architectures"]:
+                return subprocess.CompletedProcess(cmd, 0, "".join(a + "\n" for a in foreign), "")
+            if cmd[0] == helper.DPKG_QUERY:
+                lines = "".join(f"{status}\t{name}:{arch}\t{arch}\n" for name, (status, arch) in packages.items())
+                return subprocess.CompletedProcess(cmd, 0, lines, "")
+            if cmd[0] == helper.APT_MARK:
+                return subprocess.CompletedProcess(cmd, 0, "".join(m + "\n" for m in manual), "")
+            if cmd[:2] == [helper.APT_GET, "-s"]:
+                self.assertEqual(cmd[3], "remove")
+                names = [*cmd[4:], *also_removes]
+                return subprocess.CompletedProcess(cmd, 0, "".join(f"Remv {n} [1]\n" for n in names), "")
+            runs.append(cmd)
+            if cmd[0] == helper.APT_GET:
+                for name in cmd[5:]:
+                    packages[name.partition(":")[0]] = ("rc ", "i386")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        for patch in (mock.patch.object(helper.os, "geteuid", return_value=0),
+                      mock.patch.object(helper.subprocess, "run", side_effect=run), mock.patch("sys.stdout")):
+            patch.start()
+            self.addCleanup(patch.stop)
+        return runs
+
+    def test_i386_on(self):
+        runs = self.i386_mocks([], {})
+        self.assertEqual(helper.main(["i386-on"]), 0)
+        self.assertEqual(runs, [[helper.DPKG, "--add-architecture", "i386"]])
+        with mock.patch("sys.stderr"):
+            self.assertEqual(helper.main(["i386-on", "armhf"]), 1)
+        self.assertEqual(len(runs), 1)
+
+    def test_i386_on_twice_does_nothing(self):
+        runs = self.i386_mocks(["i386"], {})
+        self.assertEqual(helper.main(["i386-on"]), 0)
+        self.assertEqual(runs, [])
+
+    def test_i386_off_purges_leftover_config_files(self):
+        runs = self.i386_mocks(["i386"], {"libgl1-mesa-dri": ("rc ", "i386"), "wine64": ("ii ", "amd64"),
+                                          "wine32": ("un ", "i386")})
+        self.assertEqual(helper.main(["i386-off"]), 0)
+        self.assertEqual(runs, [[helper.DPKG, "--purge", "libgl1-mesa-dri:i386"],
+                                [helper.DPKG, "--remove-architecture", "i386"]])
+
+    def test_i386_off_refused_while_packages_someone_asked_for_are_installed(self):
+        runs = self.i386_mocks(["i386"], {"wine32": ("ii ", "i386"), "libc6": ("ii ", "i386")},
+                               manual=["wine64", "wine32:i386"])
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.assertEqual(helper.main(["i386-off"]), 1)
+        self.assertIn("still installed (wine32:i386): remove them first", err.getvalue())
+        self.assertEqual(runs, [])
+
+    def test_i386_off_purges_libraries_left_behind(self):
+        # apt never autoremoves libgcc-s1 (protected), nor libc6 it needs.
+        runs = self.i386_mocks(["i386"], {"libgcc-s1": ("ii ", "i386"), "libc6": ("ii ", "i386"),
+                                          "libpulse0": ("rc ", "i386")}, manual=["wine64"])
+        self.assertEqual(helper.main(["i386-off"]), 0)
+        self.assertEqual(runs, [[helper.APT_GET, "-y", "-q", "--allow-remove-essential", "purge", "libc6:i386",
+                                 "libgcc-s1:i386"],
+                                [helper.DPKG, "--purge", "libc6:i386", "libgcc-s1:i386", "libpulse0:i386"],
+                                [helper.DPKG, "--remove-architecture", "i386"]])
+
+    def test_i386_off_refused_when_it_would_remove_more(self):
+        runs = self.i386_mocks(["i386"], {"libc6": ("ii ", "i386")}, also_removes=["steam-installer"])
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.assertEqual(helper.main(["i386-off"]), 1)
+        self.assertIn("would also remove steam-installer", err.getvalue())
+        self.assertEqual(runs, [])
+
+    def test_i386_off_when_off(self):
+        runs = self.i386_mocks([], {})
+        self.assertEqual(helper.main(["i386-off"]), 0)
+        self.assertEqual(runs, [])
+
     def test_power(self):
         drop_in = os.path.join(self.tmp, "logind.conf.d", "60-flickos.conf")
         runs = []
@@ -1806,6 +2248,44 @@ class HelperTest(unittest.TestCase):
                                        "en_US.UTF-8 UTF-8\nfil_PH UTF-8\n")
         self.assertEqual([list(cmd) for cmd in runs], [list(helper.LOCALE_GEN_COMMAND)] * 2)
         self.assertIsNone(helper.enable_locale("en_US.UTF-8 UTF-8\n", "en_US.UTF-8"))
+
+    def test_locale(self):
+        """The system's language: written to locale.conf, through the link
+        /etc/default/locale is in trixie (localed refuses SetLocale)."""
+        self.assertEqual(helper.LOCALE_NAMES, fc.LOCALE_VARS)
+
+        def write_file(name, text):
+            path = os.path.join(self.tmp, name)
+            with open(path, "w") as f:
+                f.write(text)
+            return path
+
+        supported = write_file("SUPPORTED", SUPPORTED)
+        conf = write_file("locale.conf", "LANG=en_US.UTF-8\n")
+        defaults = os.path.join(self.tmp, "default-locale")
+        os.symlink("locale.conf", defaults)
+        with mock.patch.object(helper, "I18N_SUPPORTED", supported), mock.patch.object(helper, "LOCALE_CONF", conf), \
+             mock.patch.object(helper, "LOCALE_DEFAULTS", defaults), \
+             mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"):
+            # Out of order, an old-style name (utf8) and a non-UTF-8 locale the installer may write.
+            self.assertEqual(helper.main(["locale", "LC_TIME=fil_PH", "LANGUAGE=de_DE:de", "LANG=de_DE.utf8"]), 0)
+            with mock.patch("sys.stderr"):
+                for args in ([], ["LC_TIME=de_DE.UTF-8"], ["LANG=xx_YY.UTF-8"], ["LANG=de_DE.UTF-8\nLC_ALL=C"],
+                             ["LANG=de_DE.UTF-8", "LANG=C"], ["PATH=/tmp"], ["LANG"], ["LANG=../de_DE.UTF-8"],
+                             ["LANG=C", "LANGUAGE=de de"]):
+                    self.assertEqual(helper.main(["locale", *args]), 1, args)
+            self.assertTrue(os.path.islink(defaults))
+            with open(defaults) as f:
+                self.assertEqual(f.read(), helper.LOCALE_HEADER + "LANG=de_DE.utf8\nLANGUAGE=de_DE:de\nLC_TIME=fil_PH\n")
+            self.assertEqual(fc.system_locale(defaults), {"LANG": "de_DE.utf8", "LANGUAGE": "de_DE:de",
+                                                         "LC_TIME": "fil_PH"})
+            # An older system's /etc/default/locale of its own is written too.
+            os.unlink(defaults)
+            write_file("default-locale", "LANG=en_US.UTF-8\n")
+            self.assertEqual(helper.main(["locale", "LANG=C.UTF-8", "LC_NUMERIC=sr_RS@latin"]), 0)
+            for path in (conf, defaults):
+                with open(path) as f:
+                    self.assertEqual(f.read(), helper.LOCALE_HEADER + "LANG=C.UTF-8\nLC_NUMERIC=sr_RS@latin\n")
 
     def test_updates(self):
         drop_in = os.path.join(self.tmp, "60flickos-updates")
@@ -1904,7 +2384,7 @@ class HelperTest(unittest.TestCase):
     def test_the_policy_has_an_action_per_verb(self):
         top = ET.parse(os.path.join(PACKAGE, "usr/share/polkit-1/actions/org.flickos.control.policy")).getroot()
         argv1 = {a.find("annotate[@key='org.freedesktop.policykit.exec.argv1']").text for a in top.iter("action")}
-        self.assertEqual(argv1, set(helper.VERBS) - set(helper.READ_ONLY))
+        self.assertEqual(argv1, set(helper.VERBS) - set(helper.READ_ONLY) - set(helper.APT_HOOK))
         for action in top.iter("action"):
             self.assertEqual(action.find("annotate[@key='org.freedesktop.policykit.exec.path']").text,
                              "/usr/libexec/flickos/control-helper")
@@ -1990,6 +2470,12 @@ class HistoryTest(SettingsTest):
         self.set("touchpad.tap", "no")
         self.assertEqual(self.entries(), [])
 
+    def test_the_site_can_turn_it_off(self):
+        self.write("etc/history.conf", "[History]\nEnabled=yes\n")
+        self.write("site/history.conf", "[History]\nEnabled=no\n")
+        self.set("touchpad.tap", "no")
+        self.assertEqual(self.entries(), [])
+
     # Reading and shaping.
 
     def test_unreadable_lines_are_left_out(self):
@@ -2044,8 +2530,23 @@ class HistoryTest(SettingsTest):
                          [["flickos-layout", "menu-style", "set", "default"]])
         self.assertEqual(fc.undo_commands(change("flickos-layout", "quick-settings", "default", "on")),
                          [["flickos-layout", "quick-settings", "set", "default"]])
+        self.assertEqual(fc.undo_commands(change("flickos-layout", "floating-panel", "default", "on")),
+                         [["flickos-layout", "floating-panel", "set", "default"]])
+        self.assertEqual(fc.undo_commands(change("flickos-layout", "buttons", "default", "right")),
+                         [["flickos-layout", "buttons", "set", "default"]])
+        self.assertEqual(fc.undo_commands(change("flickos-layout", "pinned.cupertino", "default", "a.desktop")),
+                         [["flickos-layout", "pinned", "set", "--layout", "cupertino", "default"]])
+        self.assertEqual(fc.undo_commands(change("flickos-layout", "pinned.sf", "", "a.desktop")),
+                         [["flickos-layout", "pinned", "set", "--layout", "sf", ""]])
+        self.assertTrue(fc.restorable(change("flickos-layout", "pinned.sf", "", "a.desktop")))
+        self.assertEqual(fc.restore_commands([change("flickos-layout", "pinned.sf", "a.desktop", ""),
+                                              change("flickos-layout", "clock", "default", "12h")]),
+                         [["flickos-layout", "pinned", "set", "--layout", "sf", "a.desktop"],
+                          ["flickos-layout", "clock", "set", "default"]])
         self.assertEqual(fc.undo_commands(change("flick-tiler", "enabled", "off", "on")),
                          [["flick-tiler", "off"]])
+        self.assertEqual(fc.undo_commands(change("flick-tiler", "tile-open", "off", "on")),
+                         [["flick-tiler", "tile-open", "off"]])
         self.assertEqual(fc.undo_commands(change("flick-tiler", "ratio", "55", "70")),
                          [["flick-tiler", "ratio", "55"]])
         self.assertEqual(fc.undo_commands(change("flick-tiler", "floating", "a b", "a C d")),
@@ -2133,8 +2634,13 @@ class HistoryTest(SettingsTest):
         self.assertEqual(change("flick-tiler", "mode", "default", "grid"), ("Tiling arrangement: Grid",
                                                                             "Was the default"))
         self.assertEqual(change("flick-tiler", "ratio", "55", "70"), ("Main window width: 70 %", "Was 55 %"))
+        self.assertEqual(change("flick-tiler", "tile-open", "off", "on"), ("Tile open windows: on", "Was off"))
         self.assertEqual(change("flick-tiler", "floating", "a b", "a c"),
                          ("Apps that always float: c added; b removed", ""))
+        self.assertEqual(change("flickos-layout", "pinned.cupertino", "default", "foot.desktop;org.x.desktop"),
+                         ("Pinned apps of Cupertino: foot, org.x", "Was the layout's own"))
+        self.assertEqual(change("flickos-layout", "pinned.mine", "foot.desktop", ""),
+                         ("Pinned apps of mine: none", "Was foot"))
         self.assertEqual(change("flickos-brightness", "level", "50", "80"),
                          ("flickos-brightness level: 80", "Was 50"))
 
@@ -2318,7 +2824,8 @@ class SoftwareHelperTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in changes][:2], ["2026-09-03T12:19:54", "2026-09-03T13:10:03"])
         self.assertEqual(len(helper.software_changes(days=5, live=False, now=datetime.datetime(2026, 9, 12))), 4)
 
-    def plan(self, tid, installed, simulations, protected=frozenset()):
+    def plan(self, tid, installed, simulations, protected=frozenset(), transaction=None, depends=None,
+             running="6.12.1-test"):
         results = iter(simulations)
         calls = []
 
@@ -2326,9 +2833,68 @@ class SoftwareHelperTest(unittest.TestCase):
             calls.append(args)
             return next(results)
 
-        plan = helper.undo_plan(self.transaction(tid), simulate=simulate,
-                                installed=lambda names: set(names) & set(installed), protected=lambda: protected)
+        plan = helper.undo_plan(transaction or self.transaction(tid), simulate=simulate,
+                                installed=lambda names: set(names) & set(installed), protected=lambda: protected,
+                                depends=depends or (lambda names: {}), running=lambda: running)
         return plan, calls
+
+    def kernel_install(self):
+        """An install of Liquorix's meta-package. The versioned kernel it
+        brought in (7.2) is gone; updates have put 7.3 in its place."""
+        return {"id": "2026-11-05T21:00:00", "command": "apt-get install -y linux-image-liquorix-amd64",
+                "lists": {"Install": [("linux-image-liquorix-amd64", "amd64", "7.2-25.1"),
+                                      ("linux-image-7.2.15-2-liquorix-amd64", "amd64", "7.2-25.1, automatic")]}}
+
+    LIQUORIX = {"linux-image-liquorix-amd64": {"linux-image-7.3.4-3-liquorix-amd64"},
+                "linux-image-7.3.4-3-liquorix-amd64": {"initramfs-tools", "linux-base"}}
+
+    def liquorix_depends(self, names):
+        return {n: self.LIQUORIX[n] for n in names if n in self.LIQUORIX}
+
+    def test_undo_a_kernel_takes_the_kernel_it_depends_on_now(self):
+        # The log names 7.2.15 (gone); the meta-package now depends on 7.3.4.
+        installed = {"linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64", "initramfs-tools"}
+        everything = {"linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64"}
+        plan, calls = self.plan(None, installed, [(everything, set())], transaction=self.kernel_install(),
+                                depends=self.liquorix_depends)
+        self.assertEqual(calls, [["remove", "linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64"]])
+        self.assertEqual((plan["remove"], plan["kept"]), (sorted(everything), []))
+
+    def test_kernel_dependencies_leave_out_what_isnt_a_kernel_and_the_shared_headers(self):
+        deps = {"linux-headers-rt-amd64": {"linux-headers-6.12.117+deb13-rt-amd64",
+                                           "linux-headers-6.12.117+deb13-common-rt", "linux-kbuild-6.12.117", "gcc"}}
+        found = helper.kernel_dependencies(
+            ["linux-headers-rt-amd64", "firefox-esr"],
+            lambda names: set(names),
+            lambda names: {n: deps[n] for n in names if n in deps})
+        self.assertEqual(found, ["linux-headers-6.12.117+deb13-rt-amd64"])
+        self.assertEqual(helper.kernel_dependencies(["adb"], lambda names: set(names), lambda names: {}), [])
+
+    def test_undo_a_kernel_another_package_needs_keeps_it_and_says_so(self):
+        installed = {"linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64"}
+        # Something else needs the kernel: apt would take that too, so only the meta-package goes.
+        plan, calls = self.plan(None, installed, [({"linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64",
+                                                   "linux-headers-7.3.4-3-liquorix-amd64"}, set()),
+                                                  ({"linux-image-liquorix-amd64"}, set())],
+                                transaction=self.kernel_install(), depends=self.liquorix_depends)
+        self.assertEqual((calls[1], plan["kept"]), (["remove", "linux-image-liquorix-amd64"],
+                                                   ["linux-image-7.3.4-3-liquorix-amd64"]))
+        with mock.patch.object(helper, "undo_plan", return_value=plan), \
+                mock.patch.object(helper, "live_system", return_value=False), \
+                mock.patch.object(helper.subprocess, "run") as run, \
+                mock.patch.object(helper.os, "geteuid", return_value=0), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.assertEqual(helper.main(["packages-undo", "2026-09-03T13:10:03"]), 0)
+        self.assertIn("Still installed, because something else needs it: linux-image-7.3.4-3-liquorix-amd64.",
+                      out.getvalue())
+
+    def test_undo_a_kernel_refuses_the_running_one(self):
+        installed = {"linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64"}
+        with self.assertRaisesRegex(helper.HelperError, "linux-image-7.3.4-3-liquorix-amd64 is the kernel this "
+                                    "computer is running.*Nothing was changed"):
+            self.plan(None, installed, [], transaction=self.kernel_install(), depends=self.liquorix_depends,
+                      running="7.3.4-3-liquorix-amd64")
 
     def test_undo_an_install(self):
         # What it brought in goes too, named (never --autoremove: that takes everything unneeded).
@@ -2404,6 +2970,281 @@ class SoftwareHelperTest(unittest.TestCase):
             self.assertIn("Try again in a few minutes", err.getvalue())
 
 
+class LoginScreenHelperTest(unittest.TestCase):
+    """The helper's login-background and login-position (flickos-greeter
+    ADR-014, ADR-015): every path in a temporary folder."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="flickos-control-helper-")
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.conf = os.path.join(self.tmp, "etc/flickos/greeter")
+        self.copy = os.path.join(self.tmp, "var/lib/flickos-control/login-screen/background.jpg")
+        self.backgrounds = os.path.join(self.tmp, "usr/share/backgrounds") + "/"
+        os.makedirs(os.path.join(self.backgrounds, "flickos"))
+        self.wallpaper = os.path.join(self.backgrounds, "flickos/redmond.jpg")
+        with open(self.wallpaper, "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0 a wallpaper")
+        self.share = os.path.join(self.tmp, "usr/share/flickos") + "/"
+        for name, value in (("GREETER_CONF", self.conf), ("LOGIN_BACKGROUND", self.copy),
+                            ("BACKGROUNDS", self.backgrounds), ("FLICKOS_SHARE", self.share)):
+            patcher = mock.patch.object(helper, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def run_helper(self, *args, stdin=b""):
+        with mock.patch.object(helper.os, "geteuid", return_value=0), \
+                mock.patch.object(helper.sys, "stdin", io.TextIOWrapper(io.BytesIO(stdin))), \
+                mock.patch("sys.stdout", new_callable=io.StringIO), \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            return helper.main(list(args)), err.getvalue()
+
+    def conf_text(self):
+        with open(self.conf) as f:
+            return f.read()
+
+    def test_a_wallpaper_is_used_where_it_is(self):
+        self.assertEqual(self.run_helper("login-background", self.wallpaper)[0], 0)
+        self.assertTrue(self.conf_text().startswith("# The login screen:"))
+        self.assertIn(f"Background={self.wallpaper}\n", self.conf_text())
+        self.assertEqual(os.stat(self.conf).st_mode & 0o777, 0o644)
+
+    def test_a_link_to_a_styles_wallpaper(self):
+        os.makedirs(os.path.join(self.share, "styles/seven"))
+        with open(os.path.join(self.share, "styles/seven/wallpaper.png"), "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n rest")
+        link = os.path.join(self.backgrounds, "flickos/flickos-seven.png")
+        os.symlink("../../flickos/styles/seven/wallpaper.png", link)
+        self.assertEqual(self.run_helper("login-background", link)[0], 0)
+        self.assertIn(f"Background={link}\n", self.conf_text())
+
+    def test_a_picture_of_yours_comes_on_stdin(self):
+        status, _err = self.run_helper("login-background", "-", stdin=b"\xff\xd8\xff\xe0 a photo")
+        self.assertEqual(status, 0)
+        with open(self.copy, "rb") as f:
+            self.assertEqual(f.read(), b"\xff\xd8\xff\xe0 a photo")
+        self.assertEqual(os.stat(self.copy).st_mode & 0o777, 0o644)
+        self.assertIn(f"Background={self.copy}\n", self.conf_text())
+        # Another choice deletes the copy.
+        self.assertEqual(self.run_helper("login-background", self.wallpaper)[0], 0)
+        self.assertFalse(os.path.exists(self.copy))
+
+    def test_stdin_must_be_a_small_jpeg(self):
+        status, err = self.run_helper("login-background", "-", stdin=b"root:x:0:0:root:/root:/bin/bash\n")
+        self.assertEqual(status, 1)
+        self.assertIn("no JPEG", err)
+        with mock.patch.object(helper, "BACKGROUND_BYTES", 10):
+            status, err = self.run_helper("login-background", "-", stdin=b"\xff\xd8\xff" + b"x" * 20)
+        self.assertEqual(status, 1)
+        self.assertFalse(os.path.exists(self.copy))
+        self.assertFalse(os.path.exists(self.conf))
+
+    def test_no_file_outside_the_backgrounds_is_read(self):
+        """As root, any path would copy any file to where everyone can read it."""
+        outside = os.path.join(self.tmp, "shadow.jpg")
+        with open(outside, "wb") as f:
+            f.write(b"\xff\xd8\xff secret")
+        os.symlink(outside, os.path.join(self.backgrounds, "flickos/link.jpg"))
+        with open(os.path.join(self.backgrounds, "flickos/text.jpg"), "w") as f:
+            f.write("not a picture")
+        for path in ("/etc/shadow", outside, self.backgrounds + "../../shadow.jpg",
+                     self.backgrounds + "flickos/./redmond.jpg", self.backgrounds + "flickos/link.jpg",
+                     self.backgrounds + "flickos/text.jpg", self.backgrounds + "flickos/gone.jpg",
+                     self.backgrounds + "flickos/redmond.txt", "relative.jpg", ""):
+            self.assertEqual(self.run_helper("login-background", path)[0], 1, path)
+        self.assertFalse(os.path.exists(self.conf))
+        self.assertEqual(self.run_helper("login-background")[0], 1)
+        self.assertEqual(self.run_helper("login-background", "a", "b")[0], 1)
+
+    def test_default_drops_the_line_and_the_copy(self):
+        self.run_helper("login-background", "-", stdin=b"\xff\xd8\xff photo")
+        self.run_helper("login-position", "left")
+        self.assertEqual(self.run_helper("login-background", "default")[0], 0)
+        self.assertFalse(os.path.exists(self.copy))
+        self.assertNotIn("Background=", self.conf_text())
+        self.assertIn("Position=left\n", self.conf_text())
+        self.assertEqual(self.run_helper("login-position", "default")[0], 0)
+        self.assertFalse(os.path.exists(self.conf), "nothing chosen: no file")
+
+    def test_position(self):
+        for place in ("left", "center", "right"):
+            self.assertEqual(self.run_helper("login-position", place)[0], 0)
+            self.assertEqual(helper.read_greeter_conf(), {"Position": place})
+        for wrong in ("top", "50%", ""):
+            self.assertEqual(self.run_helper("login-position", wrong)[0], 1)
+        self.assertEqual(helper.read_greeter_conf(), {"Position": "right"})
+
+    def test_the_greeter_reads_what_the_helper_writes(self):
+        greeter = os.path.join(PACKAGE, "../flickos-greeter/usr/libexec/flickos/greeter-window")
+        if not os.path.isfile(greeter):
+            self.skipTest("flickos-greeter isn't in the tree")
+        loader = importlib.machinery.SourceFileLoader("greeter_window_for_control", greeter)
+        gw = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(gw)
+        self.run_helper("login-background", self.wallpaper)
+        self.run_helper("login-position", "right")
+        self.assertEqual(gw.read_config((self.conf,)), {"background": self.wallpaper, "position": "right"})
+        self.assertEqual(helper.GREETER_CONF, self.conf)
+        self.assertEqual(gw.CONF_FILES[-1], "/etc/flickos/greeter")
+        self.assertEqual(gw.PICTURE_MAGIC, helper.PICTURE_MAGIC)
+
+
+class LoginScreenTest(unittest.TestCase):
+    """flickos-control's side: `system login.*`, the names and History."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="flickos-control-test-")
+        self.addCleanup(shutil.rmtree, self.tmp)
+        env = mock.patch.dict(os.environ, {"XDG_STATE_HOME": os.path.join(self.tmp, "state")})
+        env.start()
+        self.addCleanup(env.stop)
+        self.conf = os.path.join(self.tmp, "etc/flickos/greeter")
+        self.defaults = os.path.join(self.tmp, "etc/xdg/flickos/greeter.conf")
+        self.root = os.path.join(self.tmp, "usr/share/backgrounds") + "/"
+        os.makedirs(os.path.join(self.root, "flickos"))
+        for name in ("redmond.jpg", "flickos-dark.png", "default.jpg", "notes.txt"):
+            with open(os.path.join(self.root, "flickos", name), "wb") as f:
+                f.write(b"\xff\xd8\xff")
+        share = os.path.join(self.tmp, "usr/share/flickos") + "/"
+        os.makedirs(share + "styles/dark")
+        with open(share + "styles/dark/wallpaper.png", "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n")
+        os.symlink("../../flickos/styles/dark/wallpaper.png", self.root + "flickos/flickos-shore.png")
+        for name, value in (("GREETER_CONF", self.conf), ("GREETER_DEFAULTS", self.defaults),
+                            ("BACKGROUNDS_ROOT", self.root), ("BACKGROUNDS_DIR", self.root + "flickos"),
+                            ("FLICKOS_SHARE", share), ("DARK_WALLPAPER", share + "styles/dark/wallpaper.png")):
+            patcher = mock.patch.object(fc, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    entries = HistoryTest.entries
+
+    def write(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(text)
+
+    def run_system(self, key, value, old):
+        with mock.patch.object(fc, "system_value", return_value=old), \
+                mock.patch.object(fc.subprocess, "run") as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(fc, "warn"):
+            # Bytes when a picture went on standard input, else text.
+            run.side_effect = lambda command, **kw: subprocess.CompletedProcess(
+                command, 0, *((b"", b"") if kw.get("input") is not None else ("", "")))
+            status = fc.main(["system", key, value])
+        return status, run.call_args if run.called else None
+
+    def test_values_from_the_greeter_files(self):
+        self.assertEqual((fc.login_position(), fc.login_background_value()), ("center", "default"))
+        self.assertEqual(fc.system_value("login.position"), "default")
+        self.write(self.defaults, "#Position=right\nPosition=left\n")
+        self.assertEqual(fc.login_position(), "left")
+        self.write(self.conf, f"# header\nPosition=right\nBackground={fc.LOGIN_BACKGROUND}\n")
+        self.assertEqual(fc.login_position(), "right")
+        self.assertEqual(fc.system_value("login.position"), "right")
+        self.assertEqual(fc.system_value("login.background"), "custom")
+        self.write(self.conf, "Background=/usr/share/backgrounds/flickos/redmond.jpg\n")
+        self.assertEqual(fc.login_background_value(), "/usr/share/backgrounds/flickos/redmond.jpg")
+
+    def test_wallpapers_and_names(self):
+        # The Dark wallpaper (also by its link flickos-shore.png) is the default, FlickOS.
+        self.assertEqual(fc.login_backgrounds(), [(self.root + "flickos/default.jpg", "Earlier Default"),
+                                                  (self.root + "flickos/flickos-dark.png", "FlickOS Dark"),
+                                                  (self.root + "flickos/redmond.jpg", "Redmond")])
+        self.assertTrue(fc.builtin_background(self.root + "flickos/flickos-shore.png"), "a link into the styles")
+        self.assertFalse(fc.builtin_background(self.root + "flickos/notes.txt"))
+        self.assertFalse(fc.builtin_background(os.path.join(self.tmp, "photo.jpg")))
+        self.assertEqual(fc.login_backgrounds(os.path.join(self.tmp, "missing")), [])
+        self.assertEqual(fc.background_name("default"), "FlickOS")
+        self.assertEqual(fc.background_name("custom"), "A picture of yours")
+        self.assertEqual(fc.background_name("/x/my_shore-photo.JPG"), "My Shore Photo")
+
+    def test_a_wallpaper_goes_by_its_path(self):
+        wallpaper = self.root + "flickos/redmond.jpg"
+        status, call = self.run_system("login.background", wallpaper, "default")
+        self.assertEqual(status, 0)
+        self.assertEqual(call.args[0], ["pkexec", fc.HELPER, "login-background", wallpaper])
+        self.assertIsNone(call.kwargs.get("input"))
+        self.assertEqual(self.entries(), [("flickos-control", "login.background", "default", wallpaper)])
+        self.assertEqual(fc.system_command("login.background", "default"),
+                         ["pkexec", fc.HELPER, "login-background", "default"])
+        self.assertEqual(fc.system_command("login.position", "left"), ["pkexec", fc.HELPER, "login-position", "left"])
+
+    def test_a_picture_of_yours_goes_on_stdin(self):
+        photo = os.path.join(self.tmp, "photo.jpg")
+        with mock.patch.object(fc, "background_jpeg", return_value=b"\xff\xd8\xff jpeg") as jpeg:
+            status, call = self.run_system("login.background", photo, "default")
+        self.assertEqual(status, 0)
+        jpeg.assert_called_once_with(photo)
+        self.assertEqual(call.args[0], ["pkexec", fc.HELPER, "login-background", "-"])
+        self.assertEqual(call.kwargs["input"], b"\xff\xd8\xff jpeg")
+        self.assertEqual(self.entries(), [("flickos-control", "login.background", "default", "custom")])
+
+    def test_refused_values(self):
+        with mock.patch.object(fc, "warn"):
+            for key, value in (("login.background", "custom"), ("login.background", ""),
+                               ("login.position", "top")):
+                self.assertEqual(fc.main(["system", key, value]), 1, value)
+        self.assertEqual(self.entries(), [])
+
+    def test_history(self):
+        def change(key, old, new):
+            return fc.Change("1", datetime.datetime.now().astimezone(), fc.HISTORY_OWNER, key, old, new)
+        self.assertEqual(fc.describe(change("login.position", "center", "right"), {}),
+                         ("Login box position: Right", "Was Middle"))
+        self.assertEqual(fc.describe(change("login.background", "default", "custom"), {}),
+                         ("Login screen background: A picture of yours", "Was the default"))
+        self.assertTrue(fc.can_undo(change("login.position", "default", "left")))
+        self.assertTrue(fc.can_undo(change("login.background", "/usr/share/backgrounds/flickos/redmond.jpg",
+                                           "custom")))
+        self.assertFalse(fc.can_undo(change("login.background", "custom", "default")),
+                         "the old copy isn't kept")
+        self.assertEqual(fc.undo_commands(change("login.position", "left", "right")),
+                         [[*fc.SELF, "system", "login.position", "left"]])
+
+    def test_your_picture_as_a_jpeg(self):
+        try:
+            import gi
+            gi.require_version("GdkPixbuf", "2.0")
+            from gi.repository import GdkPixbuf
+        except (ImportError, ValueError):
+            self.skipTest("no GdkPixbuf")
+        source = os.path.join(self.tmp, "big.png")
+        picture = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 5000, 3000)
+        picture.fill(0x4080c0ff)
+        picture.savev(source, "png", [], [])
+        data = fc.background_jpeg(source)
+        self.assertTrue(data.startswith(b"\xff\xd8\xff"))
+        loader = GdkPixbuf.PixbufLoader()
+        loader.write(data)
+        loader.close()
+        written = loader.get_pixbuf()
+        # It still covers 3840x2160: 2160/3000 < 3840/5000.
+        self.assertEqual((written.get_width(), written.get_height()), (3840, 2304))
+        small = os.path.join(self.tmp, "small.png")
+        GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 800, 600).savev(small, "png", [], [])
+        loader = GdkPixbuf.PixbufLoader()
+        loader.write(fc.background_jpeg(small))
+        loader.close()
+        self.assertEqual(loader.get_pixbuf().get_width(), 800, "never made larger")
+        text = os.path.join(self.tmp, "notes.txt")
+        self.write(text, "not a picture")
+        with self.assertRaises(fc.ControlError):
+            fc.background_jpeg(text)
+
+    def test_shared_actions_of_the_pages(self):
+        system = {"model": "pc105", "layout": "us", "variant": "", "options": ""}
+        self.assertEqual(fc.your_layout({}, system), ("us", ""))
+        self.assertEqual(fc.your_layout({"keyboard.layout": "de"}, system), ("de", ""))
+        self.assertEqual(fc.your_layout({"keyboard.layout": "de", "keyboard.variant": "nodeadkeys"}, system),
+                         ("de", "nodeadkeys"))
+        self.assertEqual(fc.layout_value("de", "nodeadkeys"), "de(nodeadkeys)")
+        self.assertEqual(fc.layout_value("us", ""), "us")
+        locale = {"LANG": "en_US.UTF-8"}
+        self.assertIsNone(fc.your_locale_args(locale, {}))
+        self.assertIsNone(fc.your_locale_args(locale, {"locale.language": "en_US.UTF-8"}))
+        self.assertEqual(fc.your_locale_args(locale, {"locale.language": "de_DE.UTF-8"}), ["LANG=de_DE.UTF-8"])
+
+
 class SystemHistoryTest(SettingsTest):
     """Phase 2: system settings, default apps, startup apps, users and
     software in the history."""
@@ -2426,6 +3267,19 @@ class SystemHistoryTest(SettingsTest):
             status = fc.main(["system", key, value])
         return status, run.call_args.args[0] if run.called else None, night_light
 
+    def test_as_root_no_pkexec_and_nothing_recorded(self):
+        """flickos-fleet runs `system KEY VALUE` as root (ADR-011)."""
+        with mock.patch.object(fc, "running_as_root", return_value=True):
+            status, command, _ = self.system("firewall", "on", "off")
+            self.assertEqual((status, command), (0, [fc.HELPER, "firewall-on"]))
+            self.assertEqual(self.system("updates.scope", "security", "all")[1],
+                             [fc.HELPER, "updates", "scope", "security"])
+            status, command, night_light = self.system("timezone", "Europe/Berlin", "Asia/Manila")
+            self.assertEqual(command, ["timedatectl", "set-timezone", "Europe/Berlin"])
+            night_light.assert_not_called()
+            self.assertEqual(self.system("firewall", "maybe", "off")[0], 1)     # still checked
+        self.assertEqual(self.entries(), [])
+
     def test_system_settings(self):
         status, command, _ = self.system("firewall", "on", "off")
         self.assertEqual((status, command), (0, ["pkexec", fc.HELPER, "firewall-on"]))
@@ -2447,6 +3301,18 @@ class SystemHistoryTest(SettingsTest):
             self.assertEqual(fc.system_command("keyboard.system", "de(nodeadkeys)"),
                              ["pkexec", fc.HELPER, "keyboard", "pc105", "de", "nodeadkeys", "caps:none"])
             self.assertEqual(fc.system_value("keyboard.system"), "us")
+
+    def test_support_for_32_bit_programs(self):
+        status, command, _ = self.system("i386", "on", "off")
+        self.assertEqual((status, command), (0, ["pkexec", fc.HELPER, "i386-on"]))
+        self.assertEqual(fc.system_command("i386", "off"), ["pkexec", fc.HELPER, "i386-off"])
+        self.assertEqual(self.entries(), [("flickos-control", "i386", "off", "on")])
+        self.assertEqual(fc.history_label(fc.HISTORY_OWNER, "i386"), "Support for 32-bit programs")
+        with mock.patch.object(fc, "run", return_value="i386\n") as run:
+            self.assertEqual(fc.system_value("i386"), "on")
+        run.assert_called_once_with(["dpkg", "--print-foreign-architectures"])
+        with mock.patch.object(fc, "run", return_value=""):
+            self.assertEqual(fc.system_value("i386"), "off")
 
     def test_undo_of_the_new_kinds(self):
         change = lambda key, old, new: fc.Change("1", None, "flickos-control", key, old, new)
@@ -2611,6 +3477,27 @@ class SystemHistoryTest(SettingsTest):
         self.assertEqual(calls[1], ["-L", "vlc", "libfoo:i386"])
         self.assertEqual(len(calls), 2)                     # all from the cache afterwards
 
+    def test_app_names_of_packages_with_several_apps(self):
+        apps = os.path.join(self.tmp, "applications") + "/"
+        files = {"thunar": ("thunar-bulk-rename", "Bulk Rename", "thunar", "Thunar File Manager"),
+                 "xfce4-notifyd": ("xfce4-notifyd-config", "Notifications", "org.xfce.xfce4-notifyd", "Notify"),
+                 "sgt-puzzles": ("sgt-blackbox", "Black Box", "sgt-bridges", "Bridges")}
+        for first, name, second, other in files.values():
+            self.write(f"applications/{first}.desktop", f"[Desktop Entry]\nName={name}\n")
+            self.write(f"applications/{second}.desktop", f"[Desktop Entry]\nName={other}\n")
+
+        def dpkg_query(args):
+            asked = [arg for arg in args if arg in files]
+            if args[0] == "-W":
+                return "".join(f"{package}\tinstalled\n" for package in asked)
+            return "\n\n".join(f"{apps}{files[p][0]}.desktop\n{apps}{files[p][2]}.desktop" for p in asked) + "\n"
+
+        with mock.patch.object(fc, "APPLICATIONS_DIR", apps), mock.patch.dict(fc.APP_NAME_CACHE, clear=True), \
+                mock.patch.object(fc, "dpkg_query", side_effect=dpkg_query):
+            # Named after the package (also as a reverse-DNS id) wins; else the package name.
+            self.assertEqual([fc.package_app_name(p) for p in files],
+                             ["Thunar File Manager", "Notify", "sgt-puzzles"])
+
     def test_undo_of_a_software_change_goes_through_the_helper(self):
         plan = {"id": "2026-09-03T13:10:03", "action": "install", "args": ["install", "adb"], "remove": [],
                 "install": ["adb", "android-liblog"], "upgraded": 0, "purged": True}
@@ -2700,6 +3587,8 @@ class RestoreTest(SettingsTest):
                                     ["flickos-layout", "set", "cupertino", "--style", "default"],
                                     ["flickos-layout", "clock", "set", "default"],
                                     ["flickos-layout", "quick-settings", "set", "off"]])
+        self.assertEqual(fc.restore_commands([change("flickos-layout", "buttons", "right", "left")]),
+                         [["flickos-layout", "buttons", "set", "right"]])
         # Only commands of their own: no empty `set`.
         self.assertEqual(fc.restore_commands([change("flickos-layout", "quick-settings", "default", "on")]),
                          [["flickos-layout", "quick-settings", "set", "default"]])
@@ -2832,6 +3721,141 @@ class FirefoxMemoryTest(SettingsTest):
         self.assertEqual(fc.gigabytes(state["used"]), "0.5 GB")
 
 
+class ClassroomFirewallTest(SettingsTest):
+    """A teacher's computer through the firewall (flickos-classroom-view): the
+    helper's app profile and rules, like the phones', and the system setting."""
+
+    def setUp(self):
+        super().setUp()
+        self.profile = os.path.join(self.tmp, "flickos-classroom")
+        self.ufw_conf = os.path.join(self.tmp, "ufw.conf")
+        with open(self.ufw_conf, "w") as f:
+            f.write("ENABLED=yes\n")
+        self.calls = []
+        for module, name, value in ((fc, "CLASSROOM_PROFILE", self.profile),
+                                    (helper, "CLASSROOM_PROFILE", self.profile),
+                                    (fc, "UFW_CONF", self.ufw_conf), (helper, "UFW", self.ufw_conf),
+                                    (helper, "run_tool", lambda command, stdin=None: self.calls.append(command))):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def helper(self, *args):
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"), \
+                mock.patch("sys.stderr"):
+            return helper.main(["firewall-classroom", *args])
+
+    def test_the_helper_and_the_window_agree(self):
+        sources = [fc.read_text(os.path.join(PACKAGE, path))
+                   for path in ("usr/libexec/flickos/control-helper", "usr/bin/flickos-control")]
+        for name in ("CLASSROOM_PROFILE", "CLASSROOM_MARK"):
+            values = [re.search(rf'^{name} = ("[^"]*")', text, re.M).group(1) for text in sources]
+            self.assertEqual(values[0], values[1], name)
+
+    def test_the_agents_port(self):
+        program = os.path.join(os.path.dirname(PACKAGE), "flickos-classroom-view/usr/bin/flickos-classroom-view")
+        if not os.path.exists(program):
+            self.skipTest("flickos-classroom-view is not in this tree")
+        port = re.search(r"^PORT = (\d+)", fc.read_text(program), re.M).group(1)
+        self.assertEqual(helper.CLASSROOM_PORTS, f"{port}/tcp")
+
+    def test_on_and_off(self):
+        self.assertEqual(fc.system_value("firewall.classroom"), "off")
+        self.assertEqual(self.helper("on"), 0)
+        self.assertEqual(fc.system_value("firewall.classroom"), "on")
+        self.assertFalse(fc.phones_allowed(os.path.join(self.tmp, "none")))   # the phones' setting is apart
+        with open(self.profile) as f:
+            self.assertIn("[FlickOS Classroom]\n", f.read())
+        ufw = helper.UFW
+        self.assertEqual(self.calls, [[ufw, "app", "update", "FlickOS Classroom"]]
+                         + [[ufw, "allow", "from", network, "to", "any", "app", "FlickOS Classroom"]
+                            for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")])
+        self.calls.clear()
+        self.assertEqual(self.helper("off"), 0)
+        self.assertEqual([call[1:3] for call in self.calls], [["delete", "allow"]] * 3)
+        self.assertFalse(os.path.exists(self.profile))
+        self.assertEqual(fc.system_value("firewall.classroom"), "off")
+        for args in ([], ["refresh"], ["on", "now"]):
+            self.assertEqual(self.helper(*args), 1, args)
+
+    def test_someone_elses_profile_is_left_alone(self):
+        with open(self.profile, "w") as f:
+            f.write("[FlickOS Classroom]\nports=1:65535/tcp\n")
+        self.assertEqual(fc.system_value("firewall.classroom"), "off")
+        self.assertEqual(self.helper("on"), 1)
+        self.assertEqual(self.helper("off"), 1)
+        self.assertEqual(self.calls, [])
+
+    def test_system_setting_and_history(self):
+        with mock.patch.object(fc, "system_value", return_value="off"), \
+                mock.patch.object(fc.subprocess, "run") as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(fc, "warn"):
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.assertEqual(fc.main(["system", "firewall.classroom", "on"]), 0)
+            self.assertEqual(run.call_args.args[0], ["pkexec", fc.HELPER, "firewall-classroom", "on"])
+        change = fc.Change("1", None, "flickos-control", "firewall.classroom", "off", "on")
+        self.assertEqual(fc.describe(change, {}), ("Firewall lets a teacher's computer in: on", "Was off"))
+        self.assertEqual(fc.undo_commands(change), [[*fc.SELF, "system", "firewall.classroom", "off"]])
+
+    def test_teaching_only_with_the_teachers_window(self):
+        """Settings > Classroom shows "Teaching a class" only where
+        flickos-classroom-teacher put its menu entry, not on students' computers."""
+        entry = os.path.join(self.tmp, "flickos-classroom-teacher.desktop")
+        with mock.patch.object(fc, "CLASSROOM_TEACHER", entry):
+            self.assertFalse(fc.teacher_window_installed())
+            open(entry, "w").close()
+            self.assertTrue(fc.teacher_window_installed())
+        install = os.path.join(os.path.dirname(PACKAGE), "flickos-classroom-view", "debian",
+                               "flickos-classroom-teacher.install")
+        if not os.path.exists(install):
+            self.skipTest("flickos-classroom-view is not in this tree")
+        with open(install) as f:
+            installed = f.read().split()
+        self.assertIn(os.path.basename(fc.CLASSROOM_TEACHER), [os.path.basename(p) for p in installed])
+        self.assertIn(os.path.dirname(fc.CLASSROOM_TEACHER).lstrip("/") + "/", installed)
+
+    def test_lab_computer(self):
+        """classroom.lab (ADR-011): the owner's `lab on|off` as root through
+        its own polkit action, recorded and undone like any system setting."""
+        with mock.patch.object(fc.shutil, "which", return_value="/usr/bin/flickos-classroom-view"), \
+                mock.patch.object(fc, "run", return_value="lab\tyes\nteacher\tMs Cruz\nid\tlab-1\n") as run:
+            self.assertEqual(fc.system_value("classroom.lab"), "on")
+            self.assertEqual(run.call_args.args[0], ["flickos-classroom-view", "lab", "status"])
+        with mock.patch.object(fc.shutil, "which", return_value=None):
+            with self.assertRaises(fc.ControlError):
+                fc.system_value("classroom.lab")
+        self.assertEqual(fc.system_command("classroom.lab", "on"),
+                         ["pkexec", "/usr/bin/flickos-classroom-view", "lab", "on"])
+        change = fc.Change("1", None, "flickos-control", "classroom.lab", "off", "on")
+        self.assertEqual(fc.describe(change, {}),
+                         ("Lab computer: every account shares its screen with the teacher: on", "Was off"))
+        self.assertEqual(fc.undo_commands(change), [[*fc.SELF, "system", "classroom.lab", "off"]])
+
+    def test_lab_polkit_action_is_the_owners(self):
+        policy = os.path.join(os.path.dirname(PACKAGE),
+                              "flickos-classroom-view/usr/share/polkit-1/actions/org.flickos.classroom.policy")
+        if not os.path.exists(policy):
+            self.skipTest("flickos-classroom-view is not in this tree")
+        text = fc.read_text(policy)
+        self.assertIn(f'"org.freedesktop.policykit.exec.path">{fc.CLASSROOM_PKEXEC}<', text)
+        self.assertIn('"org.freedesktop.policykit.exec.argv1">lab<', text)
+
+    def test_sharing_in_history(self):
+        """flickos-classroom-view records `sharing`; History says it and puts it back."""
+        change = fc.Change("1", None, "flickos-classroom-view", "sharing", "off", "on")
+        self.assertEqual(fc.describe(change, {}), ("Share this screen with a teacher: on", "Was off"))
+        self.assertTrue(fc.can_undo(change))
+        self.assertEqual(fc.undo_commands(change), [["flickos-classroom-view", "student", "off"]])
+        self.assertFalse(fc.can_undo(fc.Change("2", None, "flickos-classroom-view", "teacher", "a", "b")))
+
+    def test_page(self):
+        self.assertIn("classroom", fc.PAGE_CLASSES)
+        self.assertIn("classroom", fc.SEARCH_KEYWORDS)
+        self.assertIn("classroom", [page.id for page in fc.PAGES])
+        with mock.patch.object(fc.shutil, "which", return_value=None):
+            self.assertFalse(fc.ClassroomPage.available())
+
+
 class PhonesFirewallTest(SettingsTest):
     """Phones through the firewall (flickos-phone): the helper's app profile and
     rules, and the system setting that reads the profile."""
@@ -2941,7 +3965,601 @@ class PhonesFirewallTest(SettingsTest):
         self.assertFalse(fc.restorable(change))
 
 
-SETTINGS_UCA = os.path.join(PACKAGE, "../flickos-settings/etc/xdg/flickos/Thunar/uca.xml")
+class LocalPortsTest(SettingsTest):
+    """Servers the user runs through the firewall (flickos-kits' ports step,
+    flickos-dev.md ADR-006): the helper's app profile and rules, and the system
+    setting that reads the profile."""
+
+    def setUp(self):
+        super().setUp()
+        self.profile = os.path.join(self.tmp, "flickos-local-ports")
+        self.ufw_conf = os.path.join(self.tmp, "ufw.conf")
+        with open(self.ufw_conf, "w") as f:
+            f.write("ENABLED=yes\n")
+        self.calls = []
+        for module, name, value in ((fc, "LOCAL_PORTS_PROFILE", self.profile),
+                                    (helper, "LOCAL_PORTS_PROFILE", self.profile),
+                                    (fc, "UFW_CONF", self.ufw_conf), (helper, "UFW", self.ufw_conf),
+                                    (helper, "run_tool", lambda command, stdin=None: self.calls.append(command))):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def helper(self, *args):
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"), \
+                mock.patch("sys.stderr"):
+            return helper.main(["firewall-local-ports", *args])
+
+    def test_the_helper_and_the_window_agree(self):
+        sources = [fc.read_text(os.path.join(PACKAGE, path))
+                   for path in ("usr/libexec/flickos/control-helper", "usr/bin/flickos-control")]
+        for name in ("LOCAL_PORTS_PROFILE", "LOCAL_PORTS_MARK", "NETAVARK_FLAG", "NETAVARK_MARK", "NETAVARK_SOCKET"):
+            values = [re.search(rf'^{name} = ("[^"]*")', text, re.M).group(1) for text in sources]
+            self.assertEqual(values[0], values[1], name)
+
+    def test_the_kit_package_ships_the_flag_the_drop_ins_wait_for(self):
+        """flickos-kit-containers' drop-ins wait for the file the helper makes."""
+        kit = os.path.join(PACKAGE, "../flickos-kit-containers/usr/lib/systemd/system")
+        if not os.path.isdir(kit):
+            self.skipTest("not in the source tree")
+        for unit in helper.NETAVARK_UNITS:
+            with open(os.path.join(kit, unit + ".d/flickos-kit.conf")) as f:
+                self.assertIn(f"ConditionPathExists={helper.NETAVARK_FLAG}\n", f.read(), unit)
+
+    def test_on_and_off(self):
+        self.assertEqual(fc.system_value("firewall.local-ports"), "off")
+        self.assertEqual(self.helper("8000/tcp,3000/tcp,5353/udp,5000:5010/tcp"), 0)
+        self.assertEqual(fc.system_value("firewall.local-ports"), "3000/tcp,5000:5010/tcp,8000/tcp,5353/udp")
+        with open(self.profile) as f:
+            text = f.read()
+        self.assertIn("[FlickOS Local Ports]\n", text)
+        self.assertIn("ports=3000,5000:5010,8000/tcp|5353/udp\n", text)
+        self.assertEqual(os.stat(self.profile).st_mode & 0o777, 0o644)
+        ufw = helper.UFW
+        self.assertEqual(self.calls, [[ufw, "app", "update", "FlickOS Local Ports"]]
+                         + [[ufw, "allow", "from", network, "to", "any", "app", "FlickOS Local Ports"]
+                            for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")])
+        self.calls.clear()
+        self.assertEqual(self.helper("off"), 0)
+        self.assertEqual([call[1:3] for call in self.calls], [["delete", "allow"]] * 3)
+        self.assertFalse(os.path.exists(self.profile))
+        self.assertEqual(fc.system_value("firewall.local-ports"), "off")
+        self.calls.clear()
+        self.assertEqual(self.helper("off"), 0)             # already off: nothing to delete
+        self.assertEqual(self.calls, [])
+
+    def test_only_valid_ports_reach_ufw(self):
+        for bad in ("", "80/tcp", "1023/tcp", "8000", "8000/icmp", "70000/tcp", "9000:8000/tcp", "http/tcp",
+                    "8000/tcp;ufw disable", "8000/tcp,", "-1/tcp"):
+            self.assertEqual(self.helper(bad), 1, bad)
+        self.assertEqual(self.helper(), 1)
+        self.assertEqual(self.helper("8000/tcp", "9000/tcp"), 1)
+        too_many = ",".join(f"{port}/tcp" for port in range(3000, 3016))
+        self.assertEqual(self.helper(too_many), 1)
+        self.assertEqual(self.helper(",".join(f"{port}/tcp" for port in range(3000, 3015))), 0)
+        self.calls.clear()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(helper.parse_local_ports("8000/tcp, 8000/tcp ,1024/udp"), [(8000, 8000, "tcp"),
+                                                                                      (1024, 1024, "udp")])
+
+    def test_a_range_counts_as_two(self):
+        ranges = ",".join(f"{4000 + 10 * i}:{4005 + 10 * i}/udp" for i in range(8))     # 16
+        self.assertEqual(self.helper(ranges), 1)
+        self.assertEqual(self.helper(",".join(f"{4000 + 10 * i}:{4005 + 10 * i}/udp" for i in range(7))), 0)
+
+    def test_someone_elses_profile_is_left_alone(self):
+        with open(self.profile, "w") as f:
+            f.write("[FlickOS Local Ports]\nports=1:65535/tcp\n")
+        self.assertEqual(fc.system_value("firewall.local-ports"), "off")
+        self.assertEqual(self.helper("8000/tcp"), 1)
+        self.assertEqual(self.helper("off"), 1)
+        self.assertEqual(self.calls, [])
+        with open(self.profile) as f:
+            self.assertIn("1:65535", f.read())
+
+    def test_without_ufw(self):
+        with mock.patch.object(fc, "UFW_CONF", os.path.join(self.tmp, "none")):
+            with self.assertRaises(fc.ControlError):
+                fc.system_value("firewall.local-ports")
+        with mock.patch.object(helper, "UFW", os.path.join(self.tmp, "none")):
+            self.assertEqual(self.helper("8000/tcp"), 1)
+
+    def test_check_system(self):
+        self.assertEqual(fc.check_system("firewall.local-ports", "off"), "off")
+        self.assertEqual(fc.check_system("firewall.local-ports", "8000/tcp  3000/udp,5000:5010/tcp"),
+                         "8000/tcp,3000/udp,5000:5010/tcp")
+        for bad in ("8000", "8000/tcp;x", "", "on", "http/tcp"):
+            with self.assertRaises(fc.ControlError, msg=bad):
+                fc.check_system("firewall.local-ports", bad)
+
+    def test_system_setting_and_history(self):
+        with mock.patch.object(fc, "system_value", return_value="off"), \
+                mock.patch.object(fc.subprocess, "run") as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(fc, "warn"):
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.assertEqual(fc.main(["system", "firewall.local-ports", "8000/tcp"]), 0)
+            self.assertEqual(run.call_args.args[0], ["pkexec", fc.HELPER, "firewall-local-ports", "8000/tcp"])
+        change = fc.Change("1", None, "flickos-control", "firewall.local-ports", "off", "8000/tcp")
+        self.assertEqual(fc.describe(change, {}), ("Ports open to devices on this network: 8000/tcp", "Was off"))
+        self.assertEqual(fc.undo_commands(change), [[*fc.SELF, "system", "firewall.local-ports", "off"]])
+        back = fc.Change("2", None, "flickos-control", "firewall.local-ports", "8000/tcp,3000/tcp", "off")
+        self.assertEqual(fc.undo_commands(back), [[*fc.SELF, "system", "firewall.local-ports", "8000/tcp,3000/tcp"]])
+
+
+class ContainersDhcpTest(SettingsTest):
+    """podman's DHCP helper, kept off by flickos-kit-containers until a file exists."""
+
+    def setUp(self):
+        super().setUp()
+        self.flag = os.path.join(self.tmp, "kits", "netavark-on")
+        self.socket = os.path.join(self.tmp, "netavark-dhcp-proxy.socket")
+        with open(self.socket, "w") as f:
+            f.write("[Socket]\n")
+        self.calls = []
+        for module, name, value in ((fc, "NETAVARK_FLAG", self.flag), (helper, "NETAVARK_FLAG", self.flag),
+                                    (fc, "NETAVARK_SOCKET", self.socket), (helper, "NETAVARK_SOCKET", self.socket),
+                                    (helper, "run_tool", lambda command, stdin=None: self.calls.append(command))):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def helper(self, *args):
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"), \
+                mock.patch("sys.stderr"):
+            return helper.main(["containers-dhcp", *args])
+
+    def test_on_and_off(self):
+        self.assertEqual(fc.system_value("containers.dhcp"), "off")
+        self.assertEqual(self.helper("on"), 0)
+        self.assertEqual(fc.system_value("containers.dhcp"), "on")
+        self.assertEqual(self.calls, [["systemctl", "start", "netavark-dhcp-proxy.socket"]])
+        self.assertEqual(os.stat(self.flag).st_mode & 0o777, 0o644)
+        self.calls.clear()
+        self.assertEqual(self.helper("off"), 0)
+        self.assertFalse(os.path.exists(self.flag))
+        self.assertEqual(fc.system_value("containers.dhcp"), "off")
+        self.assertEqual(self.calls, [["systemctl", "stop", unit] for unit in helper.NETAVARK_UNITS])
+        for args in ([], ["maybe"], ["on", "now"]):
+            self.assertEqual(self.helper(*args), 1, args)
+
+    def test_off_stops_what_is_there_and_ignores_what_is_not(self):
+        def run(command, stdin=None):
+            self.calls.append(command)
+            raise helper.HelperError("Unit not loaded")
+        with mock.patch.object(helper, "run_tool", run):
+            self.assertEqual(self.helper("off"), 0)
+        self.assertEqual(len(self.calls), 3)
+
+    def test_without_netavark(self):
+        os.unlink(self.socket)
+        self.assertEqual(self.helper("on"), 1)
+        self.assertFalse(os.path.exists(self.flag))
+        with self.assertRaises(fc.ControlError):
+            fc.system_value("containers.dhcp")
+
+    def test_someone_elses_file_is_left_alone(self):
+        os.makedirs(os.path.dirname(self.flag))
+        with open(self.flag, "w") as f:
+            f.write("mine\n")
+        self.assertEqual(self.helper("on"), 1)
+        self.assertEqual(self.helper("off"), 1)
+        self.assertEqual(self.calls, [])
+        with open(self.flag) as f:
+            self.assertEqual(f.read(), "mine\n")
+
+    def test_system_setting_and_history(self):
+        with mock.patch.object(fc, "system_value", return_value="off"), \
+                mock.patch.object(fc.subprocess, "run") as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(fc, "warn"):
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.assertEqual(fc.main(["system", "containers.dhcp", "on"]), 0)
+            self.assertEqual(run.call_args.args[0], ["pkexec", fc.HELPER, "containers-dhcp", "on"])
+        change = fc.Change("1", None, "flickos-control", "containers.dhcp", "off", "on")
+        self.assertEqual(fc.describe(change, {}), ("Containers can get addresses by DHCP: on", "Was off"))
+        self.assertEqual(fc.undo_commands(change), [[*fc.SELF, "system", "containers.dhcp", "off"]])
+
+
+class PacketCaptureTest(SettingsTest):
+    """Capturing packets without root for the calling account (flickos-kits'
+    capture step, flickos-security.md ADR-S02): Debian's debconf answer, its
+    postinst, and the wireshark group."""
+
+    def setUp(self):
+        super().setUp()
+        self.dumpcap = os.path.join(self.tmp, "dumpcap")
+        with open(self.dumpcap, "w") as f:
+            f.write("")
+        self.members = []
+        self.override = ""
+        self.calls = []
+
+        def run_tool(command, stdin=None):
+            self.calls.append((command, stdin))
+
+        def gpasswd(*args):
+            self.calls.append((["gpasswd", *args], None))
+            if args[0] == "-a":
+                self.members.append(args[1])
+            elif args[0] == "-d":
+                self.members.remove(args[1])
+
+        for module, name, value in ((fc, "DUMPCAP", self.dumpcap), (helper, "DUMPCAP", self.dumpcap),
+                                    (helper, "run_tool", run_tool), (helper, "gpasswd", gpasswd),
+                                    (helper, "capture_members", lambda: list(self.members)),
+                                    (fc, "capture_members", lambda: list(self.members)),
+                                    (helper, "capture_override", lambda: self.override),
+                                    (helper, "calling_user", lambda: "jon"), (fc, "user_name", lambda: "jon")):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def helper(self, *args):
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"), \
+                mock.patch("sys.stderr"):
+            return helper.main(["packet-capture", *args])
+
+    def answer(self, value):
+        return [(["debconf-set-selections"], f"wireshark-common wireshark-common/install-setuid boolean {value}\n"),
+                (["dpkg-reconfigure", "-f", "noninteractive", "wireshark-common"], None)]
+
+    def test_on_and_off(self):
+        self.assertEqual(fc.system_value("packet-capture"), "off")
+        self.assertEqual(self.helper("on"), 0)
+        self.assertEqual(self.calls, self.answer("true") + [(["gpasswd", "-a", "jon", "wireshark"], None)])
+        self.assertEqual(fc.system_value("packet-capture"), "on")
+        self.calls.clear()
+        self.assertEqual(self.helper("on"), 0)          # again: no second gpasswd
+        self.assertEqual(self.calls, self.answer("true"))
+        self.calls.clear()
+        self.assertEqual(self.helper("off"), 0)
+        self.assertEqual(self.calls, [(["gpasswd", "-d", "jon", "wireshark"], None)] + self.answer("false"))
+        self.assertEqual(fc.system_value("packet-capture"), "off")
+        for args in ([], ["maybe"], ["on", "now"]):
+            self.assertEqual(self.helper(*args), 1, args)
+
+    def test_off_keeps_the_capabilities_for_other_members(self):
+        self.members[:] = ["jon", "ann"]
+        self.assertEqual(self.helper("off"), 0)
+        self.assertEqual(self.calls, [(["gpasswd", "-d", "jon", "wireshark"], None)])
+        self.assertEqual(self.members, ["ann"])
+
+    def test_an_administrators_statoverride_wins(self):
+        self.override = "root root 0755 /usr/bin/dumpcap"
+        self.assertEqual(self.helper("on"), 1)
+        self.assertEqual(self.calls, [])
+        self.members[:] = ["jon"]
+        self.assertEqual(self.helper("off"), 0)         # leaving the group still works; dpkg isn't asked
+        self.assertEqual(self.calls, [(["gpasswd", "-d", "jon", "wireshark"], None)])
+
+    def test_without_wireshark(self):
+        os.unlink(self.dumpcap)
+        self.assertEqual(self.helper("on"), 1)
+        self.assertEqual(self.calls, [])
+        with self.assertRaises(fc.ControlError):
+            fc.system_value("packet-capture")
+
+    def test_system_setting_and_history(self):
+        self.assertEqual(fc.check_system("packet-capture", "on"), "on")
+        with self.assertRaises(fc.ControlError):
+            fc.check_system("packet-capture", "yes")
+        with mock.patch.object(fc, "system_value", return_value="off"), \
+                mock.patch.object(fc.subprocess, "run") as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(fc, "warn"):
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.assertEqual(fc.main(["system", "packet-capture", "on"]), 0)
+            self.assertEqual(run.call_args.args[0], ["pkexec", fc.HELPER, "packet-capture", "on"])
+        change = fc.Change("1", None, "flickos-control", "packet-capture", "off", "on")
+        self.assertEqual(fc.describe(change, {}), ("Capture packets without administrator rights: on", "Was off"))
+        self.assertEqual(fc.undo_commands(change), [[*fc.SELF, "system", "packet-capture", "off"]])
+
+
+class TestAdapterTest(SettingsTest):
+    """The wireless test adapter (flickos-kits' test-adapter step,
+    flickos-security.md ADR-S08): NetworkManager's conf.d file naming the
+    adapter's permanent address."""
+
+    TEST = "EC:08:6B:1E:45:3B"
+    BUILT_IN = "40:E2:30:CD:53:3E"
+
+    def setUp(self):
+        super().setUp()
+        self.conf = os.path.join(self.tmp, "conf.d", "90-flickos-test-adapter.conf")
+        self.devices = [{"device": "wlp3s0", "state": 100, "address": self.BUILT_IN},
+                        {"device": "wlxec086b1e453b", "state": 30, "address": self.TEST}]
+        self.calls = []
+        self.real_wifi_devices = helper.wifi_devices
+        for module, name, value in ((fc, "TEST_ADAPTER_CONF", self.conf), (helper, "TEST_ADAPTER_CONF", self.conf),
+                                    (helper, "wifi_devices", lambda: self.devices),
+                                    (helper, "run_tool", lambda command, stdin=None: self.calls.append(command))):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def helper(self, *args):
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"), \
+                mock.patch("sys.stderr"):
+            return helper.main(["wireless-test-adapter", *args])
+
+    def test_the_helper_and_the_window_agree(self):
+        sources = [fc.read_text(os.path.join(PACKAGE, path))
+                   for path in ("usr/libexec/flickos/control-helper", "usr/bin/flickos-control")]
+        for name in ("TEST_ADAPTER_CONF", "TEST_ADAPTER_MARK", "DUMPCAP", "WIRESHARK_GROUP"):
+            values = [re.search(rf'^{name} = ("[^"]*")', text, re.M).group(1) for text in sources]
+            self.assertEqual(values[0], values[1], name)
+
+    def test_set_and_off(self):
+        self.assertEqual(fc.system_value("wireless.test-adapter"), "off")
+        self.assertEqual(self.helper(self.TEST.lower()), 0)
+        self.assertEqual(fc.system_value("wireless.test-adapter"), self.TEST)
+        with open(self.conf) as f:
+            text = f.read()
+        self.assertIn(f"\n[keyfile]\nunmanaged-devices=mac:{self.TEST}\n", text)
+        self.assertEqual(os.stat(self.conf).st_mode & 0o777, 0o644)
+        self.assertEqual(self.calls, [["nmcli", "general", "reload"]])
+        self.calls.clear()
+        self.assertEqual(self.helper("off"), 0)
+        self.assertFalse(os.path.exists(self.conf))
+        self.assertEqual(fc.system_value("wireless.test-adapter"), "off")
+        self.assertEqual(self.calls, [["nmcli", "general", "reload"]])
+        self.calls.clear()
+        self.assertEqual(self.helper("off"), 0)             # nothing to delete: nothing to reload
+        self.assertEqual(self.calls, [])
+
+    def test_refused(self):
+        """Not an address, not plugged in, or the adapter the computer is online with."""
+        for args in ([], ["wlx0"], ["EC:08:6B:1E:45"], [self.TEST + "\n"], ["00:11:22:33:44:55"], [self.BUILT_IN],
+                     [self.TEST, "off"]):
+            self.assertEqual(self.helper(*args), 1, args)
+        self.assertFalse(os.path.exists(self.conf))
+        self.assertEqual(self.calls, [])
+
+    def test_someone_elses_file_is_left_alone(self):
+        os.makedirs(os.path.dirname(self.conf))
+        with open(self.conf, "w") as f:
+            f.write("[keyfile]\nunmanaged-devices=mac:EC:08:6B:1E:45:3B\n")
+        self.assertEqual(fc.system_value("wireless.test-adapter"), "off")
+        self.assertEqual(self.helper(self.TEST), 1)
+        self.assertEqual(self.helper("off"), 1)
+        self.assertEqual(self.calls, [])
+
+    def test_wifi_devices_reads_the_permanent_address(self):
+        show = ("GENERAL.DEVICE:wlp3s0\nGENERAL.TYPE:wifi\nGENERAL.STATE:100 (connected)\n"
+                "GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/3\n\n"
+                "GENERAL.DEVICE:lo\nGENERAL.TYPE:loopback\nGENERAL.STATE:100 (connected (externally))\n"
+                "GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/1\n\n"
+                "GENERAL.DEVICE:wlx0\nGENERAL.TYPE:wifi\nGENERAL.STATE:30 (disconnected)\n"
+                "GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/5\n")
+        addresses = {"/org/freedesktop/NetworkManager/Devices/3": '{"type":"s","data":"40:e2:30:cd:53:3e"}',
+                     "/org/freedesktop/NetworkManager/Devices/5": ""}
+
+        def run(command, **_kw):
+            if command[0] == "nmcli":
+                return subprocess.CompletedProcess(command, 0, show, "")
+            text = addresses[command[4]]
+            return subprocess.CompletedProcess(command, 0 if text else 1, text, "")
+
+        with mock.patch.object(helper.subprocess, "run", run):
+            found = self.real_wifi_devices()
+        self.assertEqual(found, [{"device": "wlp3s0", "state": 100, "address": self.BUILT_IN},
+                                 {"device": "wlx0", "state": 30, "address": ""}])
+        self.assertEqual(helper.nm_unescape(r"pci-0000\:03\:00.0"), "pci-0000:03:00.0")
+
+    def test_system_setting_and_history(self):
+        self.assertEqual(fc.check_system("wireless.test-adapter", self.TEST.lower()), self.TEST)
+        self.assertEqual(fc.check_system("wireless.test-adapter", "off"), "off")
+        for bad in ("wlan0", "", self.TEST + ":00"):
+            with self.assertRaises(fc.ControlError):
+                fc.check_system("wireless.test-adapter", bad)
+        with mock.patch.object(fc, "system_value", return_value="off"), \
+                mock.patch.object(fc.subprocess, "run") as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(fc, "warn"):
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.assertEqual(fc.main(["system", "wireless.test-adapter", self.TEST]), 0)
+            self.assertEqual(run.call_args.args[0], ["pkexec", fc.HELPER, "wireless-test-adapter", self.TEST])
+        change = fc.Change("1", None, "flickos-control", "wireless.test-adapter", "off", self.TEST)
+        self.assertEqual(fc.describe(change, {}), (f"Wireless adapter for testing: {self.TEST}", "Was off"))
+        self.assertEqual(fc.undo_commands(change), [[*fc.SELF, "system", "wireless.test-adapter", "off"]])
+
+
+class UpstreamTest(SettingsTest):
+    """A maker's apt repository (flickos-kits' newer versions, flickos-dev.md
+    ADR-008): sources signed by the shipped key, a pin, an update origin, and
+    the entry's package installed with them."""
+
+    KEYS = os.path.join(PACKAGE, "usr/share/flickos-control/upstreams")
+
+    def setUp(self):
+        super().setUp()
+        self.etc = os.path.join(self.tmp, "apt")
+        for folder in ("sources.list.d", "preferences.d", "apt.conf.d"):
+            os.makedirs(os.path.join(self.etc, folder))
+        self.updates = os.path.join(self.etc, "apt.conf.d", "60flickos-updates")
+        self.installed = set()
+        self.removes = set()
+        self.calls = []
+        self.fail = None
+
+        def run_apt(args, what, options=(), seconds=None):
+            self.calls.append(args)
+            if self.fail:
+                raise helper.HelperError(self.fail)
+            if args[0] == "install":
+                self.installed.update(args[1:])
+            else:
+                self.installed.difference_update(args[1:])
+
+        def simulate(args):
+            self.calls.append(["simulate", *args])
+            return set(self.removes) | (set(args[1:]) if args[0] == "remove" else set()), set()
+
+        for module, name, value in (
+                (helper, "UPSTREAM_SOURCES", os.path.join(self.etc, "sources.list.d", "flickos-upstream-{}.sources")),
+                (fc, "UPSTREAM_SOURCES", os.path.join(self.etc, "sources.list.d", "flickos-upstream-{}.sources")),
+                (helper, "UPSTREAM_PINS", os.path.join(self.etc, "preferences.d", "flickos-upstream-{}")),
+                (helper, "UPSTREAM_ORIGINS", os.path.join(self.etc, "apt.conf.d", "52flickos-upstream-{}")),
+                (helper, "UPSTREAM_KEYS", self.KEYS), (helper, "UPDATES_DROP_IN", self.updates),
+                (helper, "native_arch", lambda: "amd64"), (helper, "run_apt", run_apt),
+                (helper, "simulate", simulate),
+                (helper, "fetch_lists", lambda entry_id: self.calls.append(["update", entry_id])),
+                (helper, "installed_packages", lambda names: {n for n in names if n in self.installed})):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def helper(self, *args):
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"), \
+                mock.patch("sys.stderr"):
+            return helper.main(["upstream", *args])
+
+    def files(self, entry_id):
+        return [path.replace(self.etc, "") for path in (
+            os.path.join(self.etc, "sources.list.d", f"flickos-upstream-{entry_id}.sources"),
+            os.path.join(self.etc, "preferences.d", f"flickos-upstream-{entry_id}"),
+            os.path.join(self.etc, "apt.conf.d", f"52flickos-upstream-{entry_id}")) if os.path.exists(path)]
+
+    def read(self, path):
+        with open(os.path.join(self.etc, path.lstrip("/"))) as f:
+            return f.read()
+
+    def test_the_helper_and_the_window_agree(self):
+        sources = [fc.read_text(os.path.join(PACKAGE, path))
+                   for path in ("usr/libexec/flickos/control-helper", "usr/bin/flickos-control")]
+        for name in ("UPSTREAM_SOURCES", "UPSTREAM_MARK"):
+            values = [re.search(rf'^{name} = ("[^"]*")', text, re.M).group(1) for text in sources]
+            self.assertEqual(values[0], values[1], name)
+        self.assertEqual(fc.UPSTREAM_PATTERNS, {key: entry["origin"] for key, entry in helper.UPSTREAMS.items()})
+        self.assertEqual({f"upstream.{key}" for key in helper.UPSTREAMS},
+                         {key for key in fc.SYSTEM_LABELS if key.startswith("upstream.")})
+
+    def test_the_shipped_keys_are_the_listed_ones(self):
+        """Each key in the package has the fingerprint checked against the maker's
+        own page; a test of the parser on the binary form and on damage too."""
+        for entry_id, entry in helper.UPSTREAMS.items():
+            self.assertRegex(entry["fingerprint"], r"^[0-9A-F]{40}$")
+            self.assertTrue(entry["uri"].startswith("https://"), entry_id)
+            self.assertTrue(entry["packages"], entry_id)
+            path = os.path.join(self.KEYS, f"{entry_id}.asc")
+            with open(path, "rb") as f:
+                data = f.read()
+            self.assertEqual(helper.openpgp_fingerprint(data), entry["fingerprint"], entry_id)
+            self.assertEqual(helper.upstream_key(entry_id), path)
+            lines = data.decode().strip().splitlines()
+            binary = base64.b64decode("".join(lines[lines.index("") + 1:-2]))
+            self.assertEqual(helper.openpgp_fingerprint(binary), entry["fingerprint"])
+            for bad in (b"", b"hello", binary[:40], b"\x89" + binary[1:], data.replace(b"\n\n", b"\n", 1)):
+                with self.assertRaises(helper.HelperError):
+                    helper.openpgp_fingerprint(bad)
+        self.assertEqual(sorted(os.listdir(self.KEYS)), sorted(f"{key}.asc" for key in helper.UPSTREAMS))
+
+    def test_on_and_off(self):
+        self.assertEqual(fc.system_value("upstream.mise"), "off")
+        self.assertEqual(self.helper("mise", "on"), 0)
+        self.assertEqual(self.calls, [["update", "mise"], ["simulate", "install", "mise"], ["install", "mise"]])
+        self.assertEqual(fc.system_value("upstream.mise"), "on")
+        self.assertEqual(fc.system_value("upstream.rapid7"), "off")
+        sources = self.read("sources.list.d/flickos-upstream-mise.sources")
+        self.assertTrue(sources.startswith(helper.UPSTREAM_MARK + "\n"))
+        self.assertIn("\nTypes: deb\nURIs: https://mise.jdx.dev/deb\nSuites: stable\nComponents: main\n"
+                      f"Architectures: amd64\nSigned-By: {self.KEYS}/mise.asc\n", sources)
+        self.assertIn("\nPackage: *\nPin: origin mise.jdx.dev\nPin-Priority: -1\n\n"
+                      "Package: mise\nPin: origin mise.jdx.dev\nPin-Priority: 500\n",
+                      self.read("preferences.d/flickos-upstream-mise"))
+        self.assertIn('Unattended-Upgrade::Origins-Pattern {\n        "origin=mise repository,codename=stable,'
+                      'label=mise";\n};\n', self.read("apt.conf.d/52flickos-upstream-mise"))
+        self.assertEqual(self.installed, {"mise"})
+        self.calls.clear()
+        self.assertEqual(self.helper("mise", "off"), 0)
+        self.assertEqual(self.calls, [["simulate", "remove", "mise"], ["remove", "mise"]])
+        self.assertEqual(self.files("mise"), [])
+        self.assertEqual(self.installed, set())
+        self.assertEqual(fc.system_value("upstream.mise"), "off")
+        self.calls.clear()
+        self.assertEqual(self.helper("mise", "off"), 0)        # nothing installed, nothing there
+        self.assertEqual(self.calls, [])
+
+    def test_a_failure_takes_back_only_what_it_added(self):
+        self.fail = "mise can't be downloaded."
+        self.assertEqual(self.helper("mise", "on"), 1)
+        self.assertEqual(self.files("mise"), [])
+        self.fail = None
+        self.assertEqual(self.helper("mise", "on"), 0)
+        self.fail = "Software is being installed or updated right now."
+        self.assertEqual(self.helper("mise", "on"), 1)          # again, to upgrade: it stays on
+        self.assertEqual(len(self.files("mise")), 3)
+
+    def test_refused(self):
+        self.removes = {"libc6"}
+        self.assertEqual(self.helper("rapid7", "on"), 1)        # would remove another package
+        self.assertEqual(self.files("rapid7"), [])
+        self.assertEqual(self.installed, set())
+        for args in ([], ["mise"], ["mise", "yes"], ["nodesource", "on"], ["../mise", "on"], ["mise", "on", "x"]):
+            self.assertEqual(self.helper(*args), 1, args)
+        self.assertEqual(self.files("mise"), [])
+        # Someone else's file is left alone.
+        with open(os.path.join(self.etc, "preferences.d", "flickos-upstream-mise"), "w") as f:
+            f.write("Package: *\n")
+        self.assertEqual(self.helper("mise", "on"), 1)
+        self.assertEqual(self.helper("mise", "off"), 1)
+        self.assertEqual(self.files("mise"), ["/preferences.d/flickos-upstream-mise"])
+
+    def test_a_key_that_isnt_the_listed_one(self):
+        keys = os.path.join(self.tmp, "keys")
+        os.makedirs(keys)
+        shutil.copy(os.path.join(self.KEYS, "mise.asc"), os.path.join(keys, "rapid7.asc"))
+        with mock.patch.object(helper, "UPSTREAM_KEYS", keys):
+            self.assertEqual(self.helper("rapid7", "on"), 1)
+            self.assertEqual(self.helper("mise", "on"), 1)          # no file at all
+        self.assertEqual(self.files("rapid7") + self.files("mise"), [])
+        self.assertEqual(self.calls, [])
+
+    def test_automatic_updates_get_the_origin(self):
+        pattern = helper.UPSTREAMS["rapid7"]["origin"]
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"):
+            helper.main(["updates", "scope", "debian"])
+        self.assertNotIn(pattern, self.read("apt.conf.d/60flickos-updates"))
+        self.assertEqual(self.helper("rapid7", "on"), 0)
+        self.assertIn(f'"{pattern}";', self.read("apt.conf.d/60flickos-updates"))
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"):
+            helper.main(["updates", "scope", "security"])
+        self.assertNotIn(pattern, self.read("apt.conf.d/60flickos-updates"))   # security fixes only
+        with mock.patch.object(helper.os, "geteuid", return_value=0), mock.patch("sys.stdout"):
+            helper.main(["updates", "scope", "all"])
+        self.assertIn(pattern, self.read("apt.conf.d/60flickos-updates"))
+        self.assertEqual(self.helper("rapid7", "off"), 0)
+        self.assertNotIn(pattern, self.read("apt.conf.d/60flickos-updates"))
+        # The Updates page still names the scope while a maker's origin is in the list.
+        dump = APT_DUMP + "".join(f'Unattended-Upgrade::Origins-Pattern:: "{p}";\n'
+                                  for p in fc.UPSTREAM_PATTERNS.values())
+        self.assertEqual(fc.updates_state(dump, "/nonexistent")["scope"], "debian")
+
+    def test_refresh_writes_this_versions_files(self):
+        self.assertEqual(self.helper("mise", "on"), 0)
+        path = os.path.join(self.etc, "sources.list.d", "flickos-upstream-mise.sources")
+        with open(path, "w") as f:
+            f.write(helper.UPSTREAM_MARK + "\nURIs: https://old.example\n")
+        self.calls.clear()
+        self.assertEqual(self.helper("refresh"), 0)
+        self.assertIn("URIs: https://mise.jdx.dev/deb\n", self.read("sources.list.d/flickos-upstream-mise.sources"))
+        self.assertEqual(self.files("rapid7"), [])              # off stays off
+        self.assertEqual(self.calls, [])                        # nothing installed or fetched
+
+    def test_system_setting_and_history(self):
+        self.assertEqual(fc.check_system("upstream.rapid7", "on"), "on")
+        for key, value in (("upstream.rapid7", "yes"), ("upstream.nodesource", "on")):
+            with self.assertRaises(fc.ControlError):
+                fc.check_system(key, value)
+        with mock.patch.object(fc, "system_value", return_value="off"), \
+                mock.patch.object(fc.subprocess, "run") as run, \
+                mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(fc, "warn"):
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self.assertEqual(fc.main(["system", "upstream.rapid7", "on"]), 0)
+            self.assertEqual(run.call_args.args[0], ["pkexec", fc.HELPER, "upstream", "rapid7", "on"])
+        change = fc.Change("1", None, "flickos-control", "upstream.mise", "off", "on")
+        self.assertEqual(fc.describe(change, {}), ("mise, from its maker's repository: on", "Was off"))
+        self.assertEqual(fc.undo_commands(change), [[*fc.SELF, "system", "upstream.mise", "off"]])
+
+
+SETTINGS_UCA =os.path.join(PACKAGE, "../flickos-settings/etc/xdg/flickos/Thunar/uca.xml")
 SCREENSHOT_PROGRAM = os.path.join(PACKAGE, "../flickos-screenshot/usr/bin/flickos-screenshot")
 
 
@@ -2983,6 +4601,152 @@ class ScreenshotTest(unittest.TestCase):
         module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
         loader.exec_module(module)
         self.assertEqual(dict(fc.SCREENSHOT_SOUNDS), module.SOUNDS)
+
+
+MEDIA_PROGRAM = os.path.join(PACKAGE, "../flickos-media/usr/bin/flickos-media")
+
+
+class MediaTest(unittest.TestCase):
+    """The Media Controls page's words and flickos-media's changes in History."""
+
+    def change(self, key, old, new):
+        return fc.Change("1", None, "flickos-media", key, old, new)
+
+    def test_history(self):
+        controls = self.change("controls", "off", "on")
+        self.assertEqual(fc.describe(controls, {}), ("Media controls in the panel: on", "Was off"))
+        self.assertEqual(fc.undo_commands(controls), [["flickos-media", "set", "controls", "off"]])
+        self.assertTrue(fc.restorable(controls))
+        layer = self.change("spectrum-layer", "behind", "top")
+        self.assertEqual(fc.describe(layer, {}),
+                         ("Where the sound spectrum shows: over windows", "Was behind windows"))
+        shape = self.change("spectrum-shape", "strip", "radial")
+        self.assertEqual(fc.describe(shape, {}),
+                         ("Shape of the sound spectrum: in the middle of the screen", "Was above the panel"))
+        colors = self.change("spectrum-colors", "style", "rainbow")
+        self.assertEqual(fc.describe(colors, {}),
+                         ("Colors of the sound spectrum: rainbow", "Was the style's color"))
+        self.assertEqual(fc.undo_commands(colors), [["flickos-media", "set", "spectrum-colors", "style"]])
+        back = self.change("spectrum", "on", "default")
+        self.assertEqual(fc.undo_commands(back), [["flickos-media", "set", "spectrum", "on"]])
+        self.assertIsNone(fc.current_value(back))
+        with mock.patch.object(fc, "run", return_value="top\n") as run:
+            self.assertEqual(fc.current_value(layer), "top")
+        run.assert_called_once_with(["flickos-media", "get", "spectrum-layer"])
+        self.assertFalse(fc.can_undo(self.change("volume", "1", "2")))
+
+    def test_page(self):
+        self.assertIn("media", fc.SEARCH_KEYWORDS)
+        self.assertEqual(next(page.group for page in fc.PAGES if page.id == "media"), "Desktop")
+        with mock.patch.object(fc.shutil, "which", return_value="/usr/bin/flickos-media"):
+            self.assertTrue(fc.page_available("media"))
+        with mock.patch.object(fc.shutil, "which", return_value=None):
+            self.assertFalse(fc.page_available("media"))
+
+    @unittest.skipUnless(os.path.exists(MEDIA_PROGRAM), "flickos-media is not next to this package")
+    def test_words_are_the_owners(self):
+        loader = importlib.machinery.SourceFileLoader("flickos_media_words", MEDIA_PROGRAM)
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        self.assertEqual(set(fc.MEDIA_HISTORY_KEYS), set(module.SETTINGS))
+        self.assertEqual(set(fc.MediaPage.KEYS), set(module.SETTINGS))
+        self.assertEqual({value for value, _words in fc.MEDIA_LAYERS}, set(module.SETTINGS["spectrum-layer"][1]))
+        self.assertEqual({value for value, _words in fc.MEDIA_SHAPES}, set(module.SETTINGS["spectrum-shape"][1]))
+        self.assertEqual({value for value, _words in fc.MEDIA_COLORS}, set(module.SETTINGS["spectrum-colors"][1]))
+        for key, (_name, values, default) in module.SETTINGS.items():
+            self.assertEqual({fc.MediaPage.ON[key], fc.MediaPage.OFF[key]}, set(values), key)
+            self.assertEqual(fc.MediaPage.OFF[key], default, key)
+
+
+WEATHER_PROGRAM = os.path.join(PACKAGE, "../flickos-weather/usr/bin/flickos-weather")
+
+
+class WeatherTest(unittest.TestCase):
+    """The Weather page's words and flickos-weather's changes in History."""
+
+    def change(self, key, old, new):
+        return fc.Change("1", None, "flickos-weather", key, old, new)
+
+    def test_history(self):
+        enabled = self.change("enabled", "off", "on")
+        self.assertEqual(fc.describe(enabled, {}), ("Weather in the panel: on", "Was off"))
+        self.assertEqual(fc.undo_commands(enabled), [["flickos-weather", "set", "enabled", "off"]])
+        self.assertTrue(fc.restorable(enabled))
+        units = self.change("units", "auto", "fahrenheit")
+        self.assertEqual(fc.describe(units, {}), ("Weather temperature: Fahrenheit (°F)", "Was Automatic"))
+        wind = self.change("wind", "auto", "ms")
+        self.assertEqual(fc.describe(wind, {}), ("Weather wind speed: Meters per second (m/s)", "Was Automatic"))
+        self.assertEqual(fc.undo_commands(wind), [["flickos-weather", "set", "wind", "auto"]])
+        place = self.change("place", "", "52.52,13.41,Berlin, Germany")
+        self.assertEqual(fc.describe(place, {}), ("Weather place: Berlin, Germany", "Was none"))
+        # No place before: undo puts the default (none) back, not an empty place.
+        self.assertEqual(fc.undo_commands(place), [["flickos-weather", "set", "place", "default"]])
+        moved = self.change("place", "52.52,13.41,Berlin, Germany", "48.85,2.35,Paris, France")
+        self.assertEqual(fc.undo_commands(moved),
+                         [["flickos-weather", "set", "place", "52.52,13.41,Berlin, Germany"]])
+        with mock.patch.object(fc, "run", return_value="48.85,2.35,Paris, France\n") as run:
+            self.assertEqual(fc.current_value(moved), "48.85,2.35,Paris, France")
+        run.assert_called_once_with(["flickos-weather", "get", "place"])
+
+    def test_page(self):
+        self.assertIn("weather", fc.SEARCH_KEYWORDS)
+        self.assertEqual(next(page.group for page in fc.PAGES if page.id == "weather"), "Desktop")
+        with mock.patch.object(fc.shutil, "which", return_value="/usr/bin/flickos-weather"):
+            self.assertTrue(fc.page_available("weather"))
+        with mock.patch.object(fc.shutil, "which", return_value=None):
+            self.assertFalse(fc.page_available("weather"))
+        self.assertEqual(fc.weather_place_name("1.00,2.00,Salt, Pepper"), "Salt, Pepper")
+        self.assertEqual(fc.weather_place_name(""), "")
+        update = fc.WeatherPage.update_text
+        self.assertEqual(update({"updated": "2026-10-25T14:05:00+08:00", "error": None}),
+                         "Forecast updated at 14:05.")
+        self.assertIn("down", update({"updated": None, "error": "down"}))
+        self.assertEqual(update({}), "")
+
+    @unittest.skipUnless(os.path.exists(WEATHER_PROGRAM), "flickos-weather is not next to this package")
+    def test_words_are_the_owners(self):
+        loader = importlib.machinery.SourceFileLoader("flickos_weather_words", WEATHER_PROGRAM)
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        self.assertEqual(set(fc.WEATHER_HISTORY_KEYS), set(module.SETTINGS))
+        self.assertEqual({value for value, _words in fc.WEATHER_UNITS}, set(module.SETTINGS["units"][1]))
+        self.assertEqual({value for value, _words in fc.WEATHER_WIND}, set(module.SETTINGS["wind"][1]))
+
+
+SOFTWARE_PROGRAM = os.path.join(PACKAGE, "../flickos-software/usr/bin/flickos-software")
+
+
+class SoftwareTest(unittest.TestCase):
+    """Software's one setting (its ADR-007) in History, and its tile."""
+
+    def change(self, old, new):
+        return fc.Change("1", None, "flickos-software", "paid", old, new)
+
+    def test_history(self):
+        off = self.change("on", "off")
+        self.assertEqual(fc.describe(off, {}), ("Paid apps in Software: off", "Was on"))
+        self.assertEqual(fc.undo_commands(off), [["flickos-software", "paid", "set", "on"]])
+        self.assertTrue(fc.restorable(off))
+        self.assertEqual(fc.undo_commands(self.change("", "off")), [["flickos-software", "paid", "set", "default"]])
+        self.assertFalse(fc.can_undo(fc.Change("1", None, "flickos-software", "other", "a", "b")))
+        with mock.patch.object(fc, "run", return_value="off\n") as run:
+            self.assertEqual(fc.current_value(off), "off")
+        run.assert_called_once_with(["flickos-software", "paid", "current"])
+
+    def test_tile(self):
+        tile = next(tile for tile in fc.TILES if tile.id == "software")
+        self.assertEqual(tile.argv, ("flickos-software",))
+        for word in ("paid", "buy", "price"):
+            self.assertIn(word, fc.SEARCH_KEYWORDS["tile:software"].split())
+
+    @unittest.skipUnless(os.path.exists(SOFTWARE_PROGRAM), "flickos-software is not next to this package")
+    def test_words_are_the_owners(self):
+        loader = importlib.machinery.SourceFileLoader("flickos_software_words", SOFTWARE_PROGRAM)
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        self.assertEqual(fc.SOFTWARE_HISTORY_KEYS, (module.PAID,))
+        self.assertEqual(module.HISTORY_OWNER, fc.SOFTWARE)
+        self.assertEqual(module.DEFAULT_CHOICE, fc.DEFAULT_CHOICE)
 
 
 class PhoneTest(unittest.TestCase):
@@ -3238,3 +5002,102 @@ class RestorePointsTest(unittest.TestCase):
     def test_output_messages_drop_the_programs_name(self):
         self.assertEqual(fc.output_messages("", "flickos-recovery: no restore point x\n"),
                          ["no restore point x"])
+
+
+class FleetRowTest(unittest.TestCase):
+    """About's Organization row (flickos-fleet, docs/design/flickos-fleet.md
+    ADR-005): only while flickos-fleet is installed."""
+
+    def test_state_and_summary(self):
+        state = fc.fleet_state(json.dumps({"joined": True, "org": "Northfield School", "last": 1790000000,
+                                           "policy": 3, "failed": {"firewall": "no", "style": "no"}}))
+        self.assertEqual((state["joined"], state["org"], state["last"]), (True, "Northfield School", 1790000000))
+        summary = fc.fleet_summary(state)
+        self.assertTrue(summary.startswith("Managed by Northfield School: its settings, apps and updates are set "
+                                           "by Northfield School. Last check-in: "), summary)
+        self.assertTrue(summary.endswith("2 of its settings couldn't be applied."), summary)
+        self.assertEqual(fc.fleet_summary(fc.fleet_state('{"joined": false}')), "Not managed by an organization.")
+        self.assertIn("not yet", fc.fleet_summary(fc.fleet_state('{"joined": true, "org": "X"}')))
+        for text in ("", "[]", "nonsense"):
+            with self.subTest(text=text), self.assertRaises(fc.ControlError):
+                fc.fleet_state(text)
+
+    def test_lookup_gives_the_agents_own_words(self):
+        with mock.patch.object(fc.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, '{"org": "Northfield School"}\n', "")) as run:
+            self.assertEqual(fc.fleet_lookup("ABCD-1234"), "Northfield School")
+        self.assertEqual(run.call_args.args[0], ["flickos-fleet", "lookup", "ABCD-1234"])
+        with mock.patch.object(fc.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 1, "", "flickos-fleet: this join code is unknown or has expired: make a new one\n")):
+            with self.assertRaises(fc.ControlError) as caught:
+                fc.fleet_lookup("ABCD-1234")
+        self.assertEqual(str(caught.exception), "this join code is unknown or has expired: make a new one")
+
+    def test_join_codes(self):
+        for code, ok in (("ABCD-1234", True), ("abc", False), ("../x", False), ("A" * 65, False)):
+            with self.subTest(code=code):
+                self.assertEqual(bool(fc.FLEET_CODE.match(code)), ok)
+
+    SCRIPT = """
+import importlib.machinery, importlib.util, sys, shutil
+loader = importlib.machinery.SourceFileLoader("fc", sys.argv[1])
+fc = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(fc)
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import GdkPixbuf, Gio, GLib, Gtk
+if not Gtk.init_check()[0]:
+    sys.exit(77)
+ui = fc.Ui((GLib, Gio, Gtk, GdkPixbuf))
+which = shutil.which
+fc.shutil.which = lambda name: None if name == "flickos-fleet" else which(name)
+print(fc.AboutPage(ui).fleet_row is None)
+fc.shutil.which = lambda name: "/usr/bin/flickos-fleet" if name == "flickos-fleet" else which(name)
+fc.live_session = lambda: False
+page = fc.AboutPage(ui)
+page.widget.show_all()
+page.show_fleet({"joined": False, "org": "", "last": None, "failed": {}}, None)
+print(page.join_button.get_visible(), page.leave_button.get_visible(), page.fleet_row.subtitle.get_text())
+page.show_fleet({"joined": True, "org": "Northfield", "last": None, "failed": {}}, None)
+print(page.join_button.get_visible(), page.leave_button.get_visible())
+"""
+
+    def test_the_row_on_about(self):
+        result = subprocess.run([sys.executable, "-c", self.SCRIPT, os.path.join(PACKAGE, "usr/bin/flickos-control")],
+                                capture_output=True, text=True, timeout=60)
+        if result.returncode == 77 or "No module named 'gi'" in result.stderr:
+            self.skipTest("no GTK display")
+        self.assertEqual((result.returncode, result.stdout),
+                         (0, "True\nTrue False Not managed by an organization.\nFalse True\n"), result.stderr)
+
+
+class CardsTest(unittest.TestCase):
+    """Ui.cards with real GTK 3, in a child process, where a display opens
+    (not in CI or a package build): select() on cards that fit and on cards
+    that scroll."""
+
+    SCRIPT = """
+import importlib.machinery, importlib.util, sys, types
+loader = importlib.machinery.SourceFileLoader("fc", sys.argv[1])
+fc = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(fc)
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import GdkPixbuf, Gio, GLib, Gtk
+if not Gtk.init_check()[0]:
+    sys.exit(77)
+ui = fc.Ui((GLib, Gio, Gtk, GdkPixbuf))
+chosen = []
+for count in (3, 5):
+    items = [types.SimpleNamespace(id=str(n), name=f"Card {n}", comment="") for n in range(count)]
+    widget, select = ui.cards(items, "0", chosen.append, shown=3)
+    select("2")
+    print(type(widget).__name__, chosen)
+"""
+
+    def test_select_on_cards_that_fit_and_that_scroll(self):
+        result = subprocess.run([sys.executable, "-c", self.SCRIPT, os.path.join(PACKAGE, "usr/bin/flickos-control")],
+                                capture_output=True, text=True, timeout=60)
+        if result.returncode == 77 or "No module named 'gi'" in result.stderr:
+            self.skipTest("no GTK display")
+        self.assertEqual((result.returncode, result.stdout), (0, "FlowBox []\nScrolledWindow []\n"), result.stderr)

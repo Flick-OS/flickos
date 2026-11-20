@@ -1,3 +1,240 @@
+flickos-settings (1.61) trixie; urgency=medium
+
+  * Release of 1.61~test1: mise's shims on PATH while mise is installed.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 22:27:10 +0800
+
+flickos-settings (1.61~test1) trixie; urgency=medium
+
+  * flickos-session puts mise's shims first on PATH while mise is
+    installed, so a tool version chosen in Tool Kits runs in terminals
+    and apps (docs/design/flickos-dev.md, ADR-009).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 18:20:53 +0800
+
+flickos-settings (1.60) trixie; urgency=medium
+
+  * Release of 1.60~test1: the classroom agent starts at login when
+    installed.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 21:43:09 +0800
+
+flickos-settings (1.60~test1) trixie; urgency=medium
+
+  * Autostart: the classroom agent (flickos-classroom-view student run),
+    which exits at once while sharing with a teacher is off.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 13:47:48 +0800
+
+flickos-settings (1.59) trixie; urgency=medium
+
+  * Release of 1.59~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:43:13 +0800
+
+flickos-settings (1.59~test1) trixie; urgency=medium
+
+  * flickos-session adds /etc/xdg/flickos-site (the site's defaults,
+    over FlickOS's) to XDG_CONFIG_DIRS, even while the folder doesn't
+    exist (flickos-fleet phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:19:37 +0800
+
+flickos-settings (1.58) trixie; urgency=medium
+
+  * A double-click on a Debian package or a Flatpak file (.deb,
+    .flatpak, .flatpakref, .flatpakrepo) opens Software's page for it,
+    in place of xarchiver, which only listed a .deb's files (flickos-
+    software's flickos-software-open.desktop; ADR-012).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 15 Nov 2026 18:55:35 +0800
+
+flickos-settings (1.57) trixie; urgency=medium
+
+  * wdisplays (Settings' Displays) opens 900 x 500 px, wide enough to
+    show its screen map beside the settings, which a first-time user
+    missed (labwc window rule).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 15 Nov 2026 12:20:11 +0800
+
+flickos-settings (1.56) trixie; urgency=medium
+
+  * Thunar's Set as Wallpaper works: a custom action sets the picture
+    with waypaper, in place of Thunar's wallpaper plugin, which sets one
+    only on Xfce and GNOME (diverted).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 21:53:59 +0800
+
+flickos-settings (1.55) trixie; urgency=medium
+
+  * Release of 1.55~test1 and 1.55~test2: the GSettings override names
+    flickos-theme's themes, and the title bar follows the header bar
+    (seamless 2.x).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 20:32:14 +0800
+
+flickos-settings (1.55~test2) trixie; urgency=medium
+
+  * The unfocused title bar takes Arc's backdrop color (#323843,
+    #eff0f2), the same as the GTK header bar. The thin Arc-Dark and Arc
+    themes for Thunar's frame go: flickos-theme has the frame (seamless
+    2x phase 4).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 08:46:52 +0800
+
+flickos-settings (1.55~test1) trixie; urgency=medium
+
+  * The GTK theme default is FlickOS-Arc-Dark, from flickos-theme (a new
+    Depends; arc-theme stays for choosing Arc-Dark again).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 08:30:23 +0800
+
+flickos-settings (1.54) trixie; urgency=medium
+
+  * Release of 1.54~test1: header-bar windows get the same frame as
+    every other window.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 08 Nov 2026 11:52:12 +0800
+
+flickos-settings (1.54~test1) trixie; urgency=medium
+
+  * Windows that draw their own title bar, like Thunar's header bar,
+    have the same frame as other windows: blue at 50 % when focused,
+    grey when not. A small copy of Arc-Dark and Arc in
+    /usr/share/flickos/themes adds it.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 07 Nov 2026 15:12:02 +0800
+
+flickos-settings (1.53) trixie; urgency=medium
+
+  * Thunar: title and toolbar in one row (header bar, no menu bar), no
+    status bar, larger folder icons.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 07 Nov 2026 00:05:19 +0800
+
+flickos-settings (1.52) trixie; urgency=medium
+
+  * Release of 1.52~test4: Inter, window shadows, 8 px window corners
+    and the FlickOS-Bibata cursor.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:36 +0800
+
+flickos-settings (1.52~test4) trixie; urgency=medium
+
+  * The cursor is FlickOS-Bibata (flickos-cursor).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:14:05 +0800
+
+flickos-settings (1.52~test3) trixie; urgency=medium
+
+  * Windows have a soft shadow, and the focused window's border is
+    quieter, in both window themes.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 16:51:53 +0800
+
+flickos-settings (1.52~test2) trixie; urgency=medium
+
+  * Inter is the system font: GTK, title bars, notifications and the
+    launcher.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 16:45:10 +0800
+
+flickos-settings (1.52~test1) trixie; urgency=medium
+
+  * Window corners 8 px, like notifications and the launcher.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 16:44:12 +0800
+
+flickos-settings (1.51) trixie; urgency=medium
+
+  * Release of 1.51~test1: window borders stand out on dark pages.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 08:07:03 +0800
+
+flickos-settings (1.51~test1) trixie; urgency=medium
+
+  * Window borders stand out on dark pages: the focused window's is
+    Arc's accent blue in Dark and Light, Dark's unfocused one #4b5162.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 07:57:47 +0800
+
+flickos-settings (1.50) trixie; urgency=medium
+
+  * Release of 1.50~test2: sound asks rtkit for real-time priority
+    directly.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 20:32:15 +0800
+
+flickos-settings (1.50~test2) trixie; urgency=medium
+
+  * WirePlumber's link is gone: it doesn't read that section and carries
+    no sound.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 20:16:28 +0800
+
+flickos-settings (1.50~test1) trixie; urgency=medium
+
+  * Sound asks rtkit for real-time priority directly: the portal in
+    Debian 13 refuses these requests while PipeWire logs success.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 20:09:57 +0800
+
+flickos-settings (1.49) trixie; urgency=medium
+
+  * The volume, microphone and media keys work while the screen is
+    locked.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 11:51:25 +0800
+
+flickos-settings (1.48) trixie; urgency=medium
+
+  * Phase 3a merged: Firefox's web apps (Taskbar Tabs) on.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 18:25:47 +0800
+
+flickos-settings (1.48~test1) trixie; urgency=medium
+
+  * Phase 3a of flickos-switch: Firefox's web apps (Taskbar Tabs) are on
+    (browser.taskbarTabs.enabled in flickos.js).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:56:10 +0800
+
+flickos-settings (1.47) trixie; urgency=medium
+
+  * Merged from switch-phase2a.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:17:20 +0800
+
+flickos-settings (1.47~test1) trixie; urgency=medium
+
+  * Windows programs (.exe, .msi, .msix, .lnk) open flickos-switch's
+    window by default.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 12:49:03 +0800
+
+flickos-settings (1.46) trixie; urgency=medium
+
+  * Released: the keys through level (1.46~test1). 1.45 is left to the
+    light-default and forky branches, which use it.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 14:51:09 +0800
+
+flickos-settings (1.46~test1) trixie; urgency=medium
+
+  * The volume, microphone and brightness keys run
+    /usr/libexec/flickos/level: the same change as before, then flickos-
+    menu's level ring when it is installed. (1.46: 1.45 is held by the
+    light-default and forky branches.)
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 14:39:37 +0800
+
+flickos-settings (1.44) trixie; urgency=medium
+
+  * Firefox's FlickOS bookmark opens flickos.org, the new domain.
+  * debian/copyright: Source is the public repository.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 17 Oct 2026 12:42:04 +0800
+
 flickos-settings (1.43) trixie; urgency=medium
 
   * flickos-session starts labwc -m while flickos-layout's labwc-merge

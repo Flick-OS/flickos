@@ -1,3 +1,216 @@
+flickos-software (1.24) trixie; urgency=medium
+
+  * Release of 1.24~test1: the Security Tools category.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 22:27:10 +0800
+
+flickos-software (1.24~test1) trixie; urgency=medium
+
+  * Security Tools: a category for the security kits, with the
+    permission sentence on it and on each kit's page, and no shelf
+    (docs/design/flickos-security.md, phase 1). The index is rebuilt
+    (INDEX_VERSION 7).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 15:21:39 +0800
+
+flickos-software (1.23) trixie; urgency=medium
+
+  * Release of 1.23~test1: changed once the paid apps setting is
+    applied.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:24 +0800
+
+flickos-software (1.23~test1) trixie; urgency=medium
+
+  * Hooks: the paid apps setting fires changed once applied, History on
+    or off (docs/design/flickos-hooks.md, ADR-007).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:58 +0800
+
+flickos-software (1.22) trixie; urgency=medium
+
+  * Release of 1.22~test1: the app update timer starts again after an
+    upgrade.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:56:07 +0800
+
+flickos-software (1.22~test1) trixie; urgency=medium
+
+  * The daily app update's timer starts again after an upgrade: --no-
+    start stopped it at every upgrade of Software until the next boot.
+    The update itself still never runs while a package is being
+    installed.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:50:03 +0800
+
+flickos-software (1.21) trixie; urgency=medium
+
+  * Release of 1.21~test1: a classroom kit shows under Education.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 22:35:14 +0800
+
+flickos-software (1.21~test1) trixie; urgency=medium
+
+  * A kit of the classroom category shows under Education
+    (docs/design/flickos-dev.md, Q15).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 21:37:06 +0800
+
+flickos-software (1.20) trixie; urgency=medium
+
+  * Release of 1.20~test1 and 1.20~test2: the developer kits' pages and
+    Set Up….
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 20:33:06 +0800
+
+flickos-software (1.20~test2) trixie; urgency=medium
+
+  * An installed kit's page has Set Up…, which opens the Tool Kits
+    window on that kit (flickos-kits). (1.20~test1 was published without
+    it.)
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 12:58:00 +0800
+
+flickos-software (1.20~test1) trixie; urgency=medium
+
+  * Kits (docs/design/flickos-dev.md, phase 1): packages flickos-kit-
+    NAME whose metainfo extends flickos-kits.desktop show under
+    Developer Tools, with no Open and removable; a Tools for developers
+    shelf; the index is rebuilt (version 6).
+  * An installed kit's page has Set Up…, which opens the Tool Kits
+    window on that kit (flickos-kits).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 12:23:18 +0800
+
+flickos-software (1.19) trixie; urgency=medium
+
+  * Opening a Debian package or Flatpak file (.deb, .flatpak,
+    .flatpakref, .flatpakrepo) shows a page for it with what it needs
+    and what a Flatpak may reach, then installs it: flickos-software
+    open FILE..., plan/install/info --file. Several files make one page
+    and one install; a second double-click reaches the open window (ADR-
+    012).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 15 Nov 2026 18:55:35 +0800
+
+flickos-software (1.18) trixie; urgency=medium
+
+  * Release of 1.18~test1: Tortuga on the Styles shelf.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 21:07:56 +0800
+
+flickos-software (1.18~test1) trixie; urgency=medium
+
+  * Tortuga on the Styles shelf.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 20:45:10 +0800
+
+flickos-software (1.17) trixie; urgency=medium
+
+  * Bought apps: Buy… waits for the key of the payment (a claim code)
+    and adds it, Add Key… adds one bought elsewhere, and a bought app
+    installs from the FlickOS Store. Needs flickos-control 1.64.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 15:04:46 +0800
+
+flickos-software (1.16) trixie; urgency=medium
+
+  * Release of 1.16~test1: the FlickOS Store's apps, tried in the
+    window.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 14:52:12 +0800
+
+flickos-software (1.16~test1) trixie; urgency=medium
+
+  * The FlickOS Store's apps: its catalog, fetched with the front page's
+    shelves, shown only while an app has a price; an app sold over its
+    free version is one app.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 14:48:01 +0800
+
+flickos-software (1.14) trixie; urgency=medium
+
+  * FlickOS's apps (Notes, Write, Phone Screen) can be removed: only
+    FlickOS packages that aren't apps in the catalog stay protected,
+    with flickos-desktop's Depends.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 10:11:15 +0800
+
+flickos-software (1.13) trixie; urgency=medium
+
+  * Phase 3a merged: paid apps from featured.json and the paid setting.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 08:34:55 +0800
+
+flickos-software (1.13~test2) trixie; urgency=medium
+
+  * Phase 3a: prices from featured.json (Paid · price, Buy…) and the
+    paid setting (paid current|set, Show Paid Apps), recorded in
+    History.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 08 Nov 2026 22:39:35 +0800
+
+flickos-software (1.12) trixie; urgency=medium
+
+  * Phase 3b merged: web apps in Software.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 18:25:47 +0800
+
+flickos-software (1.12~test1) trixie; urgency=medium
+
+  * Web apps (flickos-switch phase 3b): the Windows apps list's web
+    versions and Firefox's web apps as apps, from flickos-switch webapp
+    list --known, read again when the window becomes active; a Web Apps
+    category with New Web App...; Install and Remove open the page in
+    Firefox, whose button makes or removes it; a Windows program's
+    answer opens its web app's page.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 18:05:35 +0800
+
+flickos-software (1.11) trixie; urgency=medium
+
+  * Merged from switch-phase2c: Windows programs in the search.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:37:21 +0800
+
+flickos-software (1.11~test1) trixie; urgency=medium
+
+  * A search that names a Windows program shows what to use instead
+    above the results, from flickos-switch lookup (flickos-switch phase
+    2c).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:34:05 +0800
+
+flickos-software (1.10) trixie; urgency=medium
+
+  * Merged from switch-phase2b: Wine's 32-bit part; needs flickos-
+    control 1.58.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:17:20 +0800
+
+flickos-software (1.10~test1) trixie; urgency=medium
+
+  * Wine comes with its 32-bit part: wine64 and wine32:i386 in one
+    transaction after flickos-control turns on i386; Add 32-bit Support
+    for a Wine installed without it; removing Wine turns i386 off again
+    (flickos-switch phase 2b).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 13:36:17 +0800
+
+flickos-software (1.9) trixie; urgency=medium
+
+  * Styles shelf: Eleven.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 25 Oct 2026 09:59:53 +0800
+
+flickos-software (1.8) trixie; urgency=medium
+
+  * Experience on the Styles shelf.
+  * debian/copyright: Source is the public repository, github.com/Flick-
+    OS/flickos.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 12:23:00 +0800
+
 flickos-software (1.7) trixie; urgency=medium
 
   * Elemental on the Styles shelf.

@@ -75,6 +75,13 @@ if ! $live && command -v flickos-phone >/dev/null; then
     flickos-phone daemon &
 fi
 
+# Sharing this screen with a teacher (flickos-classroom-view, installed by
+# choice). The agent exits at once while sharing is off, and never runs in
+# the live session.
+if ! $live && command -v flickos-classroom-view >/dev/null; then
+    flickos-classroom-view student run &
+fi
+
 # Once at the first login of a new account on an installed system, never in the
 # live session: the welcome window (flickos-welcome), which offers the Desktop
 # Layout & Style chooser among other things. Without that package, the chooser

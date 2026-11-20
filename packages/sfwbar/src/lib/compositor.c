@@ -103,6 +103,7 @@ static value_t lib_compositor_lib_window_info ( vm_t *vm, value_t p[], gint np )
 {
   GtkWidget *widget;
   window_t *win;
+  gchar *appid;
 
   vm_param_check_np_range(vm, np, 1, 2, "WindowInfo");
   vm_param_check_string(vm, p, 0, "WindowInfo");
@@ -116,7 +117,17 @@ static value_t lib_compositor_lib_window_info ( vm_t *vm, value_t p[], gint np )
    * for, as Focus() and Minimize() do. Reading the app id as a window_t made
    * WindowInfo('focused') false, so a click never minimized. */
   if(widget && IS_TASKBAR_POPUP(widget))
+  {
+    /* FlickOS: "appid" and "pinned" are about the group's app, which has no
+     * window when it is only pinned or has several. The dock's pin menu
+     * asks them (a menu runs with its caller's widget). */
+    appid = flow_item_get_source(widget);
+    if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "appid"))
+      return value_new_string(appid? appid : "");
+    if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "pinned"))
+      return value_new_numeric(appid && wintree_pin_get(appid));
     win = wintree_from_id(VM_WINDOW(vm));
+  }
   else
     win = flow_item_get_source(widget);
   if(win)

@@ -1,11 +1,33 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: flickos-layouts
 Upstream-Contact: Jon <dvbondoy@gmail.com>
-Source: https://github.com/dvbondoy/FlickOS
+Source: https://github.com/Flick-OS/flickos
 
 Files: *
 Copyright: 2026 Jon <dvbondoy@gmail.com>
 License: GPL-3+
+
+Files: artwork/wallpaper-dark.svg
+       artwork/wallpaper-light.svg
+       usr/share/backgrounds/flickos/flickos-dark.png
+       usr/share/backgrounds/flickos/flickos-light.png
+Copyright: 2026 Jon <dvbondoy@gmail.com>
+License: GPL-3+
+Comment: The FlickOS name and logo are trademarks of the FlickOS
+ maintainer. As an additional term under section 7(e) of the GPL-3, no
+ rights under trademark law are granted for them: a changed system must
+ use its own name and logo. The policy is TRADEMARKS.md in FlickOS's
+ source repository.
+
+Files: usr/share/flickos/styles/dark/wallpaper.png
+       usr/share/flickos/styles/light/wallpaper.png
+       usr/share/flickos/layouts/*/preview.png
+Copyright: Lance Asper (https://unsplash.com/photos/3P3NHLZGCp8)
+License: Unsplash
+Comment: The Dark and Light styles' wallpaper, scaled down, and the login
+ screen's. The layouts' previews are FlickOS's drawings on that picture. The
+ Unsplash License is not a free-software license (see below), but these
+ files are fine to redistribute as part of FlickOS.
 
 Files: usr/share/backgrounds/flickos/*.jpg
 Copyright: Unsplash photographers (names not recorded)

@@ -74,8 +74,8 @@ FlickOS is Debian with a small layer of its own. The less code it has, the
 fewer bugs, the less to maintain and the easier it is to trust.
 
 - **Use what Debian ships.** A setting goes through the tool that already
-  handles it: `timedatectl` for the time, `localectl` for the language,
-  `xdg-mime` for default apps, kanshi for screen arrangements, ufw for the
+  handles it: `timedatectl` for the time, `/etc/locale.conf` for the
+  language, `xdg-mime` for default apps, kanshi for screen arrangements, ufw for the
   firewall. FlickOS adds a view over them, not a replacement.
 - **A hub, not a rewrite.** When a good app for a job already exists
   (wdisplays, pavucontrol, nm-connection-editor), Settings starts it rather

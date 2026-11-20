@@ -1,0 +1,24 @@
+Source: flickos-weather
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-weather
+Architecture: all
+# flickos-layouts (>= 1.69): the panel button (custom/weather), inserted while
+# enabled is on, its icons in base.css and the flickos/weather placeholder.
+Depends: python3,
+         flickos-layouts (>= 1.69),
+         ${misc:Depends}
+Description: weather in the FlickOS panel
+ The temperature and the sky now in the FlickOS panel, and the next hours
+ and days when you point at it, for a town or city you pick. The forecast
+ comes from Open-Meteo.com, which is sent only the place's position, rounded
+ to about 1 km, once an hour.
+ .
+ Off by default: turned on in Settings > Weather, and nothing of it runs or
+ is sent while off.

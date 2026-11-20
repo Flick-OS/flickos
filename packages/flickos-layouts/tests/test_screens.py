@@ -1,4 +1,4 @@
-"""Tests for reloading waybar when the screens change (`supervise`,
+"""Tests for restarting waybar when the screens change (`supervise`,
 ScreenWatch): waybar 0.12 keeps a second bar on a screen turned on while it
 runs. Run: python3 -m unittest discover -s tests
 """
@@ -90,32 +90,48 @@ class ScreenWatchTest(unittest.TestCase):
         self.assertFalse(self.thread.is_alive())
 
 
-class SuperviseReloadTest(unittest.TestCase):
-    """supervise sends waybar its reload signal when the screens changed."""
+class SuperviseRestartTest(unittest.TestCase):
+    """supervise starts waybar again when the screens changed or at
+    RESTART_SIGNAL, never with waybar's own reload (SIGUSR2), which empties
+    the clock's calendar."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp))
-        self.got = os.path.join(self.tmp, "got")
-        # A stand-in waybar: records SIGUSR2, then ends cleanly.
+        self.log = os.path.join(self.tmp, "log")
+        # A stand-in waybar: records each start and a reload; the second
+        # start ends cleanly at once, so supervise returns.
         self.waybar = os.path.join(self.tmp, "waybar")
         with open(self.waybar, "w") as f:
-            f.write(f"#!{sys.executable}\nimport signal, sys, time\n"
-                    f"def got(*_):\n    open({self.got!r}, 'w').write('reload')\n    sys.exit(0)\n"
+            f.write(f"#!{sys.executable}\nimport os, signal, sys, time\n"
+                    f"log = {self.log!r}\nfirst = not os.path.exists(log)\n"
+                    "open(log, 'a').write('start\\n')\n"
+                    "if not first:\n    sys.exit(0)\n"
+                    "def got(*_):\n    open(log, 'a').write('reload\\n')\n    sys.exit(0)\n"
                     "signal.signal(signal.SIGUSR2, got)\ntime.sleep(10)\n")
         os.chmod(self.waybar, 0o755)
 
-    def test_reload_signal(self):
+    def supervise(self, action):
         watching = []
         with mock.patch.object(fl, "watch_screens", lambda env, changed, desktops=None: watching.append(changed)), \
-                mock.patch.object(fl, "log_line"):
-            timer = threading.Timer(0.5, lambda: watching[0]())
+                mock.patch.object(fl, "log_line") as log_line:
+            timer = threading.Timer(0.5, lambda: action(watching))
             timer.start()
             status = fl.supervise([self.waybar], dict(os.environ))
-        self.assertEqual(status, 0)
-        with open(self.got) as f:
-            self.assertEqual(f.read(), "reload")
-        self.assertEqual(fl.RELOAD_ON_SCREENS["waybar"], signal.SIGUSR2)
+        with open(self.log) as f:
+            return status, f.read(), [c.args[0] for c in log_line.call_args_list]
+
+    def test_restart_when_the_screens_change(self):
+        status, log, lines = self.supervise(lambda watching: watching[0]())
+        self.assertEqual((status, log), (0, "start\nstart\n"))
+        self.assertIn("the screens changed: restarting waybar", lines)
+
+    def test_restart_signal(self):
+        before = signal.getsignal(fl.RESTART_SIGNAL)
+        status, log, lines = self.supervise(lambda watching: os.kill(os.getpid(), fl.RESTART_SIGNAL))
+        self.assertEqual((status, log), (0, "start\nstart\n"))
+        self.assertIn("its files changed: restarting waybar", lines)
+        self.assertEqual(signal.getsignal(fl.RESTART_SIGNAL), before)
 
     def test_only_waybar_is_watched(self):
         watching = []

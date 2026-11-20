@@ -1,3 +1,511 @@
+flickos-control (1.84) trixie; urgency=medium
+
+  * Release of 1.84~test1: packet capture, the wireless test adapter and
+    makers' repositories (flickos-security.md).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 22:27:10 +0800
+
+flickos-control (1.84~test1) trixie; urgency=medium
+
+  * 1.82~test1 renumbered above main's 1.83 (main merged in: Tool Kits'
+    study search words).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:24:13 +0800
+
+flickos-control (1.83) trixie; urgency=medium
+
+  * Release of 1.83~test1: Settings' search finds Tool Kits by study and
+    school words.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:17:11 +0800
+
+flickos-control (1.83~test1) trixie; urgency=medium
+
+  * Settings' search finds Tool Kits by study and school words (the
+    Study kit).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:00:48 +0800
+
+flickos-control (1.82~test1) trixie; urgency=medium
+
+  * Two system settings for the security kits (docs/design/flickos-
+    security.md, phase 2): packet-capture (the calling account joins
+    Debian's wireshark group, through wireshark-common's own debconf
+    answer; refused while an administrator's statoverride is on dumpcap)
+    and wireless.test-adapter (NetworkManager leaves one Wi-Fi adapter
+    alone, by its permanent address). Helper verbs, polkit actions and
+    History.
+  * Makers' repositories (docs/design/flickos-dev.md, ADR-008, 8a; Q8 to
+    Q11 decided): system settings upstream.mise and upstream.rapid7
+    through the helper's upstream ID on|off|refresh, which adds the
+    maker's repository (key shipped in /usr/share/flickos-
+    control/upstreams, fingerprint checked), pins it to its one package,
+    adds its origin to automatic updates and installs the package; off
+    removes both. Polkit action, History, postinst refresh; the Updates
+    page still names its scope.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 15:43:00 +0800
+
+flickos-control (1.81) trixie; urgency=medium
+
+  * Release of 1.81~test1: changed once a setting is applied.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:22 +0800
+
+flickos-control (1.81~test1) trixie; urgency=medium
+
+  * Hooks: a setting that changed fires changed once applied, History on
+    or off; not the store key or a History restore (docs/design/flickos-
+    hooks.md, ADR-007).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:56 +0800
+
+flickos-control (1.80) trixie; urgency=medium
+
+  * Release of 1.80~test1: the woke hooks after the computer wakes.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:00:30 +0800
+
+flickos-control (1.80~test1) trixie; urgency=medium
+
+  * The idle swayidle also runs the woke hooks (flickos-hooks) after the
+    computer wakes: a test of the hooks folder, then setsid -f, so a
+    slow hook never holds up the idle lock.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 18:58:29 +0800
+
+flickos-control (1.79) trixie; urgency=medium
+
+  * Release of 1.79~test1: the helper's audit fixes F-1 and F-2.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:56:08 +0800
+
+flickos-control (1.79~test1) trixie; urgency=medium
+
+  * Security (audit F-1, F-2, both Low): adding an account passes the
+    full name as --comment=NAME and ends adduser's options with --, so a
+    full name can't add options such as --system, and a full name can't
+    start with -; the helper's checks of user names and other arguments
+    use the whole value, so a trailing newline no longer passes them.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:50:04 +0800
+
+flickos-control (1.78) trixie; urgency=medium
+
+  * Release of 1.78~test1: Settings > Classroom lists the paired
+    teachers, each with its own Forget….
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:40:46 +0800
+
+flickos-control (1.78~test1) trixie; urgency=medium
+
+  * Settings > Classroom lists the paired teachers, each with its own
+    Forget…, and says which is connected now (flickos-classroom-view
+    1.0~test9's several teachers).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:19:58 +0800
+
+flickos-control (1.77) trixie; urgency=medium
+
+  * Release of 1.77~test1: Settings > Classroom shows Teaching a class
+    only with flickos-classroom-teacher.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 11:45:31 +0800
+
+flickos-control (1.77~test1) trixie; urgency=medium
+
+  * Settings > Classroom shows Teaching a class only where flickos-
+    classroom-teacher is installed, not on students' computers.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 11:39:22 +0800
+
+flickos-control (1.76) trixie; urgency=medium
+
+  * Use for the Whole System… (Language & Region, Login Screen) works:
+    the system language goes through the helper's new locale verb
+    (/etc/locale.conf, action org.flickos.control.locale), since
+    Debian's D-Bus policy refuses localed's SetLocale to everyone and
+    localectl set-locale failed with "Access denied" before asking for
+    the password.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 08:12:32 +0800
+
+flickos-control (1.75) trixie; urgency=medium
+
+  * Release of 1.75~test1: Settings > Classroom, firewall.classroom and
+    classroom.lab.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 21:43:09 +0800
+
+flickos-control (1.75~test1) trixie; urgency=medium
+
+  * Settings > Classroom and classroom.lab (1.74~test1's changes) above
+    main's 1.74, which sorts after 1.74~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 19:43:37 +0800
+
+flickos-control (1.74) trixie; urgency=medium
+
+  * History's Undo of a kernel install (Liquorix, rt, a kernel meta-
+    package) takes the kernel the meta-package depends on now, not the
+    one the log names: updates move that dependency, so Undo used to
+    remove only the meta-package, say Removed, and leave the kernel in
+    the boot menu. Refuses while that kernel is the one running, and
+    says when another package needs it and it stays.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 18:33:35 +0800
+
+flickos-control (1.74~test1) trixie; urgency=medium
+
+  * Settings > Classroom (shown while flickos-classroom-view is
+    installed): share this screen with a teacher, pair, forget, and the
+    system setting firewall.classroom (the helper's firewall-classroom
+    on|off lets a teacher's computer reach TCP 47100 from private
+    networks). History says and undoes the sharing setting.
+  * Classroom page: the Lab computer section and the system setting
+    classroom.lab (flickos-classroom-view lab on|off through its own
+    polkit action).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 13:57:36 +0800
+
+flickos-control (1.73) trixie; urgency=medium
+
+  * Release of 1.73~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 11:26:38 +0800
+
+flickos-control (1.73~test1) trixie; urgency=medium
+
+  * system KEY VALUE run as root (flickos-fleet's agent,
+    docs/design/flickos-fleet.md ADR-011) runs the helper without pkexec
+    and records nothing in History.
+  * New apply-defaults: write the labwc fragments again and restart the
+    idle lock and night light after the site's defaults changed
+    (flickos-fleet).
+  * About: an Organization row while flickos-fleet is installed (who
+    manages this computer, What Is Sent, Join an Organization… and
+    Leave… through pkexec).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:52:39 +0800
+
+flickos-control (1.72) trixie; urgency=medium
+
+  * Release of 1.72~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:43:13 +0800
+
+flickos-control (1.72~test1) trixie; urgency=medium
+
+  * Site defaults: the settings' .conf files and history.conf are read
+    from /etc/xdg/flickos-site/flickos/ between FlickOS's and the user's
+    (flickos-fleet phase 1); get shows the source as site.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:19:36 +0800
+
+flickos-control (1.71) trixie; urgency=medium
+
+  * Release of 1.71~test1: the Tool Kits tile, and the firewall.local-
+    ports and containers.dhcp system settings.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 20:33:05 +0800
+
+flickos-control (1.71~test1) trixie; urgency=medium
+
+  * A Tool Kits tile in More Settings, which opens flickos-kits
+    (docs/design/flickos-dev.md, phase 2).
+  * The firewall.local-ports and containers.dhcp system settings (helper
+    verbs firewall-local-ports and containers-dhcp, with polkit actions,
+    History and the Firewall page's Servers you run row) for flickos-
+    kits (docs/design/flickos-dev.md, ADR-006 and Q7).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 12:39:50 +0800
+
+flickos-control (1.70) trixie; urgency=medium
+
+  * Weather page: the Units row is now Temperature, and a Wind speed row
+    (automatic, km/h, m/s, mph, knots) sets flickos-weather's wind unit,
+    with its History label and search words.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 10:48:48 +0800
+
+flickos-control (1.69) trixie; urgency=medium
+
+  * Updates: Check for Updates Now refreshes PackageKit's package lists
+    first, so the viewer lists every update, not only those from before
+    the last apt update.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 14 Nov 2026 20:38:28 +0800
+
+flickos-control (1.68) trixie; urgency=medium
+
+  * Desktop Layout & Style: a Window buttons row (flickos-layouts 1.84),
+    with History, undo and search words.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 20:17:15 +0800
+
+flickos-control (1.67) trixie; urgency=medium
+
+  * Release of 1.67~test1: the Tile open windows switch, tried on a real
+    login.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 20:03:59 +0800
+
+flickos-control (1.67~test1) trixie; urgency=medium
+
+  * Tiling: a Tile open windows switch (flick-tiler 1.12's tile-open),
+    with its History label and undo; shown only with a flick-tiler that
+    has it.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 19:47:58 +0800
+
+flickos-control (1.66) trixie; urgency=medium
+
+  * Release of 1.66~test1: the Login Screen page, tried on a real login.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 19:45:58 +0800
+
+flickos-control (1.66~test1) trixie; urgency=medium
+
+  * The Login page becomes Login Screen: logging in automatically, the
+    login screen's language and keyboard layout (the same actions as
+    Language & Region's and Keyboard's, which now point to it), its
+    background (FlickOS's wallpapers or a picture of yours) and where
+    the login box sits (flickos-greeter ADR-013 to ADR-015). New: system
+    login.background and login.position, the helper's login-background
+    (a picture of yours comes as a JPEG on standard input; no path
+    outside /usr/share/backgrounds is read) and login-position verbs
+    with their polkit actions, History labels. Breaks flickos-greeter <<
+    2.4~.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 19:10:15 +0800
+
+flickos-control (1.65) trixie; urgency=medium
+
+  * Release of 1.65~test1: Settings is translatable, tried on a real
+    login.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 22:10:04 +0800
+
+flickos-control (1.65~test1) trixie; urgency=medium
+
+  * Translatable (docs/12): the window, History's words, and the
+    messages it shows are marked for gettext, po/flickos-control.pot;
+    the desktop files get their translations at build. Names of
+    languages and keyboard layouts come from iso-codes' and xkeyboard-
+    config's translations. Command-line output that scripts, the boot
+    test and bug reports read stays English.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 21:56:34 +0800
+
+flickos-control (1.64) trixie; urgency=medium
+
+  * Release of 1.64~test1: purchased apps (store phase 2), tried on a
+    real login; a claim another page collected first is explained.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 14:34:25 +0800
+
+flickos-control (1.64~test1) trixie; urgency=medium
+
+  * Purchased apps: the key of apps bought from the FlickOS store
+    (purchases add, remove, list, claim; the helper's purchases-add, -
+    remove and the apt hook's purchases-check), the Purchased apps row
+    on the Updates page, the store in the automatic updates.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 13:28:33 +0800
+
+flickos-control (1.63) trixie; urgency=medium
+
+  * Software's paid setting merged.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 08:34:56 +0800
+
+flickos-control (1.63~test1) trixie; urgency=medium
+
+  * History knows Software's paid setting (label, Undo, restore); a
+    Software tile on More Settings.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 08 Nov 2026 22:39:36 +0800
+
+flickos-control (1.62) trixie; urgency=medium
+
+  * Release of 1.62~test1: the Window shadows switch.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:37 +0800
+
+flickos-control (1.62~test1) trixie; urgency=medium
+
+  * Window shadows: a switch on Accessibility, under Effects (was
+    Motion).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 16:51:52 +0800
+
+flickos-control (1.61) trixie; urgency=medium
+
+  * Branch floating-panel merged: a Floating panel switch in Desktop
+    Layout & Style, in History and search.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 15:05:18 +0800
+
+flickos-control (1.61~test1) trixie; urgency=medium
+
+  * Desktop Layout & Style: a Floating panel switch for a layout that
+    can float, in History and search.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 14:59:28 +0800
+
+flickos-control (1.60) trixie; urgency=medium
+
+  * Settings > About: Save Report... puts the system information, the
+    desktop check and the panel's and lock screen's logs in one file to
+    attach to a bug report (flickos-control report prints it). Nothing
+    is sent. Home folder, user and computer names and addresses are left
+    out, and repeated log lines are counted.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 11:26:40 +0800
+
+flickos-control (1.59) trixie; urgency=medium
+
+  * Settings > Users: your picture (Choose Picture, Remove Picture;
+    picture current, picture set FILE|default). Scaled to a small square
+    first, since accountsservice refuses files over 1 MB. New Depends:
+    accountsservice. Removing an account also removes its picture
+    (flickos-greeter 2.0 phase 3).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 10:43:15 +0800
+
+flickos-control (1.58) trixie; urgency=medium
+
+  * Merged from switch-phase2b: the system setting i386.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:17:20 +0800
+
+flickos-control (1.58~test1) trixie; urgency=medium
+
+  * Support for 32-bit programs: the system setting i386 and the
+    helper's i386-on and i386-off, for Wine from Software (flickos-
+    switch phase 2b).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 13:36:16 +0800
+
+flickos-control (1.57) trixie; urgency=medium
+
+  * Released: Show the level on the Notifications page (1.57~test1).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 14:51:09 +0800
+
+flickos-control (1.57~test1) trixie; urgency=medium
+
+  * Notifications: Show the level, flickos-menu's level ring after the
+    volume and brightness keys (osd.enabled, on; conffile osd.conf), in
+    History and search.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 14:34:57 +0800
+
+flickos-control (1.56) trixie; urgency=medium
+
+  * Media Controls: a Rainbow colors switch for the sound spectrum
+    (flickos-media 1.6's spectrum-colors), hidden with an older flickos-
+    media; its changes in History.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 31 Oct 2026 23:38:05 +0800
+
+flickos-control (1.55) trixie; urgency=medium
+
+  * The layout cards fill the page's width: a bigger or maximized window
+    shows more of them side by side, three at first as before.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 31 Oct 2026 19:24:48 +0800
+
+flickos-control (1.54) trixie; urgency=medium
+
+  * History names a package by the app named after it, else by its only
+    app, else by the package name: sgt-puzzles showed as Black Box, foot
+    as Foot Server, Thunar as Bulk Rename and Mousepad as Text Editor
+    Settings (the first of their apps).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 29 Oct 2026 14:27:52 +0800
+
+flickos-control (1.53) trixie; urgency=medium
+
+  * Desktop Layout & Style: the page loads completely again with layout
+    cards that don't scroll (three layouts); since 1.52 it stopped with
+    an error after choosing the current layout.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 29 Oct 2026 11:38:03 +0800
+
+flickos-control (1.52) trixie; urgency=medium
+
+  * Desktop Layout & Style: Pinned Apps (add, move, remove, reset) for a
+    layout whose dock or panel shows them (flickos-layouts 1.70's
+    pinned); History names and undoes those changes.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 26 Oct 2026 18:17:17 +0800
+
+flickos-control (1.51) trixie; urgency=medium
+
+  * Weather page (Desktop): the weather in the panel on or off, the
+    place (found by name, which asks the weather service only then), the
+    units, the last update, and what is sent where.
+  * History: the weather's changes, with undo.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 25 Oct 2026 10:26:35 +0800
+
+flickos-control (1.50) trixie; urgency=medium
+
+  * Media Controls: Show the spectrum in the middle of the screen
+    (flickos-media's spectrum-shape); the over-windows row waits while
+    it is on. History words the shape.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 20:27:49 +0800
+
+flickos-control (1.49) trixie; urgency=medium
+
+  * Media Controls page (Desktop group, while flickos-media is
+    installed): media controls in the panel, the sound spectrum and
+    whether it shows over windows. History shows and undoes their
+    changes.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 24 Oct 2026 15:24:11 +0800
+
+flickos-control (1.48) trixie; urgency=medium
+
+  * Release of 1.48~test1 and ~test2: the lock runs flickos-lock,
+    FlickOS's own lock screen, which flickos-desktop now depends on.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 20 Oct 2026 14:06:56 +0800
+
+flickos-control (1.48~test2) trixie; urgency=medium
+
+  * Desktop Layout & Style: the layout cards scroll sideways, three
+    shown at a time, the chosen one scrolled into view.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 17 Oct 2026 20:24:24 +0800
+
+flickos-control (1.48~test1) trixie; urgency=medium
+
+  * lock: runs flickos-lock, FlickOS's own lock screen, when it is
+    installed and swaylock has no config of the user's or the system's;
+    the idle lock passes --grace (a key or a mouse move within a few
+    seconds unlocks).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 21:57:19 +0800
+
+flickos-control (1.47) trixie; urgency=medium
+
+  * lock: swaylock in the style's colors (flickos-layouts'
+    style/swaylock, with -C), with the ring shown before typing, failed
+    attempts and Caps Lock on the ring; the old Arc-Dark command while
+    swaylock has a config of the user's or the system's.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 19:54:57 +0800
+
+flickos-control (1.46) trixie; urgency=medium
+
+  * Privacy and Report a Problem open github.com/Flick-OS/flickos; so
+    does the password prompt's vendor link.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 12:47:24 +0800
+
 flickos-control (1.45) trixie; urgency=medium
 
   * Desktop Layout & Style: Your own styles and layouts has a Tweaks

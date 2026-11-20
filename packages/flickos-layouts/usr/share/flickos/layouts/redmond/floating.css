@@ -1,0 +1,17 @@
+/* Redmond's floating panel (flickos-layout floating-panel set on): a slimmer
+ * bar with a gap around it, inside the panel's usual 40 px, so windows have
+ * the same room as with the plain panel and never move. floating-full.css
+ * turns it back into the full panel while a window fills the screen. Named
+ * colors only. */
+
+window#waybar {
+    background: transparent;
+}
+
+window#waybar > box {
+    margin: 0 8px 4px;
+    border-radius: 8px;
+    border: 1px solid alpha(@fg_color, 0.2);
+    background: alpha(@wm_bg, 0.8);
+    transition: margin 200ms ease, border-radius 200ms ease, background-color 200ms ease;
+}

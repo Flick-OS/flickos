@@ -10,7 +10,10 @@ export PYTHONDONTWRITEBYTECODE = 1
 override_dh_auto_test:
 	python3 -m unittest discover -s tests -v
 
-# Enable the timer, start nothing: it runs at its time (Persistent=true), never
-# while a package is being installed.
+# The update itself runs at its time (Persistent=true), never while a package
+# is being installed; the timer is enabled, and started again after an
+# upgrade: --no-start on the timer too stopped it at every upgrade until the
+# next boot, so automatic app updates stopped after Software updated itself.
 override_dh_installsystemd:
-	dh_installsystemd --name=flickos-software-update --no-start
+	dh_installsystemd --name=flickos-software-update --no-start flickos-software-update.service
+	dh_installsystemd --name=flickos-software-update flickos-software-update.timer

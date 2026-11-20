@@ -1,0 +1,53 @@
+#!/usr/bin/python3
+"""Print template entries for the Windows apps list's text (tools/update-po.sh
+runs a package's po/extract and adds its output to the .pot; docs/12).
+
+Translated: a web version's name, a similar app's sentence, a note, and the
+name of a group ("antivirus software"). Program names aren't.
+"""
+
+import json
+import os
+import sys
+
+LIST = "usr/share/flickos/switch/apps.json"
+
+
+def strings(entries):
+    """(text, translators' comment) in the list's order, each once."""
+    seen = set()
+    for entry in entries:
+        found = []
+        if entry.get("group"):
+            found.append((entry["name"], "A kind of program, after \"is\": \"MBSetup.exe is antivirus software for Windows.\""))
+        if entry.get("web"):
+            found.append((entry["web"]["name"], None))
+        found += [(s["why"], f"Why {s['name']} can take the place of {entry['name']}.") for s in entry.get("similar", [])
+                  if s.get("why")]
+        if entry.get("note"):
+            found.append((entry["note"], None))
+        for text, comment in found:
+            if text not in seen:
+                seen.add(text)
+                yield text, comment
+
+
+def quote(text):
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def main():
+    package = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(package, LIST), encoding="utf-8") as f:
+        entries = json.load(f)
+    out = ['msgid ""', 'msgstr ""', '"Content-Type: text/plain; charset=UTF-8\\n"', ""]
+    for text, comment in strings(entries):
+        if comment:
+            out.append(f"#. Translators: {comment}")
+        out += [f"#: {LIST}", f"msgid {quote(text)}", 'msgstr ""', ""]
+    sys.stdout.write("\n".join(out))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

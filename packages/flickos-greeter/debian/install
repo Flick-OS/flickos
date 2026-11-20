@@ -2,3 +2,4 @@ usr/lib/systemd/system/greetd.service.d/*  usr/lib/systemd/system/greetd.service
 usr/libexec/flickos/*                      usr/libexec/flickos/
 usr/share/flickos/greeter/*                usr/share/flickos/greeter/
 etc/greetd/environments                    etc/greetd/
+etc/xdg/flickos/greeter.conf               etc/xdg/flickos/

@@ -22,8 +22,20 @@
       both; you can still pick another layout in Settings.
     </p>
   </description>
+  <screenshots>
+    <!-- Taken by tools/make-style-shots.sh, published by repo/upload.sh from
+         repo/screenshots/. -->
+    <screenshot type="default">
+      <caption>Files and a terminal in the Footprint style and layout</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/footprint/1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>All apps in the start menu</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/footprint/2.png</image>
+    </screenshot>
+  </screenshots>
   <icon type="stock">preferences-desktop-theme</icon>
-  <url type="homepage">https://github.com/dvbondoy/FlickOS</url>
+  <url type="homepage">https://flickos.org/</url>
   <developer id="io.github.dvbondoy">
     <name>FlickOS</name>
   </developer>

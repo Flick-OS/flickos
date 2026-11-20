@@ -3,6 +3,7 @@ Section: x11
 Priority: optional
 Maintainer: Jon <dvbondoy@gmail.com>
 Build-Depends: debhelper-compat (= 13),
+               gettext,
                python3
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
@@ -22,24 +23,30 @@ Architecture: all
 # undo runs set).
 # pkexec, xkb-data: the system keyboard layout and autologin (control-helper).
 # adduser: new user accounts (control-helper user-add; passwd has the rest).
+# accountsservice: the user's picture (picture set, the Users page). busctl is
+# systemd's.
 # ufw is not a dependency: the Firewall page is left out without it.
 # xdg-utils: default apps (xdg-mime).
+# flickos-layouts >= 1.80: merges the <theme> option of the Window shadows switch.
 # libglib2.0-bin: gsettings, the Animations switch (already in the image
 # through flickos-layouts).
 # kanshi, wlr-randr: kept screen arrangements (Displays). Depends, so
 # installed systems get them; kanshi runs only while an arrangement is kept.
 # locales (locale-gen, the list of languages) is a Recommends of
 # flickos-desktop; without it the Language & Region page is left out.
+# iso-codes (in the image through other packages) has the names of languages
+# and countries in the user's language; without it they stay English.
 Depends: python3,
          python3-gi,
          gir1.2-gtk-3.0,
-         flickos-layouts (>= 1.46),
+         flickos-layouts (>= 1.80),
          flick-tiler (>= 1.5),
          flickos-shortcuts,
          flickos-screenshot (>= 1.6),
          pkexec,
          xkb-data,
          adduser,
+         accountsservice,
          xdg-utils,
          libglib2.0-bin,
          kanshi,
@@ -47,8 +54,10 @@ Depends: python3,
          ${misc:Depends}
 # The Phone page's media row runs flickos-phone 1.13 (set media), its
 # commands list 1.14 (commands list|add|remove), and Open Phone runs
-# flickos-phone 1.16 (window).
-Breaks: flickos-phone (<< 1.16)
+# flickos-phone 1.16 (window). The Login Screen page's background and box
+# position are read by flickos-greeter 2.4; an older login screen ignores them.
+Breaks: flickos-phone (<< 1.16),
+        flickos-greeter (<< 2.4~)
 # About: wl-copy for Copy System Info (else GTK's clipboard), lspci for the
 # graphics card (else left out).
 Recommends: wl-clipboard,
@@ -62,7 +71,7 @@ Description: Settings window of the FlickOS desktop
  screenshots and screen recordings, Do Not Disturb for
  notifications, screen lock and sleep times, the power
  button and the lid, date and time, automatic updates, logging in
- automatically, user accounts, the
+ automatically, user accounts and your picture, the
  firewall on or off, the anonymous weekly count (while flickos-countme is
  installed), and what the system is (with a copy for bug reports).
  Other settings (wallpaper, appearance, arranging the screens, network,

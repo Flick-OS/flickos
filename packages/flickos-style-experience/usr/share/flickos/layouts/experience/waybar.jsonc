@@ -1,0 +1,25 @@
+// Experience: one blue panel at the bottom (style.css): the apps button as
+// a green Start button with the FlickOS halo and the word "Start", the window
+// list, then the notification area (tray, status, recording, clock, Show
+// Desktop) on a lighter blue. Installed next to flickos-layouts' layouts, so
+// ../common is FlickOS's shared modules; the settings here win over them.
+//
+// The window list shows icons only, as Redmond's does: waybar 0.12 doesn't
+// shorten window titles, so buttons with titles would push the notification
+// area off the bar once enough windows are open
+// (docs/07-troubleshooting.md). The title is in the tooltip.
+{
+    "name": "experience",
+    "layer": "top",
+    "position": "bottom",
+    "height": 30,
+    "spacing": 0,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["custom/launcher", "wlr/taskbar"],
+    "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/recording", "clock", "custom/desktop"],
+
+    "custom/launcher": { "format": "Start" },
+    "wlr/taskbar": { "icon-size": 18 },
+    "clock": { "format": "{:%H:%M}" }
+}

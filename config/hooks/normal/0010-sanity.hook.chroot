@@ -15,7 +15,9 @@ plymouth plymouth-themes flickos-desktop flickos-settings flickos-layouts
 flickos-branding flickos-archive-keyring calamares flickos-installer flick-tiler
 flickos-greeter flickos-shortcuts flickos-control flickos-menu flickos-welcome
 flickos-phone flickos-screenshot flickos-countme brightness-udev flickos-software
-btrfs-progs flickos-recovery"
+btrfs-progs flickos-recovery flickos-lock flickos-media flickos-weather file
+flickos-switch rtkit fonts-inter-variable flickos-cursor flickos-theme flickos-kits
+flickos-hooks unzip zip 7zip"
 
 missing=""
 for pkg in $REQUIRED; do

@@ -17,6 +17,8 @@
 
         "custom/launcher": {
             "format": "Applications"
-        }
+        },
+
+        "tray": { "spacing": 12 }
     }
 ]

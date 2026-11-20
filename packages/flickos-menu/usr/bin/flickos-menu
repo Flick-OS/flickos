@@ -67,6 +67,25 @@ Commands:
   pinned            print the pinned apps that are installed
   pin|unpin ID      change the pinned apps
   bench             time the app index and search
+  osd-popup FD TEXT the volume and brightness ring without the daemon
+                    (/usr/libexec/flickos/osd starts it on a listening socket)
+
+The volume and brightness ring (usr/share/flickos/menu/osd.py) shows the
+level after a volume, microphone or brightness key: flickos-settings' level
+script runs /usr/libexec/flickos/osd, which hands "KIND PERCENT [muted]" to
+whoever listens on $XDG_RUNTIME_DIR/flickos/menu/osd. The daemon listens
+while it runs and loads osd.py at the first message; without the daemon,
+that client starts `osd-popup`, which draws the ring, stays hidden for
+OSD_LINGER_SECONDS after it fades and exits (a daemon that starts meanwhile
+asks it to quit and takes the socket). Settings > Notifications turns it off
+(flickos-control's osd.enabled, read by the client). The same socket carries
+"desktop NUMBER COUNT" for the desktop card (flickos-layouts' desktop show).
+
+Text people read in the menu, Quick Settings and the phone popup is
+translated with gettext (domain flickos-menu, /usr/share/locale;
+docs/12-translating.md). `_` loads it at the first text shown, so a click
+never imports gettext; load_quick and load_phone give those files the same
+`_`. The output of `list` and `pinned` and messages on stderr stay as they are.
 
 Exit codes: 0 ok, 1 error, 2 usage error.
 """
@@ -82,14 +101,39 @@ STYLE = PREFIX + "/usr/share/flickos/menu/style.css"
 QUICK_CODE = PREFIX + "/usr/share/flickos/menu/quick.py"
 # The phone popup's code, loaded only while the phone connection is on (load_phone).
 PHONE_CODE = PREFIX + "/usr/share/flickos/menu/phone.py"
+# The volume and brightness ring's code, loaded at its first message (load_osd).
+OSD_CODE = PREFIX + "/usr/share/flickos/menu/osd.py"
+# Providers, tasks, the calculator and `>` (ADR-017 to ADR-020), loaded by the
+# prompt style only (load_providers), and the providers' data files.
+PROVIDERS_CODE = PREFIX + "/usr/share/flickos/menu/providers.py"
+PROVIDERS_DIR = PREFIX + "/usr/share/flickos/menu/providers"
 APP_ID = "flickos-menu"
+LOCALE_DIR = PREFIX + "/usr/share/locale"
 PROCESS_NAME = "flickos-menu"   # /proc/PID/comm of the daemon (the script's name)
 
 # In $XDG_RUNTIME_DIR/flickos: written by flickos-layout while the menu is on.
 ANCHOR = os.path.join("menu", "anchor")
-ANCHORS = ("bottom-left", "top-left")
+# bottom-center: a layout whose apps button is in the middle of the bar (Eleven).
+ANCHORS = ("bottom-left", "top-left", "bottom-center")
+# Room between a pop-up and the screen's edges and the panel, for its round
+# corners. A layer-shell margin: the surface itself moves, so it leaves no
+# strip that takes clicks and no less room inside. Quick Settings and the
+# phone popup have the same (a test compares).
+POPUP_GAP = 8
+# The arrow that points from the menu at the panel's apps button, in the gap.
+# Only a layout whose button stays put has one (MenuArrow=, the third line of
+# ANCHOR: how far the button's middle is from the screen's left edge, then how
+# far while the panel floats), and only in a left corner, where the window's
+# left edge is known. Twice as wide as high, so its sides are 45 degrees.
+ARROW_CORNERS = ("bottom-left", "top-left")
+ARROW_HEIGHT = 7
+ARROW_WIDTH = 2 * ARROW_HEIGHT
+ARROW_INSET = 8                 # clear of the menu's round corner
+# flickos-layout's PANEL_STATE: there and empty while the panel floats, with a
+# line in it while a window fills the screen and the panel is full again.
+PANEL_STATE = os.path.join("waybar", "panel-state.css")
 # The menu styles, set by the layout (MenuStyle=): the second line of ANCHOR.
-MENU_STYLES = ("classic", "categories", "grid")
+MENU_STYLES = ("classic", "categories", "grid", "prompt")
 DEFAULT_MENU_STYLE = "classic"
 # Quick Settings: the daemon's second window. flickos-layout writes its corner
 # (the end of the panel with the volume and battery icons) here while it is
@@ -104,6 +148,15 @@ PID_FILE = os.path.join("menu", "daemon.pid")
 # A request that has no signal of its own (show, quick, phone) waits here for SIGUSR1.
 REQUEST_FILE = os.path.join("menu", "request")
 LOG_FILE = os.path.join("menu", "timing.log")
+# The ring's socket (/usr/libexec/flickos/osd's SOCKET): the daemon listens
+# while it runs, else the pop-up the client starts.
+OSD_SOCKET = os.path.join("menu", "osd")
+# The pop-up stays this long after the ring hid, so the next press is quick.
+OSD_LINGER_SECONDS = 30
+# A starting daemon asks a pop-up to give it the socket, then waits up to
+# this many times OSD_HANDOVER_MS for it.
+OSD_HANDOVER_TRIES = 20
+OSD_HANDOVER_MS = 50
 
 # What the apps button does while the menu is off (flickos-layouts' modules.jsonc).
 FALLBACK_LAUNCHER = ["sh", "-c", "pkill -x fuzzel || fuzzel"]
@@ -122,9 +175,64 @@ TAP_STALE_MS = 1000
 TILER_CONTROL = os.path.join("tiler", "control")
 TILER_SECONDS = 0.5
 
+def N_(text):
+    """Marks text for the translation template; _() translates it where it is shown."""
+    return text
+
+
 WIDTH_LEFT, WIDTH_RIGHT, HEIGHT = 300, 190, 520
-ICON_PINNED, ICON_LIST, ICON_GRID = 32, 24, 48
+ICON_PINNED, ICON_LIST, ICON_GRID, ICON_PROMPT = 32, 24, 48, 40
 MAX_RESULTS = 30
+
+# The prompt style (ADR-022): the first six pins on Ctrl+1 to Ctrl+6 (their
+# digits show while Ctrl is held), then every app
+# as a grid of tiles, COLUMNS x ROWS (Size= in the user's file), A–Z. Rows
+# shrink to what fits the screen; PANEL_ROOM is room left for a panel, which a
+# layer surface can't ask GDK about. Typing a category's name, at least
+# PROMPT_CATEGORY_MIN letters of it, lists its apps after the ones the words
+# find (category_matches): the style has no Categories view.
+PROMPT_PINS = 6
+PROMPT_SIZE = (6, 4)
+PROMPT_COLUMNS = (5, 8)
+PROMPT_MIN_ROWS = 2
+PROMPT_TILE_WIDTH = 84       # "LibreOffice" is 70 px in 10 pt: room to spare
+PROMPT_CATEGORY_MIN = 3
+PANEL_ROOM = 48
+# The first characters that ask for one kind of result (ADR-020): the search
+# bar's, which the prompt style shares (Q9). Text after one is never kept.
+PROMPT_PREFIXES = ("=", "/", ">", "?")
+# The mark at the start of the line: the logo's ›, or what a prefix asks for.
+# `>` shows the shell's $, so a command can't be taken for a search.
+PROMPT_SYMBOL = "›"
+PREFIX_SYMBOLS = {">": "$"}
+# Debian's unattended-upgrades (a Depends of flickos-desktop) touches this from
+# /etc/kernel/postinst.d whenever a new kernel is installed, by any means; /run
+# is emptied at boot. The prompt style's Restart button gets a dot while it is
+# there (ADR-022, phase 18).
+REBOOT_REQUIRED = PREFIX + "/run/reboot-required"
+# The apps the prompt style has seen, to mark new ones (ADR-022, Q12), under
+# $XDG_STATE_HOME: state, not a choice (HIG SET-4).
+SEEN_FILE = os.path.join("flickos", "menu-seen.json")
+NEW_DAYS = 3
+# How the prompt style teaches itself (ADR-022, Phase 19): for its first
+# TIP_SHOWS shows, every other one puts a tip in the empty line instead of the
+# hint (prompt_tips, tip_for), counted in TIPS_FILE (state, like SEEN_FILE);
+# after that nothing more is written. › (or F1) lists everything the line
+# takes, at any time (help_rows).
+TIPS_FILE = os.path.join("flickos", "menu-tips")
+TIP_SHOWS = 32
+# The prompt style's folder chips: one row (chips_that_fit), Home and any
+# drive first, then the user's folders as often as they are used; the ones that
+# don't fit are found by typing their names (PROMPT_FOLDER_ROWS at most), as all
+# of them are. FOLDER_WORDS: English words that find each, whatever its name.
+PROMPT_PLACES = ("DOWNLOAD", "DOCUMENTS", "PICTURES", "MUSIC", "VIDEOS")
+FOLDER_WORDS = {"HOME": "home", "DOWNLOAD": "downloads", "DOCUMENTS": "documents", "PICTURES": "pictures photos",
+                "MUSIC": "music", "VIDEOS": "videos movies", "DRIVE": "drive usb stick disk"}
+PROMPT_FOLDER_ROWS = 3
+# Where udisks2 mounts drives the user plugs in: those get a chip with eject.
+REMOVABLE_ROOTS = ("/media/", "/run/media/")
+# What a tile carries while it is dragged onto the pinned row.
+DRAG_TARGET = "flickos-menu/app"
 
 CONF = os.path.join("flickos", "menu.conf")
 CONF_SECTION = "Menu"
@@ -132,53 +240,76 @@ DEFAULT_PINNED = ("firefox-esr.desktop", "thunar.desktop", "foot.desktop")
 
 # Sections of All apps, in order, and the XDG categories (main and some
 # additional ones) that go into them. An app goes into the section of the
-# first of its categories that is listed; Other if none is.
+# first of its categories that is listed; Other if none is. The English name
+# is the section's key (`list`); _() translates it where it is shown.
 SECTIONS = (
-    ("Accessories", "applications-accessories", ("Utility", "Accessibility", "Core", "TextEditor", "Archiving",
+    (N_("Accessories"), "applications-accessories", ("Utility", "Accessibility", "Core", "TextEditor", "Archiving",
                                                  "Calculator", "Clock", "FileTools")),
-    ("Development", "applications-development", ("Development",)),
-    ("Education", "applications-science", ("Education", "Science")),
-    ("Games", "applications-games", ("Game",)),
-    ("Graphics", "applications-graphics", ("Graphics",)),
-    ("Internet", "applications-internet", ("Network", "WebBrowser", "Email")),
-    ("Multimedia", "applications-multimedia", ("AudioVideo", "Audio", "Video")),
-    ("Office", "applications-office", ("Office",)),
-    ("Settings", "preferences-system", ("Settings", "DesktopSettings", "HardwareSettings")),
-    ("System", "applications-system", ("System", "Monitor", "PackageManager", "TerminalEmulator")),
+    (N_("Development"), "applications-development", ("Development",)),
+    (N_("Education"), "applications-science", ("Education", "Science")),
+    (N_("Games"), "applications-games", ("Game",)),
+    (N_("Graphics"), "applications-graphics", ("Graphics",)),
+    (N_("Internet"), "applications-internet", ("Network", "WebBrowser", "Email")),
+    (N_("Multimedia"), "applications-multimedia", ("AudioVideo", "Audio", "Video")),
+    (N_("Office"), "applications-office", ("Office",)),
+    (N_("Settings"), "preferences-system", ("Settings", "DesktopSettings", "HardwareSettings")),
+    (N_("System"), "applications-system", ("System", "Monitor", "PackageManager", "TerminalEmulator")),
 )
-OTHER = ("Other", "applications-other")
+OTHER = (N_("Other"), "applications-other")
 
 # Right column: (label, icon, command), left out when the program is missing.
 TOOLS = (
-    ("Settings", "preferences-system", ["flickos-control"]),
-    ("Software", "system-software-install", ["flickos-software"]),
+    (N_("Settings"), "preferences-system", ["flickos-control"]),
+    (N_("Software"), "system-software-install", ["flickos-software"]),
 )
 LOCK = "/usr/libexec/flickos/lock"
+PICTURES = PREFIX + "/var/lib/AccountsService/icons"
 # Power row: (id, label, icon, command). Lock is left out in the live session.
 POWER = (
     # flickos-settings' lock (the background chosen in Settings), else plain swaylock.
-    ("lock", "Lock Screen", "system-lock-screen",
+    ("lock", N_("Lock Screen"), "system-lock-screen",
      [LOCK] if os.access(LOCK, os.X_OK) else ["swaylock", "-f", "-c", "383c4a"]),
-    ("logout", "Log Out", "system-log-out", ["labwc", "--exit"]),
-    ("restart", "Restart", "system-reboot", ["systemctl", "reboot"]),
-    ("shutdown", "Shut Down", "system-shutdown", ["systemctl", "poweroff"]),
+    ("logout", N_("Log Out"), "system-log-out", ["labwc", "--exit"]),
+    ("restart", N_("Restart"), "system-reboot", ["systemctl", "reboot"]),
+    ("shutdown", N_("Shut Down"), "system-shutdown", ["systemctl", "poweroff"]),
 )
 # These close every app and lose what isn't saved, so the first click only
 # arms the button (red, and this line says why) and a second click within
 # CONFIRM_SECONDS runs it (PowerRow). A pop-up that closes when it loses the
 # focus can't hold a dialog (HIG WIN-13).
 CONFIRM = {
-    "logout": "Click again to log out",
-    "restart": "Click again to restart",
-    "shutdown": "Click again to shut down",
+    "logout": N_("Click again to log out"),
+    "restart": N_("Click again to restart"),
+    "shutdown": N_("Click again to shut down"),
 }
 CONFIRM_SECONDS = 4
 # GLib's user directories, in the right column's order; Home comes first.
 PLACES = ("DOCUMENTS", "PICTURES", "MUSIC", "VIDEOS", "DOWNLOAD")
+# The classic style's places after the folders: (label, icon, URI). gvfs
+# (a Depends of flickos-desktop) serves them, the file manager opens them.
+LOCATIONS = (
+    (N_("Recent"), "document-open-recent", "recent:///"),
+    (N_("Trash"), "user-trash", "trash:///"),
+)
+TRASH = "trash:///"
 
 
 class MenuError(Exception):
     pass
+
+
+# The translation, loaded by the first _(): the fast path (a click) shows no
+# text, and `import gettext` takes about 12 ms there.
+_translation = None
+
+
+def _(text):
+    """text in the user's language, or as it is without a translation."""
+    global _translation
+    if _translation is None:
+        import gettext
+        _translation = gettext.translation(APP_ID, LOCALE_DIR, fallback=True)
+    return _translation.gettext(text)
 
 
 def warn(message):
@@ -228,6 +359,29 @@ def read_menu(root):
         return None
     style = lines[1] if len(lines) > 1 and lines[1] in MENU_STYLES else DEFAULT_MENU_STYLE
     return lines[0], style
+
+
+def read_arrow(root):
+    """How far the apps button's middle is from the screen's left edge now, or
+    None for a layout without an arrow (or a flickos-layouts before MenuArrow=)."""
+    if root is None:
+        return None
+    try:
+        with open(os.path.join(root, ANCHOR), encoding="utf-8") as f:
+            lines = [line.strip() for line in f.readlines()[:3]]
+    except (OSError, UnicodeDecodeError):
+        return None
+    numbers = lines[2].split() if len(lines) > 2 else []
+    if not numbers or not all(number.isdecimal() for number in numbers):
+        return None
+    return int(numbers[-1] if panel_floats(root) else numbers[0])
+
+
+def panel_floats(root):
+    try:
+        return os.path.getsize(os.path.join(root, PANEL_STATE)) == 0
+    except OSError:
+        return False
 
 
 def read_quick(root):
@@ -408,9 +562,296 @@ def write_atomic(path, text):
         raise
 
 
+def read_user_settings(path=None):
+    """The [Menu] keys of the user's file ({} without one, or a broken one)."""
+    import configparser
+    path = path or user_file()
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str       # Pinned=, Size=, View= as written
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return {}
+    return dict(ini.items(CONF_SECTION)) if ini.has_section(CONF_SECTION) else {}
+
+
+def save_user_settings(**changes):
+    """Change keys of the user's file and keep the others; None removes one."""
+    settings = read_user_settings()
+    for key, value in changes.items():
+        if value is None:
+            settings.pop(key, None)
+        else:
+            settings[key] = str(value)
+    lines = [f"# FlickOS start menu (flickos-menu).", f"[{CONF_SECTION}]"]
+    lines += [f"{key}={value}" for key, value in settings.items()]
+    write_atomic(user_file(), "\n".join(lines) + "\n")
+
+
 def save_pinned(ids):
-    write_atomic(user_file(), f"# FlickOS start menu (flickos-menu pin/unpin).\n[{CONF_SECTION}]\n"
-                              f"Pinned={';'.join(ids)}\n")
+    save_user_settings(Pinned=";".join(ids))
+
+
+def parse_size(value):
+    """(columns, rows) of Size=COLUMNSxROWS, kept to PROMPT_COLUMNS and at
+    least PROMPT_MIN_ROWS; PROMPT_SIZE when missing or unreadable."""
+    try:
+        columns, rows = (int(part) for part in (value or "").lower().split("x"))
+    except ValueError:
+        return PROMPT_SIZE
+    low, high = PROMPT_COLUMNS
+    return min(max(columns, low), high), max(rows, PROMPT_MIN_ROWS)
+
+
+def rows_that_fit(wanted, available, tile, other):
+    """How many rows of tiles tile px high fit in available px next to the
+    other parts of the menu (other px): wanted at most, PROMPT_MIN_ROWS at
+    least, so the menu never runs off a small screen."""
+    if tile <= 0:
+        return wanted
+    return max(PROMPT_MIN_ROWS, min(wanted, (available - other) // tile))
+
+
+def pin_number(text):
+    """The pin Ctrl and this character opens (0 for 1), or None."""
+    if len(text) == 1 and "1" <= text <= str(PROMPT_PINS):
+        return int(text) - 1
+    return None
+
+
+def state_file(name=SEEN_FILE):
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    return os.path.join(base, name)
+
+
+def read_tip_count(path):
+    """How many times the prompt style has been shown while it had tips to
+    give: 0 without a file, TIP_SHOWS (no more tips) for a broken one."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return max(int(f.read().strip()), 0)
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError) as error:
+        warn(f"{path}: {error}")
+        return TIP_SHOWS
+
+
+def prompt_tips(prefixes, pins):
+    """The tips the empty line gives in turn, for what this menu has: the
+    prefixes that work here (prefixes) and pins (true while there are any)."""
+    tips = [_("Type “{name}” to see your games").format(name=_("Games").casefold())]
+    if pins:
+        tips.append(_("Hold Ctrl to see the numbers that open your pins"))
+    if "=" in prefixes:
+        tips.append(_("Start with = for a sum, such as =15*3"))
+    if ">" in prefixes:
+        tips.append(_("Start with > to run a command"))
+    if "/" in prefixes:
+        tips.append(_("Start with / to find files and folders"))
+    tips.append(_("Right-click an app to pin, move or hide it"))
+    tips.append(_("→ takes the grey name, ↑ the last search"))
+    tips.append(_("Press F1 for everything you can type"))
+    return tips
+
+
+def tip_for(count, tips):
+    """The tip of show number count (0 is the first), or None for the plain
+    hint: at the first show, every other one, and from TIP_SHOWS on."""
+    if count >= TIP_SHOWS or count % 2 == 0 or not tips:
+        return None
+    return tips[(count // 2) % len(tips)]
+
+
+def help_rows(prefixes, pins):
+    """What › and F1 list: [(what to type or press, what it does)], a None
+    between the parts; prefixes and pins as prompt_tips takes them."""
+    rows = [(_("Games").casefold(), _("A category's apps"))]
+    examples = (("=", "=15*3", N_("A sum")),
+                # Translators: /name, >command and ?word are examples of what
+                # to type: keep the first character, translate the word.
+                ("/", _("/name"), N_("Files and folders by name")),
+                (">", _(">command"), N_("A command, run in a terminal")),
+                ("?", _("?word"), N_("Manual pages")))
+    for prefix, example, text in examples:
+        if prefix in prefixes:
+            rows.append((example, _(text)))
+    rows.append(None)
+    rows += [("→", _("Take the grey rest of a name")),
+             ("↑", _("The last search again"))]
+    if pins:
+        rows.append((_("Ctrl+1–6"), _("Open a pinned app")))
+    rows += [(_("Ctrl+Enter"), _("Another window of an open app")),
+             (_("Menu key"), _("An app's actions, as a right click")),
+             (_("Ctrl+P"), _("Pin or unpin the chosen app")),
+             (_("Ctrl+plus, Ctrl+minus"), _("A larger or smaller menu"))]
+    return rows
+
+
+def read_seen(path):
+    """The seen-apps record ({"seen": [ids], "new": {id: day}}), or None
+    without one; a broken one is treated as absent, with a warning."""
+    import json
+    try:
+        with open(path, encoding="utf-8") as f:
+            record = json.load(f)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        warn(f"{path}: {error}")
+        return None
+    if not isinstance(record, dict) or not isinstance(record.get("seen"), list) \
+            or not isinstance(record.get("new", {}), dict):
+        warn(f"{path}: not a record of seen apps")
+        return None
+    return record
+
+
+def update_seen(record, ids, today, started=()):
+    """(record, changed) after the apps ids were read on day today (an
+    ordinal): an app not seen before is new for NEW_DAYS days or until it is
+    started (started); a removed app leaves the record. Without a record
+    (the first run) nothing is new."""
+    current = sorted(set(ids))
+    if record is None:
+        return {"seen": current, "new": {}}, True
+    seen = set(record.get("seen", []))
+    new = {app_id: day for app_id, day in record.get("new", {}).items() if isinstance(day, int)}
+    for app_id in set(current) - seen:
+        new[app_id] = today
+    new = {app_id: day for app_id, day in sorted(new.items())
+           if app_id in current and app_id not in started and 0 <= today - day < NEW_DAYS}
+    updated = {"seen": current, "new": new}
+    return updated, updated != {"seen": sorted(seen), "new": record.get("new", {})}
+
+
+def restart_needed(path=REBOOT_REQUIRED):
+    return os.path.exists(path)
+
+
+def is_removable(path):
+    """A mount the user plugged in (a USB stick), not a disk of the system."""
+    return bool(path) and any((path.rstrip("/") + "/").startswith(root) for root in REMOVABLE_ROOTS)
+
+
+def completion(query, name):
+    """The rest of name after what was typed (the grey text after the
+    cursor), or "" when name doesn't start with it, as typed or folded."""
+    if not query or not query.strip() or len(name) <= len(query):
+        return ""
+    if not name.casefold().startswith(query.casefold()):
+        return ""
+    return name[len(query):]
+
+
+def chips_that_fit(widths, available, spacing):
+    """How many chips, widths px wide, fit on one line of available px with
+    spacing px between them; the first one always shows."""
+    used = count = 0
+    for width in widths:
+        used += width + (spacing if count else 0)
+        if used > available:
+            break
+        count += 1
+    return max(count, 1) if widths else 0
+
+
+def prefix_symbol(prefix):
+    """The line's mark for a prefix (None: the logo's ›)."""
+    if prefix is None:
+        return PROMPT_SYMBOL
+    return PREFIX_SYMBOLS.get(prefix, prefix)
+
+
+def search_to_keep(text):
+    """What ↑ brings back of a search: the text, unless it is empty or asks
+    for a prefix's kind (commands, sums and files are never kept)."""
+    text = text.strip()
+    if not text or text[0] in PROMPT_PREFIXES:
+        return None
+    return text
+
+
+def size_text(size):
+    """Size= for (columns, rows)."""
+    return f"{size[0]}x{size[1]}"
+
+
+def step_size(size, step):
+    """Ctrl+plus (step 1) and Ctrl+minus (-1): a column and a row more or less,
+    within PROMPT_COLUMNS and PROMPT_MIN_ROWS (the screen limits rows later)."""
+    low, high = PROMPT_COLUMNS
+    return min(max(size[0] + step, low), high), max(size[1] + step, PROMPT_MIN_ROWS)
+
+
+def snap(length, other, tile, low, high):
+    """How many tiles tile px long fit in length px beside other px, rounded
+    to the nearest, within low and high (a resize snaps to whole tiles)."""
+    if tile <= 0:
+        return low
+    return min(max(round((length - other) / tile), low), high)
+
+
+def hidden_ids(settings):
+    """Hidden= of the user's file: apps left out of the prompt style's grid
+    (search still finds them by name; ADR-022, Q11)."""
+    return split_ids(settings.get("Hidden", ""))
+
+
+def effective_hidden():
+    """The apps left out of the grid: the user's Hidden= if their file has the
+    key (even empty: they showed everything), else the system file's, which
+    leaves out noise such as Foot Client and Foot Server."""
+    user = read_user_settings()
+    if "Hidden" in user:
+        return hidden_ids(user)
+    path = system_file()
+    if path is None:
+        return []
+    import configparser
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return []
+    return split_ids(ini.get(CONF_SECTION, "Hidden", fallback=""))
+
+
+def place_pin(ids, shown, app_id, position):
+    """ids with app_id pinned at position among the pins that show (shown,
+    the first PROMPT_PINS installed ones, in order): moved there if it is
+    pinned already, inserted if not. Pins after the sixth and pins of apps
+    that aren't installed keep their places."""
+    rest = [i for i in ids if i != app_id]
+    others = [i for i in shown if i != app_id]
+    if position < len(others):
+        at = rest.index(others[position])
+    elif others:
+        at = rest.index(others[-1]) + 1
+    else:
+        at = 0
+    return rest[:at] + [app_id] + rest[at:]
+
+
+def move_pin(ids, shown, app_id, step):
+    """ids with app_id one place to the left (step -1) or right (1) among the
+    pins that show, or None at an end."""
+    if app_id not in shown:
+        return None
+    position = shown.index(app_id) + step
+    if not 0 <= position < len(shown):
+        return None
+    return place_pin(ids, shown, app_id, position)
+
+
+def replace_pin(ids, old_id, new_id):
+    """ids with new_id in old_id's place (Q10: a seventh pin replaces one, so
+    the other numbers don't change)."""
+    rest = [i for i in ids if i != new_id]
+    return [new_id if i == old_id else i for i in rest]
 
 
 def pin(desktop_id):
@@ -437,16 +878,22 @@ def is_live(cmdline="/proc/cmdline"):
         return False
 
 
-def places(home, special_dirs, isdir=os.path.isdir):
+def places(home, special_dirs, isdir=os.path.isdir, order=PLACES):
     """(label, path) of the right column's folders that exist: Home, then
     the user directories (special_dirs: {PLACES id: path or None}) other
-    than Home itself."""
-    found = [("Home", home)]
-    for key in PLACES:
+    than Home itself, in order. Their labels are the folders' names, which
+    the user's language set when the account was made."""
+    found = [(_("Home"), home)]
+    for key in order:
         path = special_dirs.get(key)
         if path and os.path.normpath(path) != os.path.normpath(home) and isdir(path):
             found.append((os.path.basename(os.path.normpath(path)), path))
     return found
+
+
+def trash_icon(count):
+    """The Trash button's icon for count items in the trash."""
+    return "user-trash-full" if count else "user-trash"
 
 
 def available(command):
@@ -515,6 +962,20 @@ def search(apps, query, limit=MAX_RESULTS):
     return [app for _rank, _name, app in found[:limit]]
 
 
+def category_matches(apps, query, translate=lambda name: name, skip=()):
+    """The apps of every section whose name, shown or English, starts with
+    query (PROMPT_CATEGORY_MIN letters at least), A–Z, leaving out the ids in
+    skip: `games` lists the games, as the Categories view did (ADR-022)."""
+    text = " ".join(query.casefold().split())
+    if len(text) < PROMPT_CATEGORY_MIN:
+        return []
+    names = [name for name, _icon, _categories in SECTIONS] + [OTHER[0]]
+    wanted = {name for name in names
+              if name.casefold().startswith(text) or translate(name).casefold().startswith(text)}
+    return sorted((app for app in apps if app.section in wanted and app.id not in skip),
+                  key=lambda app: app.name_key)
+
+
 def by_section(apps):
     """[(section, icon, [apps A-Z])] for the sections that have apps, in order."""
     groups = {}
@@ -571,6 +1032,35 @@ def focus_open_window(root, app_ids):
     return isinstance(reply, dict) and reply.get("found") is True
 
 
+def open_app_ids(root):
+    """The app ids of the open windows, lower case, from flick-tiler's daemon
+    (open-apps, flick-tiler 1.12); None if no daemon answers or it is older."""
+    import json
+    import socket
+    if root is None:
+        return None
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(TILER_SECONDS)
+            conn.connect(os.path.join(root, TILER_CONTROL))
+            conn.sendall(b"open-apps\n")
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        reply = json.loads(data)
+    except (OSError, ValueError):
+        return None
+    ids = reply.get("app_ids") if isinstance(reply, dict) else None
+    return {str(app_id).lower() for app_id in ids} if isinstance(ids, list) else None
+
+
+def is_open(app, open_ids):
+    return bool(open_ids) and any(app_id.lower() in open_ids for app_id in window_ids(app))
+
+
 def phone_link_stale(known):
     """True when Phone would appear or disappear since the apps were last read.
     known is None before the first index."""
@@ -587,6 +1077,14 @@ def load_apps(Gio):
                         info.get_keywords() or (), info.get_executable() or "",
                         (info.get_categories() or "").split(";"), info))
     return apps
+
+
+def picture_file(name, home):
+    """accountsservice's picture (Settings > Users), else ~/.face, else None."""
+    for path in (os.path.join(PICTURES, name), os.path.join(home, ".face")):
+        if os.path.isfile(path):
+            return path
+    return None
 
 
 def load_gio():
@@ -681,6 +1179,17 @@ def fade_opacity(start, end, elapsed, duration, ease_out):
     return start + (end - start) * k, t >= 1.0
 
 
+def load_cairo():
+    """cairo for a region GTK can use, or None without PyGObject's cairo."""
+    try:
+        import gi
+        gi.require_foreign("cairo")
+        import cairo
+    except (ImportError, ValueError):
+        return None
+    return cairo
+
+
 class Fader:
     """Shows and hides one layer-shell window, fading it.
 
@@ -697,6 +1206,7 @@ class Fader:
         self.enabled = enabled
         self.tick = None
         self.fading_out = False
+        self.input_region = None    # what takes clicks, if not the whole window
 
     def animate(self):
         return self.enabled and self.Gtk.Settings.get_default().props.gtk_enable_animations
@@ -767,15 +1277,17 @@ class Fader:
         mode = GtkLayerShell.KeyboardMode.ON_DEMAND if on else GtkLayerShell.KeyboardMode.NONE
         GtkLayerShell.set_keyboard_mode(self.window, mode)
         if on:
-            self.window.input_shape_combine_region(None)
+            self.update_input()
             return
-        try:
-            import gi
-            gi.require_foreign("cairo")
-            import cairo
-        except (ImportError, ValueError):
-            return              # clicks stay with the window until it is gone
-        self.window.input_shape_combine_region(cairo.Region())
+        cairo = load_cairo()
+        if cairo is not None:   # else clicks stay with the window until it is gone
+            self.window.input_shape_combine_region(cairo.Region())
+
+    def update_input(self):
+        """The window's clicks, unless a fade out has taken them away."""
+        if not self.fading_out:
+            region = self.input_region() if self.input_region is not None else None
+            self.window.input_shape_combine_region(region)
 
     def fade(self, end, duration, ease_out, done=None):
         self.stop()
@@ -813,6 +1325,7 @@ class PowerRow:
         self.box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2, homogeneous=homogeneous)
         self.box.get_style_context().add_class("power")
         for item_id, text, icon, command in power_items(menu.live):
+            text = _(text)
             button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, tooltip_text=text)
             button.add(Gtk.Image.new_from_icon_name(f"{icon}-symbolic" if symbolic else icon, size))
             button.get_accessible().set_name(text)
@@ -852,11 +1365,11 @@ class PowerRow:
             context = button.get_style_context()
             if item_id == armed:
                 context.add_class("destructive-action")
-                button.set_tooltip_text(CONFIRM[item_id])
+                button.set_tooltip_text(_(CONFIRM[item_id]))
             else:
                 context.remove_class("destructive-action")
                 button.set_tooltip_text(text)
-        self.hint.set_text(CONFIRM.get(armed, ""))
+        self.hint.set_text(_(CONFIRM[armed]) if armed in CONFIRM else "")
         self.hint.set_visible(armed is not None)
 
 
@@ -870,6 +1383,7 @@ def load_quick():
     loader = importlib.machinery.SourceFileLoader("flickos_menu_quick", QUICK_CODE)
     module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
     loader.exec_module(module)
+    module._ = _        # the menu's translation; the file's own _ is English
     return module
 
 
@@ -882,7 +1396,173 @@ def load_phone():
     loader = importlib.machinery.SourceFileLoader("flickos_menu_phone", PHONE_CODE)
     module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
     loader.exec_module(module)
+    module._ = _
     return module
+
+
+def load_osd():
+    """The volume and brightness ring's code (OSD_CODE), at its first message:
+    a session that never presses those keys doesn't compile it."""
+    import importlib.machinery
+    import importlib.util
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("flickos_menu_osd", OSD_CODE)
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    module._ = _
+    module.fade_opacity, module.FADE_IN_MS, module.FADE_OUT_MS = fade_opacity, FADE_IN_MS, FADE_OUT_MS
+    return module
+
+
+def load_providers():
+    """The code of results that aren't apps (PROVIDERS_CODE), for the prompt
+    style: the other styles never compile it."""
+    import importlib.machinery
+    import importlib.util
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("flickos_menu_providers", PROVIDERS_CODE)
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    module._, module.warn, module.score = _, warn, score
+    return module
+
+
+def translator(domain):
+    """gettext for a provider's rows: the menu's own for flickos-menu, else
+    that domain's (a package's own provider)."""
+    if domain == APP_ID:
+        return _
+    import gettext
+    return gettext.translation(domain, LOCALE_DIR, fallback=True).gettext
+
+
+# --- The volume and brightness ring's socket -----------------------------------
+
+def osd_listen(path, tries=OSD_HANDOVER_TRIES):
+    """A socket listening at path (the daemon's), or None. A pop-up that holds
+    it is asked to quit, a file nobody listens on is replaced."""
+    import socket
+    import time
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    for _try in range(tries):
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            server.bind(path)
+            server.listen(8)
+            return server
+        except OSError:
+            server.close()
+        other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        other.settimeout(OSD_HANDOVER_MS / 1000 * 10)
+        try:
+            other.connect(path)
+            other.sendall(b"quit\n")
+            other.recv(2)
+        except ConnectionRefusedError:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            continue
+        except OSError:
+            pass
+        finally:
+            other.close()
+        time.sleep(OSD_HANDOVER_MS / 1000)
+    return None
+
+
+def own_file(path):
+    """The inode of the socket file at path. os.fstat of a socket is the
+    socket's own, so this is how a listener tells its file from a newer one."""
+    try:
+        return os.stat(path).st_ino
+    except OSError:
+        return None
+
+
+class OsdServer:
+    """Answers /usr/libexec/flickos/osd on a listening socket and shows each
+    level in the ring (osd.py's Ring, built at the first one). quit (from a
+    starting daemon) ends a pop-up: on_quit. With linger, on_quit also runs
+    that many seconds after the ring hid without another level."""
+
+    def __init__(self, gtk, listener, path, on_quit=None, linger=None):
+        self.GLib, self.Gdk, _gio, self.Gtk, self.GtkLayerShell = gtk
+        self.listener = listener
+        self.path = path
+        self.inode = own_file(path)
+        self.on_quit = on_quit
+        self.linger = linger
+        self.linger_timer = None
+        self.module = None
+        self.ring = None
+        self.card = None
+        self.watch = self.GLib.io_add_watch(listener.fileno(), self.GLib.PRIORITY_DEFAULT,
+                                            self.GLib.IO_IN, self.on_ready)
+
+    def on_ready(self, *_args):
+        try:
+            connection, _address = self.listener.accept()
+        except OSError:
+            return True
+        with connection:
+            connection.settimeout(0.3)
+            try:
+                text = connection.recv(256).decode("utf-8", "replace").strip()
+                connection.sendall(b"ok")
+            except OSError:
+                return True
+        if text == "quit":
+            if self.on_quit is None:
+                return True     # the daemon keeps its socket
+            self.close()
+            self.on_quit()
+            return False
+        self.show(text)
+        return True
+
+    def show(self, text):
+        if self.module is None:
+            self.module = load_osd()
+        level = self.module.parse_message(text)
+        if level is None:
+            warn(f"not a level: {text!r}")
+            return
+        if self.linger_timer is not None:
+            self.GLib.source_remove(self.linger_timer)
+            self.linger_timer = None
+        gtk = (self.GLib, self.Gdk, self.Gtk, self.GtkLayerShell)
+        if level[0] == "desktop":
+            if self.card is None:
+                self.card = self.module.Card(gtk, gone=self.gone)
+            self.card.update(level[1], level[2])
+            return
+        if self.ring is None:
+            self.ring = self.module.Ring(gtk, gone=self.gone)
+        self.ring.update(*level)
+
+    def gone(self):
+        if self.linger is not None and self.on_quit is not None:
+            self.linger_timer = self.GLib.timeout_add_seconds(self.linger, self.on_linger)
+
+    def on_linger(self):
+        self.linger_timer = None
+        self.close()
+        self.on_quit()
+        return False    # GLib timeout: once
+
+    def close(self):
+        """Stop listening; the socket file goes only if it is still ours."""
+        if self.watch is not None:
+            self.GLib.source_remove(self.watch)
+            self.watch = None
+        if self.inode is not None and own_file(self.path) == self.inode:
+            try:
+                os.unlink(self.path)
+            except OSError:
+                pass
+        self.listener.close()
 
 
 # --- The menu window (GTK) -----------------------------------------------------
@@ -930,6 +1610,8 @@ class Menu:
         self.quick = None           # QuickSettings while it is on
         self.phone_popup = None     # PhonePopup while the phone connection is on
         self.monitor = None         # Gio.AppInfoMonitor, from the first index
+        self.pictures = None        # Gio.FileMonitor on PICTURES, with it
+        self.picture_timer = None
         self.built = False
         self.dirty = True           # the apps need reading: not read yet
         self.popover_open = False
@@ -1000,8 +1682,8 @@ class Menu:
     def quick_buttons(self):
         """(text, icon, command) of Quick Settings' bottom row before its power
         buttons (power_row): Settings while flickos-control is installed."""
-        return [(text, "preferences-system-symbolic", command) for text, _icon, command in TOOLS
-                if text == "Settings" and available(command)]
+        return [(_(text), "preferences-system-symbolic", command) for text, _icon, command in TOOLS
+                if command == ["flickos-control"] and available(command)]
 
     def switch_view(self, style):
         started = self.clock()
@@ -1024,6 +1706,8 @@ class Menu:
             # memory that Quick Settings alone doesn't need.
             self.monitor = self.Gio.AppInfoMonitor.get()
             self.monitor.connect("changed", self.on_apps_changed)      # a reference kept: or no more signals
+            self.pictures = self.Gio.File.new_for_path(PICTURES).monitor_directory(self.Gio.FileMonitorFlags.NONE)
+            self.pictures.connect("changed", self.on_picture_changed)
         self.apps = load_apps(self.Gio)
         self.by_id = {app.id: app for app in self.apps}
         self.phone_on = phone_link_up()
@@ -1122,6 +1806,20 @@ class Menu:
         self.icons.clear()
         self.dirty = True
 
+    def on_picture_changed(self, *_):
+        # accountsservice writes the file in steps: read it once it rests.
+        if self.picture_timer is None:
+            self.picture_timer = self.GLib.timeout_add(500, self.show_picture)
+
+    def show_picture(self):
+        self.picture_timer = None
+        # The same path as before: the cache would keep the old picture.
+        for key in [key for key in self.icons if PICTURES in key[0]]:
+            del self.icons[key]
+        if self.view is not None:
+            self.view.show_picture()
+        return False
+
     def on_apps_changed(self, *_):
         # Installing a package changes several files: rebuild once, when idle.
         if not self.dirty:
@@ -1202,7 +1900,7 @@ class Menu:
             self.switch_view(style)
         elif self.dirty:
             self.load()
-        self.view.show(corner)
+        self.view.show(corner, read_arrow(self.root))
 
     def hide(self):
         if self.visible():
@@ -1271,6 +1969,8 @@ class Menu:
         others = bool(state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK
                                | Gdk.ModifierType.MOD1_MASK))
         self.tap.update(super_down, others, self.clock())
+        if self.visible():
+            self.view.show_numbers(bool(state & Gdk.ModifierType.CONTROL_MASK))
 
     # Pinning ------------------------------------------------------------------
 
@@ -1279,7 +1979,7 @@ class Menu:
         Gtk = self.Gtk
         popover = Gtk.Popover(relative_to=widget)
         pinned = app.id in pinned_ids()
-        button = Gtk.ModelButton(text="Unpin from Start Menu" if pinned else "Pin to Start Menu")
+        button = Gtk.ModelButton(text=_("Unpin from Start Menu") if pinned else _("Pin to Start Menu"))
         button.connect("clicked", lambda *_: self.change_pin(app, not pinned))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin=6)
         box.pack_start(button, False, False, 0)
@@ -1323,6 +2023,8 @@ class Menu:
         if app is None or app.info is None:
             return
         context = self.launch_context()
+        if self.view is not None:
+            self.view.launched(app)
         self.hide()
 
         def start():
@@ -1338,23 +2040,28 @@ class Menu:
         self.GLib.idle_add(start)
 
     def open_folder(self, path):
+        self.open_uri(self.Gio.File.new_for_path(path).get_uri())
+
+    def open_uri(self, uri):
+        """Open uri in its default program; for gvfs places such as trash:///
+        GIO falls back to the folder's (the file manager)."""
         context = self.launch_context()
         self.hide()
-        uri = self.Gio.File.new_for_path(path).get_uri()
         try:
             self.Gio.AppInfo.launch_default_for_uri(uri, context)
         except self.GLib.Error as error:
-            warn(f"cannot open {path}: {error.message}")
+            warn(f"cannot open {uri}: {error.message}")
 
     def run(self, command):
         self.hide()
         self.hide_quick()
         self.hide_phone()
-        GLib = self.GLib
+        Gio, GLib = self.Gio, self.GLib
         try:
-            # Without DO_NOT_REAP_CHILD GLib reaps it; it outlives the menu.
-            GLib.spawn_async(command, flags=GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.STDOUT_TO_DEV_NULL
-                             | GLib.SpawnFlags.STDERR_TO_DEV_NULL)
+            # GLib reaps it; it outlives the menu. Not GLib.spawn_async: from
+            # PyGObject 3.58 (forky) it adds CHILD_INHERITS_STDOUT/STDERR,
+            # which GLib refuses next to *_TO_DEV_NULL, and raises AssertionError.
+            Gio.Subprocess.new(command, Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE)
         except GLib.Error as error:
             warn(f"cannot run {command[0]}: {error.message}")
 
@@ -1379,14 +2086,18 @@ class View:
     layer = "TOP"
     icon_sizes = (ICON_LIST,)
     fades = True        # not full screen (docs/design/flickos-fades.md, ADR-005)
+    arrow_color = "theme_bg_color"  # the GTK theme's color of the frame's bottom left
 
     def __init__(self, menu):
         self.menu = menu
         self.GLib, self.Gdk, self.Gio, self.Gtk, self.GtkLayerShell = (
             menu.GLib, menu.Gdk, menu.Gio, menu.Gtk, menu.GtkLayerShell)
         Gtk, GtkLayerShell = self.Gtk, self.GtkLayerShell
-        self.corner = None
-        window = self.window = Gtk.Window(title="Start Menu")
+        self.placed = None          # (corner, arrow) of the last place()
+        self.frame = self.arrow = None      # add_frame's
+        self.arrow_up = False       # at the top of the window, not the bottom
+        self.avatar = None          # user_box's, in the views that have one
+        window = self.window = Gtk.Window(title=_("Start Menu"))
         context = window.get_style_context()
         context.add_class("flickos-menu")
         context.add_class(f"style-{self.name}")
@@ -1399,7 +2110,7 @@ class View:
         window.connect("focus-out-event", menu.on_focus_out)
         window.connect("delete-event", lambda *_: menu.hide() or True)
         window.connect_after("draw", menu.on_draw)
-        self.entry = Gtk.SearchEntry(placeholder_text="Search apps")
+        self.entry = Gtk.SearchEntry(placeholder_text=_("Search apps"))
         self.entry.get_style_context().add_class("search")
         # "changed", not "search-changed": that one waits 150 ms.
         self.entry.connect("changed", lambda entry: self.search(entry.get_text()))
@@ -1427,18 +2138,92 @@ class View:
 
     # Showing ------------------------------------------------------------------
 
-    def place(self, corner):
-        """Anchor the window at corner ("bottom-left" or "top-left")."""
+    def add_frame(self, frame):
+        """Put frame in the window, with an arrow over the edge next to the
+        panel that takes no clicks (the window grows into the gap only while
+        it's shown)."""
+        Gtk = self.Gtk
+        self.frame = frame
+        self.arrow = Gtk.DrawingArea(halign=Gtk.Align.START, no_show_all=True)
+        self.arrow.set_size_request(ARROW_WIDTH, ARROW_HEIGHT + 1)  # + the frame's border
+        self.arrow.connect("draw", self.draw_arrow)
+        overlay = Gtk.Overlay()
+        overlay.add(frame)
+        overlay.add_overlay(self.arrow)
+        overlay.set_overlay_pass_through(self.arrow, True)
+        overlay.show()
+        self.window.add(overlay)
+        self.fader.input_region = self.input_region
+        frame.connect("size-allocate", lambda *_: self.fader.update_input())
+
+    def draw_arrow(self, widget, cr):
+        """The frame's border goes around the arrow: CSS can't draw this."""
+        context = widget.get_style_context()
+        found_fill, fill = context.lookup_color(self.arrow_color)
+        found_border, border = context.lookup_color("borders")
+        if not (found_fill and found_border):
+            return False
+        if self.arrow_up:
+            cr.translate(0, ARROW_HEIGHT + 1)
+            cr.scale(1, -1)
+        cr.move_to(0, 0)
+        cr.line_to(ARROW_WIDTH / 2, ARROW_HEIGHT + 1)
+        cr.line_to(ARROW_WIDTH, 0)
+        cr.set_source_rgba(fill.red, fill.green, fill.blue, fill.alpha)
+        cr.fill()
+        cr.move_to(0, 0.5)
+        cr.line_to(ARROW_WIDTH / 2, ARROW_HEIGHT + 0.5)
+        cr.line_to(ARROW_WIDTH, 0.5)
+        cr.set_source_rgba(border.red, border.green, border.blue, border.alpha)
+        cr.set_line_width(1)
+        cr.stroke()
+        return False
+
+    def input_region(self):
+        """Clicks on the frame and the arrow; the rest of the gap isn't the
+        menu's, as it isn't without an arrow."""
+        cairo = load_cairo()
+        if cairo is None or not self.arrow.get_visible():
+            return None
+        area = self.frame.get_allocation()
+        region = cairo.Region(cairo.RectangleInt(area.x, area.y, area.width, area.height))
+        # From the frame: an overlay's child has its own window, and its
+        # allocation is relative to that.
+        y = area.y - ARROW_HEIGHT if self.arrow_up else area.y + area.height - 1
+        region.union(cairo.RectangleInt(self.arrow.get_margin_start(), y, ARROW_WIDTH, ARROW_HEIGHT + 1))
+        return region
+
+    def place(self, corner, arrow=None):
+        """Anchor the window at corner (one of ANCHORS). A window anchored to
+        neither side edge is centered between them (layer-shell). With arrow,
+        the arrow's middle is that far from the screen's left edge."""
         GtkLayerShell = self.GtkLayerShell
-        vertical = corner.split("-")[0]
+        vertical, horizontal = corner.split("-")
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.TOP, vertical == "top")
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.BOTTOM, vertical == "bottom")
-        GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.LEFT, True)
+        GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.LEFT, horizontal == "left")
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM, GtkLayerShell.Edge.LEFT):
+            GtkLayerShell.set_margin(self.window, edge, POPUP_GAP)
+        if self.arrow is None:
+            return
+        arrow = arrow if corner in ARROW_CORNERS else None
+        self.arrow_up = vertical == "top"
+        room = 0 if arrow is None else ARROW_HEIGHT
+        self.arrow.set_visible(arrow is not None)
+        self.arrow.set_valign(self.Gtk.Align.START if self.arrow_up else self.Gtk.Align.END)
+        self.frame.set_margin_top(room if self.arrow_up else 0)
+        self.frame.set_margin_bottom(0 if self.arrow_up else room)
+        if arrow is not None:
+            edge = GtkLayerShell.Edge.TOP if self.arrow_up else GtkLayerShell.Edge.BOTTOM
+            GtkLayerShell.set_margin(self.window, edge, POPUP_GAP - ARROW_HEIGHT)
+            self.arrow.set_margin_start(max(arrow - POPUP_GAP - ARROW_WIDTH // 2, ARROW_INSET))
+        self.window.resize(1, 1)    # back to its natural size without one
+        self.fader.update_input()
 
-    def show(self, corner):
-        if corner != self.corner:
-            self.place(corner)
-            self.corner = corner
+    def show(self, corner, arrow=None):
+        if (corner, arrow) != self.placed:
+            self.place(corner, arrow)
+            self.placed = corner, arrow
         self.entry.set_text("")
         self.reset()
         for row in self.power_rows:
@@ -1449,6 +2234,13 @@ class View:
 
     def reset(self):
         """Back to how the menu opens (before it is shown)."""
+
+    def show_numbers(self, on):
+        """Ctrl went down or up while the menu is shown (the prompt style's
+        pin digits)."""
+
+    def launched(self, app):
+        """The menu started app (the prompt style's New mark ends)."""
 
     def shown(self):
         """After the window is shown and the entry has the focus."""
@@ -1553,8 +2345,9 @@ class View:
         row.folder = path
         row.label.set_text(label)
         row.set_tooltip_text(path)
-        self.menu.set_icon(row.image, self.menu.themed("folder") if label != "Home" else
-                           self.menu.themed("user-home", "folder"), size)
+        home = os.path.normpath(path) == os.path.normpath(self.GLib.get_home_dir())
+        self.menu.set_icon(row.image, self.menu.themed("user-home", "folder") if home else
+                           self.menu.themed("folder"), size)
         return row
 
     def flat_button(self, label, icon, end=False):
@@ -1581,23 +2374,27 @@ class View:
         return button
 
     def user_box(self, size=ICON_PINNED):
-        Gtk, GLib, Gio = self.Gtk, self.GLib, self.Gio
+        Gtk, GLib = self.Gtk, self.GLib
         user = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         user.get_style_context().add_class("user")
-        avatar = Gtk.Image()
-        face = os.path.join(GLib.get_home_dir(), ".face")
-        if os.path.isfile(face):
-            self.menu.set_icon(avatar, Gio.FileIcon.new(Gio.File.new_for_path(face)), size)
-        else:
-            self.menu.set_icon(avatar, Gio.ThemedIcon.new("avatar-default"), size)
+        self.avatar, self.avatar_size = Gtk.Image(), size
+        self.show_picture()
         name = GLib.get_real_name()
         if not name or name == "Unknown":
             name = GLib.get_user_name()
         label = Gtk.Label(label=name, xalign=0, tooltip_text=name)     # cut short in narrow columns
         label.set_ellipsize(3)
-        user.pack_start(avatar, False, False, 0)
+        user.pack_start(self.avatar, False, False, 0)
         user.pack_start(label, True, True, 0)
         return user
+
+    def show_picture(self):
+        if self.avatar is None:
+            return
+        Gio, GLib = self.Gio, self.GLib
+        face = picture_file(GLib.get_user_name(), GLib.get_home_dir())
+        icon = Gio.FileIcon.new(Gio.File.new_for_path(face)) if face else Gio.ThemedIcon.new("avatar-default")
+        self.menu.set_icon(self.avatar, icon, self.avatar_size)
 
     def places(self):
         GLib = self.GLib
@@ -1607,7 +2404,7 @@ class View:
 
     def tools(self):
         """(label, icon, command) of TOOLS that are installed."""
-        return [tool for tool in TOOLS if available(tool[2])]
+        return [(_(text), icon, command) for text, icon, command in TOOLS if available(command)]
 
     def power_row(self, size, symbolic=False, homogeneous=False):
         """The power buttons (PowerRow), disarmed when the view shows and hides."""
@@ -1621,8 +2418,13 @@ class View:
         row = listbox.get_row_at_y(int(event.y))
         if row is None or row.app is None:
             return False
-        self.menu.pin_menu(row, row.app)
+        self.actions(row, row.app)
         return True
+
+    def actions(self, widget, app):
+        """What a right click, the Menu key or Shift+F10 opens on an app: the
+        pin menu (the prompt style has more)."""
+        self.menu.pin_menu(widget, app)
 
     def pin_menu_key(self, event):
         """The Menu key or Shift+F10 on a focused app: the pin menu, as a
@@ -1633,9 +2435,10 @@ class View:
         if event.keyval != Gdk.KEY_Menu and not shift_f10:
             return False
         row = self.window.get_focus()
-        if not isinstance(row, self.Gtk.ListBoxRow) or getattr(row, "app", None) is None:
+        if (not isinstance(row, (self.Gtk.ListBoxRow, self.Gtk.FlowBoxChild))
+                or getattr(row, "app", None) is None):
             return False
-        self.menu.pin_menu(row, row.app)
+        self.actions(row, row.app)
         return True
 
 
@@ -1654,7 +2457,7 @@ class ResultList:
         self.scroll.add(self.listbox)
         self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.widget.pack_start(self.scroll, True, True, 0)
-        self.empty = Gtk.Label(label="No apps found", xalign=0)
+        self.empty = Gtk.Label(label=_("No apps found"), xalign=0)
         self.empty.get_style_context().add_class("dim-label")
         self.empty.set_no_show_all(True)
         self.widget.pack_start(self.empty, False, False, 0)
@@ -1681,15 +2484,17 @@ class ResultList:
 
 class ClassicView(View):
     """Windows 7: pinned apps and All apps on the left, search below them;
-    the user, folders, Settings, Software and the power buttons on the right."""
+    the user, folders, Recent and Trash at the top of the right column,
+    Settings, Software and the power buttons at its bottom."""
 
     name = "classic"
+    arrow_color = "theme_base_color"    # the left column's
 
     def build(self):
         Gtk = self.Gtk
         frame = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         frame.get_style_context().add_class("menu")
-        self.window.add(frame)
+        self.add_frame(frame)
 
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         left.get_style_context().add_class("left")
@@ -1703,7 +2508,7 @@ class ClassicView(View):
         self.pinned_list = self.app_list("pinned")
         home = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         home.pack_start(self.pinned_list, False, False, 0)
-        all_button = self.flat_button("All Apps", "go-next-symbolic", end=True)
+        all_button = self.flat_button(_("All Apps"), "go-next-symbolic", end=True)
         all_button.get_style_context().add_class("all-apps")
         all_button.connect("clicked", lambda *_: self.show_page("all"))
         home.pack_end(all_button, False, False, 0)
@@ -1711,7 +2516,7 @@ class ClassicView(View):
         self.stack.add_named(home, "home")
 
         everything = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        back = self.flat_button("Back", "go-previous-symbolic")
+        back = self.flat_button(_("Back"), "go-previous-symbolic")
         back.get_style_context().add_class("back")
         back.connect("clicked", lambda *_: self.show_page("home"))
         everything.pack_start(back, False, False, 0)
@@ -1735,23 +2540,49 @@ class ClassicView(View):
         right.get_style_context().add_class("right")
         right.set_size_request(WIDTH_RIGHT, -1)
         right.pack_start(self.user_box(), False, False, 0)
-        for text, path in self.places():
-            button = self.flat_button(text, "user-home" if text == "Home" else "folder")
+        for index, (text, path) in enumerate(self.places()):
+            button = self.flat_button(text, "user-home" if index == 0 else "folder")     # Home first
             button.connect("clicked", lambda _b, path=path: self.menu.open_folder(path))
             right.pack_start(button, False, False, 0)
-        tools = self.tools()
-        if tools:
-            right.pack_start(Gtk.Separator(), False, False, 4)
-        for text, icon, command in tools:
-            button = self.flat_button(text, icon)
-            button.connect("clicked", lambda _b, command=command: self.menu.run(command))
+        self.trash_image = None
+        for text, icon, uri in LOCATIONS:
+            button = self.flat_button(_(text), icon)
+            button.connect("clicked", lambda _b, uri=uri: self.menu.open_uri(uri))
             right.pack_start(button, False, False, 0)
+            if uri == TRASH:
+                self.trash_image = button.get_child().get_children()[0]
+        # From the bottom up: the power buttons, then Settings and Software
+        # just above them, so the room left over parts the two groups.
         power = self.power_row(Gtk.IconSize.LARGE_TOOLBAR, homogeneous=True)
         power.hint.set_max_width_chars(1)   # wraps in the column instead of widening it
         right.pack_end(power.box, False, False, 0)
         right.pack_end(power.hint, False, False, 2)
         right.pack_end(Gtk.Separator(), False, False, 4)
+        tools = self.tools()
+        for text, icon, command in reversed(tools):
+            button = self.flat_button(text, icon)
+            button.connect("clicked", lambda _b, command=command: self.menu.run(command))
+            right.pack_end(button, False, False, 0)
+        if tools:
+            right.pack_end(Gtk.Separator(), False, False, 4)
         return right
+
+    def update_trash(self):
+        """Trash's icon shows whether it is empty; asked of gvfs without
+        waiting, each time the menu opens."""
+        if self.trash_image is None:
+            return
+        Gio = self.Gio
+
+        def answered(trash, result):
+            try:
+                count = trash.query_info_finish(result).get_attribute_uint32("trash::item-count")
+            except self.GLib.Error:
+                return      # no gvfs: the plain icon stays
+            self.trash_image.set_from_icon_name(trash_icon(count), self.Gtk.IconSize.MENU)
+
+        Gio.File.new_for_uri(TRASH).query_info_async(
+            "trash::item-count", Gio.FileQueryInfoFlags.NONE, self.GLib.PRIORITY_DEFAULT, None, answered)
 
     def populate(self):
         for row in self.pinned_list.get_children():
@@ -1774,7 +2605,7 @@ class ClassicView(View):
         image = Gtk.Image()
         self.menu.set_icon(image, self.Gio.ThemedIcon.new_with_default_fallbacks(icon), ICON_LIST)
         title.pack_start(image, False, False, 0)
-        title.pack_start(Gtk.Label(label=name, xalign=0), True, True, 0)
+        title.pack_start(Gtk.Label(label=_(name), xalign=0), True, True, 0)
         expander.set_label_widget(title)
 
         def expanded(*_):
@@ -1795,6 +2626,7 @@ class ClassicView(View):
     def reset(self):
         self.show_page("home", animate=False)
         self.all_scroll.get_vadjustment().set_value(0)
+        self.update_trash()
 
     def shown(self):
         # Focus on the way to the entry selects a row; none is chosen yet.
@@ -1843,7 +2675,7 @@ class CategoriesView(View):
         frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         frame.get_style_context().add_class("menu")
         frame.set_size_request(self.WIDTH, self.HEIGHT)
-        self.window.add(frame)
+        self.add_frame(frame)
         frame.pack_start(self.entry, False, False, 0)
 
         body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -1889,15 +2721,16 @@ class CategoriesView(View):
             page = self.pages.get_child_by_name(name)
             if page is not None:
                 page.destroy()
-        self.page_apps = {"Favorites": self.menu.pinned_apps(),
-                          "All Apps": sorted(self.menu.apps, key=lambda a: a.name_key)}
+        # The English names are the pages' keys; _() translates them in the list.
+        self.page_apps = {N_("Favorites"): self.menu.pinned_apps(),
+                          N_("All Apps"): sorted(self.menu.apps, key=lambda a: a.name_key)}
         icons = {"Favorites": self.menu.themed("starred", "emblem-favorite", "bookmark-new"),
                  "All Apps": self.menu.themed("applications-all", "view-app-grid", "view-grid",
                                               "applications-other")}
         for name, icon, apps in by_section(self.menu.apps):
             self.page_apps[name] = apps
             icons[name] = self.Gio.ThemedIcon.new_with_default_fallbacks(icon)
-        self.page_apps["Folders"] = self.places()
+        self.page_apps[N_("Folders")] = self.places()
         icons["Folders"] = self.menu.themed("folder")
         for name in self.page_apps:
             row = self.Gtk.ListBoxRow()
@@ -1907,7 +2740,7 @@ class CategoriesView(View):
             image = self.Gtk.Image()
             self.menu.set_icon(image, icons[name], ICON_LIST)
             box.pack_start(image, False, False, 0)
-            box.pack_start(self.Gtk.Label(label=name, xalign=0), True, True, 0)
+            box.pack_start(self.Gtk.Label(label=_(name), xalign=0), True, True, 0)
             row.add(box)
             self.categories.add(row)
         self.categories.show_all()
@@ -2041,7 +2874,7 @@ class GridView(View):
         self.flow.set_filter_func(self.visible_app)
         self.flow.set_sort_func(self.order_apps)
         self.scroll.add(self.flow)
-        self.empty = Gtk.Label(label="No apps found")
+        self.empty = Gtk.Label(label=_("No apps found"))
         self.empty.get_style_context().add_class("dim-label")
         self.empty.set_no_show_all(True)
         frame.pack_start(self.empty, False, False, 0)
@@ -2049,7 +2882,7 @@ class GridView(View):
         self.matches = None     # desktop id -> rank while searching
         self.tiles = []
 
-    def place(self, corner):
+    def place(self, corner, arrow=None):
         """Always the whole screen."""
 
     def populate(self):
@@ -2183,8 +3016,1557 @@ class GridView(View):
         self.menu.hide()
         return True
 
+class PromptView(View):
+    """FlickOS's own (ADR-022): a search line with the logo's ›, the first six
+    pins on Ctrl+1 to Ctrl+6, then every app as tiles, A–Z, the
+    folders, and the user, Settings, Software and power."""
 
-VIEWS = {view.name: view for view in (ClassicView, CategoriesView, GridView)}
+    name = "prompt"
+    icon_sizes = (ICON_PROMPT,)
+    _name_height = None     # two lines of a name; measured again at each populate
+
+    def build(self):
+        Gtk = self.Gtk
+        settings = read_user_settings()
+        self.columns, self.rows = parse_size(settings.get("Size"))
+        self.matches = None         # desktop id -> rank while searching
+        self.open_ids = None        # app ids with a window, from flick-tiler
+        self.flows = []
+        self.pin_tiles, self.tiles = [], []
+        self.content_height = 0     # the grid's rows, in px
+        self.fitted_screen = None   # the screen height the last fit used
+        self.middle_press = None
+        self.hidden = set()         # Hidden=: left out of the grid
+        self.replacing = None       # the app waiting for a pin to replace (Q10)
+        self.dragging = None        # the app being dragged
+        self.drop_marked = None     # the tile showing where a drop goes
+        self.resizing = None        # (columns, rows) while the corner is dragged
+        self.grips = {}
+        self.new_ids = set()        # apps installed since the menu last looked (Q12)
+        self.completing = ""        # the grey rest of the first result's name
+        self.last_search = None     # for ↑, this session only, never written
+        self.tip_count = None       # TIPS_FILE's, read at the first show
+        self.help = None            # the popover of ›, made when first asked for
+        # Results that aren't apps (ADR-017 to ADR-020, Q9): providers' rows,
+        # the calculator, `>`. The first character's kind (prefix) shows as
+        # the line's symbol, not as text.
+        finder = self.finder = load_providers()
+        self.providers = finder.read_providers(PROVIDERS_DIR, translator)
+        self.prefixes = finder.active_prefixes(self.providers, terminal=available(["xdg-terminal-exec"]))
+        self.prefix = None
+        self.armed = None           # (row widget, timer) of a task waiting for its second Enter
+        self.programs_started = False
+        self.looking = set()        # live providers whose rows are still coming
+        spawn = finder.gio_spawner(self.GLib, self.Gio)
+        self.lives = {provider: finder.LiveSearch(provider, lambda rows, done, provider=provider:
+                                                  self.on_live_rows(provider, rows, done),
+                                                  spawn, self.GLib.timeout_add, self.GLib.source_remove,
+                                                  self.GLib.get_home_dir())
+                      for provider in self.providers if provider.kind == "live"}
+
+        frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        frame.get_style_context().add_class("menu")
+        self.add_frame(frame)
+
+        # The line: one field with the logo's › inside it, as ADR-022's
+        # design has it. An entry can't hold a label, so the box is drawn as
+        # the field (prompt-field in style.css) and the entry inside it has no
+        # frame of its own; a click on the mark puts the cursor in the entry.
+        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        field = self.field = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        field.get_style_context().add_class("prompt-field")
+        mark = Gtk.EventBox(visible_window=False)
+        mark.connect("button-press-event", lambda *_: self.show_help() or True)
+        symbol = self.symbol = Gtk.Label(label=PROMPT_SYMBOL, valign=Gtk.Align.CENTER)
+        symbol.get_style_context().add_class("prompt-symbol")
+        symbol.set_tooltip_text(_("What you can type (F1)"))
+        mark.add(symbol)
+        field.pack_start(mark, False, False, 0)
+        line.pack_start(field, True, True, 0)
+        for signal, on in (("focus-in-event", True), ("focus-out-event", False)):
+            self.entry.connect(signal, lambda _entry, _event, on=on: self.mark_focus(on))
+        self.entry.set_placeholder_text(self.hint(None))
+        self.entry.set_icon_from_icon_name(Gtk.EntryIconPosition.PRIMARY, None)
+        # Grey text after the cursor: the rest of the first result's name, or
+        # the hint while the line is empty (GTK 3 hides an entry's own
+        # placeholder while it has the focus, which it has whenever the menu
+        # opens).
+        typed = Gtk.Overlay()
+        typed.add(self.entry)
+        self.ghost = Gtk.Label(halign=Gtk.Align.START, valign=Gtk.Align.CENTER, margin_end=28)
+        self.ghost.set_ellipsize(3)     # Pango.EllipsizeMode.END
+        self.ghost.get_style_context().add_class("ghost")
+        self.ghost.set_no_show_all(True)
+        typed.add_overlay(self.ghost)
+        typed.set_overlay_pass_through(self.ghost, True)
+        field.pack_start(typed, True, True, 0)
+        for signal in ("notify::cursor-position", "focus-in-event", "focus-out-event", "size-allocate"):
+            self.entry.connect(signal, lambda *_: self.update_ghost() or False)
+        frame.pack_start(line, False, False, 0)
+
+        self.pinned = self.flow("pinned")
+        self.no_pins = Gtk.Label(label=_("Drag apps here to pin them"), wrap=True)
+        self.no_pins.get_style_context().add_class("no-pins")
+        self.no_pins.set_no_show_all(True)
+        self.replace_hint = Gtk.Label(wrap=True, xalign=0)
+        self.replace_hint.get_style_context().add_class("replace-hint")
+        self.replace_hint.set_no_show_all(True)
+        self.pinned_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.pinned_area.pack_start(self.replace_hint, False, False, 0)
+        self.pinned_area.pack_start(self.pinned, False, False, 0)
+        self.pinned_area.pack_start(self.no_pins, False, False, 0)
+        frame.pack_start(self.pinned_area, False, False, 0)
+        target = Gtk.TargetEntry.new(DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
+        self.pinned_area.drag_dest_set(0, [target], self.Gdk.DragAction.MOVE)
+        self.pinned_area.connect("drag-motion", self.on_drag_motion)
+        self.pinned_area.connect("drag-leave", lambda *_: self.mark_drop(None, None))
+        self.pinned_area.connect("drag-drop", self.on_drag_drop)
+
+
+        self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.scroll.set_propagate_natural_width(True)
+        content = self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.grid = self.flow("apps")
+        self.grid.set_filter_func(self.visible_app)
+        self.grid.set_sort_func(self.order_apps)
+        content.pack_start(self.grid, False, False, 0)
+        # Below the apps: a line that says what is happening (nothing found,
+        # looking, what a prefix wants), then the rows that aren't apps.
+        # Nothing found is never a dead end (ADR-022): it offers Software,
+        # files (/) and the terminal (>).
+        self.message = Gtk.Label(xalign=0, wrap=True)
+        self.message.get_style_context().add_class("nothing")
+        self.message.set_no_show_all(True)
+        content.pack_start(self.message, False, False, 0)
+        self.results = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE, activate_on_single_click=True)
+        self.results.get_style_context().add_class("results")
+        self.results.connect("row-activated", lambda _list, item: self.activate_row(item))
+        self.results.connect("row-selected", self.on_row_selected)
+        self.results.connect("keynav-failed", self.on_keynav_failed)
+        self.results.set_no_show_all(True)
+        content.pack_start(self.results, False, False, 0)
+        self.scroll.add(content)
+        frame.pack_start(self.scroll, True, True, 0)
+
+        self.folders = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=6, row_spacing=6,
+                                   max_children_per_line=20, homogeneous=False)
+        self.folders.get_style_context().add_class("folders")
+        self.folders_width = None
+        self.folder_rows = []
+        self.folders.connect("size-allocate", self.on_folders_allocated)
+        # Drives the user plugs in get a chip too (gvfs and udisks2 are
+        # Depends); the chips follow them as they come and go.
+        self.volumes = self.Gio.VolumeMonitor.get()
+        for signal in ("mount-added", "mount-removed", "mount-changed"):
+            self.volumes.connect(signal, lambda *_: self.GLib.idle_add(self.fill_folders) and None)
+        self.fill_folders()
+        frame.pack_start(self.folders, False, False, 0)
+        # A drive that couldn't be ejected says so here, not only in the log
+        # (the button would otherwise do nothing that shows).
+        self.eject_error = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.eject_error.get_style_context().add_class("eject-error")
+        self.eject_error.pack_start(Gtk.Image.new_from_icon_name("dialog-warning-symbolic", Gtk.IconSize.MENU),
+                                    False, False, 0)
+        self.eject_text = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        self.eject_text.set_line_wrap_mode(2)       # Pango.WrapMode.WORD_CHAR: paths have no spaces
+        self.eject_error.pack_start(self.eject_text, True, True, 0)
+        self.eject_error.set_no_show_all(True)
+        frame.pack_start(self.eject_error, False, False, 0)
+
+        self.foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        self.foot.get_style_context().add_class("bar")
+        user = Gtk.Button(relief=Gtk.ReliefStyle.NONE)
+        user.add(self.user_box(28))
+        if available(["flickos-control"]):
+            user.set_tooltip_text(_("Your account in Settings"))
+            user.connect("clicked", lambda _b: self.menu.run(["flickos-control", "--page", "users"]))
+        else:
+            user.set_sensitive(False)
+        self.foot.pack_start(user, True, True, 0)
+        power = self.power = self.power_row(Gtk.IconSize.BUTTON, symbolic=True)
+        power.hint.set_xalign(1)
+        self.foot.pack_start(power.hint, False, False, 6)
+        for text, icon, command in self.tools():
+            self.foot.pack_start(self.icon_button(text, f"{icon}-symbolic", lambda command=command: self.menu.run(command),
+                                                  Gtk.IconSize.BUTTON), False, False, 0)
+        self.foot.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 4)
+        self.foot.pack_start(power.box, False, False, 0)
+        self.foot_rule = Gtk.Separator()
+        frame.pack_start(self.foot_rule, False, False, 0)
+        frame.pack_start(self.foot, False, False, 0)
+        self.window.connect("key-press-event", self.on_new_window_key)
+        # The resize corner, away from the panel (place shows one): an ordinary
+        # widget at the end of the search line or the bottom row.
+        self.grips = {True: self.make_grip(True), False: self.make_grip(False)}
+        line.pack_end(self.grips[True], False, False, 0)
+        self.foot.pack_end(self.grips[False], False, False, 0)
+        frame.show_all()
+        self.grips[False].hide()
+
+    # Folders ----------------------------------------------------------------------
+
+    def chip(self, label, gicon, tooltip, callback):
+        Gtk = self.Gtk
+        button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, tooltip_text=tooltip)
+        button.get_style_context().add_class("chip")
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        # GTK looks the icon up itself: the chips stay while the apps are read
+        # again, so a cached picture would keep the last icon theme's (Papirus-
+        # Light's dark folders after a switch to Dark), and a drive's symbolic
+        # icon gets the text color.
+        image = Gtk.Image(pixel_size=16)
+        image.set_from_gicon(gicon, Gtk.IconSize.MENU)
+        box.pack_start(image, False, False, 0)
+        box.pack_start(Gtk.Label(label=label), False, False, 0)
+        button.add(box)
+        button.connect("clicked", lambda _b: callback())
+        return button
+
+    def fill_folders(self):
+        """Home, each drive the user plugged in (with a button to eject it),
+        then the user's folders, on one row (fit_folders); every one of them
+        is also a result when its name is typed (folder_rows)."""
+        Gtk, GLib = self.Gtk, self.GLib
+        Row = self.finder.Row
+        for child in self.folders.get_children():
+            child.destroy()
+        home = os.path.normpath(GLib.get_home_dir())
+        special = {key: GLib.get_user_special_dir(getattr(GLib.UserDirectory, f"DIRECTORY_{key}"))
+                   for key in PROMPT_PLACES}
+        key_of = {os.path.normpath(path): key for key, path in special.items() if path}
+        folders = places(home, special, order=PROMPT_PLACES)
+        self.folder_rows = []
+
+        def found(label, path, key, icon):
+            words = " ".join((FOLDER_WORDS.get(key, ""), os.path.basename(path)))
+            self.folder_rows.append(Row("path", label, self.finder.short_folder(path, home), icon,
+                                        keys=words, path=path, value="folder"))
+
+        label, path = folders[0]        # Home
+        self.add_chip(self.chip(label, self.menu.themed("user-home", "folder"), path,
+                                lambda path=path: self.menu.open_folder(path)))
+        found(label, path, "HOME", "user-home-symbolic")
+        for mount in self.volumes.get_mounts():
+            root = mount.get_root()
+            path = root.get_path() if root is not None else None
+            if mount.is_shadowed() or not is_removable(path):
+                continue
+            name = mount.get_name()
+            drive = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            drive.get_style_context().add_class("linked")
+            drive.pack_start(self.chip(name, mount.get_symbolic_icon(), path,
+                                       lambda path=path: self.menu.open_folder(path)), False, False, 0)
+            eject = self.icon_button(_("Eject {name}").format(name=name), "media-eject-symbolic",
+                                     lambda mount=mount: self.eject(mount), Gtk.IconSize.MENU)
+            eject.get_style_context().add_class("chip")
+            drive.pack_start(eject, False, False, 0)
+            self.add_chip(drive)
+            found(name, path, "DRIVE", "drive-removable-media-symbolic")
+        for label, path in folders[1:]:
+            self.add_chip(self.chip(label, self.menu.themed("folder"), path,
+                                    lambda path=path: self.menu.open_folder(path)))
+            found(label, path, key_of.get(os.path.normpath(path), ""), "folder-symbolic")
+        self.folders.show_all()
+        self.folders_width = None       # fit again at the next allocation
+        self.GLib.idle_add(self.fit_folders)
+        return False    # GLib idle: once
+
+    def on_folders_allocated(self, _widget, allocation):
+        if allocation.width != self.folders_width:
+            self.folders_width = allocation.width
+            self.GLib.idle_add(self.fit_folders)
+
+    def fit_folders(self):
+        """Only the chips that fit on one line: a second, mostly empty line
+        wasted the room of a row of apps."""
+        children = self.folders.get_children()
+        width = self.folders.get_allocated_width()
+        if not children or width <= 1:
+            return False
+        before = [child.get_visible() for child in children]
+        # Measured shown: a hidden widget's width is 0, so every chip would fit.
+        for child in children:
+            child.show()
+        widths = [child.get_preferred_width()[1] for child in children]
+        count = chips_that_fit(widths, width, self.folders.get_column_spacing())
+        self.menu.log(f"prompt folders: {count} of {len(children)} chips in {width} px ({widths})")
+        for index, child in enumerate(children):
+            child.set_visible(index < count)
+        if [child.get_visible() for child in children] != before:
+            self.fit()      # the menu's height without the second line
+        return False    # GLib idle: once
+
+    def add_chip(self, widget):
+        self.folders.add(widget)
+        widget.get_parent().set_can_focus(False)    # the buttons take the focus, not the child
+
+    def eject(self, mount):
+        """Eject a drive (or unmount one that can't be ejected); GTK asks if
+        a program still uses it."""
+        Gtk, Gio = self.Gtk, self.Gio
+        operation = Gtk.MountOperation()
+        flags = Gio.MountUnmountFlags.NONE
+
+        def done(source, result, eject):
+            try:
+                (source.eject_with_operation_finish if eject else source.unmount_with_operation_finish)(result)
+            except self.GLib.Error as error:
+                warn(f"cannot eject {source.get_name()}: {error.message}")
+                if not error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.FAILED_HANDLED):
+                    self.show_eject_error(source.get_name(), error.message)
+                return
+            self.show_eject_error(None)
+
+        if mount.can_eject():
+            mount.eject_with_operation(flags, operation, None, done, True)
+        else:
+            mount.unmount_with_operation(flags, operation, None, done, False)
+
+    def show_eject_error(self, name, message=None):
+        """The line under the chips after a failed eject (name None: none)."""
+        if name is None:
+            self.eject_error.hide()
+            return
+        self.eject_text.set_text(_("{name} wasn't ejected: {error}").format(name=name, error=message))
+        self.eject_error.get_accessible().set_name(self.eject_text.get_text())
+        for child in self.eject_error.get_children():
+            child.show()
+        self.eject_error.show()
+        self.fit()
+
+    # Tiles ----------------------------------------------------------------------
+
+    def flow(self, css_class):
+        Gtk = self.Gtk
+        flow = Gtk.FlowBox()
+        flow.get_style_context().add_class(css_class)
+        flow.set_homogeneous(True)
+        flow.set_valign(Gtk.Align.START)
+        flow.set_min_children_per_line(self.columns)
+        flow.set_max_children_per_line(self.columns)
+        flow.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        flow.set_activate_on_single_click(True)
+        flow.connect("child-activated", self.on_tile_activated)
+        flow.connect("keynav-failed", self.on_keynav_failed)
+        flow.connect("button-press-event", self.on_flow_press)
+        flow.connect("button-release-event", self.on_flow_release)
+        flow.connect("selected-children-changed", self.on_selected)
+        self.flows.append(flow)
+        return flow
+
+    def name_height(self, label):
+        """The height of two lines of a tile's name, in the label's font."""
+        if self._name_height is None:
+            layout = label.create_pango_layout("A\nA")
+            self._name_height = layout.get_pixel_size()[1]
+        return self._name_height
+
+    def tile(self, app, number=None):
+        Gtk = self.Gtk
+        child = Gtk.FlowBoxChild()
+        child.get_style_context().add_class("app")
+        child.app = app
+        child.number = number
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_size_request(PROMPT_TILE_WIDTH, -1)
+        image = Gtk.Image()
+        image.set_size_request(ICON_PROMPT, ICON_PROMPT)
+        self.menu.set_icon(image, app.info.get_icon() if app.info else None, ICON_PROMPT)
+        # Two lines (ADR-022, condition 1): a name wraps at spaces, a long word
+        # breaks inside, and only a third line is cut (the tooltip has it all).
+        # Every tile reserves both lines so the rows are as tall as the fit
+        # calculations (tile_height) think.
+        label = Gtk.Label(label=app.name, justify=Gtk.Justification.CENTER, max_width_chars=1,
+                          yalign=0.0)
+        label.set_line_wrap(True)
+        label.set_line_wrap_mode(2)     # Pango.WrapMode.WORD_CHAR
+        label.set_lines(2)
+        label.set_ellipsize(3)          # Pango.EllipsizeMode.END
+        label.set_size_request(-1, self.name_height(label))
+        running = Gtk.Box(halign=Gtk.Align.CENTER)
+        running.get_style_context().add_class("running")
+        box.pack_start(image, False, False, 0)
+        box.pack_start(label, False, False, 0)
+        box.pack_start(running, False, False, 0)
+        content = box
+        child.badge = None
+        new = app.id in self.new_ids
+        if number is not None or new:
+            content = Gtk.Overlay()
+            content.add(box)
+        if number is not None:
+            digit = Gtk.Label(label=str(number), halign=Gtk.Align.START, valign=Gtk.Align.START,
+                              margin_start=4, margin_top=0)
+            digit.get_style_context().add_class("number")
+            content.add_overlay(digit)
+            content.set_overlay_pass_through(digit, True)
+        if new:     # installed since the menu last looked (Q12)
+            child.badge = Gtk.Label(label=_("New"), halign=Gtk.Align.END, valign=Gtk.Align.START)
+            child.badge.get_style_context().add_class("new-badge")
+            content.add_overlay(child.badge)
+            content.set_overlay_pass_through(child.badge, True)
+        # A FlowBoxChild has no input window of its own, so it never sees the
+        # press a drag starts from: an input-only EventBox inside it does. Its
+        # events go on to the flow box (clicks, right clicks).
+        events = Gtk.EventBox(visible_window=False)
+        events.add(content)
+        child.add(events)
+        target = Gtk.TargetEntry.new(DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
+        events.drag_source_set(self.Gdk.ModifierType.BUTTON1_MASK, [target], self.Gdk.DragAction.MOVE)
+        if app.info is not None and app.info.get_icon() is not None:
+            events.drag_source_set_icon_gicon(app.info.get_icon())
+        events.connect("drag-begin", lambda _w, context, child=child: self.on_drag_begin(child, context))
+        events.connect("drag-end", lambda _w, context, child=child: self.on_drag_end(child, context))
+        events.connect("drag-data-get",
+                       lambda _w, context, data, info, time, child=child:
+                       self.on_drag_data_get(child, context, data, info, time))
+        tooltip = app_tooltip(app.name, app.info.get_description() if app.info else None)
+        if number is not None:      # the shortcut in the tooltip (HIG A11Y-4)
+            tooltip += "\n" + _("Ctrl+{number}").format(number=number)
+        child.set_tooltip_markup(tooltip)
+        self.name_tile(child)
+        return child
+
+    def read_new(self, started=()):
+        """The apps that are new (Q12), after the seen-apps record is brought
+        up to date; written only when it changed."""
+        import datetime
+        import json
+        path = state_file()
+        record, changed = update_seen(read_seen(path), [app.id for app in self.menu.apps],
+                                      datetime.date.today().toordinal(), started)
+        if changed:
+            try:
+                write_atomic(path, json.dumps(record, indent=1) + "\n")
+            except OSError as error:
+                warn(f"cannot save {path}: {error}")
+        return set(record["new"])
+
+    def launched(self, app):
+        """An app was started from the menu: it is no longer new."""
+        if app.id not in self.new_ids:
+            return
+        self.new_ids = self.read_new(started={app.id})
+        for child in self.pin_tiles + self.tiles:
+            if child.app.id == app.id and child.badge is not None:
+                child.badge.hide()
+                self.name_tile(child)
+
+    def name_tile(self, child):
+        """What a screen reader says: "Writer, Ctrl+3, open"."""
+        parts = [child.app.name]
+        if child.number is not None:
+            parts.append(_("Ctrl+{number}").format(number=child.number))
+        if is_open(child.app, self.open_ids):
+            parts.append(_("open"))
+        if child.badge is not None and child.badge.get_visible():
+            parts.append(_("new"))
+        child.get_accessible().set_name(", ".join(parts))
+
+    def populate(self):
+        for flow in (self.pinned, self.grid):
+            for child in flow.get_children():
+                child.destroy()
+        self.hidden = set(effective_hidden())
+        self._name_height = None
+        self.new_ids = self.read_new()
+        self.stop_replacing()
+        pins = self.menu.pinned_apps()[:PROMPT_PINS]
+        self.pin_tiles = [self.tile(app, number) for number, app in enumerate(pins, 1)]
+        for child in self.pin_tiles:
+            self.pinned.add(child)
+        self.pinned.set_visible(bool(pins))
+        self.no_pins.set_visible(not pins)
+        self.tiles = [self.tile(app) for app in sorted(self.menu.apps, key=lambda a: a.name_key)]
+        for child in self.tiles:
+            self.grid.add(child)
+        self.pinned.show_all()
+        self.grid.show_all()
+        self.mark_open()
+        self.fit()
+
+    def mark_open(self):
+        for child in self.pin_tiles + self.tiles:
+            context = child.get_style_context()
+            if is_open(child.app, self.open_ids):
+                context.add_class("open")
+            else:
+                context.remove_class("open")
+            self.name_tile(child)
+
+    def update_open(self):
+        """Ask flick-tiler which apps have windows, after the menu is shown."""
+        self.open_ids = open_app_ids(self.menu.root)
+        self.mark_open()
+        return False    # GLib idle: once
+
+    # Size -----------------------------------------------------------------------
+
+    def tile_height(self):
+        sample = next(iter(self.pin_tiles + self.tiles), None)
+        if sample is None:
+            return 0
+        return sample.get_preferred_height()[1] + self.grid.get_row_spacing()
+
+    def screen_height(self):
+        """The height of the screen the menu was last shown on (labwc picks
+        it), else of the first one. Wayland gives no pointer position."""
+        display = self.Gdk.Display.get_default()
+        window = self.window.get_window()
+        monitor = display.get_monitor_at_window(window) if window is not None else None
+        monitor = monitor or display.get_primary_monitor() or display.get_monitor(0)
+        return monitor.get_geometry().height if monitor is not None else 768
+
+    def refit(self):
+        """After a show: on another screen than the last fit, fit again."""
+        if self.screen_height() != self.fitted_screen:
+            self.fit()
+        return False    # GLib idle: once
+
+    def fit(self, extra=0):
+        """The grid's height: Size='s rows, or as many as fit the screen.
+        extra: room of the parts that give way to the results while searching."""
+        tile = self.tile_height()
+        if tile <= 0:
+            return
+        # The grid's columns are its width even when a search shows a few apps
+        # or none: the menu keeps its size.
+        # (A minimum on the box: the scrolled window ignores min-content-width
+        # without a horizontal scroll bar.)
+        sample = next(iter(self.pin_tiles + self.tiles))
+        self.content.set_size_request(self.columns * (sample.get_preferred_width()[1]
+                                                      + self.grid.get_column_spacing()), -1)
+        self.set_content_height(self.content_height)
+        # Height for the menu's width: a flow box measured without one (the
+        # folder chips) puts every child on a line of its own.
+        width = self.frame.get_preferred_width()[1]
+        other = self.frame.get_preferred_height_for_width(width)[1] - self.content_height
+        self.fitted_screen = self.screen_height()
+        rows = rows_that_fit(self.rows, self.fitted_screen - PANEL_ROOM - 2 * POPUP_GAP, tile, other)
+        self.menu.log(f"prompt fit: screen {self.fitted_screen}, tile {tile}, other {other}, "
+                      f"rows {rows} of {self.rows}, columns {self.columns}")
+        self.content_height = rows * tile
+        self.set_content_height(self.content_height + extra)
+        self.window.resize(1, 1)
+
+    def set_content_height(self, height):
+        # GTK checks min <= max at each call: free the maximum first.
+        self.scroll.set_max_content_height(-1)
+        self.scroll.set_min_content_height(height)
+        self.scroll.set_max_content_height(height)
+
+    # Showing ----------------------------------------------------------------------
+
+    def hide(self):
+        # ↑ brings this back at the next show: kept in memory, never written,
+        # and never a prefix's (commands, sums and files).
+        kept = search_to_keep(self.entry.get_text()) if self.prefix is None else None
+        if kept is not None:
+            self.last_search = kept
+        for live in self.lives.values():
+            live.stop()
+        self.disarm()
+        super().hide()
+
+    def show_numbers(self, on):
+        """The pins' digits, only while Ctrl is held (Menu.on_modifiers, from
+        the keyboard's modifier state). Faded, not hidden, so nothing moves."""
+        context = self.frame.get_style_context()
+        if on:
+            context.add_class("show-numbers")
+        else:
+            context.remove_class("show-numbers")
+
+    def mark_restart(self):
+        """A dot on Restart while a new kernel waits for it; its tooltip and
+        name say so (not by color alone, A11Y-6)."""
+        item = self.power.buttons.get("restart")
+        if item is None:
+            return
+        button = item[0]
+        text = _(next(entry[1] for entry in POWER if entry[0] == "restart"))
+        if restart_needed():
+            button.get_style_context().add_class("pending")
+            text = _("Restart to finish updates")
+        else:
+            button.get_style_context().remove_class("pending")
+        self.power.buttons["restart"] = (button, text)
+        if self.power.step.armed != "restart":
+            button.set_tooltip_text(text)
+        button.get_accessible().set_name(text)
+
+    def reset(self):
+        self.show_numbers(False)
+        self.mark_restart()
+        self.stop_replacing()
+        self.eject_error.hide()
+        self.resizing = None
+        for grip in self.grips.values():
+            self.grip_cursor(grip, False)
+        self.matches = None
+        for live in self.lives.values():
+            live.stop()
+        self.looking = set()
+        self.disarm()
+        self.prefix = None
+        self.symbol.set_text(PROMPT_SYMBOL)
+        tip = self.next_tip()
+        self.entry.set_placeholder_text(tip or self.hint(None))
+        self.entry.get_accessible().set_name(self.hint(None))
+        self.entry.get_accessible().set_description(tip or "")
+        if self.help is not None:
+            self.help.popdown()
+        self.show_rows([], None)
+        # Every app again: show() emptied the line while a prefix was still on,
+        # and that search left the grid filtered to nothing.
+        self.grid.invalidate_filter()
+        self.grid.invalidate_sort()
+        self.giving_way(False)
+        self.scroll.get_vadjustment().set_value(0)
+        self.unselect()
+        self.middle_press = None
+        self.fit()
+
+    def shown(self):
+        self.unselect()     # nothing is chosen until an arrow key or typing
+        self.start_programs()
+        self.GLib.idle_add(self.update_open)
+        self.GLib.timeout_add(100, self.refit)      # once labwc has said which screen
+
+    def unselect(self, keep=None):
+        for flow in self.flows:
+            if flow is not keep:
+                flow.unselect_all()
+        if keep is not self.results:
+            self.results.unselect_all()
+
+    def on_selected(self, flow):
+        if flow.get_selected_children():
+            self.unselect(keep=flow)    # one selection in the whole menu
+
+    def giving_way(self, searching):
+        """The parts that give way to the results while there is text; the
+        grid takes their room, so the menu keeps its size."""
+        parts = (self.pinned_area, self.folders, self.foot_rule, self.foot)
+        if searching:
+            self.eject_error.hide()
+        if searching and self.pinned_area.get_visible():
+            spacing = self.frame.get_spacing()
+            extra = sum(part.get_allocated_height() + spacing for part in parts)
+            for part in parts:
+                part.hide()
+            self.fit(extra)
+        elif not searching and not self.pinned_area.get_visible():
+            for part in parts:
+                part.show()
+            self.fit()
+
+    # Searching -------------------------------------------------------------------
+
+    def visible_app(self, child):
+        if self.matches is None:
+            return child.app.id not in self.hidden     # search still finds a hidden app
+        return child.app.id in self.matches
+
+    def order_apps(self, a, b):
+        if self.matches is not None:
+            rank_a, rank_b = self.matches.get(a.app.id, 0), self.matches.get(b.app.id, 0)
+            if rank_a != rank_b:
+                return rank_a - rank_b
+        return (a.app.name_key > b.app.name_key) - (a.app.name_key < b.app.name_key)
+
+    def on_search(self, query):
+        finder = self.finder
+        if self.prefix is None and query[:1] in self.prefixes:
+            # The first character asks for one kind of result: it becomes the
+            # symbol, and the rest stays the text (typed, pasted or picked).
+            self.set_prefix(query[0], query[1:])
+            return
+        self.disarm()
+        text = query.strip()
+        rows, message, found = [], None, None
+        for provider, live in self.lives.items():
+            if provider.prefix != self.prefix:
+                live.stop()
+        self.looking = set()
+        if self.prefix is None:
+            if text:
+                found = search(self.menu.apps, query, limit=None)
+                # Then a category's apps, as the Categories view had them.
+                found += category_matches(self.menu.apps, query, _,
+                                          skip=self.hidden | {app.id for app in found})
+                answer = finder.calculate(text, self.decimal())
+                if answer is not None:
+                    rows.append(self.answer_row(answer))
+                rows += finder.match_rows(self.folder_rows, query, PROMPT_FOLDER_ROWS)
+                rows += self.index_rows(None, query)
+        elif self.prefix == finder.CALCULATOR:
+            answer = finder.calculate(text, self.decimal(), percent_of=True)
+            if answer is not None:
+                rows.append(self.answer_row(answer))
+            else:
+                message = _("Type a sum, such as 15*3 or 15% of 240.")
+        elif self.prefix == finder.TERMINAL:
+            if text:
+                rows.append(finder.Row("terminal", _("Run “{text}” in Terminal").format(text=text),
+                                       _("Your shell runs it in a new window"), "utilities-terminal-symbolic"))
+            else:
+                message = _("Type a command to run in a terminal.")
+        else:
+            rows += self.index_rows(self.prefix, query)
+        for provider, live in self.lives.items():
+            if provider.prefix == self.prefix:
+                live.typed(query.strip() if self.prefix is not None else query)
+                if live.running:
+                    self.looking.add(provider)
+        self.matches = None if self.prefix is None and not text else \
+            {app.id: rank for rank, app in enumerate(found or [])}
+        if found == [] and not rows and not self.looking:
+            message = _("No apps match “{text}”.").format(text=text)
+            rows = self.nothing_rows(text)
+        elif self.prefix is not None and not rows and message is None:
+            message = self.looking_message(text)
+        self.giving_way(self.matches is not None)
+        self.grid.invalidate_filter()
+        self.grid.invalidate_sort()
+        self.show_rows(rows, message)
+        self.scroll.get_vadjustment().set_value(0)
+        first = self.first_row() if self.matches is not None else None
+        if isinstance(first, self.Gtk.ListBoxRow):
+            self.results.select_row(first)
+        elif first is not None:
+            self.grid.select_child(first)
+        else:
+            self.unselect()
+        self.update_ghost()
+
+    # Results that aren't apps ---------------------------------------------------
+
+    def decimal(self):
+        """The decimal sign of the user's numbers (GTK set the locale)."""
+        import locale
+        return locale.localeconv().get("decimal_point") or "."
+
+    def hint(self, prefix):
+        """The grey hint of the empty line, for a prefix or none."""
+        return {
+            None: _("Type an app, a folder or a setting"),
+            "=": _("Type a sum"),
+            ">": _("Type a command to run in a terminal"),
+            "/": _("Type a file or folder name"),
+        }.get(prefix, _("Type what to look for"))
+
+    def mark_focus(self, on):
+        """The field's focus ring follows the entry's (GTK 3 has no
+        :focus-within)."""
+        context = self.field.get_style_context()
+        if on:
+            context.add_class("focused")
+        else:
+            context.remove_class("focused")
+        return False
+
+    def next_tip(self):
+        """The tip for this show, or None for the hint; counts the show while
+        tips are left (TIP_SHOWS)."""
+        path = state_file(TIPS_FILE)
+        if self.tip_count is None:
+            self.tip_count = read_tip_count(path)
+        if self.tip_count >= TIP_SHOWS:
+            return None
+        count = self.tip_count
+        self.tip_count += 1
+        try:
+            write_atomic(path, f"{self.tip_count}\n")
+        except OSError as error:
+            warn(f"cannot save {path}: {error}")
+        return tip_for(count, prompt_tips(self.prefixes, bool(self.pin_tiles)))
+
+    def show_help(self):
+        """› or F1: what the line takes and the menu's keys (help_rows), in a
+        popover under the mark; made the first time, again after a change."""
+        Gtk = self.Gtk
+        if self.help is not None:
+            self.help.destroy()
+        popover = self.help = Gtk.Popover(relative_to=self.symbol, position=Gtk.PositionType.BOTTOM)
+        popover.get_style_context().add_class("prompt-help")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=12)
+        popover.add(box)
+        box.pack_start(Gtk.Label(label=_("Type a name to find apps, folders and settings."),
+                                 xalign=0, wrap=True, max_width_chars=40), False, False, 0)
+        grid = Gtk.Grid(column_spacing=16, row_spacing=4)
+        row = 0
+        for item in help_rows(self.prefixes, bool(self.pin_tiles)):
+            if item is None:
+                grid.attach(Gtk.Separator(margin_top=4, margin_bottom=4), 0, row, 2, 1)
+            else:
+                key = Gtk.Label(label=item[0], xalign=0)
+                key.get_style_context().add_class("help-key")
+                grid.attach(key, 0, row, 1, 1)
+                grid.attach(Gtk.Label(label=item[1], xalign=0), 1, row, 1, 1)
+            row += 1
+        box.pack_start(grid, False, False, 0)
+        if available(["flickos-shortcuts"]):
+            more = Gtk.Label(label=_("Hold Super for every keyboard shortcut."), xalign=0, wrap=True)
+            more.get_style_context().add_class("dim-label")
+            box.pack_start(more, False, False, 0)
+        box.show_all()
+        popover.connect("closed", lambda *_: self.entry.grab_focus_without_selecting())
+        popover.popup()
+
+    def set_prefix(self, prefix, text=""):
+        """Ask for one kind of result (None: back to everything); text is the
+        line's new text."""
+        self.prefix = prefix
+        self.symbol.set_text(prefix_symbol(prefix))
+        self.entry.set_placeholder_text(self.hint(prefix))
+        self.entry.get_accessible().set_name(self.hint(prefix))
+        same = self.entry.get_text() == text
+        self.entry.set_text(text)       # searches again, if the text changed
+        self.entry.set_position(-1)
+        if same:
+            self.on_search(text)
+
+    def index_rows(self, prefix, query):
+        rows = []
+        for provider in self.providers:
+            if provider.kind == "index" and provider.prefix == prefix:
+                rows += self.finder.match_rows(provider.rows, query, provider.limit)
+        return rows
+
+    def answer_row(self, answer):
+        text = self.finder.format_answer(answer, self.decimal())
+        detail = _("Enter copies it") if available(["wl-copy"]) else ""
+        return self.finder.Row("answer", f"= {text}", detail, "accessories-calculator-symbolic", value=text)
+
+    def nothing_rows(self, text):
+        """What a search that found nothing offers: the app in Software, files
+        named so (/), the text as a command (>); Enter picks the first."""
+        Row = self.finder.Row
+        rows = []
+        if available(["flickos-software"]):
+            rows.append(Row("software", _("Look for “{text}” in Software").format(text=text), "",
+                            "system-software-install-symbolic"))
+        if "/" in self.prefixes:
+            rows.append(Row("files", _("Look for files named “{text}”").format(text=text), "",
+                            "folder-saved-search-symbolic"))
+        if ">" in self.prefixes:
+            rows.append(Row("run", _("Run “{text}” in Terminal").format(text=text), "",
+                            "utilities-terminal-symbolic"))
+        return rows
+
+    def looking_message(self, text):
+        if len(text) < self.finder.LIVE_MIN_CHARS and any(p.prefix == self.prefix for p in self.lives):
+            return _("Type {count} or more letters.").format(count=self.finder.LIVE_MIN_CHARS)
+        if self.looking:
+            return _("Looking…")
+        return _("Nothing found for “{text}”.").format(text=text)
+
+    def show_rows(self, rows, message):
+        for item in self.results.get_children():
+            item.destroy()
+        for row in rows:
+            self.add_row(row)
+        self.results.set_visible(bool(rows))
+        self.message.set_text(message or "")
+        self.message.set_visible(bool(message))
+
+    def add_row(self, row):
+        # Each row is shown by itself: the list's no_show_all keeps
+        # show_all() from reaching them.
+        item = self.result_row(row)
+        self.results.add(item)
+        item.show_all()
+
+    def result_row(self, row):
+        Gtk, Gio = self.Gtk, self.Gio
+        item = Gtk.ListBoxRow()
+        item.row = row
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        image = Gtk.Image(pixel_size=24)
+        if row.kind == "path" and row.value == "file":
+            kind = Gio.content_type_guess(row.path, None)[0]
+            image.set_from_gicon(Gio.content_type_get_symbolic_icon(kind), Gtk.IconSize.LARGE_TOOLBAR)
+        else:
+            name = row.icon or ("folder-symbolic" if row.kind == "path" else "system-run-symbolic")
+            image.set_from_gicon(Gio.ThemedIcon.new(name), Gtk.IconSize.LARGE_TOOLBAR)
+        box.pack_start(image, False, False, 0)
+        texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        item.title = Gtk.Label(label=row.name, xalign=0)
+        item.title.set_ellipsize(3)     # Pango.EllipsizeMode.END; the tooltip has it all
+        texts.pack_start(item.title, False, False, 0)
+        if row.detail:
+            detail = Gtk.Label(label=row.detail, xalign=0)
+            detail.set_ellipsize(2 if row.kind == "path" else 3)    # MIDDLE for folders, END
+            detail.get_style_context().add_class("row-detail")
+            texts.pack_start(detail, False, False, 0)
+        box.pack_start(texts, True, True, 0)
+        item.add(box)
+        item.set_tooltip_text(row.path or (f"{row.name}\n{row.detail}" if row.detail else row.name))
+        item.get_accessible().set_name(", ".join(part for part in (row.name, row.detail) if part))
+        return item
+
+    def on_live_rows(self, provider, rows, done):
+        """Rows of a live provider: below what is there, never moving the
+        selection (merge_late)."""
+        if done:
+            self.looking.discard(provider)
+        shown = self.results.get_children()
+        if rows:
+            selected = self.results.get_selected_row()
+            index = shown.index(selected) if selected in shown else None
+            if index is None and any(flow.get_selected_children() for flow in self.flows):
+                index = -1      # an app is chosen: it stays chosen
+            for row in rows:
+                self.add_row(row)
+            self.results.set_visible(True)
+            index = self.finder.merge_late(index, shown, rows)
+            if index is not None and index >= 0 and self.results.get_selected_row() is None:
+                self.results.select_row(self.results.get_row_at_index(index))
+        text = self.entry.get_text().strip()
+        if self.results.get_children():
+            self.message.hide()
+        elif self.prefix is not None:
+            self.message.set_text(self.looking_message(text))
+            self.message.show()
+        elif done and not self.looking and self.matches == {}:
+            # Mixed in (no prefix): nothing at all was found.
+            self.show_rows(self.nothing_rows(text), _("No apps match “{text}”.").format(text=text))
+            first = self.results.get_row_at_index(0)
+            if first is not None and not any(flow.get_selected_children() for flow in self.flows):
+                self.results.select_row(first)
+
+    def on_row_selected(self, _list, item):
+        if item is not None:
+            self.unselect(keep=self.results)
+
+    def activate_row(self, item, other=False):
+        """Enter or a click on a row; other: Ctrl+Enter (a file's folder)."""
+        row = item.row
+        if row.kind == "command":
+            if row.confirm and not (self.armed and self.armed[0] is item):
+                self.arm(item)
+                return
+            self.disarm()
+            self.run_after_hide(row.command)
+        elif row.kind == "path":
+            self.menu.open_folder(os.path.dirname(row.path) if other else row.path)
+        elif row.kind == "answer":
+            self.menu.run(["wl-copy", "--", row.value])
+        elif row.kind == "terminal":
+            text = self.entry.get_text()
+            self.menu.run(self.finder.terminal_command(text, self.finder.user_shell(),
+                                                       _("Press Enter to close this window.")))
+        elif row.kind == "software":
+            self.search_software()
+        elif row.kind in ("files", "run"):
+            self.set_prefix("/" if row.kind == "files" else ">", self.entry.get_text().strip())
+
+    def arm(self, item):
+        """A task that ends the session (CONFIRM): the first Enter changes the
+        row to its text, a second within CONFIRM_SECONDS runs it."""
+        self.disarm()
+        item.title.set_text(item.row.confirm)
+        item.get_style_context().add_class("armed")
+        item.get_accessible().set_name(item.row.confirm)
+        self.armed = (item, self.GLib.timeout_add_seconds(CONFIRM_SECONDS, self.disarm))
+
+    def disarm(self):
+        if self.armed is not None:
+            item, timer = self.armed
+            self.armed = None
+            self.GLib.source_remove(timer)
+            item.title.set_text(item.row.name)
+            item.get_style_context().remove_class("armed")
+            item.get_accessible().set_name(", ".join(p for p in (item.row.name, item.row.detail) if p))
+        return False    # GLib timer: once
+
+    def run_after_hide(self, command):
+        """A task, once the menu has faded out: a screenshot mustn't catch it."""
+        self.menu.hide()
+        self.GLib.timeout_add(FADE_OUT_MS + 40, lambda: self.menu.run(command) and False)
+
+    def start_programs(self):
+        """Index providers with a program: run once, at the first show."""
+        if self.programs_started:
+            return
+        self.programs_started = True
+        spawn = self.finder.gio_spawner(self.GLib, self.Gio)
+        self.programs = [self.finder.ProgramIndex(provider, lambda *_: None, spawn, self.GLib.timeout_add,
+                                                  self.GLib.source_remove, self.GLib.get_home_dir())
+                         for provider in self.providers if provider.kind == "index" and provider.program]
+
+    def search_software(self):
+        text = self.entry.get_text().strip()
+        if text:
+            self.menu.run(["flickos-software", "show", "--search", text])
+
+    def update_ghost(self):
+        """The grey text after the cursor: the rest of the first result's name
+        while the cursor is at the end, the hint while the line is empty."""
+        entry = self.entry
+        text = entry.get_text()
+        ghost = self.completing = ""
+        if entry.has_focus():
+            if not text:
+                ghost = entry.get_placeholder_text() or ""
+            elif entry.get_position() == len(text) and self.matches:
+                first = self.first_row()
+                app = getattr(first, "app", None)
+                self.completing = completion(text, app.name) if app is not None else ""
+                ghost = self.completing
+        if not ghost:
+            self.ghost.hide()
+            return
+        x = entry.get_layout_offsets()[0] + (entry.get_layout().get_pixel_size()[0] if text else 0)
+        if x > entry.get_allocated_width() - 40:     # the text fills the line already
+            self.completing = ""
+            self.ghost.hide()
+            return
+        self.ghost.set_text(ghost)
+        self.ghost.set_margin_start(max(x, 0))
+        self.ghost.show()
+
+    def first_row(self):
+        if self.matches is None:
+            if self.pin_tiles:
+                return self.pin_tiles[0]
+        index = 0
+        while (child := self.grid.get_child_at_index(index)) is not None:
+            if child.get_child_visible():
+                return child
+            index += 1
+        # No app: the first row that isn't one (a sum, a task, a file).
+        return self.results.get_row_at_index(0) if self.results.get_visible() else None
+
+    # Keys and clicks ---------------------------------------------------------------
+
+    def on_key(self, window, event):
+        Gdk = self.Gdk
+        mods = event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK
+                              | Gdk.ModifierType.SUPER_MASK)
+        ctrl = mods == Gdk.ModifierType.CONTROL_MASK
+        plain = not mods and not event.state & Gdk.ModifierType.SHIFT_MASK
+        in_line = self.window.get_focus() is self.entry
+        if plain and in_line and event.keyval in (Gdk.KEY_Right, Gdk.KEY_KP_Right) and self.completing \
+                and self.entry.get_position() == len(self.entry.get_text()):
+            # → at the end of the line takes the grey text, as the fish shell does.
+            self.entry.set_text(self.entry.get_text() + self.completing)
+            self.entry.set_position(-1)
+            return True
+        if plain and in_line and event.keyval == Gdk.KEY_BackSpace and self.prefix is not None \
+                and self.entry.get_position() == 0 and not self.entry.get_selection_bounds():
+            # Backspace before the text takes the prefix away, as if it were text.
+            self.set_prefix(None, self.entry.get_text())
+            self.entry.set_position(0)
+            return True
+        if plain and event.keyval == Gdk.KEY_F1:
+            self.show_help()
+            return True
+        if plain and in_line and event.keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up) and not self.entry.get_text() \
+                and self.last_search and self.prefix is None:
+            self.entry.set_text(self.last_search)
+            self.entry.set_position(-1)
+            return True
+        if ctrl:
+            number = pin_number(self.typed_digit(event))
+            if number is not None:
+                if number < len(self.pin_tiles):
+                    if self.replacing is not None:
+                        self.replace_with(self.pin_tiles[number])
+                    else:
+                        self.menu.launch(self.pin_tiles[number].app, focus=True)
+                return True
+            if event.keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+                self.resize_step(1)
+                return True
+            if event.keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+                self.resize_step(-1)
+                return True
+            tile = self.current_tile()
+            if tile is not None and event.keyval in (Gdk.KEY_p, Gdk.KEY_P):
+                self.toggle_pin(tile.app)
+                return True
+            # Ctrl+arrows move words in the search line; on a pin they move it.
+            if (event.keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and tile is not None
+                    and self.window.get_focus() is tile and tile in self.pin_tiles):
+                self.move(tile.app, -1 if event.keyval == Gdk.KEY_Left else 1)
+                return True
+        return super().on_key(window, event)
+
+    def escape(self):
+        if self.replacing is not None:
+            self.stop_replacing()
+            return True
+        if self.prefix is not None:
+            self.set_prefix(None, "")
+            self.entry.grab_focus()
+            return True
+        return super().escape()
+
+    def current_tile(self):
+        """The tile with the focus, else the chosen one (a search result)."""
+        focus = self.window.get_focus()
+        if isinstance(focus, self.Gtk.FlowBoxChild) and getattr(focus, "app", None) is not None:
+            return focus
+        for flow in self.flows:
+            selected = flow.get_selected_children()
+            if selected:
+                return selected[0]
+        return None
+
+    # Actions -------------------------------------------------------------------
+
+    def actions(self, widget, app):
+        """The menu of one app (ADR-022): bring to front, its own actions, pin,
+        move, hide, Software, and the menu's size."""
+        Gtk = self.Gtk
+        popover = Gtk.Popover(relative_to=widget)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin=6)
+        popover.add(box)
+
+        def item(text, callback, accel=None, sensitive=True):
+            button = Gtk.Button(relief=Gtk.ReliefStyle.NONE, sensitive=sensitive)
+            button.get_style_context().add_class("action")
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+            row.pack_start(Gtk.Label(label=text, xalign=0), True, True, 0)
+            if accel:
+                hint = Gtk.Label(label=accel, xalign=1)
+                hint.get_style_context().add_class("dim-label")
+                row.pack_end(hint, False, False, 0)
+            button.add(row)
+
+            def clicked(_button):
+                popover.popdown()
+                # Once it is closed: pinning rebuilds the tiles, the popover's among them.
+                self.GLib.idle_add(lambda: callback() and False)
+
+            button.connect("clicked", clicked)
+            box.pack_start(button, False, False, 0)
+
+        def separator():
+            box.pack_start(Gtk.Separator(), False, False, 4)
+
+        if is_open(app, self.open_ids):
+            item(_("Bring to Front"), lambda: self.menu.launch(app, focus=True))
+        info = app.info
+        for action in (info.list_actions() if info is not None else []):
+            item(info.get_action_name(action), lambda action=action: self.launch_action(app, action))
+        separator()
+        shown = self.shown_pins()
+        if app.id in shown:
+            position = shown.index(app.id)
+            item(_("Unpin"), lambda: self.toggle_pin(app), _("Ctrl+P"))
+            item(_("Move Left"), lambda: self.move(app, -1), _("Ctrl+←"), sensitive=position > 0)
+            item(_("Move Right"), lambda: self.move(app, 1), _("Ctrl+→"), sensitive=position < len(shown) - 1)
+        else:
+            item(_("Pin"), lambda: self.toggle_pin(app), _("Ctrl+P"))
+        if app.id in self.hidden:
+            item(_("Show in the Menu"), lambda: self.set_hidden(app, False))
+        else:
+            item(_("Hide from the Menu"), lambda: self.set_hidden(app, True))
+        if available(["flickos-software"]):
+            item(_("Open in Software…"), lambda: self.menu.run(["flickos-software", "show", "--app", app.id]))
+        separator()
+        size = (self.columns, self.rows)
+        item(_("Larger Menu"), lambda: self.resize_step(1), _("Ctrl++"), sensitive=step_size(size, 1) != size)
+        item(_("Smaller Menu"), lambda: self.resize_step(-1), _("Ctrl+−"), sensitive=step_size(size, -1) != size)
+        self.menu.popover_open = True
+
+        def closed(*_):
+            self.menu.popover_open = False
+            self.GLib.idle_add(popover.destroy)
+
+        popover.connect("closed", closed)
+        box.show_all()
+        popover.popup()
+
+    def launch_action(self, app, action):
+        """One of the desktop file's own actions (New Private Window)."""
+        context = self.menu.launch_context()
+        self.menu.hide()
+        try:
+            app.info.launch_action(action, context)
+        except self.GLib.Error as error:
+            warn(f"cannot start {app.id} ({action}): {error.message}")
+
+    # Pins ----------------------------------------------------------------------
+
+    def shown_pins(self):
+        return [child.app.id for child in self.pin_tiles]
+
+    def save_pins(self, ids):
+        try:
+            save_pinned(ids)
+        except OSError as error:
+            warn(f"cannot save the pinned apps: {error}")
+            return False
+        self.populate()
+        return True
+
+    def toggle_pin(self, app):
+        """Ctrl+P and Pin/Unpin: with six pins showing, a seventh asks which
+        one to replace (Q10)."""
+        shown = self.shown_pins()
+        if app.id in shown:
+            self.save_pins([i for i in pinned_ids() if i != app.id])
+        elif len(shown) < PROMPT_PINS:
+            self.save_pins(place_pin(pinned_ids(), shown, app.id, len(shown)))
+        else:
+            self.start_replacing(app)
+
+    def move(self, app, step):
+        ids = move_pin(pinned_ids(), self.shown_pins(), app.id, step)
+        if ids is not None and self.save_pins(ids):
+            moved = next((child for child in self.pin_tiles if child.app.id == app.id), None)
+            if moved is not None:
+                self.pinned.select_child(moved)
+                moved.grab_focus()
+
+    def start_replacing(self, app):
+        if self.entry.get_text():
+            self.entry.set_text("")     # the pins give way to a search: bring them back
+        self.replacing = app
+        self.replace_hint.set_text(_("Choose a pin to replace with {app}. Escape cancels.").format(app=app.name))
+        self.replace_hint.show()
+        self.pinned.get_style_context().add_class("replacing")
+        if self.pin_tiles:
+            self.pinned.select_child(self.pin_tiles[0])
+            self.pin_tiles[0].grab_focus()
+
+    def stop_replacing(self):
+        if self.replacing is None:
+            return
+        self.replacing = None
+        self.replace_hint.hide()
+        self.pinned.get_style_context().remove_class("replacing")
+
+    def replace_with(self, child):
+        app = self.replacing
+        self.stop_replacing()
+        self.save_pins(replace_pin(pinned_ids(), child.app.id, app.id))
+
+    def set_hidden(self, app, hidden):
+        ids = [i for i in effective_hidden() if i != app.id] + ([app.id] if hidden else [])
+        try:
+            # Written even when empty: the user's list replaces the system's.
+            save_user_settings(Hidden=";".join(ids))
+        except OSError as error:
+            warn(f"cannot save the hidden apps: {error}")
+            return
+        self.populate()
+        self.on_search(self.entry.get_text())
+
+    # Dragging onto the pinned row ---------------------------------------------------
+
+    def on_drag_begin(self, child, _context):
+        self.dragging = child.app
+        self.stop_replacing()
+
+    def on_drag_end(self, _child, _context):
+        self.dragging = None
+        self.mark_drop(None, None)
+
+    def on_drag_data_get(self, child, _context, data, _info, _time):
+        data.set(data.get_target(), 8, child.app.id.encode())
+
+    def drop_place(self, x):
+        """(kind, tile) where a drop at x on the pinned area goes: "before" or
+        "after" a tile, "on" a pin it replaces (six pins and a new app), or
+        ("end", None) on an empty row."""
+        tiles = self.pin_tiles
+        if not tiles:
+            return "end", None
+        spans = []
+        for child in tiles:
+            area = child.get_allocation()
+            point = self.pinned.translate_coordinates(self.pinned_area, area.x, area.y)
+            left = point[0] if point else area.x
+            spans.append((left, left + area.width, child))
+        new = self.dragging is not None and self.dragging.id not in self.shown_pins()
+        if new and len(tiles) >= PROMPT_PINS:
+            for left, right, child in spans:
+                if left <= x < right:
+                    return "on", child
+            return "on", tiles[-1] if x >= spans[-1][1] else tiles[0]
+        for left, right, child in spans:
+            if x < (left + right) / 2:
+                return "before", child
+        return "after", tiles[-1]
+
+    def mark_drop(self, kind, child):
+        if self.drop_marked is not None:
+            context = self.drop_marked.get_style_context()
+            for css in ("drop-before", "drop-after", "drop-on"):
+                context.remove_class(css)
+            self.drop_marked = None
+        if child is not None:
+            child.get_style_context().add_class(f"drop-{kind}")
+            self.drop_marked = child
+
+    def on_drag_motion(self, _widget, context, x, _y, time):
+        if self.dragging is None:
+            return False
+        kind, child = self.drop_place(x)
+        self.mark_drop(kind, child)
+        self.Gdk.drag_status(context, self.Gdk.DragAction.MOVE, time)
+        return True
+
+    def on_drag_drop(self, _widget, context, x, _y, time):
+        app = self.dragging
+        if app is None:
+            return False
+        kind, child = self.drop_place(x)
+        self.mark_drop(None, None)
+        self.Gtk.drag_finish(context, True, False, time)
+        shown = self.shown_pins()
+        if kind == "on":
+            ids = replace_pin(pinned_ids(), child.app.id, app.id)
+        else:
+            position = len(shown) if kind in ("end", "after") else shown.index(child.app.id)
+            if app.id in shown and shown.index(app.id) < position:
+                position -= 1       # its own place comes out first
+            ids = place_pin(pinned_ids(), shown, app.id, position)
+        self.dragging = None
+        # After the drag is finished: populate destroys the dragged tile.
+        self.GLib.idle_add(lambda: self.save_pins(ids) and False)
+        return True
+
+    # Resizing ------------------------------------------------------------------
+
+    def make_grip(self, top):
+        """A corner to drag: top right (top) or bottom right. labwc keeps
+        sending a pressed surface the pointer's motion outside it (cursor.c,
+        0.8.3), so the drag goes on past the menu's edge."""
+        Gtk = self.Gtk
+        # Its input window above the drawing's: a DrawingArea has a window of its
+        # own, which doesn't take presses, so GDK gave them to the toplevel.
+        grip = Gtk.EventBox(visible_window=False, above_child=True,
+                            valign=Gtk.Align.START if top else Gtk.Align.END)
+        grip.top = top
+        grip.set_size_request(16, 16)
+        grip.set_no_show_all(False)
+        grip.set_tooltip_text(_("Drag to resize (Ctrl+plus, Ctrl+minus)"))
+        grip.get_style_context().add_class("resize-grip")
+        area = Gtk.DrawingArea()
+        area.connect("draw", self.draw_grip, top)
+        grip.add(area)
+        grip.add_events(self.Gdk.EventMask.BUTTON_PRESS_MASK | self.Gdk.EventMask.BUTTON_RELEASE_MASK
+                        | self.Gdk.EventMask.BUTTON_MOTION_MASK | self.Gdk.EventMask.ENTER_NOTIFY_MASK
+                        | self.Gdk.EventMask.LEAVE_NOTIFY_MASK)
+        grip.connect("button-press-event", self.on_grip_press)
+        grip.connect("motion-notify-event", self.on_grip_motion)
+        grip.connect("button-release-event", self.on_grip_release)
+        grip.connect("enter-notify-event", self.on_grip_enter)
+        grip.connect("leave-notify-event", self.on_grip_leave)
+        return grip
+
+    def draw_grip(self, widget, cr, top):
+        """Two short diagonal lines in the border's color, at the corner."""
+        found, color = widget.get_style_context().lookup_color("borders")
+        if not found:
+            return False
+        width, height = widget.get_allocated_width(), widget.get_allocated_height()
+        cr.set_source_rgba(color.red, color.green, color.blue, 1)
+        cr.set_line_width(1.5)
+        for inset in (5, 9):
+            if top:
+                cr.move_to(width - inset, 3)
+                cr.line_to(width - 3, inset)
+            else:
+                cr.move_to(width - inset, height - 3)
+                cr.line_to(width - 3, height - inset)
+        cr.stroke()
+        return False
+
+    def grip_cursor(self, widget, on):
+        """The resize pointer while over the corner or dragging it. The
+        EventBox's window is the menu's own (it has none it shows), so the
+        pointer must be put back when it leaves, or the whole menu keeps it."""
+        window = widget.get_window()
+        if window is None:
+            return
+        name = "ne-resize" if widget.top else "se-resize"
+        window.set_cursor(self.Gdk.Cursor.new_from_name(widget.get_display(), name) if on else None)
+
+    def on_grip_enter(self, widget, _event):
+        self.grip_cursor(widget, True)
+        return False
+
+    def on_grip_leave(self, widget, _event):
+        if self.resizing is None:
+            self.grip_cursor(widget, False)
+        return False
+
+    def on_grip_press(self, _widget, event):
+        if event.button != 1:
+            return False
+        self.resizing = (self.columns, self.rows)
+        self.menu.log(f"prompt grip: pressed at {self.resizing}")
+        return True
+
+    def on_grip_motion(self, widget, event):
+        if self.resizing is None or not self.tiles:
+            return False
+        point = widget.translate_coordinates(self.window, int(event.x), int(event.y))
+        if point is None:
+            return True
+        x, y = point
+        tile_width = self.tiles[0].get_allocated_width() + self.grid.get_column_spacing()
+        tile_height = self.tile_height()
+        if tile_width <= 0 or tile_height <= 0:
+            return True
+        width = self.window.get_allocated_width()
+        height = self.window.get_allocated_height()
+        shown_rows = max(round(self.content_height / tile_height), 1)
+        corner = self.placed[0] if self.placed else "bottom-left"
+        wanted_width = 2 * abs(x - width / 2) if corner.endswith("center") else x
+        wanted_height = height - y if corner.startswith("bottom") else y
+        low, high = PROMPT_COLUMNS
+        columns = snap(wanted_width, width - self.columns * tile_width, tile_width, low, high)
+        rows = snap(wanted_height, height - shown_rows * tile_height, tile_height, PROMPT_MIN_ROWS, 99)
+        if self.menu.timing is not None:
+            self.menu.log(f"prompt grip: at {x},{y} in {width}x{height}: {columns}x{rows}")
+        if (columns, rows) != (self.columns, self.rows):
+            self.set_size((columns, rows), save=False)
+        return True
+
+    def on_grip_release(self, widget, event):
+        if event.button != 1 or self.resizing is None:
+            return False
+        self.resizing = None
+        # Let go away from the corner (the menu grew or shrank under it): the
+        # normal pointer again. The event is in the corner's coordinates.
+        inside = (0 <= event.x < widget.get_allocated_width() and 0 <= event.y < widget.get_allocated_height())
+        if not inside:
+            self.grip_cursor(widget, False)
+        self.save_size()
+        return True
+
+    def place(self, corner, arrow=None):
+        super().place(corner, arrow)
+        top = not corner.startswith("top")      # the corner away from the panel
+        self.grips[top].show()
+        self.grips[not top].hide()
+
+    def set_size(self, size, save=True):
+        self.columns, self.rows = size
+        for flow in self.flows:
+            flow.set_min_children_per_line(self.columns)
+            flow.set_max_children_per_line(self.columns)
+        self.fit()
+        if save:
+            self.save_size()
+
+    def save_size(self):
+        size = (self.columns, self.rows)
+        try:
+            save_user_settings(Size=None if size == PROMPT_SIZE else size_text(size))
+        except OSError as error:
+            warn(f"cannot save the menu's size: {error}")
+
+    def resize_step(self, step):
+        size = step_size((self.columns, self.rows), step)
+        if size != (self.columns, self.rows):
+            self.set_size(size)
+
+    def typed_digit(self, event):
+        """The digit on the key pressed: on AZERTY the top row types & é " …
+        and its digits need Shift, so the shifted symbol counts too."""
+        Gdk = self.Gdk
+        text = chr(Gdk.keyval_to_unicode(event.keyval) or 0)
+        if text.isdigit():
+            return text
+        keymap = getattr(self.menu, "keymap", None)
+        if keymap is None:
+            return text
+        found = keymap.translate_keyboard_state(event.hardware_keycode,
+                                                Gdk.ModifierType(event.state | Gdk.ModifierType.SHIFT_MASK),
+                                                event.group)
+        if found and found[0]:
+            return chr(Gdk.keyval_to_unicode(found[1]) or 0)
+        return text
+
+    def on_keynav_failed(self, flow, direction):
+        """Up from the pinned row goes to the search line; any other edge of a
+        grid goes on to the part before or after it (GTK's own Tab order)."""
+        if flow is self.pinned and direction == self.Gtk.DirectionType.UP:
+            self.entry.grab_focus_without_selecting()
+            return True
+        return False
+
+    def on_activate(self, new_window=False):
+        """Enter in the search line: the chosen app or row (Software first
+        when nothing was found). Nothing while nothing is chosen, such as
+        before a file search's rows arrive."""
+        if self.matches is None:
+            return
+        selected = self.grid.get_selected_children()
+        if selected:
+            self.menu.launch(selected[0].app, focus=not new_window)
+            return
+        item = self.results.get_selected_row()
+        if item is not None:
+            self.activate_row(item, other=new_window)
+
+    def on_new_window_key(self, _window, event):
+        # With the focus in the search, Enter is the entry's activate, which
+        # Ctrl+Enter doesn't send.
+        if (event.keyval in (self.Gdk.KEY_Return, self.Gdk.KEY_KP_Enter, self.Gdk.KEY_ISO_Enter)
+                and event.state & self.Gdk.ModifierType.CONTROL_MASK):
+            focus = self.window.get_focus()
+            if isinstance(focus, self.Gtk.FlowBoxChild) and getattr(focus, "app", None) is not None:
+                self.menu.launch(focus.app)
+            elif isinstance(focus, self.Gtk.ListBoxRow) and getattr(focus, "row", None) is not None:
+                self.activate_row(focus, other=True)
+            else:
+                self.on_activate(new_window=True)
+            return True
+        return False
+
+    # A click or Enter brings an open app forward; a middle click, Ctrl+click
+    # or Ctrl+Enter starts another copy.
+    def on_tile_activated(self, _flow, child):
+        if self.replacing is not None:
+            if child in self.pin_tiles:
+                self.replace_with(child)
+            else:
+                self.stop_replacing()       # a click elsewhere cancels
+            return
+        ok, state = self.Gtk.get_current_event_state()
+        self.menu.launch(child.app, focus=not (ok and state & self.Gdk.ModifierType.CONTROL_MASK))
+
+    def tile_of(self, event):
+        """The tile an event happened in (its coordinates are relative to the
+        tile's EventBox, not the flow box)."""
+        widget = self.Gtk.get_event_widget(event)
+        while widget is not None and not isinstance(widget, self.Gtk.FlowBoxChild):
+            widget = widget.get_parent()
+        return widget
+
+    def on_flow_press(self, flow, event):
+        child = self.tile_of(event)
+        if child is None or child.get_parent() is not flow:
+            return False
+        if event.button == 3:
+            flow.select_child(child)
+            self.actions(child, child.app)
+            return True
+        if event.button == 2:
+            self.middle_press = child
+            return True
+        return False
+
+    def on_flow_release(self, flow, event):
+        if event.button != 2 or self.middle_press is None:
+            return False
+        child, self.middle_press = self.middle_press, None
+        if self.tile_of(event) is child:
+            self.menu.launch(child.app)     # another copy
+        return True
+
+
+VIEWS = {view.name: view for view in (ClassicView, CategoriesView, GridView, PromptView)}
 
 
 # --- Commands -----------------------------------------------------------------
@@ -2245,6 +4627,11 @@ def cmd_daemon(opts):
         gtk = load_gtk()
         GLib, Gtk = gtk[0], gtk[3]
         menu = Menu(gtk, root, open_timing_log(root))
+        osd_path = os.path.join(root, OSD_SOCKET)
+        listener = osd_listen(osd_path)
+        if listener is None:
+            warn(f"cannot listen on {osd_path}: the volume and brightness ring starts on its own")
+        osd = OsdServer(gtk, listener, osd_path) if listener is not None else None
 
         def on_signal(request):
             if request == "toggle":
@@ -2269,8 +4656,37 @@ def cmd_daemon(opts):
         try:
             Gtk.main()
         finally:
+            if osd is not None:
+                osd.close()
             with contextlib.suppress(OSError):
                 os.unlink(os.path.join(root, PID_FILE))
+    return 0
+
+
+def cmd_osd_popup(opts):
+    """The ring without the daemon, on the socket /usr/libexec/flickos/osd
+    bound and passed (fd). Exits OSD_LINGER_SECONDS after the ring hid, at
+    once when a starting daemon asks for the socket, and on SIGTERM."""
+    import signal
+    import socket
+    root = runtime_root()
+    if root is None:
+        raise MenuError("XDG_RUNTIME_DIR is not set")
+    listener = socket.socket(fileno=opts.fd)
+    gtk = load_gtk()
+    GLib, Gtk = gtk[0], gtk[3]
+    server = OsdServer(gtk, listener, os.path.join(root, OSD_SOCKET), on_quit=Gtk.main_quit,
+                       linger=OSD_LINGER_SECONDS)
+
+    def stop():
+        server.close()
+        Gtk.main_quit()
+        return False
+
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, stop)
+    server.show(opts.text)
+    Gtk.main()
     return 0
 
 
@@ -2301,7 +4717,8 @@ def cmd_pin(opts):
     desktop_id = opts.id if opts.id.endswith(".desktop") else opts.id + ".desktop"
     changed = pin(desktop_id) if opts.command == "pin" else unpin(desktop_id)
     if not changed:
-        print(f"{desktop_id} is {'already' if opts.command == 'pin' else 'not'} pinned.")
+        print((_("{app} is already pinned.") if opts.command == "pin" else
+               _("{app} is not pinned.")).format(app=desktop_id))
     return 0
 
 
@@ -2355,6 +4772,11 @@ def main(argv=None):
         sub.add_argument("id")
         sub.set_defaults(func=cmd_pin)
     commands.add_parser("bench", help="time the app index and search").set_defaults(func=cmd_bench)
+    popup = commands.add_parser("osd-popup", help="the volume and brightness ring without the daemon "
+                                                  "(/usr/libexec/flickos/osd starts it)")
+    popup.add_argument("fd", type=int, help="a socket listening on $XDG_RUNTIME_DIR/flickos/menu/osd")
+    popup.add_argument("text", help="the first level: KIND PERCENT [muted]")
+    popup.set_defaults(func=cmd_osd_popup)
     opts = parser.parse_args(argv)
     try:
         return opts.func(opts)

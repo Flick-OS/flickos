@@ -1,0 +1,5 @@
+usr/share/flickos/pipewire/realtime.conf usr/share/pipewire/pipewire.conf.d/50-flickos-realtime.conf
+usr/share/flickos/pipewire/realtime.conf usr/share/pipewire/pipewire-pulse.conf.d/50-flickos-realtime.conf
+usr/share/flickos/pipewire/realtime.conf usr/share/pipewire/client.conf.d/50-flickos-realtime.conf
+usr/share/flickos/pipewire/realtime.conf usr/share/pipewire/jack.conf.d/50-flickos-realtime.conf
+usr/share/flickos/pipewire/realtime.conf usr/share/pipewire/filter-chain.conf.d/50-flickos-realtime.conf

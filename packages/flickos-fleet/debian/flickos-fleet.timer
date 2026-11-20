@@ -1,0 +1,11 @@
+[Unit]
+Description=FlickOS organization check-in every 30 minutes (flickos-fleet)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+# A lab switched on at once doesn't check in at once.
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -45,7 +45,8 @@ installed, overwrite another package's file or remove anything:
 - **Dependencies only from Debian or FlickOS** (`Depends`, `Recommends`,
   `Suggests`), by where apt would get them.
 - **Its own name:** not a package another repository has (Debian's or
-  FlickOS's own), not starting with `flickos-` or `flick-`.
+  FlickOS's own), not `flickos` or `flick` and not starting with `flickos-`
+  or `flick-`.
 - **Architecture** `all` or `amd64`.
 - **Files only in its own paths:** `/usr/bin/NAME` and `NAME-*`,
   `/usr/share/NAME/`, `/usr/lib/NAME/`, `/usr/libexec/NAME/`, desktop files,
@@ -61,6 +62,16 @@ installed, overwrite another package's file or remove anything:
   named after the package or its metainfo ID (`NAME`, `NAME-…`, `ID`,
   `ID-…`), so it can't pass for another app in the menu, the icon theme or
   Software.
+- **An add-on** (`/usr/share/flickos/addons/NAME/`) holds only `labwc.xml`,
+  `waybar.jsonc` and `style.css`, the files flickos-layout reads. The panel
+  and labwc load them at every login, so whatever they start runs without
+  anyone asking, and the check follows that: no `exec` or `exec-if` in a
+  panel button; a window rule has only window actions (`Maximize`,
+  `MoveTo`…), never `Execute`; and every `on-click`, `on-scroll-…` or
+  `Execute` command is one of the package's own programs written as plain
+  words (`NAME --toggle`, `/usr/bin/NAME`), with no `;`, `&&`, `|`, `$`,
+  quotes or globs. A key or a click needs the user to act, so those may start
+  the package's own program; nothing may start by itself.
 - **Desktop files** run one of the package's own programs (`Exec` and
   `TryExec`: `/usr/bin/…`, `/usr/lib/NAME/`, `/usr/libexec/NAME/`), aren't
   D-Bus activated, and claim none of `SENSITIVE_MIME`: being offered as the

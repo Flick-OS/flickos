@@ -234,6 +234,9 @@ TRANSFER_EVENT_SECONDS = 0.5    # a moving transfer's `watch` line at most this 
 # sends it straight back (at once, or when the app next comes to the front).
 # A clipboard that only repeats what was sent this long ago is dropped.
 ECHO_SECONDS = 600
+# kdeconnect-kde sends its clipboard whenever it changes, with nobody choosing
+# to. These devices' clipboards are ignored; their chosen text is a share.
+COMPUTER_TYPES = ("desktop", "laptop")
 NOTIFY_MS = 30000               # mako's 5 s default is too short to click
 ICON_BYTES = 1 << 20            # a notification's icon; a larger payload is ignored
 ICON_FILES = 200                # cached icons kept (some apps send each contact's photo)
@@ -757,6 +760,53 @@ def device_type():
         return "desktop"
 
 
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007):
+    the settings, and a phone paired or forgotten (device.ID, its name or
+    "absent")."""
+    return key in {name.replace("_", "-") for name in KEYS} or key.startswith("device.")
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
+
+
 # --- History ------------------------------------------------------------------------
 # Every change of a setting is recorded for Settings > History. One JSON line per
 # change, appended; the format is shared with flickos-control, flickos-layout and
@@ -786,7 +836,10 @@ def history_enabled():
 def record(key, old, new):
     """Add a change to the history. It never stops the change itself: a
     history that can't be written is only a warning."""
-    if old == new or not history_enabled():
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
         return
     now = time.time_ns()
     entry = {"v": 1, "id": str(now),
@@ -2047,6 +2100,14 @@ class LineReader:
         return data
 
 
+def pair_timestamp(value):
+    """Seconds in a pair request, or None. The Android app sends a number,
+    kdeconnect-kde the same number as text."""
+    if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 20:
+        return int(value)
+    return value if isinstance(value, int) else None
+
+
 def check_identity(data):
     """The body of an identity packet, or ProtocolError."""
     body = data.get("body", {})
@@ -2133,8 +2194,9 @@ def openable(path):
 class Link:
     """A connected phone, after the handshake."""
 
-    def __init__(self, tls, reader, device_id, name, der, address, paired):
+    def __init__(self, tls, reader, device_id, name, der, address, paired, device_type=None):
         self.tls, self.reader, self.id, self.name = tls, reader, device_id, name
+        self.device_type = device_type
         self.der, self.address, self.paired = der, address, paired
         self.send_lock = threading.Lock()
         self.counted = not paired        # holds one of the MAX_UNPAIRED places
@@ -2507,7 +2569,7 @@ class Daemon:
             tls.close()
             raise
         paired = paired_der(body["deviceId"]) == der
-        link = Link(tls, reader, body["deviceId"], body["deviceName"], der, address, paired)
+        link = Link(tls, reader, body["deviceId"], body["deviceName"], der, address, paired, body.get("deviceType"))
         if paired:
             reader.limit = MAX_PACKET
             rename_device(link.id, link.name)
@@ -2540,7 +2602,7 @@ class Daemon:
             elif ptype == "kdeconnect.share.request":
                 self.on_share(link, data)
             elif ptype == "kdeconnect.clipboard" and isinstance(body.get("content"), str):
-                if self.is_echo(link.id, body["content"]):
+                if link.device_type in COMPUTER_TYPES or self.is_echo(link.id, body["content"]):
                     continue
                 copy_text(body["content"])
                 self.note_received("clipboard", link.name, body["content"])
@@ -2854,10 +2916,10 @@ class Daemon:
             if link.paired:
                 # The phone forgot us and asks again: the old pairing is gone.
                 self.unpair(link)
-            timestamp = body.get("timestamp")
+            timestamp = pair_timestamp(body.get("timestamp"))
             with self.lock:
                 session = self.pairing
-            if (session is None or not isinstance(timestamp, int)
+            if (session is None or timestamp is None
                     or abs(timestamp - time.time()) > PAIR_CLOCK_SECONDS):
                 link.send("kdeconnect.pair", {"pair": False})
                 return
@@ -2876,6 +2938,7 @@ class Daemon:
         signal_panel()
         self.notify_watchers({"event": "forgotten", "id": link.id})
         self.drop_phone_media(link.id)
+        fire_changed()              # the pairing is gone (hooks, ADR-007)
 
     def accept_pairing(self, link):
         link.send("kdeconnect.pair", {"pair": True})
@@ -2893,6 +2956,7 @@ class Daemon:
             self.settings = save_settings(networks=added)
         self.recheck()
         signal_panel()
+        fire_changed()              # the pairing and its network (hooks, ADR-007)
         self.watch_connected(link)
         self.sync_notifications(link)
         self.sync_media(link)
@@ -2944,9 +3008,13 @@ class Daemon:
         self.notify_watchers({"event": "connected", "phone": {
             "id": link.id, "name": link.name, "address": link.address,
             "battery": list(link.battery) if link.battery else None}})
+        # The hooks' event (docs/design/flickos-hooks.md). The name is the
+        # phone's own choice: data, which fire() passes in the environment.
+        fire("phone-connected", phone_id=link.id, phone_name=link.name)
 
     def watch_disconnected(self, device_id):
         self.notify_watchers({"event": "disconnected", "id": device_id})
+        fire("phone-disconnected", phone_id=device_id)
 
     def note_received(self, kind, device, value):
         """Remember one thing from a phone, and tell windows that are watching."""
@@ -3656,6 +3724,7 @@ class Daemon:
         name = forget_device(device_id)
         if name is None:
             raise PhoneError("no paired phone has that id")
+        fire_changed()              # hooks, ADR-007
         return name
 
 
@@ -3672,9 +3741,12 @@ def reply(conn, data):
     conn.sendall((json.dumps(data, ensure_ascii=False) + "\n").encode())
 
 
-def read_json(conn, timeout):
+def read_json(conn, timeout, rest=None):
+    """One JSON object from a control connection. A reader of more than one
+    line passes the same bytearray as `rest` each time: what came after the
+    line is kept there, since two lines can arrive in one recv."""
     conn.settimeout(timeout)
-    data = b""
+    data = rest if rest is not None else bytearray()
     while b"\n" not in data:
         if len(data) > 1 << 20:
             raise ValueError("request too long")
@@ -3682,7 +3754,9 @@ def read_json(conn, timeout):
         if not chunk:
             raise ValueError("no request")
         data += chunk
-    value = json.loads(data.split(b"\n", 1)[0])
+    line, _, after = bytes(data).partition(b"\n")
+    data[:] = after
+    value = json.loads(line)
     if not isinstance(value, dict):
         raise ValueError("not an object")
     return value
@@ -4535,9 +4609,10 @@ def cmd_pair(opts):
         conn.connect(control_path())
     except OSError:
         raise PhoneError("the phone connection isn't running") from None
+    rest = bytearray()      # a phone that asks at once: `request` comes with `waiting`
     with conn:
         reply(conn, {"command": "pair"})
-        event = read_json(conn, 10)
+        event = read_json(conn, 10, rest)
         if "error" in event:
             raise PhoneError(event["error"])
         if say:
@@ -4548,7 +4623,7 @@ def cmd_pair(opts):
                 print("The firewall is on: the phone can only connect if it lets phones in\n"
                       "(Settings > Phone, or flickos-control system firewall.phones on).")
             print(f"Waiting {PAIR_SECONDS // 60} minutes...")
-        event = read_json(conn, PAIR_SECONDS + 30)
+        event = read_json(conn, PAIR_SECONDS + 30, rest)
         if event.get("event") != "request":
             if say:
                 say(event)
@@ -4561,7 +4636,7 @@ def cmd_pair(opts):
             print(f"{event['name']} asks to pair. Verification key: {event['key']}")
             answer = input("Does the phone show the same key? [y/N] ").strip().lower()
         reply(conn, {"answer": "yes" if answer in ("y", "yes") else "no"})
-        event = read_json(conn, 10)
+        event = read_json(conn, 10, rest)
     if say:
         say(event)
         return 0 if event.get("event") == "paired" else 1
@@ -5124,6 +5199,8 @@ def main(argv=None):
         return 1
     except (KeyboardInterrupt, EOFError):
         return 1
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
 
 
 if __name__ == "__main__":

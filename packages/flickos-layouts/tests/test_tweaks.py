@@ -7,6 +7,7 @@ Run: python3 -m unittest discover -s tests
 """
 
 import contextlib
+import dataclasses
 import glob
 import io
 import json
@@ -21,9 +22,13 @@ from test_engine import PACKAGE, EngineTest, fl, read
 
 CHECKER = os.path.join(PACKAGE, "usr/libexec/flickos/check-css")
 SHIPPED = sorted(glob.glob(os.path.join(PACKAGE, "usr/share/flickos/layouts/*/*.css"))
+                 + glob.glob(os.path.join(PACKAGE, "../flickos-style-seven/usr/share/flickos/layouts/*/*.css"))
                  + glob.glob(os.path.join(PACKAGE, "../flickos-style-aye3/usr/share/flickos/layouts/*/*.css"))
                  + glob.glob(os.path.join(PACKAGE, "../flickos-style-footprint/usr/share/flickos/layouts/*/*.css"))
-                 + glob.glob(os.path.join(PACKAGE, "../flickos-style-elemental/usr/share/flickos/layouts/*/*.css")))
+                 + glob.glob(os.path.join(PACKAGE, "../flickos-style-elemental/usr/share/flickos/layouts/*/*.css"))
+                 + glob.glob(os.path.join(PACKAGE, "../flickos-style-experience/usr/share/flickos/layouts/*/*.css"))
+                 + glob.glob(os.path.join(PACKAGE, "../flickos-style-eleven/usr/share/flickos/layouts/*/*.css"))
+                 + glob.glob(os.path.join(PACKAGE, "../flickos-style-tortuga/usr/share/flickos/layouts/*/*.css")))
 SFWBAR_FILES = ("dock.css", "windowlist.css")
 SFWBAR_SELECTORS = ("window#sfwbar", "grid#dock", "taskbar_popup")
 
@@ -140,6 +145,147 @@ class TweaksTest(EngineTest):
 
     def style(self):
         return fl.styles()["dark"]
+
+
+class FloatingPanelTest(TweaksTest):
+    """A layout's Floating= CSS, while floating-panel is on."""
+
+    def floating_layout(self):
+        path = os.path.join(self.tmp, "floating.css")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("window#waybar { background: transparent; }\n")
+        full = os.path.join(self.tmp, "floating-full.css")
+        with open(full, "w", encoding="utf-8") as f:
+            f.write("window#waybar > box { margin: 0; }\n")
+        return dataclasses.replace(self.layout("plain"), floating=path, floating_full=full)
+
+    def update(self, layout, floating):
+        with contextlib.redirect_stderr(io.StringIO()):
+            fl.update_waybar(self.root, layout, self.style(), floating=floating)
+        return read(f"{self.root}/waybar/style.css"), read(f"{self.root}/waybar/config.jsonc")
+
+    def state(self):
+        return f"{self.root}/waybar/{fl.PANEL_STATE}"
+
+    def test_off_generates_nothing(self):
+        layout = self.floating_layout()
+        css, config = self.update(layout, False)
+        self.assertNotIn(layout.floating, self.imports(css))
+        self.assertNotIn("reload_style_on_change", config)
+        self.assertFalse(os.path.exists(self.state()))
+
+    def test_a_layout_without_it_stays_as_it_is(self):
+        css, config = self.update(self.layout("plain"), True)
+        self.assertNotIn("reload_style_on_change", config)
+        self.assertFalse(os.path.exists(self.state()))
+
+    def test_on_imports_the_css_then_the_state_that_changes_it(self):
+        layout = self.floating_layout()
+        css, config = self.update(layout, True)
+        self.assertEqual(self.imports(css)[-2:], [layout.floating, self.state()])
+        self.assertIn('"reload_style_on_change": true', config)
+        self.assertEqual(read(self.state()), "")
+
+    def test_on_writes_the_full_look_beside_the_state(self):
+        layout = self.floating_layout()
+        self.update(layout, True)
+        self.assertEqual(self.imports(read(f"{self.root}/waybar/{fl.PANEL_FULL}")), [layout.floating_full])
+
+    def test_on_keeps_the_height_of_the_bar(self):
+        layout = self.floating_layout()
+        self.assertEqual(json.loads(self.update(layout, True)[1].split("\n", 1)[1])[0].get("height"),
+                         json.loads(self.update(layout, False)[1].split("\n", 1)[1])[0].get("height"))
+
+    def test_a_new_panel_keeps_the_state_the_tiler_wrote(self):
+        layout = self.floating_layout()
+        self.update(layout, True)
+        fl.write_atomic(self.state(), "/* full */\n")
+        self.update(layout, True)
+        self.assertEqual(read(self.state()), "/* full */\n")
+
+    def test_turning_it_off_removes_the_state(self):
+        layout = self.floating_layout()
+        self.update(layout, True)
+        self.update(layout, False)
+        self.assertFalse(os.path.exists(self.state()))
+        self.assertFalse(os.path.exists(f"{self.root}/waybar/{fl.PANEL_FULL}"))
+
+
+class FloatingChoiceTest(TweaksTest):
+    """The choice, and which layouts offer it."""
+
+    def layout_folder(self, keys):
+        folder = os.path.join(self.tmp, "keys")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "layout.ini"), "w", encoding="utf-8") as f:
+            f.write(f"[Layout]\nName=Keys\nWaybar=w.jsonc\nStyle=s.css\n{keys}")
+        return folder
+
+    def test_off_by_default(self):
+        self.assertEqual(fl.resolve_floating_panel().id, "off")
+
+    def test_redmond_alone_floats(self):
+        shipped = os.path.join(PACKAGE, "usr/share/flickos/layouts")
+        for folder in glob.glob(f"{shipped}/*/layout.ini"):
+            layout = fl.load_layout(os.path.dirname(folder))
+            self.assertEqual(layout.floating is not None, layout.id == "redmond", layout.id)
+
+    def test_redmonds_files_are_there(self):
+        layout = fl.load_layout(os.path.join(PACKAGE, "usr/share/flickos/layouts/redmond"))
+        self.assertTrue(os.path.isfile(layout.floating))
+        self.assertTrue(os.path.isfile(layout.floating_full))
+
+    def test_needs_both_files(self):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            layout = fl.load_layout(self.layout_folder("Floating=f.css\n"))
+        self.assertIsNone(layout.floating)
+        self.assertIn("FloatingFull", err.getvalue())
+
+    def test_a_users_layout_cant_float(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            layout = fl.load_layout(self.layout_folder("Floating=f.css\nFloatingFull=g.css\n"), user=True)
+        self.assertIsNone(layout.floating)
+        self.assertIsNone(layout.floating_full)
+
+    def test_state_says_whether_the_layout_offers_it(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            found = fl.state()
+        self.assertEqual(found["floating-panel"]["current"], "off")
+        self.assertIn("offered", found["floating-panel"])
+
+    def test_set_saves_and_records_it(self):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(fl.apply_choice(floating_id="on"), 0)
+            self.assertEqual(fl.resolve_floating_panel().id, "on")
+            self.assertEqual(fl.apply_choice(floating_id="default"), 0)
+        self.assertEqual(fl.resolve_floating_panel().id, "off")
+
+    def test_a_layout_can_float_by_default(self):
+        """FloatingDefault=on: the choice is on until someone says otherwise."""
+        layout = fl.load_layout(self.layout_folder("Floating=f.css\nFloatingFull=g.css\nFloatingDefault=on\n"))
+        self.assertTrue(layout.floating_default)
+        self.assertEqual(fl.resolve_floating_panel(layout).id, "on")
+
+    def test_floating_by_default_needs_the_css(self):
+        layout = fl.load_layout(self.layout_folder("FloatingDefault=on\n"))
+        self.assertFalse(layout.floating_default)
+        self.assertEqual(fl.resolve_floating_panel(layout).id, "off")
+
+    def test_the_users_choice_beats_the_layouts_default(self):
+        layout = fl.load_layout(self.layout_folder("Floating=f.css\nFloatingFull=g.css\nFloatingDefault=on\n"))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(fl.apply_choice(floating_id="off"), 0)
+        self.assertEqual(fl.resolve_floating_panel(layout).id, "off")
+
+    def test_no_layout_of_flickos_own_floats_by_default(self):
+        """ADR-003 of the floating panel: it would reshape everyone's panel at an update."""
+        shipped = os.path.join(PACKAGE, "usr/share/flickos/layouts")
+        for folder in glob.glob(f"{shipped}/*/layout.ini"):
+            self.assertFalse(fl.load_layout(os.path.dirname(folder)).floating_default, folder)
+
+    def test_an_unknown_choice_is_refused(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(fl.apply_choice(floating_id="sideways"), 1)
 
 
 class PanelTest(TweaksTest):

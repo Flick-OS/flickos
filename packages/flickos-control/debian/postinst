@@ -11,8 +11,13 @@ set -e
 # in /etc/apt/apt.conf.d/60flickos-updates with its list of repositories, which
 # the helper writes again with this version's list (1.38 added FlickOS's
 # community repository).
+#
+# And the makers' repositories that are on (Tool Kits' newer versions):
+# their sources, pin and update origin are written again from this version's
+# list, so a maker's new key or address arrives with an update.
 if [ "$1" = configure ]; then
     /usr/libexec/flickos/control-helper firewall-phones refresh || true
+    /usr/libexec/flickos/control-helper upstream refresh || true
     /usr/libexec/flickos/control-helper updates refresh || true
 fi
 

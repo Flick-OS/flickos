@@ -1,0 +1,24 @@
+Source: flickos-kit-python
+Section: devel
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-python
+Architecture: all
+Depends: flickos-kit-base,
+         python3-venv,
+         python3-dev,
+         python3-pip,
+         pipx,
+         ${misc:Depends}
+Description: FlickOS developer kit: Python development: venv, pip and pipx
+ What a Python project needs: virtual environments, the headers to
+ build extensions, pip and pipx. As Debian intends, pip installs into a
+ virtual environment, not into the system.
+ .
+ A kit is installed from Software's Developer Tools and removed there too.
+ Nothing it installs runs until it is used (docs/design/flickos-dev.md).

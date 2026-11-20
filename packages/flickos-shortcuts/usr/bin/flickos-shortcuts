@@ -14,13 +14,16 @@ layer-shell surface that takes no keyboard focus and lets clicks through.
 The shortcuts are read from the rc.xml labwc uses (the first in
 $XDG_CONFIG_HOME, then $XDG_CONFIG_DIRS: the user's own, the flickos-layouts
 overlay with flick-tiler's keys while tiling is on, or FlickOS's), plus
-labwc's built-in ones where it has <default />. In the plain session labwc
+labwc's built-in ones where it has <default />, and flickos-menu's own keys
+while its prompt style is the start menu (PROMPT_KEYS). In the plain session labwc
 reads only flickos-layouts' plain folder (labwc -C), and while flickos-layouts
 has labwc merge the files (labwc -m) every rc.xml is read, least important
 first, the later binding of a key winning, as labwc does. Keys FlickOS knows get a
 description (COMMANDS, ACTIONS), add-ons' keys the one their labwc.xml gives
 (flickos-layouts writes them to ADDON_DESCRIPTIONS); others show their
-action or command.
+action or command. A key flickos-layouts moved for a keyboard that lacks it
+(KEYS_REPORT) shows as that keyboard labels it: Super + Å for Super + [ on a
+Finnish one.
 Media, volume and brightness keys are left out.
 
 Commands:
@@ -61,13 +64,42 @@ MOD_SUPER = 1 << 6
 # running older code is never killed by it.
 BUSY_SIGNAL = signal.SIGWINCH
 COLUMNS = 3
+# How the sheet is arranged, tried in this order until one fits the screen
+# (fit_sheet): columns, and compact (smaller text and spacing: the `compact`
+# class in style.css). The first is the roomy sheet of a large screen; the
+# rest are for small ones (1366x768 and below). None fits: the one that comes
+# closest, and `show` scrolls. Descriptions aren't wrapped: GTK measures a
+# wrapping label's height differently from one try to the next.
+FITS = ((COLUMNS, False), (4, False), (2, False), (COLUMNS, True), (4, True), (2, True), (5, True))
+# Room left around the sheet, in logical pixels, width and height: panels,
+# docks, and a gap so it doesn't touch the edges.
+FIT_MARGIN = (64, 128)
 # The sheet fades in and out (docs/design/flickos-fades.md), as flickos-menu's
 # windows do, only while GSettings' enable-animations is on. About 65 ms of
 # CPU per fade, the daemon and labwc together; nothing between holds.
 FADE_IN_MS = 100
 FADE_OUT_MS = 80
 
-SECTIONS = ("Applications", "Windows", "Tiling", "Screenshots", "Zoom", "Session", "Other")
+SECTIONS = ("Applications", "Start menu", "Windows", "Tiling", "Screenshots", "Zoom", "Session", "Other")
+
+# flickos-menu's prompt style (ADR-022) has keys of its own while it is open.
+# They aren't labwc's, so rc.xml doesn't have them: they show as MENU_SECTION
+# while the prompt style is the start menu (the second line of flickos-layouts'
+# MENU_ANCHOR, below $XDG_RUNTIME_DIR/flickos). Keep them as flickos-menu's
+# help_rows has them.
+MENU_ANCHOR = os.path.join("menu", "anchor")
+MENU_SECTION = "Start menu"
+PROMPT_KEYS = (
+    ("Open a pinned app", ["Ctrl + 1 … 6"]),
+    ("Take the grey rest of a name", ["→"]),
+    ("The last search again", ["↑"]),
+    ("Another window of an open app", ["Ctrl + Enter"]),
+    ("An app's actions", ["Menu", "Shift + F10"]),
+    ("Pin or unpin the chosen app", ["Ctrl + P"]),
+    ("Move a pin", ["Ctrl + ← →"]),
+    ("A larger or smaller menu", ["Ctrl + +", "Ctrl + -"]),
+    ("What you can type", ["F1"]),
+)
 
 # labwc 0.8.3's built-in keybinds (include/config/default-bindings.h), used
 # where rc.xml has <default />. Keys rc.xml binds again replace them.
@@ -137,6 +169,15 @@ ADDON_DESCRIPTIONS = os.path.join("shortcuts", "addons.json")
 # -C with this folder; while the marker exists labwc runs with -m.
 PLAIN_LABWC = os.path.join("plain", "labwc")
 MERGE_MARKER = "labwc-merge"
+# flickos-layouts' list of the keys it moved for the keyboard layout
+# (docs/design/flickos-keys.md): {"moved": [{"key", "to"}, …]}.
+KEYS_REPORT = os.path.join("keys", "moved.json")
+XKBCOMMON = "libxkbcommon.so.0"
+# libxkbcommon gives dead keys no character; flickos-layouts has the same table.
+DEAD_KEYS = {"dead_grave": "`", "dead_acute": "´", "dead_circumflex": "^", "dead_tilde": "~",
+             "dead_macron": "¯", "dead_breve": "˘", "dead_abovedot": "˙", "dead_diaeresis": "¨",
+             "dead_abovering": "˚", "dead_doubleacute": "˝", "dead_caron": "ˇ", "dead_cedilla": "¸",
+             "dead_ogonek": "˛"}
 ADDON_SECTION = "Other"
 
 # labwc actions: action name -> (section, description); {menu} and
@@ -244,7 +285,38 @@ def key_parts(key):
 
 
 def key_name(name):
-    return KEY_NAMES.get(name, name.upper() if len(name) == 1 else name)
+    if name in KEY_NAMES:
+        return KEY_NAMES[name]
+    if len(name) == 1:
+        return name.upper()
+    return DEAD_KEYS.get(name) or keysym_character(name) or name
+
+
+_XKB = []
+
+
+def keysym_character(name):
+    """'Å' for 'aring', '&' for 'ampersand' (libxkbcommon, loaded only for
+    such names); None if it has no character or the library is missing."""
+    if not _XKB:
+        import ctypes
+        try:
+            lib = ctypes.CDLL(XKBCOMMON)
+            lib.xkb_keysym_from_name.restype = ctypes.c_uint32
+            lib.xkb_keysym_from_name.argtypes = [ctypes.c_char_p, ctypes.c_int]
+            lib.xkb_keysym_to_utf8.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_size_t]
+            _XKB.append((lib, ctypes))
+        except OSError:
+            _XKB.append(None)
+    if _XKB[0] is None:
+        return None
+    lib, ctypes = _XKB[0]
+    sym = lib.xkb_keysym_from_name(name.encode(), 0)
+    buf = ctypes.create_string_buffer(16)
+    if not sym or lib.xkb_keysym_to_utf8(sym, buf, len(buf)) <= 0:
+        return None
+    text = buf.value.decode("utf-8", "replace")
+    return text.upper() if len(text) == 1 and text.isprintable() and not text.isspace() else None
 
 
 def format_keys(keys):
@@ -316,9 +388,23 @@ def addon_descriptions():
     return {command: text for command, text in data.items() if isinstance(text, str) and text}
 
 
-def describe(actions, key=None, addons=None):
+def moved_keys():
+    """{key: the key it was} of the keys flickos-layouts moved for the
+    keyboard layout; none without the file."""
+    runtime = flickos_runtime()
+    try:
+        with open(os.path.join(runtime, KEYS_REPORT), encoding="utf-8") as f:
+            data = json.load(f)
+        return {item["to"]: item["key"] for item in data["moved"]
+                if isinstance(item.get("to"), str) and isinstance(item.get("key"), str)}
+    except (OSError, TypeError, ValueError, KeyError, AttributeError):
+        return {}
+
+
+def describe(actions, key=None, addons=None, moved=None):
     """(section, description) of a keybind's actions, bound to `key` (labwc's
-    name, e.g. 'W-1'). addons: addon_descriptions()."""
+    name, e.g. 'W-1'). addons: addon_descriptions(); moved: moved_keys()."""
+    key = (moved or {}).get(key, key)
     for name, args in actions:
         if name == "Execute":
             command = args.get("command", "")
@@ -345,6 +431,19 @@ def describe(actions, key=None, addons=None):
     return "Other", actions[0][0] if actions else "Nothing"
 
 
+def prompt_menu_on():
+    """True while flickos-menu's prompt style is the start menu."""
+    runtime = flickos_runtime()
+    if runtime is None:
+        return False
+    try:
+        with open(os.path.join(runtime, MENU_ANCHOR), encoding="utf-8") as f:
+            lines = [line.strip() for line in f.readlines()[:2]]
+    except (OSError, UnicodeDecodeError):
+        return False
+    return len(lines) > 1 and lines[1] == "prompt"
+
+
 def shortcuts(path=None):
     """{section: [(description, [key text, ...])]} in SECTIONS order, keys
     with the same description in one row."""
@@ -353,15 +452,18 @@ def shortcuts(path=None):
         raise ShortcutsError("no labwc rc.xml found")
     rows = {}
     addons = addon_descriptions()
+    moved = moved_keys()
     for key, actions in read_keybinds(paths):
         parts = key_parts(key)
         if parts[1].startswith("XF86") or not actions:
             continue
-        section, text = describe(actions, key, addons)
+        section, text = describe(actions, key, addons, moved)
         rows.setdefault((section, text), []).append(parts)
     result = {}
     for (section, text), keys in rows.items():
         result.setdefault(section, []).append((text, format_keys(keys)))
+    if prompt_menu_on():
+        result[MENU_SECTION] = list(PROMPT_KEYS)
     return {s: result[s] for s in SECTIONS if s in result}
 
 
@@ -379,6 +481,31 @@ def split_columns(sections, count=COLUMNS):
         columns[-1].append((name, rows))
         height += size
     return columns
+
+
+def screen_room(sizes, margin=FIT_MARGIN):
+    """(width, height) the sheet may take: the smallest screen's, less the
+    margin. The compositor chooses the screen and doesn't tell, so the sheet
+    fits them all. None without screens."""
+    if not sizes:
+        return None
+    return (max(min(w for w, _ in sizes) - margin[0], 0),
+            max(min(h for _, h in sizes) - margin[1], 0))
+
+
+def fit_sheet(measure, room, fits=FITS):
+    """(fit, size, fits) for the first of `fits` whose measured size fits in
+    `room`, else the one that would need the least shrinking. measure(fit)
+    returns (width, height); only the ones up to the chosen are measured."""
+    best = None
+    for fit in fits:
+        size = measure(fit)
+        if room is None or (size[0] <= room[0] and size[1] <= room[1]):
+            return fit, size, True
+        scale = min(room[0] / max(size[0], 1), room[1] / max(size[1], 1))
+        if best is None or scale > best[0]:
+            best = (scale, fit, size)
+    return best[1], best[2], False
 
 
 # --- Super from the compositor ------------------------------------------------
@@ -568,14 +695,60 @@ def load_gtk():
     return GLib, Gdk, Gtk, GtkLayerShell
 
 
+def monitor_sizes(Gdk):
+    display = Gdk.Display.get_default()
+    sizes = []
+    for index in range(display.get_n_monitors()):
+        area = display.get_monitor(index).get_geometry()    # logical pixels
+        sizes.append((area.width, area.height))
+    return sizes
+
+
+def build_columns(Gtk, sections, fit):
+    """The sections in columns, as `fit` (one of FITS) says."""
+    count, compact = fit
+    columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24 if compact else 40)
+    for column in split_columns(sections, count):
+        grid = Gtk.Grid(column_spacing=10 if compact else 16, row_spacing=3 if compact else 6,
+                        valign=Gtk.Align.START)
+        columns.pack_start(grid, False, False, 0)
+        row = 0
+        for name, rows in column:
+            heading = Gtk.Label(label=name, xalign=0)
+            heading.get_style_context().add_class("heading")
+            if row:
+                heading.set_margin_top(8 if compact else 12)
+            grid.attach(heading, 0, row, 2, 1)
+            row += 1
+            for text, keys in rows:
+                caps = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                for index, key in enumerate(keys):
+                    if index:
+                        caps.pack_start(Gtk.Label(label="or"), False, False, 0)
+                    cap = Gtk.Label(label=key)
+                    cap.get_style_context().add_class("key")
+                    caps.pack_start(cap, False, False, 0)
+                grid.attach(caps, 0, row, 1, 1)
+                grid.attach(Gtk.Label(label=text, xalign=0), 1, row, 1, 1)
+                row += 1
+    return columns
+
+
+# fit_sheet's choice, kept while the shortcuts, the screens and the look stay
+# the same: measuring each arrangement costs about 20 ms.
+_FITTED = {}
+
+
 def build_sheet(gtk, footer, interactive):
-    """The sheet as a layer-shell window (not shown yet)."""
+    """The sheet as a layer-shell window (not shown yet), arranged to fit the
+    screen."""
     _, Gdk, Gtk, GtkLayerShell = gtk
     window = Gtk.Window(title=TITLE, app_paintable=True)
     visual = Gdk.Screen.get_default().get_rgba_visual()
     if visual is not None:      # rounded corners
         window.set_visual(visual)
-    window.get_style_context().add_class("flickos-shortcuts")
+    style = window.get_style_context()
+    style.add_class("flickos-shortcuts")
     GtkLayerShell.init_for_window(window)
     GtkLayerShell.set_namespace(window, APP_ID)
     GtkLayerShell.set_layer(window, GtkLayerShell.Layer.OVERLAY)
@@ -594,34 +767,49 @@ def build_sheet(gtk, footer, interactive):
     except ShortcutsError as error:
         sections = {}
         box.pack_start(Gtk.Label(label=str(error), xalign=0), False, False, 0)
-    columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=40)
-    box.pack_start(columns, False, False, 0)
-    for column in split_columns(sections):
-        grid = Gtk.Grid(column_spacing=16, row_spacing=6, valign=Gtk.Align.START)
-        columns.pack_start(grid, False, False, 0)
-        row = 0
-        for name, rows in column:
-            heading = Gtk.Label(label=name, xalign=0)
-            heading.get_style_context().add_class("heading")
-            if row:
-                heading.set_margin_top(12)
-            grid.attach(heading, 0, row, 2, 1)
-            row += 1
-            for text, keys in rows:
-                caps = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-                for index, key in enumerate(keys):
-                    if index:
-                        caps.pack_start(Gtk.Label(label="or"), False, False, 0)
-                    cap = Gtk.Label(label=key)
-                    cap.get_style_context().add_class("key")
-                    caps.pack_start(cap, False, False, 0)
-                grid.attach(caps, 0, row, 1, 1)
-                grid.attach(Gtk.Label(label=text, xalign=0), 1, row, 1, 1)
-                row += 1
-
+    body = Gtk.Box()
+    box.pack_start(body, False, False, 0)
     hint = Gtk.Label(label=footer, xalign=0)
     hint.get_style_context().add_class("hint")
     box.pack_start(hint, False, False, 0)
+
+    def arrange(fit):
+        for child in body.get_children():
+            child.destroy()
+        if fit[1]:
+            style.add_class("compact")
+        else:
+            style.remove_class("compact")
+        box.set_spacing(10 if fit[1] else 16)
+        body.add(build_columns(Gtk, sections, fit))
+        box.show_all()
+
+    def measure(fit):
+        arrange(fit)
+        size = box.get_preferred_size()[1]
+        return size.width, size.height
+
+    room = screen_room(monitor_sizes(Gdk))
+    settings = Gtk.Settings.get_default().props
+    key = (repr(sections), room, settings.gtk_theme_name, settings.gtk_font_name,
+           settings.gtk_xft_dpi)
+    if key not in _FITTED:
+        _FITTED.clear()
+        _FITTED[key] = fit_sheet(measure, room)
+    fit, size, fits = _FITTED[key]
+    arrange(fit)
+    if not fits and interactive and room is not None:
+        # Too big even at its smallest: the columns scroll.
+        columns = body.get_children()[0]
+        body.remove(columns)
+        scroll = Gtk.ScrolledWindow(propagate_natural_width=True, propagate_natural_height=True)
+        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        natural = columns.get_preferred_size()[1]
+        scroll.set_max_content_width(max(room[0] - (size[0] - natural.width), 100))
+        scroll.set_max_content_height(max(room[1] - (size[1] - natural.height), 100))
+        scroll.add(columns)
+        body.add(scroll)
+        box.show_all()
     return window
 
 

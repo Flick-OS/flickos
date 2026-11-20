@@ -1,0 +1,44 @@
+/* flickos-lock: the lock screen (docs/design/flickos-lock.md, ADR-007).
+ * GTK theme colors only, so every style gets a matching lock screen; every
+ * selector under .flickos-lock. All the text is on the card, whose alpha
+ * is flickos-lock's CARD_ALPHA (a test reads it here and checks the text's
+ * contrast in every style). Sizes are relative: the zoom keys (ADR-019)
+ * scale the card's font size, and everything on it follows. */
+
+.flickos-lock .card {
+    background-color: alpha(@theme_bg_color, 0.9);
+    border-radius: 12px;
+    padding: 32px 48px;
+}
+
+.flickos-lock .card label {
+    color: @theme_fg_color;
+}
+
+.flickos-lock .clock {
+    font-size: 400%;
+    font-weight: 300;
+}
+
+.flickos-lock .date {
+    font-size: 130%;
+    margin-bottom: 18px;
+}
+
+.flickos-lock .name {
+    font-size: 150%;
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+
+.flickos-lock .card entry,
+.flickos-lock .card button {
+    font-size: 110%;
+}
+
+/* A class lock's message from the teacher (flickos-classroom-view), where
+ * the password box would be. */
+.flickos-lock .class-message {
+    font-size: 150%;
+    margin-top: 12px;
+}

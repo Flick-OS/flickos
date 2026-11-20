@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS kit is an AppStream add-on of the Tool Kits window
+     (docs/design/flickos-dev.md, ADR-001 and ADR-002): Software lists add-ons
+     that extend flickos-kits.desktop under Developer Tools, and FlickOS::kit
+     names the kit. The category is a custom value because appstreamcli
+     ignores an X-FlickOS-* category. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.kits.base</id>
+  <extends>flickos-kits.desktop</extends>
+  <name>Developer Basics</name>
+  <summary>Git, a compiler and the everyday command-line tools</summary>
+  <description>
+    <p>
+      The tools most programmers reach for first: git, the GNU compiler and
+      make, the gdb debugger, curl, jq, ripgrep, fd, shellcheck, sqlite3 and
+      GitHub's gh.
+    </p>
+    <p>
+      The other developer kits build on this one, so it is installed with them.
+      Nothing runs in the background.
+    </p>
+  </description>
+  <icon type="stock">applications-development</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::kit">base</value>
+    <value key="FlickOS::kit-category">development</value>
+  </custom>
+</component>

@@ -2,7 +2,9 @@
 
 CHROOT=$(mount | grep proc | grep calamares | awk '{print $3}' | sed -e "s#/proc##g")
 KNOWN_MEDIUM_PATHS="/run/live/medium /run/initramfs/live"
-RELEASE="trixie"
+# The medium's suite is the live system's Debian release (auto/config).
+RELEASE="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+[ -n "$RELEASE" ] || { echo "No VERSION_CODENAME in /etc/os-release" >&2; exit 1; }
 
 # Support both dracut and initramfs configurations to avoid substitutions
 # in live-build, see: #1089618

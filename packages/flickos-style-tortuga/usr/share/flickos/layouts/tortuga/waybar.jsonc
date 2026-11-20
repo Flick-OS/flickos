@@ -1,0 +1,20 @@
+// Tortuga: one bar along the top, 40 px tall, drawn as three islands by
+// floating.css: the apps button and the weather while it is on (flickos-
+// weather; the placeholder is dropped while off), the clock with the
+// recording, and the status. The surface keeps its size whatever is drawn in
+// it, so windows never move (floating panel ADR-002). The open apps and the
+// desktops are in the dock (dock.config). Installed next to flickos-layouts'
+// layouts, so ../common is FlickOS's shared modules; the settings here win
+// over them.
+{
+    "name": "tortuga",
+    "layer": "top",
+    "position": "top",
+    "height": 40,
+    "spacing": 0,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["custom/launcher", "flickos/weather"],
+    "modules-center": ["clock", "custom/recording"],
+    "modules-right": ["tray", "custom/tiler", "wireplumber", "battery", "custom/desktop"]
+}

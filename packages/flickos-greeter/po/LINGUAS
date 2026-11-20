@@ -1,0 +1,2 @@
+# The languages with a translation, one per line: po/LANG.po (LANG as in
+# /usr/share/locale: de, pt_BR, fil). tools/update-po.sh NAME LANG adds one.

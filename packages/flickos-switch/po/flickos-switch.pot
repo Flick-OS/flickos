@@ -1,0 +1,1214 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the flickos-switch package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: flickos-switch\n"
+"Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
+"POT-Creation-Date: 2026-11-04 15:55+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{name} (from Windows){ext}"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{name} (from Windows {number}){ext}"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "This disk doesn't have Windows on it."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "There is no account {account} on this disk."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid ""
+"There isn't enough free space: {needed} are needed and {free} are free. Copy "
+"fewer folders, or free some space."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "The disk service isn't running."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Permission to use the disk was refused or cancelled."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "That recovery key didn't unlock the disk. Check it and try again."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"The disk couldn't be opened. Start Windows once and shut it down with Shift "
+"held on Shut Down, then try again."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{device} isn't a Windows disk FlickOS can see."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "This disk is locked with BitLocker. Unlock it first."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "No Windows disk found."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"Windows was left hibernated (Fast Startup): its files can still be copied."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Type the recovery key."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "This disk isn't locked."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{folder} isn't a folder."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Bring Files from Windows is already open."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Windows Is on This Computer"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "C_ontinue"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "_Copy Files First"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"Erase disk in the installer deletes Windows and every file on it. To keep "
+"your files, copy them to a USB drive first. Install alongside keeps Windows "
+"and its files."
+msgstr ""
+
+#: usr/bin/flickos-switch usr/share/applications/flickos-switch-files.desktop
+msgid "Bring Files from Windows"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Looking for Windows disks…"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"Copy your documents, pictures and other files from a Windows disk. Nothing "
+"on the Windows disk is changed."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "The disks couldn't be listed."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "No Windows disk found"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"If Windows is on another computer, take its disk out and connect it with a "
+"USB adapter or case. This list updates by itself when a disk is connected."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "Windows disk, {size}"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "On {drive}. Locked with BitLocker."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "_Unlock…"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "On {drive}."
+msgstr ""
+
+#: usr/bin/flickos-switch usr/share/flickos/switch/programs.py
+msgid "_Open"
+msgstr ""
+
+#: usr/bin/flickos-switch usr/share/flickos/switch/programs.py
+msgid "_Close"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Unlock Windows Disk"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "_Cancel"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "_Unlock"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"This disk is locked with BitLocker. Type its 48-digit recovery key. You find "
+"it in your Microsoft account, at account.microsoft.com/devices/recoverykey, "
+"or where you saved or printed it."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Recovery key"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Unlocking…"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Reading the Windows disk…"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Counting the files in each folder. On a large disk this takes a minute."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "The Windows disk couldn't be read"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "_Back"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Choose What to Copy"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"Windows wasn't fully shut down (Fast Startup). Your files can still be "
+"copied."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "No accounts with files were found on this disk."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Windows account"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Whose files to copy"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "_Copy"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Desktop"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Documents"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Downloads"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Music"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Pictures"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Videos"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{count} file, {size}"
+msgid_plural "{count} files, {size}"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "({count} more only in OneDrive)"
+msgid_plural "({count} more only in OneDrive)"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+msgid "Bookmarks from Chrome and Edge"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Saved as a file in Documents that Firefox can import"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "This account has no files in its folders."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Folders"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Copy To"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "USB drive"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid ""
+"The live session forgets everything when it shuts down, so the files go to a "
+"USB drive, in a folder named “Files from Windows”."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Your home folder"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Connect a USB drive to copy to."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{needed} to copy, {free} free"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Copying…"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "_Stop"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "About {count} minute left"
+msgid_plural "About {count} minutes left"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+msgid "Stopping after this file…"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "The files couldn't be copied"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Something went wrong."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Copying Stopped"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Your Files Are Copied"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{count} file copied ({size})."
+msgid_plural "{count} files copied ({size})."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{count} file was already there."
+msgid_plural "{count} files were already there."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{count} Windows shortcut was left out."
+msgid_plural "{count} Windows shortcuts were left out."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid ""
+"Bookmarks were saved as “{name}”. In Firefox, choose Bookmarks, Manage "
+"Bookmarks, Import and Backup, Import Bookmarks from HTML."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{count} File Only in OneDrive"
+msgid_plural "{count} Files Only in OneDrive"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid ""
+"These weren't on the Windows disk, only in OneDrive. Download them from "
+"{site} after signing in."
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "over 4 GB, too large for this USB drive"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "{count} File Not Copied"
+msgid_plural "{count} Files Not Copied"
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-switch
+msgid "_Open Folder"
+msgstr ""
+
+#: usr/bin/flickos-switch
+msgid "Web Apps"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "Keep {name} as a web app"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid ""
+"Press the button at the right of Firefox's address bar, next to the star. "
+"{name} then opens in its own window, from the start menu."
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid "Remove {name}"
+msgstr ""
+
+#: usr/bin/flickos-switch
+#, python-brace-format
+msgid ""
+"Press the button at the right of its address bar. The page goes back to "
+"being a tab in Firefox, and {name} leaves the start menu."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid ""
+"{file} is a shortcut copied from Windows. It pointed to {target}. Windows "
+"shortcuts don't work on FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid ""
+"{file} is a shortcut copied from Windows. Windows shortcuts don't work on "
+"FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid ""
+"FlickOS can't read {file}. It may be a Windows program or a damaged download."
+msgstr ""
+
+#. Translators: {name} is a kind of program, such as "antivirus software".
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "{file} is {name} for Windows."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid ""
+"{file} installs {name}, a Windows program. {name} is also made for FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "{file} installs {name}, a Windows program that isn't made for FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "It says it is {product}, by {maker}."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "It says it is {product}."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "FlickOS can't run Windows programs like {file} directly."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#: usr/share/applications/flickos-switch-open.desktop
+msgid "Windows Program"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "Install {name}"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "Opens Software on its page."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "_Install"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid ""
+"Opens in Firefox. To keep it as a web app, press the button at the right of "
+"the address bar."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "Opens in the web browser. Nothing to install."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "_View"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "Search Software for “{words}”"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid ""
+"Many Windows programs have a version for FlickOS, or an app that does the "
+"same."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "_Search"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "Try with Wine"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "Many Windows programs don't work with Wine."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "_Try"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "This program needs Wine's 32-bit part. Software can add it."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "_Get Wine"
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+msgid "Wine runs some Windows programs. Software can install it."
+msgstr ""
+
+#: usr/share/flickos/switch/programs.py
+#, python-brace-format
+msgid "Couldn't start {program}."
+msgstr ""
+
+#: usr/share/applications/flickos-switch-files.desktop
+msgid "Copy your documents, pictures and other files from a Windows disk"
+msgstr ""
+
+#. Translators: search words, each ended by a semicolon.
+#: usr/share/applications/flickos-switch-files.desktop
+msgid "windows;copy;move;transfer;files;migrate;onedrive;old;computer;"
+msgstr ""
+
+#: usr/share/applications/flickos-switch-open.desktop
+msgid ""
+"What to do with a Windows program: its FlickOS version, the web, or Wine"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Firefox is already on FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Teams on the web"
+msgstr ""
+
+#. Translators: Why Teams for Linux can take the place of Microsoft Teams.
+#: usr/share/flickos/switch/apps.json
+msgid "An unofficial app for Teams, made for Linux."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "WhatsApp on the web"
+msgstr ""
+
+#. Translators: Why ZapZap can take the place of WhatsApp.
+#: usr/share/flickos/switch/apps.json
+msgid "An unofficial WhatsApp app made for Linux."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Messenger on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Webex on the web"
+msgstr ""
+
+#. Translators: Why RustDesk can take the place of TeamViewer.
+#: usr/share/flickos/switch/apps.json
+msgid "Remote help and remote access, free and open source."
+msgstr ""
+
+#. Translators: Why AnyDesk can take the place of TeamViewer.
+#: usr/share/flickos/switch/apps.json
+msgid "Remote help and remote access, made for Linux too."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "TeamViewer has a Linux version on its website."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Microsoft 365 on the web"
+msgstr ""
+
+#. Translators: Why LibreOffice can take the place of Microsoft Office.
+#: usr/share/flickos/switch/apps.json
+msgid "Opens and saves Word, Excel and PowerPoint files. Already on FlickOS."
+msgstr ""
+
+#. Translators: Why ONLYOFFICE can take the place of Microsoft Office.
+#: usr/share/flickos/switch/apps.json
+msgid "Looks like Microsoft Office and opens its files."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Outlook on the web"
+msgstr ""
+
+#. Translators: Why Thunderbird can take the place of Outlook.
+#: usr/share/flickos/switch/apps.json
+msgid ""
+"Email, calendars and contacts, with Outlook.com and Microsoft 365 accounts."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "OneNote on the web"
+msgstr ""
+
+#. Translators: Why Joplin can take the place of OneNote.
+#: usr/share/flickos/switch/apps.json
+msgid "Notebooks with notes, pictures and to-do lists, kept in sync."
+msgstr ""
+
+#. Translators: Why Document Viewer can take the place of Adobe Acrobat Reader.
+#: usr/share/flickos/switch/apps.json
+msgid "Opens PDF files. Already on FlickOS: double-click a PDF."
+msgstr ""
+
+#. Translators: Why Okular can take the place of Adobe Acrobat Reader.
+#: usr/share/flickos/switch/apps.json
+msgid "Opens PDF files, and can fill in forms and add notes."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS opens PDF files itself: double-click one."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "LibreOffice is already on FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Notion on the web"
+msgstr ""
+
+#. Translators: Why AppFlowy can take the place of Notion.
+#: usr/share/flickos/switch/apps.json
+msgid "Pages, notes and tasks like Notion's, kept on your computer."
+msgstr ""
+
+#. Translators: Why Obsidian can take the place of Notion.
+#: usr/share/flickos/switch/apps.json
+msgid "Notes in plain files, linked to each other."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Evernote on the web"
+msgstr ""
+
+#. Translators: Why Joplin can take the place of Evernote.
+#: usr/share/flickos/switch/apps.json
+msgid "Notebooks like Evernote's, and it imports Evernote's files."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Kindle on the web"
+msgstr ""
+
+#. Translators: Why Foliate can take the place of Kindle.
+#: usr/share/flickos/switch/apps.json
+msgid "Reads e-books that aren't locked to a store."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "ChatGPT on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Claude on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Copilot on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "VLC is already on FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Apple Music on the web"
+msgstr ""
+
+#. Translators: Why Rhythmbox can take the place of iTunes.
+#: usr/share/flickos/switch/apps.json
+msgid "Plays and sorts the music files on your computer."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "iCloud on the web"
+msgstr ""
+
+#. Translators: Why VLC can take the place of MPC-HC.
+#: usr/share/flickos/switch/apps.json
+msgid "Plays every video and music file. Already on FlickOS."
+msgstr ""
+
+#. Translators: Why mpv can take the place of MPC-HC.
+#: usr/share/flickos/switch/apps.json
+msgid "A small, fast video player."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS plays video and music formats without a codec pack."
+msgstr ""
+
+#. Translators: Why Strawberry can take the place of foobar2000.
+#: usr/share/flickos/switch/apps.json
+msgid "Plays and sorts a large music collection."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "TIDAL on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Deezer on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Amazon Music on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Netflix on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Prime Video on the web"
+msgstr ""
+
+#. Translators: Why Parabolic can take the place of 4K Video Downloader.
+#: usr/share/flickos/switch/apps.json
+msgid "Downloads videos and music from YouTube and other sites."
+msgstr ""
+
+#. Translators: Why Kdenlive can take the place of DaVinci Resolve.
+#: usr/share/flickos/switch/apps.json
+msgid "Edits video with many tracks, titles and effects."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "DaVinci Resolve has a Linux version on Blackmagic Design's website."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "CapCut on the web"
+msgstr ""
+
+#. Translators: Why Shotcut can take the place of CapCut.
+#: usr/share/flickos/switch/apps.json
+msgid "A video editor that is quick to learn."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Clipchamp on the web"
+msgstr ""
+
+#. Translators: Why LMMS can take the place of FL Studio.
+#: usr/share/flickos/switch/apps.json
+msgid ""
+"Makes music with patterns, instruments and a piano roll, like FL Studio."
+msgstr ""
+
+#. Translators: Why Ardour can take the place of Ableton Live.
+#: usr/share/flickos/switch/apps.json
+msgid "Records, edits and mixes music."
+msgstr ""
+
+#. Translators: Why LMMS can take the place of Ableton Live.
+#: usr/share/flickos/switch/apps.json
+msgid "Makes music with patterns, instruments and a piano roll."
+msgstr ""
+
+#. Translators: Why Kid3 can take the place of Mp3tag.
+#: usr/share/flickos/switch/apps.json
+msgid "Edits the titles, artists and covers of music files."
+msgstr ""
+
+#. Translators: Why MusicBrainz Picard can take the place of Mp3tag.
+#: usr/share/flickos/switch/apps.json
+msgid "Finds and fills in music files' tags."
+msgstr ""
+
+#. Translators: Why GIMP can take the place of Adobe Photoshop.
+#: usr/share/flickos/switch/apps.json
+msgid ""
+"Edits photos and pictures with layers, masks and filters, and opens .psd "
+"files."
+msgstr ""
+
+#. Translators: Why Krita can take the place of Adobe Photoshop.
+#: usr/share/flickos/switch/apps.json
+msgid "Paints and draws, and opens .psd files."
+msgstr ""
+
+#. Translators: Why Pinta can take the place of Adobe Photoshop.
+#: usr/share/flickos/switch/apps.json
+msgid "Simple picture editing, quick to learn."
+msgstr ""
+
+#. Translators: Why darktable can take the place of Adobe Lightroom.
+#: usr/share/flickos/switch/apps.json
+msgid "Develops and sorts raw photos, like Lightroom."
+msgstr ""
+
+#. Translators: Why Inkscape can take the place of Adobe Illustrator.
+#: usr/share/flickos/switch/apps.json
+msgid "Draws vector graphics, and opens .ai and .svg files."
+msgstr ""
+
+#. Translators: Why Scribus can take the place of Adobe InDesign.
+#: usr/share/flickos/switch/apps.json
+msgid "Lays out magazines, brochures and posters for print."
+msgstr ""
+
+#. Translators: Why GIMP can take the place of Adobe Creative Cloud.
+#: usr/share/flickos/switch/apps.json
+msgid "Edits photos and pictures, like Photoshop."
+msgstr ""
+
+#. Translators: Why Inkscape can take the place of Adobe Creative Cloud.
+#: usr/share/flickos/switch/apps.json
+msgid "Draws vector graphics, like Illustrator."
+msgstr ""
+
+#. Translators: Why darktable can take the place of Adobe Creative Cloud.
+#: usr/share/flickos/switch/apps.json
+msgid "Develops raw photos, like Lightroom."
+msgstr ""
+
+#. Translators: Why Kdenlive can take the place of Adobe Creative Cloud.
+#: usr/share/flickos/switch/apps.json
+msgid "Edits video, like Premiere Pro."
+msgstr ""
+
+#. Translators: Why Pinta can take the place of Paint.NET.
+#: usr/share/flickos/switch/apps.json
+msgid "Simple picture editing, made after Paint.NET."
+msgstr ""
+
+#. Translators: Why GIMP can take the place of Paint.NET.
+#: usr/share/flickos/switch/apps.json
+msgid "Edits photos and pictures with layers and filters."
+msgstr ""
+
+#. Translators: Why gThumb can take the place of IrfanView.
+#: usr/share/flickos/switch/apps.json
+msgid "Shows, sorts and edits a folder of pictures."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS shows pictures itself: double-click one."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Canva on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Figma on the web"
+msgstr ""
+
+#. Translators: Why Krita can take the place of Affinity.
+#: usr/share/flickos/switch/apps.json
+msgid "Paints and edits pictures."
+msgstr ""
+
+#. Translators: Why Inkscape can take the place of Affinity.
+#: usr/share/flickos/switch/apps.json
+msgid "Draws vector graphics."
+msgstr ""
+
+#. Translators: Why Inkscape can take the place of CorelDRAW.
+#: usr/share/flickos/switch/apps.json
+msgid "Draws vector graphics, and opens many CorelDRAW files."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "SketchUp on the web"
+msgstr ""
+
+#. Translators: Why FreeCAD can take the place of SketchUp.
+#: usr/share/flickos/switch/apps.json
+msgid "Designs objects and buildings in 3D."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "AutoCAD on the web"
+msgstr ""
+
+#. Translators: Why LibreCAD can take the place of AutoCAD.
+#: usr/share/flickos/switch/apps.json
+msgid "Draws 2D plans and opens .dxf files."
+msgstr ""
+
+#. Translators: Why FreeCAD can take the place of AutoCAD.
+#: usr/share/flickos/switch/apps.json
+msgid "Designs objects in 3D."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid ""
+"FlickOS takes screenshots and screen recordings itself: press Print Screen."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Many Windows games run in Steam on FlickOS."
+msgstr ""
+
+#. Translators: Why Heroic Games Launcher can take the place of Epic Games Launcher.
+#: usr/share/flickos/switch/apps.json
+msgid "Installs and plays your Epic, GOG and Amazon games."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Fortnite's anti-cheat doesn't work on Linux."
+msgstr ""
+
+#. Translators: Why Heroic Games Launcher can take the place of GOG GALAXY.
+#: usr/share/flickos/switch/apps.json
+msgid "Installs and plays your GOG, Epic and Amazon games."
+msgstr ""
+
+#. Translators: Why Lutris can take the place of EA app.
+#: usr/share/flickos/switch/apps.json
+msgid "Installs games from many stores, the EA app's among them."
+msgstr ""
+
+#. Translators: Why Lutris can take the place of Ubisoft Connect.
+#: usr/share/flickos/switch/apps.json
+msgid "Installs games from many stores, Ubisoft Connect's among them."
+msgstr ""
+
+#. Translators: Why Lutris can take the place of Battle.net.
+#: usr/share/flickos/switch/apps.json
+msgid "Installs games from many stores, Battle.net's among them."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "VALORANT's anti-cheat doesn't work on Linux."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "League of Legends' anti-cheat doesn't work on Linux."
+msgstr ""
+
+#. Translators: Why Prism Launcher can take the place of Minecraft.
+#: usr/share/flickos/switch/apps.json
+msgid "Plays Minecraft: Java Edition with your Microsoft account."
+msgstr ""
+
+#. Translators: Why Sober can take the place of Roblox.
+#: usr/share/flickos/switch/apps.json
+msgid "An unofficial way to play Roblox on Linux."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Xbox Cloud Gaming"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "GeForce NOW on the web"
+msgstr ""
+
+#. Translators: Why Lutris can take the place of Playnite.
+#: usr/share/flickos/switch/apps.json
+msgid "Keeps your games from many stores in one place."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Windows drivers don't work on FlickOS."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "OneDrive on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Google Drive on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "MEGA on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "MEGA has a Linux version on its website."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "pCloud on the web"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "pCloud has a Linux version on its website."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS connects to Android phones itself: turn on Phone in Settings."
+msgstr ""
+
+#. Translators: A kind of program, after "is": "MBSetup.exe is antivirus software for Windows."
+#: usr/share/flickos/switch/apps.json
+msgid "printer software"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid ""
+"Most printers work on FlickOS without their Windows software: connect one "
+"and print."
+msgstr ""
+
+#. Translators: A kind of program, after "is": "MBSetup.exe is antivirus software for Windows."
+#: usr/share/flickos/switch/apps.json
+msgid "a graphics driver"
+msgstr ""
+
+#. Translators: A kind of program, after "is": "MBSetup.exe is antivirus software for Windows."
+#: usr/share/flickos/switch/apps.json
+msgid "software for a mouse, keyboard or headset"
+msgstr ""
+
+#. Translators: Why Piper can take the place of software for a mouse, keyboard or headset.
+#: usr/share/flickos/switch/apps.json
+msgid "Sets up gaming mice: buttons, lights and speed."
+msgstr ""
+
+#. Translators: Why Solaar can take the place of software for a mouse, keyboard or headset.
+#: usr/share/flickos/switch/apps.json
+msgid "Pairs and sets up Logitech's wireless mice and keyboards."
+msgstr ""
+
+#. Translators: A kind of program, after "is": "MBSetup.exe is antivirus software for Windows."
+#: usr/share/flickos/switch/apps.json
+msgid "antivirus software"
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid ""
+"Windows antivirus programs don't work on FlickOS. Keep FlickOS's updates on "
+"in Settings."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "NordVPN has a Linux version on its website."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "ExpressVPN has a Linux version on its website."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "KeePassXC opens KeePass's password files."
+msgstr ""
+
+#. Translators: Why PeaZip can take the place of 7-Zip.
+#: usr/share/flickos/switch/apps.json
+msgid "Opens and makes archives of every kind."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS opens zip, 7z and rar files itself: double-click one."
+msgstr ""
+
+#. Translators: Why BleachBit can take the place of CCleaner.
+#: usr/share/flickos/switch/apps.json
+msgid "Deletes caches and other files you don't need."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS doesn't need a cleaner to stay fast."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Software removes apps completely: open it, then Installed."
+msgstr ""
+
+#. Translators: Why Catfish can take the place of Everything.
+#: usr/share/flickos/switch/apps.json
+msgid "Finds files by name, as you type."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS can tile windows itself: turn on tiling in Settings."
+msgstr ""
+
+#. Translators: Why Impression can take the place of Rufus.
+#: usr/share/flickos/switch/apps.json
+msgid "Writes a system image, such as FlickOS's, to a USB stick."
+msgstr ""
+
+#. Translators: Why CPU-X can take the place of CPU-Z.
+#: usr/share/flickos/switch/apps.json
+msgid "Shows what is inside the computer, like CPU-Z."
+msgstr ""
+
+#. Translators: Why Disks can take the place of CrystalDiskInfo.
+#: usr/share/flickos/switch/apps.json
+msgid "Shows a disk's health and speed, and formats drives."
+msgstr ""
+
+#. Translators: Why qBittorrent can take the place of µTorrent.
+#: usr/share/flickos/switch/apps.json
+msgid "Downloads torrents, without ads."
+msgstr ""
+
+#. Translators: Why FileZilla can take the place of WinSCP.
+#: usr/share/flickos/switch/apps.json
+msgid "Copies files to and from servers over SFTP and FTP."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS's file manager opens sftp:// addresses too."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "FlickOS's terminal has ssh: open the terminal and type ssh user@host."
+msgstr ""
+
+#. Translators: Why Kate can take the place of Notepad++.
+#: usr/share/flickos/switch/apps.json
+msgid "A text editor for code, with tabs, plugins and many languages."
+msgstr ""
+
+#. Translators: Why Visual Studio Code can take the place of Notepad++.
+#: usr/share/flickos/switch/apps.json
+msgid "A code editor with extensions for every language."
+msgstr ""
+
+#. Translators: Why Visual Studio Code can take the place of Visual Studio.
+#: usr/share/flickos/switch/apps.json
+msgid "A code editor with C# and .NET extensions."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Python 3 is already on FlickOS: type python3 in the terminal."
+msgstr ""
+
+#. Translators: Why GitHub Desktop can take the place of Git for Windows.
+#: usr/share/flickos/switch/apps.json
+msgid "Works with Git repositories in a window."
+msgstr ""
+
+#. Translators: Why Boxes can take the place of VirtualBox.
+#: usr/share/flickos/switch/apps.json
+msgid "Runs other systems, Windows too, in a window."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Java comes with the Linux apps that need it."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Google Earth on the web"
+msgstr ""
+
+#. Translators: Why Google Earth Pro can take the place of Google Earth.
+#: usr/share/flickos/switch/apps.json
+msgid "Google Earth Pro, made for Linux."
+msgstr ""
+
+#: usr/share/flickos/switch/apps.json
+msgid "Audible on the web"
+msgstr ""

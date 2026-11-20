@@ -1,0 +1,24 @@
+Source: flickos-kit-study
+Section: education
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-study
+Architecture: all
+Depends: xournalpp,
+         labplot,
+         kwordquiz,
+         artha,
+         ${misc:Depends}
+Description: FlickOS kit: apps for students
+ Apps for studying from Debian, for secondary school and university:
+ Xournal++ (handwritten notes, and writing on PDFs), LabPlot (graphs and
+ data), KWordQuiz (flashcards) and Artha (an English dictionary and
+ thesaurus that works offline).
+ .
+ A kit is installed from Software and removed there too. Nothing it
+ installs runs until it is used (docs/design/flickos-dev.md, Q16).

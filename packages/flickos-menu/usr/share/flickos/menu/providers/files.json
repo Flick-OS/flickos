@@ -1,0 +1,9 @@
+{
+  "name": "Files",
+  "kind": "live",
+  "prefix": "/",
+  "limit": 20,
+  "output": "paths",
+  "command": ["fdfind", "--threads", "2", "--fixed-strings", "--ignore-case", "--absolute-path",
+              "--print0", "--max-results", "20", "--"]
+}

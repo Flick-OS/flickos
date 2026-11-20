@@ -117,6 +117,12 @@ class ShippedLayoutsTest(unittest.TestCase):
                     self.assertIn(module, bar.get("modules-right", []))
                 self.assertEqual(layout.quick, f"{bar.get('position', 'top')}-right")
 
+    def test_menu_arrows(self):
+        """Only where the apps button stays put and has been measured."""
+        self.assertEqual({layout.id: layout.menu_arrow for layout in self.layouts.values()
+                          if layout.menu_arrow is not None},
+                         {"redmond": "23 32", "traditional": "23"})
+
     def test_start_menu_styles(self):
         """Each layout has its own kind of start menu."""
         self.assertEqual({layout.id: layout.menu_style for layout in self.layouts.values()},
@@ -150,6 +156,8 @@ class ShippedLayoutsTest(unittest.TestCase):
                     for path in bar.get("include", []):
                         self.assertTrue(os.path.isabs(path) and os.path.isfile(path), path)
                 self.assertEqual(len({bar.get("name") for bar in bars}), len(bars), "bar names must differ")
+                for bar in bars:
+                    self.assertNotIn(bar.get("name"), fl.THEMED_CLASSES)
 
     def test_one_tray_and_one_launcher(self):
         for layout in self.layouts.values():
@@ -238,9 +246,32 @@ class ShippedLayoutsTest(unittest.TestCase):
         self.assertEqual(self.layouts["traditional"].desktops, 4)
 
     def css_files(self):
-        files = [os.path.join(LAYOUTS, "common/base.css")]
+        files = [os.path.join(LAYOUTS, "common/base.css"), os.path.join(LAYOUTS, "common/buttons.css")]
         files += [layout.style for layout in self.layouts.values()]
         return files + [layout.dock_style for layout in self.layouts.values() if layout.dock]
+
+    def test_built_in_layouts_share_the_buttons(self):
+        """Only the built-in layouts: the styles' layouts draw their own from base.css."""
+        for layout_id in ("redmond", "cupertino", "traditional"):
+            imports = re.findall(r'@import\s+url\("([^"]+)"\)', read(self.layouts[layout_id].style))
+            self.assertEqual(imports, ["../common/base.css", "../common/buttons.css"], layout_id)
+        self.assertNotIn("buttons.css", read(os.path.join(LAYOUTS, "common/base.css")))
+
+    def test_floating_panel_leaves_the_buttons_alone(self):
+        """One margin fits both shapes: a change while it slides would move them."""
+        for name in ("floating.css", "floating-full.css"):
+            self.assertNotIn("#taskbar", read(os.path.join(LAYOUTS, "redmond", name)), name)
+
+    def test_redmond_is_see_through_only_while_it_floats(self):
+        """A plain panel and one that fills the screen look the same: solid."""
+        def background(name, selector):
+            text = re.sub(r"/\*.*?\*/", "", read(os.path.join(LAYOUTS, "redmond", name)), flags=re.S)
+            rule = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", text).group(1)
+            return re.search(r"background:\s*([^;]+);", rule).group(1)
+        self.assertEqual(background("style.css", "window#waybar"), "@wm_bg")
+        self.assertEqual(background("floating-full.css", "window#waybar > box"), "@wm_bg")
+        self.assertEqual(background("floating.css", "window#waybar"), "transparent")
+        self.assertIn("alpha(@wm_bg", background("floating.css", "window#waybar > box"))
 
     def test_css_imports_exist(self):
         for path in self.css_files():
@@ -509,6 +540,105 @@ class DockTest(EngineTest):
             fl.update_dock(self.root, self.layout("sf"), self.style(), menu=True)
         self.assertNotIn("Exec", read(f"{self.root}/dock/sfwbar.config"))
 
+    def pinned(self, *args):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            status = fl.main(["pinned", *args])
+        return status, out.getvalue()
+
+    def generated_pins(self):
+        with self.quiet():
+            fl.update_dock(self.root, self.layout("sf"), self.style())
+        found = re.search(r"(?m)^\s*pins = (.*)$", read(f"{self.root}/dock/sfwbar.config"))
+        return found.group(1) if found else None
+
+    def test_users_pins_replace_the_layouts(self):
+        self.make_sfwbar_layout()
+        self.app("editor.desktop")
+        self.assertEqual(self.generated_pins(), '"web", "q\\"x"')
+        self.assertEqual(self.pinned("add", "--layout", "sf", "editor.desktop")[0], 0)
+        self.assertEqual(self.generated_pins(), '"web", "q\\"x", "editor"')
+        self.assertEqual(self.pinned("remove", "--layout", "sf", "web.desktop")[0], 0)
+        self.assertEqual(self.pinned("add", "--layout", "sf", "--first", "web.desktop")[0], 0)
+        self.assertEqual(self.generated_pins(), '"web", "q\\"x", "editor"')
+        self.assertEqual(self.pinned("list", "--layout", "sf"),
+                         (0, 'web.desktop\tweb.desktop\nq"x.desktop\tq"x.desktop\neditor.desktop\teditor.desktop\n'))
+        self.assertEqual(self.pinned("set", "--layout", "sf", "")[0], 0)
+        self.assertIsNone(self.generated_pins())
+        self.assertEqual(self.pinned("set", "--layout", "sf", "default")[0], 0)
+        self.assertEqual(self.generated_pins(), '"web", "q\\"x"')
+        self.assertFalse(os.path.exists(fl.pins_path()))
+
+    def test_pinned_takes_a_windows_app_id(self):
+        """The dock's right-click menu sends the app id sfwbar shows: the
+        desktop id without .desktop, differing in case, or a StartupWMClass."""
+        self.make_sfwbar_layout()
+        self.app("files.desktop")
+        self.app("fm.desktop", "StartupWMClass=Thunar\n")
+        self.app("hidden.desktop", "NoDisplay=true\nHidden=true\n")
+        self.assertEqual(self.pinned("add", "--layout", "sf", "Files")[0], 0)           # case
+        self.assertEqual(self.generated_pins(), '"web", "q\\"x", "files"')
+        self.assertEqual(self.pinned("add", "--layout", "sf", "thunar")[0], 0)         # StartupWMClass
+        self.assertEqual(self.generated_pins(), '"web", "q\\"x", "files", "fm"')
+        self.assertEqual(self.pinned("remove", "--layout", "sf", "web")[0], 0)         # without .desktop
+        self.assertEqual(self.pinned("remove", "--layout", "sf", "Thunar")[0], 0)
+        self.assertEqual(self.generated_pins(), '"q\\"x", "files"')
+        self.assertEqual(self.pinned("add", "--layout", "sf", "hidden")[0], 1)
+        self.assertEqual(self.pinned("add", "--layout", "sf", "nothing")[0], 1)
+        self.assertEqual(self.pinned("add", "--layout", "sf", "a/b")[0], 1)
+        self.assertEqual(self.pinned("remove", "--layout", "sf", "editor")[0], 1)
+
+    def test_pins_are_per_layout_and_recorded(self):
+        self.make_sfwbar_layout()
+        self.write("layouts/other/layout.ini", "[Layout]\nName=Other\nWaybar=waybar.jsonc\nStyle=style.css\n")
+        self.write("layouts/other/waybar.jsonc", '{"modules-left": ["flickos/pinned"]}\n')
+        self.write("layouts/other/style.css", "\n")
+        self.assertEqual(self.pinned("set", "--layout", "other", "web.desktop")[0], 0)
+        self.assertEqual(self.generated_pins(), '"web", "q\\"x"')
+        self.assertEqual(fl.read_user_pins(), {"other": ["web.desktop"]})
+        history = [json.loads(line) for line in read(self.path("home/.local/state/flickos/history.jsonl"))
+                   .splitlines()]
+        self.assertEqual([(e["key"], e["old"], e["new"]) for e in history],
+                         [("pinned.other", "default", "web.desktop")])
+
+    def test_pinned_refuses(self):
+        self.make_sfwbar_layout()
+        self.make_layout("plain")
+        self.assertEqual(self.pinned("list", "--layout", "plain")[0], 1)      # shows no pins
+        self.assertEqual(self.pinned("list", "--layout", "nope")[0], 1)
+        self.assertEqual(self.pinned("add", "--layout", "sf", "missing.desktop")[0], 1)
+        self.assertEqual(self.pinned("add", "--layout", "sf", "web.desktop")[0], 1)     # pinned already
+        self.assertEqual(self.pinned("remove", "--layout", "sf", "editor.desktop")[0], 1)
+        self.assertEqual(self.pinned("set", "--layout", "sf", "../x.desktop")[0], 1)
+        self.assertEqual(self.pinned("set", "--layout", "sf", "web.desktop;web.desktop")[0], 1)
+        self.assertFalse(os.path.exists(fl.pins_path()))
+
+    def test_plain_session_ignores_and_keeps_the_users_pins(self):
+        self.make_sfwbar_layout()
+        self.assertEqual(self.pinned("set", "--layout", "sf", "")[0], 0)
+        with mock.patch.dict(os.environ, {fl.PLAIN_ENV: "1"}):
+            self.assertEqual(self.generated_pins(), '"web", "q\\"x"')
+            self.assertEqual(self.pinned("set", "--layout", "sf", "default")[0], 1)
+        self.assertEqual(fl.read_user_pins(), {"sf": []})
+
+    def test_broken_pins_file_means_the_layouts(self):
+        self.make_sfwbar_layout()
+        self.write("home/.config/flickos/pinned", "[Pinned\nsf=\n")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.generated_pins(), '"web", "q\\"x"')
+
+    def test_state_has_the_pinned_apps(self):
+        self.make_sfwbar_layout()
+        self.set_user_choice("sf")
+        self.app("editor.desktop", name="Editor", icon="accessories-text-editor")
+        self.assertEqual(self.pinned("set", "--layout", "sf", "editor.desktop;missing.desktop")[0], 0)
+        with self.quiet():
+            pinned = fl.state()["pinned"]
+        self.assertEqual(pinned, {"layout": "sf", "name": "Sf", "shown": True, "dock": True, "default": False,
+                                  "ids": ["editor.desktop", "missing.desktop"],
+                                  "apps": [{"id": "editor.desktop", "name": "Editor",
+                                            "icon": "accessories-text-editor"}]})
+
     def test_dock_needs_a_style(self):
         self.write("layouts/nostyle/layout.ini", "[Layout]\nName=N\nWaybar=w\nStyle=s\nDock=dock.config\n")
         with contextlib.redirect_stderr(io.StringIO()) as err:
@@ -625,6 +755,117 @@ class ShippedPanelTest(EngineTest):
         self.assertEqual(phone["signal"], 9)            # flickos-phone's PANEL_SIGNAL
         self.assertNotEqual(phone["signal"], modules["custom/tiler"]["signal"])
 
+    def test_media_buttons_in_every_layout(self):
+        """Before the phone's button and the tiling button, in their order, in
+        every shipped layout; defined in the include."""
+        modules = fl.load_jsonc(os.path.join(LAYOUTS, "common", "modules.jsonc"))
+        with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
+                mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
+            for layout in fl.layouts().values():
+                bars = fl.load_bars(layout)
+                self.assertIsNotNone(fl.use_media(bars), layout.id)
+                fl.use_phone(bars)
+                found = [m for bar in bars for m in bar_modules(bar)]
+                i = found.index(fl.MEDIA_MODULES[0])
+                self.assertEqual(found[i:i + len(fl.MEDIA_MODULES) + 1], [*fl.MEDIA_MODULES, fl.PHONE_MODULE],
+                                 layout.id)
+                for module in fl.MEDIA_MODULES:
+                    self.assertTrue(any(fl.included_module(bar, module) for bar in bars), (layout.id, module))
+                    self.assertEqual(found.count(module), 1, layout.id)
+                fl.use_media(bars)                          # twice: still once each
+                self.assertEqual([m for bar in bars for m in bar_modules(bar)].count(fl.MEDIA_MODULES[0]), 1)
+        for module in fl.MEDIA_MODULES:
+            self.assertIn(module, modules)
+
+    def test_media_buttons_only_while_on(self):
+        with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
+                mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
+            layout = fl.layouts()["redmond"]
+            for media in (False, True):
+                fl.update_waybar(self.root, layout, self.style(), media=media)
+                self.assertEqual("custom/media-title" in read(f"{self.root}/waybar/config.jsonc"), media)
+
+    def test_media_on_asks_flickos_media(self):
+        answer = lambda out, code=0: mock.Mock(return_value=mock.Mock(stdout=out, returncode=code))
+        with mock.patch.object(fl.shutil, "which", return_value="/usr/bin/flickos-media"):
+            with mock.patch.object(fl.subprocess, "run", answer("on\n")) as run:
+                self.assertTrue(fl.media_on())
+            self.assertEqual(run.call_args.args[0], [fl.MEDIA, "get", "controls"])
+            with mock.patch.object(fl.subprocess, "run", answer("off\n")):
+                self.assertFalse(fl.media_on())
+            with mock.patch.object(fl.subprocess, "run", side_effect=OSError("gone")):
+                self.assertFalse(fl.media_on())
+        self.assertFalse(fl.media_on())                 # no flickos-media (the tests' MEDIA)
+
+    def test_weather_where_the_layout_says(self):
+        """While on, the placeholder becomes the button; a layout without one
+        gets it before the tiling button. While off, nothing of it."""
+        bars = [{"modules-left": ["flickos/weather", "clock"], "modules-right": ["custom/tiler", "tray"]},
+                {"modules-right": ["flickos/weather"]}]
+        off = json.loads(json.dumps(bars))
+        self.assertIs(fl.use_weather(bars, True), bars[0])
+        self.assertEqual(bars[0]["modules-left"], ["custom/weather", "clock"])
+        self.assertEqual(bars[1]["modules-right"], ["custom/weather"])
+        self.assertIsNone(fl.use_weather(off, False))
+        self.assertEqual((off[0]["modules-left"], off[1]["modules-right"]), (["clock"], []))
+        plain = [{"modules-right": ["clock", "custom/tiler", "tray"]}]
+        self.assertIs(fl.use_weather(plain, True), plain[0])
+        self.assertEqual(plain[0]["modules-right"], ["clock", "custom/weather", "custom/tiler", "tray"])
+        nothing = [{"modules-right": ["clock", "custom/tiler"]}]
+        self.assertIsNone(fl.use_weather(nothing, False))
+        self.assertEqual(nothing[0]["modules-right"], ["clock", "custom/tiler"])
+
+    def test_weather_button_only_while_on(self):
+        modules = fl.load_jsonc(os.path.join(LAYOUTS, "common", "modules.jsonc"))
+        self.assertEqual(modules[fl.WEATHER_MODULE]["exec"], "flickos-weather panel")
+        with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
+                mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
+            for layout in fl.layouts().values():
+                for weather in (False, True):
+                    fl.update_waybar(self.root, layout, self.style(), weather=weather)
+                    config = read(f"{self.root}/waybar/config.jsonc")
+                    self.assertEqual(config.count('"custom/weather"'), int(weather), (layout.id, weather))
+                    self.assertNotIn("flickos/weather", config, layout.id)
+
+    def test_weather_on_asks_flickos_weather(self):
+        answer = lambda out, code=0: mock.Mock(return_value=mock.Mock(stdout=out, returncode=code))
+        with mock.patch.object(fl.shutil, "which", return_value="/usr/bin/flickos-weather"):
+            with mock.patch.object(fl.subprocess, "run", answer("on\n")) as run:
+                self.assertTrue(fl.weather_on())
+            self.assertEqual(run.call_args.args[0], [fl.WEATHER, "get", "enabled"])
+            with mock.patch.object(fl.subprocess, "run", answer("off\n")):
+                self.assertFalse(fl.weather_on())
+            with mock.patch.object(fl.subprocess, "run", side_effect=OSError("gone")):
+                self.assertFalse(fl.weather_on())
+        self.assertFalse(fl.weather_on())               # no flickos-weather (the tests' WEATHER)
+
+    def test_classroom_on_asks_flickos_classroom_view(self):
+        answer = lambda out, code=0: mock.Mock(return_value=mock.Mock(stdout=out, returncode=code))
+        with mock.patch.object(fl.shutil, "which", return_value="/usr/bin/flickos-classroom-view"), \
+                mock.patch.object(fl, "live_system", return_value=False):
+            with mock.patch.object(fl.subprocess, "run", answer("on\n")) as run:
+                self.assertTrue(fl.classroom_on())
+            self.assertEqual(run.call_args.args[0], [fl.CLASSROOM, "student", "get", "sharing"])
+            with mock.patch.object(fl.subprocess, "run", answer("off\n")):
+                self.assertFalse(fl.classroom_on())
+            with mock.patch.object(fl.subprocess, "run", side_effect=OSError("gone")):
+                self.assertFalse(fl.classroom_on())
+            with mock.patch.object(fl, "live_system", return_value=True), \
+                    mock.patch.object(fl.subprocess, "run", answer("on\n")):
+                self.assertFalse(fl.classroom_on())
+
+    def test_classroom_button_only_while_sharing(self):
+        """flickos-classroom-view's ADR-004: in every layout while on, never hidden."""
+        modules = fl.load_jsonc(os.path.join(LAYOUTS, "common", "modules.jsonc"))
+        self.assertEqual(modules[fl.CLASSROOM_MODULE]["exec"], "flickos-classroom-view student panel")
+        with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
+                mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
+            for layout in fl.layouts().values():
+                for on in (False, True):
+                    fl.update_waybar(self.root, layout, self.style(), classroom=on)
+                    config = read(f"{self.root}/waybar/config.jsonc")
+                    self.assertEqual(config.count('"custom/classroom"'), int(on), (layout.id, on))
+
     def test_phone_on_asks_flickos_phone(self):
         answer = lambda out, code=0: mock.Mock(return_value=mock.Mock(stdout=out, returncode=code))
         with mock.patch.object(fl.shutil, "which", return_value="/usr/bin/flickos-phone"), \
@@ -652,10 +893,20 @@ class InterfaceTest(unittest.TestCase):
     change this list together with the rule (docs/hig/06-visual-style.md)."""
 
     MODULES = ("custom/launcher", "custom/desktop", "custom/tiler", "custom/phone", "custom/recording",
-               "wlr/taskbar", "clock", "wireplumber", "battery", "tray")
-    SIGNALS = {"custom/tiler": 8, "custom/phone": 9, "custom/recording": 10}
+               "custom/media-previous", "custom/media-play", "custom/media-next", "custom/media-title",
+               "custom/media-spectrum", "custom/weather", "wlr/taskbar", "clock", "wireplumber", "battery", "tray")
+    SIGNALS = {"custom/tiler": 8, "custom/phone": 9, "custom/recording": 10, "custom/media-previous": 12,
+               "custom/media-play": 12, "custom/media-next": 12, "custom/media-spectrum": 12,
+               "custom/weather": 13, "custom/classroom": 14}
     # Classes FlickOS's buttons set, as base.css styles them.
-    CLASSES = ("#custom-tiler.off", "#custom-phone.waiting", "#custom-recording.recording", "#custom-desk.active")
+    CLASSES = ("#custom-tiler.off", "#custom-phone.waiting", "#custom-recording.recording", "#custom-desk.active",
+               "#custom-media-play.playing", "#custom-media-title.paused", "#custom-media-spectrum.off",
+               "#custom-media-spectrum.on.top", "#custom-media-title.scrolling", "#custom-weather.stale",
+               "#custom-weather.unset", "#custom-weather.clear", "#custom-weather.clear-night",
+               "#custom-weather.few-clouds", "#custom-weather.few-clouds-night", "#custom-weather.overcast",
+               "#custom-weather.fog", "#custom-weather.showers-scattered", "#custom-weather.showers",
+               "#custom-weather.snow", "#custom-weather.storm", "#custom-classroom.looking",
+               "#custom-classroom.unpaired")
 
     def test_shared_files(self):
         for name in ("modules.jsonc", "base.css"):
@@ -669,11 +920,15 @@ class InterfaceTest(unittest.TestCase):
         for name, number in self.SIGNALS.items():
             self.assertEqual(modules[name]["signal"], number, name)
         self.assertEqual(fl.DESKTOPS_SIGNAL, 11)
-        self.assertEqual(fl.PANEL_SIGNALS.keys(), {8, 9, 10, 11})
+        self.assertEqual(fl.MEDIA_SIGNAL, 12)
+        self.assertEqual(fl.WEATHER_SIGNAL, 13)
+        self.assertEqual(fl.CLASSROOM_SIGNAL, 14)
+        self.assertEqual(fl.PANEL_SIGNALS.keys(), {8, 9, 10, 11, 12, 13, 14})
 
     def test_placeholders_and_groups(self):
         self.assertEqual((fl.PINNED_MODULE, fl.PIN_MODULE), ("flickos/pinned", "custom/pin"))
         self.assertEqual((fl.DESKTOPS_MODULE, fl.DESK_MODULE), ("flickos/desktops", "custom/desk"))
+        self.assertEqual((fl.WEATHER_PLACEHOLDER, fl.WEATHER_MODULE), ("flickos/weather", "custom/weather"))
         self.assertEqual(fl.QUICK_GROUP, "group/quick")
 
     def test_classes_styled(self):

@@ -20,7 +20,12 @@ Description: Seven style for the FlickOS desktop
  A light style for FlickOS: windows in the Arc theme with the Numix icons,
  see-through sky blue title bars and frames, a see-through dark blue
  panel, a black terminal, a light app launcher and notifications, and a
- sky wallpaper with FlickOS's halo. It suits the Redmond layout.
+ sky wallpaper with FlickOS's halo.
+ .
+ Its layout has one see-through panel at the bottom: a round glossy start
+ button, large window icons in glass boxes, the status and a two-line
+ clock.
  .
  Installing it adds Seven to Desktop Layout & Style, next to Dark and
- Light; "flickos-layout try seven" shows it until the next login.
+ Light; Software's Use sets the style and the layout together, and
+ "flickos-layout try seven" shows the style until the next login.

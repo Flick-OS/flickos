@@ -1,0 +1,14 @@
+/* Experience: a blue panel, a lighter blue notification area (base_color)
+ * and a green Start button (selected_bg_color; tools/make-experience.py).
+ * Same names as the Dark style's waybar-colors.css. */
+@define-color wm_bg #2157d0;
+@define-color bg_color #163f9c;
+@define-color base_color #1576cf;
+@define-color fg_color #ffffff;
+@define-color selected_bg_color #3a993a;
+@define-color selected_fg_color #ffffff;
+@define-color borders #0c2f7a;
+@define-color warning_color #f7a21b;
+@define-color error_color #e0432b;
+/* FlickOS's brand amber: only the start button's logo (base.css). */
+@define-color brand_color #ffb13d;

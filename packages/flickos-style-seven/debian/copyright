@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: flickos-style-seven
 Upstream-Contact: Jon <dvbondoy@gmail.com>
-Source: https://github.com/dvbondoy/FlickOS
+Source: https://github.com/Flick-OS/flickos
 
 Files: *
 Copyright: 2026 Jon <dvbondoy@gmail.com>

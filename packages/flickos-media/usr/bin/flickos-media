@@ -1,0 +1,1553 @@
+#!/usr/bin/python3
+"""Media controls: previous, play or pause, next and what is playing in the
+panel, and a sound spectrum that moves with the sound: bars just above the
+panel, or around a ring in the middle of the screen.
+
+Off by default (HIG INT-9): `set controls on` has flickos-layout put the
+panel buttons in (flickos-layouts' custom/media-* modules, inserted by
+flickos-layout while `get controls` says on), and nothing of it runs while
+off. The buttons show only while an app plays or has paused something (any
+MPRIS player: Firefox, VLC, music players), not for a stopped one. An app
+that says it plays but has had no audio stream in PipeWire for
+SILENT_SECONDS counts as stopped: Firefox keeps saying Playing for a video
+its page took away. The spectrum is a second choice,
+off until the panel's spectrum button or Settings turns it on; a right click
+on that button keeps the strip behind windows (the default) or over them; the
+ring is always behind them. Design and measurements:
+docs/design/flickos-media.md.
+
+How it runs. waybar runs `follow` for the title module (a program whose lines
+waybar reads as they come). The follower watches every player with one
+`playerctl --follow`, which prints only when something changes (no polling,
+HIG PERF-5), and prints the title for its module; a title longer than
+TITLE_CHARS scrolls through once when its track plays, one line every
+SCROLL_SECONDS (the only timer, and only then). One follower per session
+holds follow.lock (waybar runs a module's program once per screen); it writes
+the other buttons' JSON into $XDG_RUNTIME_DIR/flickos/media/panel/, whose
+modules only `cat` it, and sends waybar SIGRTMIN+PANEL_SIGNAL so they read it
+again at once. While a player says Playing it also runs `pw-dump --monitor`
+(AudioWatch), which prints only when PipeWire's objects change, and matches
+the player's process (its D-Bus name's) with the streams' (makes_sound).
+While the spectrum is on and a player plays, it runs `strip`,
+and stops it STOP_SECONDS after playing stops. Both end with waybar: the
+follower when its parent goes (PR_SET_PDEATHSIG) or its pipe to waybar
+closes, the strip and its cava when the follower goes. The follower says why
+it ended in the panel's log, and waybar starts it again after the module's
+restart-interval.
+
+The strip (`strip`) is one GTK 3 layer-shell surface per screen, anchored to
+the panel's edge with exclusive zone 0, so labwc places it just inside the
+panel's reserved room. It takes no input: clicks go through it. cava does the
+sound work (capture from PipeWire's monitor of the output, FFT, smoothing) and
+writes one byte per bar per frame; the strip draws the newest frame in the
+GTK theme's selection color (or a rainbow) when GTK's frame clock asks. labwc sends no frame
+callback to a surface an opaque window covers, so a hidden strip isn't drawn.
+Behind windows it is on the BOTTOM layer, over windows on TOP (a fullscreen
+window still covers it). cava's config and the shader copies it makes at
+every start are in the runtime folder, never in ~/.config. The ring
+(`strip --shape radial`) is one square surface per screen anchored to no edge,
+so labwc centers it, always on BOTTOM; clicks go through it too.
+
+Settings (the system's file /etc/xdg/flickos/media.conf, then the user's
+~/.config/flickos/media; `set KEY default` puts the system's back; every
+change is recorded for Settings > History):
+  controls        on | off     the panel's media buttons
+  spectrum        on | off     the spectrum above the panel while something plays
+  spectrum-layer  behind | top the strip behind windows, or over them
+  spectrum-shape  strip | radial  above the panel, or a ring in the middle of the screen
+  spectrum-colors style | rainbow  the style's selection color, or every color
+
+Commands:
+  get KEY | set KEY VALUE|default | toggle spectrum|spectrum-layer|spectrum-shape|spectrum-colors
+  state
+  previous | play-pause | next      the player the buttons show (playerctl)
+  follow                            (waybar) the follower, see above
+  strip [--edge top|bottom] [--shape strip|radial]   (the follower) the spectrum
+
+Exit status: 0 done, 1 failed (the message says why), 2 wrong arguments.
+"""
+
+import argparse
+import configparser
+import contextlib
+import ctypes
+import datetime
+import fcntl
+import json
+import math
+import os
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+
+NAME = "flickos-media"
+# FLICKOS_MEDIA_PREFIX: run from a source tree, e.g. packages/flickos-media.
+PREFIX = os.environ.get("FLICKOS_MEDIA_PREFIX", "")
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/media.conf"
+# flickos-control's: [History] Enabled=, then the user's ~/.config/flickos/history.
+HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+SECTION = "Media"
+DEFAULT_CHOICE = "default"
+
+# The settings: key -> (name in the files, values, built-in default).
+SETTINGS = {
+    "controls": ("Controls", ("on", "off"), "off"),
+    "spectrum": ("Spectrum", ("on", "off"), "off"),
+    "spectrum-layer": ("SpectrumLayer", ("behind", "top"), "behind"),
+    "spectrum-shape": ("SpectrumShape", ("strip", "radial"), "strip"),
+    "spectrum-colors": ("SpectrumColors", ("style", "rainbow"), "style"),
+}
+# What `toggle` turns each value into.
+TOGGLED = {"on": "off", "off": "on", "behind": "top", "top": "behind", "strip": "radial", "radial": "strip",
+           "style": "rainbow", "rainbow": "style"}
+
+PLAYERCTL = "playerctl"
+CAVA = "cava"
+LAYOUT = "flickos-layout"
+# The panel flickos-layout generates: which edge the media buttons' bar is on.
+WAYBAR_CONFIG = os.path.join("flickos", "waybar", "config.jsonc")    # in $XDG_RUNTIME_DIR
+TITLE_MODULE = "custom/media-title"
+# The buttons' files in panel/, one per module (flickos-layouts' modules.jsonc
+# cats them): custom/media-previous, -play, -next, -spectrum.
+BUTTONS = ("previous", "play", "next", "spectrum")
+PANEL_SIGNAL = 12           # waybar's SIGRTMIN+12; flick-tiler 8, phone 9, recording 10, desktops 11
+TITLE_CHARS = 24            # a longer title scrolls through once per track, then ends in …; the tooltip has all
+SCROLL_SECONDS = 0.35       # one character further each step
+SCROLL_HOLD = 6             # steps the start stays still: about 2 s to read it
+SCROLL_GAP = "   ·   "      # between the end of the title and its start again
+STOP_SECONDS = 3            # a short pause doesn't stop the strip and start it again
+SEP = "\x1f"                # between playerctl's fields: never in a title
+# playerInstance, not playerName: VLC's two names and two Firefox windows
+# all have the same playerName. The address names a file without tags.
+FOLLOW_FORMAT = SEP.join(("{{playerInstance}}", "{{status}}", "{{artist}}", "{{title}}", "{{xesam:url}}"))
+COMMAND_SECONDS = 5         # playerctl's one-off answers
+# Whether a player that says Playing makes a sound: PipeWire's audio output
+# streams, from pw-dump --monitor, run only while one says so. Firefox keeps
+# saying Playing for a video a page took away (Discord's channels).
+PW_DUMP = "pw-dump"
+BUSCTL = "busctl"           # the D-Bus name's process: GetConnectionUnixProcessID
+MPRIS_NAME = "org.mpris.MediaPlayer2."
+AUDIO_OUTPUT = "Stream/Output/Audio"
+SILENT_SECONDS = 5          # Playing without a sound this long counts as stopped
+PROC = "/proc"
+
+# The strip. 20 frames a second and 48 bars: about 6 % of one thread of a
+# 2014 laptop's i3 while shown, with labwc's share (the spike's table in the
+# design doc); the frame rate costs most, the number of bars hardly.
+STRIP_HEIGHT = 48           # pixels, above the panel
+BARS = 48
+FRAMERATE = 20
+SLEEP_SECONDS = 2           # cava stops writing after this much silence
+BAR_GAP = 0.25              # of each bar's slot
+NEAR_ALPHA, FAR_ALPHA = 0.85, 0.15   # strongest at the panel, fading away from it
+FALLBACK_COLOR = "#5294e2"  # Arc's selection blue, when the theme names none
+# The radial spectrum: a square in the middle of each screen, always behind
+# windows. The bars are mirrored left and right around a ring, the lowest
+# notes at the top.
+RADIAL_SHARE = 0.5          # of the screen's shorter side
+RING_INNER = 0.3            # the ring's radius, of the square's side
+RING_ALPHA = 0.25           # the ring itself, drawn thin
+# spectrum-colors rainbow (ADR-012): the hue goes once round the ring
+# clockwise, cyan at the top (the lowest notes) and red at the bottom; the
+# strip is the same wheel unrolled from the left, cyan to green. The ring is
+# white: no one hue matches every bar. Not the style's colors, so opt-in.
+RAINBOW_START = 0.5         # the hue at the top of the ring and the strip's left end: cyan
+RAINBOW_STRIP_TURN = 0.85   # how much of the wheel the strip shows, so its ends differ
+RAINBOW_SATURATION, RAINBOW_VALUE = 0.65, 0.95
+RAINBOW_SECTORS = 72        # the ring's hue wheel is drawn in this many slices
+RAINBOW_RING_ALPHA = 0.5    # white at 0.25 looks grey
+CAVA_CONFIG = """\
+; Written by flickos-media for its spectrum strip at every start.
+[general]
+bars = {bars}
+framerate = {framerate}
+sleep_timer = {sleep}
+autosens = 1
+[input]
+method = pipewire
+source = auto
+[output]
+method = raw
+raw_target = /dev/stdout
+data_format = binary
+bit_format = 8bit
+channels = mono
+"""
+
+PR_SET_PDEATHSIG = 1
+
+
+class MediaError(Exception):
+    pass
+
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+# --- Places ----------------------------------------------------------------------
+
+def home_dir(variable, *default):
+    return os.environ.get(variable) or os.path.join(os.path.expanduser("~"), *default)
+
+
+def config_home():
+    return home_dir("XDG_CONFIG_HOME", ".config")
+
+
+def state_home():
+    return home_dir("XDG_STATE_HOME", ".local", "state")
+
+
+def user_conf():
+    return os.path.join(config_home(), "flickos", "media")
+
+
+def runtime_base():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base) or not os.path.isdir(base):
+        raise MediaError("XDG_RUNTIME_DIR is not set")
+    return base
+
+
+def runtime_dir():
+    """$XDG_RUNTIME_DIR/flickos/media, created 0700."""
+    path = os.path.join(runtime_base(), "flickos", "media")
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    return path
+
+
+def write_atomic(path, text, mode=0o644):
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def die_with_parent():
+    """SIGTERM when the parent ends, even without a word from it (GTK exits at
+    once when labwc goes; waybar's sh -c may end before us)."""
+    with contextlib.suppress(OSError, AttributeError):
+        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+
+
+# --- Settings ----------------------------------------------------------------------
+
+def read_ini(path):
+    """{key: value} of one file. A file that can't be read counts as absent,
+    with a warning (SET-4); so does a value that isn't one of the key's."""
+    ini = configparser.ConfigParser(interpolation=None)
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return {}
+    if not ini.has_section(SECTION):
+        return {}
+    raw = {key.lower(): value.strip().lower() for key, value in ini[SECTION].items()}
+    values = {}
+    for key, (name, allowed, _default) in SETTINGS.items():
+        value = raw.get(name.lower(), "")
+        if value in allowed:
+            values[key] = value
+        elif value:
+            warn(f"{path}: {name}={value} isn't one of {', '.join(allowed)}; left out")
+    return values
+
+
+def load_settings():
+    """{key: value} in force: the user's file over the system's, over the
+    built-in defaults; and the keys the user chose."""
+    values = {key: default for key, (_name, _allowed, default) in SETTINGS.items()}
+    values.update(read_ini(SYSTEM_CONF))
+    user = read_ini(user_conf())
+    values.update(user)
+    return values, frozenset(user)
+
+
+def setting(key):
+    return load_settings()[0][key]
+
+
+def settings_state():
+    """What `state` prints: each setting's value, and whether it is the default."""
+    values, user = load_settings()
+    return {key: {"value": values[key], "default": key not in user} for key in SETTINGS}
+
+
+def save_settings(changes):
+    """Write changes ({key: value or None}) to the user's file. None removes a
+    key, so the system's applies again. A change that shows is recorded."""
+    before = load_settings()[0]
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+        ini.read(user_conf(), encoding="utf-8")
+    if not ini.has_section(SECTION):
+        ini.add_section(SECTION)
+    for key, value in changes.items():
+        name = SETTINGS[key][0]
+        for existing in list(ini[SECTION]):
+            if existing.lower() == name.lower():
+                ini.remove_option(SECTION, existing)
+        if value is not None:
+            ini[SECTION][name] = value
+    path = user_conf()
+    if ini[SECTION]:
+        lines = ["# Media controls (flickos-media). Change them with: flickos-media set KEY VALUE",
+                 "# VALUE default puts the system's back. Settings > Media Controls does the same.",
+                 f"[{SECTION}]"]
+        lines += [f"{key}={value}" for key, value in ini[SECTION].items()]
+        write_atomic(path, "\n".join(lines) + "\n")
+    else:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
+    after, user = load_settings()
+    for key in changes:
+        record(key, before[key], after[key] if key in user else DEFAULT_CHOICE)
+    return after
+
+
+def change_setting(key, value):
+    """`set KEY VALUE`, then what makes it show: the panel generated again for
+    controls, the follower told for the spectrum. Raises MediaError."""
+    _name, allowed, _default = SETTINGS[key]
+    if value != DEFAULT_CHOICE and value not in allowed:
+        raise MediaError(f"{key}: {', '.join(allowed)} or {DEFAULT_CHOICE}")
+    before = setting(key)
+    after = save_settings({key: None if value == DEFAULT_CHOICE else value})[key]
+    if after == before:
+        return after
+    if key == "controls":
+        reload_panel()
+    else:
+        tell_follower()
+    return after
+
+
+def reload_panel():
+    """The media buttons are in the panel only while controls is on: have
+    flickos-layout generate it again (only inside the session)."""
+    if not os.environ.get("WAYLAND_DISPLAY") or shutil.which(LAYOUT) is None:
+        return
+    try:
+        subprocess.run([LAYOUT, "reload-panel"], check=False, timeout=30,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def tell_follower():
+    """SIGUSR1 to the session's follower: read the settings again."""
+    with contextlib.suppress(MediaError):
+        pid = follower_pid()
+        if pid:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGUSR1)
+
+
+def follower_pid():
+    """The PID in follow.pid, if that process is our follower."""
+    try:
+        with open(os.path.join(runtime_dir(), "follow.pid"), encoding="utf-8") as f:
+            pid = int(f.read().strip())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            argv = f.read().split(b"\0")
+    except (OSError, ValueError):
+        return None
+    if any(os.path.basename(arg) == NAME.encode() for arg in argv[:2]) and b"follow" in argv:
+        return pid
+    return None
+
+
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007)."""
+    return key in SETTINGS
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
+
+
+# --- History ------------------------------------------------------------------------
+# One JSON line per change, appended. The format is shared with flickos-control,
+# flickos-layout, flick-tiler, flickos-phone and flickos-screenshot
+# (docs/design/flickos-history.md).
+
+HISTORY_OWNER = NAME
+HISTORY_FILE = "history.jsonl"      # in $XDG_STATE_HOME/flickos
+HISTORY_LOCK = "history.lock"
+HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
+
+
+def history_enabled():
+    enabled = True
+    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+            value = ini.get("History", "Enabled", fallback=None)
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+        if value is not None:
+            enabled = value.strip().lower() not in ("no", "false", "off", "0")
+    return enabled
+
+
+def record(key, old, new):
+    """Add a change to the history. It never stops the change itself: a
+    history that can't be written is only a warning."""
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
+        return
+    now = time.time_ns()
+    entry = {"v": 1, "id": str(now),
+             "time": datetime.datetime.fromtimestamp(now / 1e9).astimezone().isoformat(timespec="seconds"),
+             "owner": HISTORY_OWNER, "key": key, "old": old, "new": new}
+    folder = os.path.join(state_home(), "flickos")
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        with open(os.path.join(folder, HISTORY_LOCK), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = os.path.join(folder, HISTORY_FILE)
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                size = os.fstat(f.fileno()).st_size
+            if size > HISTORY_BYTES:
+                trim_history(path)
+    except OSError as error:
+        warn(f"the history can't be written: {error}")
+
+
+def trim_history(path):
+    """Keep the newest lines that fit in half of HISTORY_BYTES (under the lock)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    kept, size = [], 0
+    for line in reversed(lines):
+        size += len(line.encode())
+        if size > HISTORY_BYTES // 2:
+            break
+        kept.append(line)
+    write_atomic(path, "".join(reversed(kept)), mode=0o600)
+
+
+# --- Players ------------------------------------------------------------------------
+
+def parse_line(line):
+    """One line of FOLLOW_FORMAT -> (player, {status, artist, title}), or None
+    (playerctl prints an empty line when a player quits)."""
+    parts = line.rstrip("\n").split(SEP)
+    if len(parts) != 5 or not parts[0]:
+        return None
+    player, status, artist, title, url = parts
+    return player, {"status": status, "artist": artist.strip(),
+                    "title": title.strip() or file_title(url)}
+
+
+def file_title(url):
+    """file:///music/My%20Song.mp3 -> My Song: VLC sends a file without tags
+    with no title, only its address. Other addresses -> ''."""
+    parsed = urllib.parse.urlsplit(url.strip())
+    if parsed.scheme != "file":
+        return ""
+    name = os.path.basename(urllib.parse.unquote(parsed.path))
+    return os.path.splitext(name)[0].strip() or name
+
+
+def drop_duplicates(players):
+    """VLC owns two names, vlc and vlc.instancePID: keep the instance only
+    (flickos-phone's parse_media does the same)."""
+    return {name: info for name, info in players.items()
+            if not any(other.startswith(name + ".instance") for other in players)}
+
+
+def shown_player(players, order):
+    """The player the buttons control: the last one to start playing, else
+    the last one paused. A stopped one isn't shown. order: names, least
+    recently changed first."""
+    present = [name for name in order if name in players and players[name]["status"] in ("Playing", "Paused")]
+    playing = [name for name in present if players[name]["status"] == "Playing"]
+    return (playing or present or [None])[-1]
+
+
+def heard_players(players, sounding, silent, now):
+    """The players as the panel shows them: one that says Playing but has
+    made no sound for SILENT_SECONDS is Stopped. sounding: name -> True,
+    False, or None (not known: it is believed). silent: name -> when its
+    sound was first missed, kept up to date here. -> (players, the moment to
+    look again, or None)."""
+    heard, again = {}, None
+    for name, info in players.items():
+        if info["status"] == "Playing" and sounding.get(name) is False:
+            since = silent.setdefault(name, now)
+            if now - since >= SILENT_SECONDS:
+                info = dict(info, status="Stopped")
+            else:
+                again = min(again or math.inf, since + SILENT_SECONDS)
+        else:
+            silent.pop(name, None)
+        heard[name] = info
+    for name in [name for name in silent if name not in players]:
+        del silent[name]
+    return heard, again
+
+
+def parent_pid(pid):
+    try:
+        with open(os.path.join(PROC, str(pid), "stat"), encoding="utf-8") as f:
+            return int(f.read().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def process_binary(pid):
+    """The program's file name, as PipeWire's application.process.binary has it."""
+    try:
+        return os.path.basename(os.readlink(os.path.join(PROC, str(pid), "exe"))).removesuffix(" (deleted)")
+    except OSError:
+        return ""
+
+
+def sandbox_id(pid):
+    """The Flatpak instance process pid runs in, from its /.flatpak-info, or None."""
+    try:
+        with open(os.path.join(PROC, str(pid), "root", ".flatpak-info"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("instance-id="):
+                    return line.split("=", 1)[1].strip() or None
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
+
+
+def sandbox_processes(pid):
+    """pid and every other process of the Flatpak instance it runs in. A
+    Flatpak app's D-Bus names are owned by its xdg-dbus-proxy, which has the
+    app's .flatpak-info but is no parent of the app's processes."""
+    instance = sandbox_id(pid)
+    found = {pid}
+    if instance is not None:
+        with contextlib.suppress(OSError):
+            found.update(int(entry) for entry in os.listdir(PROC)
+                         if entry.isdigit() and sandbox_id(entry) == instance)
+    return found
+
+
+def makes_sound(pid, streams):
+    """Whether process pid has an audio output stream: its own, one of a
+    child's (Chromium plays from a child process), or, where a sandbox shows
+    other PIDs (Flatpak), one of a program of the same name; for a Flatpak,
+    pid stands for every process of its instance (sandbox_processes).
+    streams: (PIDs, binary) per stream, from AudioWatch.streams()."""
+    owners = sandbox_processes(pid)
+    own = {process_binary(owner) for owner in owners} - {""}
+    for pids, binary in streams:
+        if binary in own:
+            return True
+        for stream_pid in pids:
+            for _ in range(32):
+                if stream_pid in owners:
+                    return True
+                if stream_pid <= 1:
+                    break
+                stream_pid = parent_pid(stream_pid)
+    return False
+
+
+def player_pid(name):
+    """The process that owns player name's D-Bus name, or None."""
+    try:
+        out = subprocess.run([BUSCTL, "--user", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                              "org.freedesktop.DBus", "GetConnectionUnixProcessID", "s", MPRIS_NAME + name],
+                             capture_output=True, text=True, timeout=COMMAND_SECONDS, check=False).stdout.split()
+        return int(out[1]) if out[:1] == ["u"] else None
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return None
+
+
+def app_name(player):
+    """firefox.instance_1_23 -> Firefox."""
+    base = player.split(".")[0]
+    return base[:1].upper() + base[1:]
+
+
+def short(text, limit=TITLE_CHARS):
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def title_words(info, player):
+    """Artist — title, else the app's name."""
+    return " — ".join(part for part in (info["artist"], info["title"]) if part) or app_name(player)
+
+
+def scroll_frame(words, step, limit=TITLE_CHARS):
+    """What the title shows at a step of its scrolling: the start for
+    SCROLL_HOLD steps, then one character further each step, round and round."""
+    if len(words) <= limit:
+        return words
+    loop = words + SCROLL_GAP
+    offset = max(0, step - SCROLL_HOLD) % len(loop)
+    return (loop + loop)[offset:offset + limit]
+
+
+def panel_json(players, player, spectrum, layer, shape="strip"):
+    """{module: waybar JSON} for the title module and the buttons. Empty text
+    hides a waybar module, so nothing shows without a player."""
+    if player is None:
+        return {module: {"text": ""} for module in ("title",) + BUTTONS}
+    info = players[player]
+    words = title_words(info, player)
+    status = info["status"].lower()             # playing, paused, stopped
+    playing = status == "playing"
+    state = {"playing": "Playing", "paused": "Paused"}.get(status, "Stopped")
+    if shape == "radial":
+        # Always behind windows: the layer setting doesn't apply.
+        where, layer, right = "in the middle of the screen, behind windows", "behind", ""
+    else:
+        where = "above the panel, " + ("over windows" if layer == "top" else "behind windows")
+        right = " · Right click: " + ("behind windows" if layer == "top" else "over windows")
+    if spectrum == "on":
+        spectrum_tip = f"Sound spectrum on, {where}\nClick: hide it"
+    else:
+        spectrum_tip = f"Sound spectrum off\nClick: show it {where}"
+    return {
+        "title": {"text": short(words), "tooltip": f"{words}\n{app_name(player)} · {state}", "class": status},
+        # The label is a space: base.css draws the button's symbolic icon.
+        "previous": {"text": " ", "tooltip": "Previous", "class": status},
+        "play": {"text": " ", "tooltip": "Pause" if playing else "Play", "class": status},
+        "next": {"text": " ", "tooltip": "Next", "class": status},
+        "spectrum": {"text": " ", "tooltip": spectrum_tip + right, "class": [spectrum, layer]},
+    }
+
+
+def player_command(action):
+    """previous, play-pause or next for the player the buttons show."""
+    try:
+        with open(os.path.join(runtime_dir(), "player"), encoding="utf-8") as f:
+            player = f.read().strip()
+    except (OSError, MediaError):
+        player = ""
+    argv = [PLAYERCTL] + (["--player", player] if player else []) + [action]
+    try:
+        return subprocess.run(argv, timeout=COMMAND_SECONDS, check=False).returncode
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise MediaError(f"{action}: {error}") from None
+
+
+# --- The follower -------------------------------------------------------------------
+
+def waybar_ancestor():
+    """The waybar that runs us (through its sh -c), or None."""
+    pid = os.getppid()
+    for _ in range(4):
+        try:
+            with open(f"/proc/{pid}/comm", encoding="utf-8") as f:
+                if f.read().strip() == "waybar":
+                    return pid
+            with open(f"/proc/{pid}/stat", encoding="utf-8") as f:
+                pid = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+    return None
+
+
+def catches_signal(pid, signum):
+    """Whether pid has a handler for signum (SigCgt): a real-time signal a
+    process doesn't catch ends it."""
+    try:
+        with open(f"/proc/{pid}/status", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16) >> (signum - 1) & 1)
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+def read_jsonc(path):
+    """flickos-layout's generated panel: JSON after // comment lines."""
+    with open(path, encoding="utf-8") as f:
+        return json.loads("".join(line for line in f if not line.lstrip().startswith("//")))
+
+
+def panel_edge(path=None):
+    """The edge of the bar that has the media buttons: top or bottom."""
+    try:
+        bars = read_jsonc(path or os.path.join(runtime_base(), WAYBAR_CONFIG))
+    except (OSError, ValueError, MediaError):
+        return "bottom"
+    for bar in bars if isinstance(bars, list) else [bars]:
+        if not isinstance(bar, dict):
+            continue
+        modules = [m for key in ("modules-left", "modules-center", "modules-right")
+                   for m in (bar.get(key) or []) if isinstance(m, str)]
+        if TITLE_MODULE in modules:
+            return "top" if bar.get("position") == "top" else "bottom"
+    return "bottom"
+
+
+class Lines:
+    """Whole lines from a pipe as they come. os.read, not readline: a line
+    readline left in its buffer waited unseen by poll() for the next one."""
+
+    def __init__(self, pipe):
+        self.pipe = pipe
+        self.rest = b""
+
+    def fileno(self):
+        return self.pipe.fileno()
+
+    def read(self):
+        """The whole lines that came (bytes, without "\\n"), or None at the end."""
+        data = os.read(self.fileno(), 65536)
+        if not data:
+            return None
+        lines = (self.rest + data).split(b"\n")
+        self.rest = lines.pop()
+        return lines
+
+
+class AudioWatch:
+    """PipeWire's audio output streams and who plays them, from `pw-dump
+    --monitor`: every object first, then the ones that changed, each time as
+    a JSON array whose last line is "]" (the inner ones are indented), and
+    nothing while nothing changes."""
+
+    def __init__(self):
+        self.process = subprocess.Popen([PW_DUMP, "--monitor", "--no-colors"], stdout=subprocess.PIPE,
+                                        stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        preexec_fn=die_with_parent)
+        self.lines = Lines(self.process.stdout)
+        self.batch = []
+        self.nodes = {}             # an audio output stream's node id -> its client's id
+        self.clients = {}           # client id -> (PIDs, binary)
+        self.ready = False          # the first array has come
+
+    def fileno(self):
+        return self.lines.fileno()
+
+    def read(self):
+        """Take what came: True once an array is complete."""
+        lines = self.lines.read()
+        if lines is None:
+            raise MediaError(f"{PW_DUMP} stopped")
+        complete = False
+        for line in lines:
+            self.batch.append(line)
+            if line.rstrip() == b"]":
+                try:
+                    objects = json.loads(b"\n".join(self.batch))
+                except ValueError:
+                    objects = []
+                self.batch = []
+                self.apply(objects if isinstance(objects, list) else [])
+                self.ready = complete = True
+        return complete
+
+    def apply(self, objects):
+        for item in objects:
+            if not isinstance(item, dict):
+                continue
+            key, info = item.get("id"), item.get("info")
+            if info is None:                        # removed
+                self.nodes.pop(key, None)
+                self.clients.pop(key, None)
+                continue
+            props = info.get("props") if isinstance(info, dict) else None
+            if not isinstance(props, dict):
+                continue
+            kind = str(item.get("type", ""))
+            if kind.endswith(":Node"):
+                if props.get("media.class") == AUDIO_OUTPUT:
+                    self.nodes[key] = props.get("client.id")
+                else:
+                    self.nodes.pop(key, None)
+            elif kind.endswith(":Client"):
+                # application.process.id is what the app says (inside a
+                # sandbox, its own PID there); pipewire.sec.pid the socket's
+                # (pipewire-pulse's own, for a PulseAudio client).
+                pids = []
+                for prop in ("application.process.id", "pipewire.sec.pid"):
+                    with contextlib.suppress(TypeError, ValueError):
+                        pids.append(int(props[prop]))
+                self.clients[key] = (tuple(pids), str(props.get("application.process.binary", "")))
+
+    def streams(self):
+        """(PIDs, binary) of each audio output stream."""
+        return [self.clients.get(client, ((), "")) for client in self.nodes.values()]
+
+    def stop(self):
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+        self.process.stdout.close()
+
+
+class Follower:
+    """`follow`: see the docstring at the top."""
+
+    def __init__(self, folder):
+        self.folder = folder
+        self.players = {}
+        self.order = []             # player names, least recently changed first
+        self.written = {}           # module -> JSON text last written or printed
+        self.leader = None          # the open follow.lock while we hold it
+        self.strip = None           # the strip's Popen
+        self.strip_layer = None     # the layer the running strip was started or told with
+        self.strip_shape = None     # and its shape
+        self.strip_colors = None    # and its colors
+        self.stop_at = None         # monotonic time to stop the strip at
+        self.title = {}             # the title module's JSON, unscrolled
+        self.words = ""             # what it scrolls
+        self.step = 0               # how far (scroll_frame)
+        self.scrolled = False       # whether it has scrolled through once
+        self.scroll_at = None       # monotonic time of the next step, while it scrolls
+        self.audio = None           # the AudioWatch, while a player says Playing
+        self.audio_broken = False   # no pw-dump, or it failed: every player is believed
+        self.pids = {}              # player name -> the process that owns it, or None
+        self.silent = {}            # player name -> when its sound was first missed (heard_players)
+        self.heard_at = None        # monotonic time to look at a silent player again
+        self.waybar = waybar_ancestor()
+        self.signum = signal.SIGRTMIN + PANEL_SIGNAL
+
+    def lead(self):
+        """Hold follow.lock: the one follower that writes files and runs the
+        strip. The others print their module's title only."""
+        if self.leader is None:
+            lock = open(os.path.join(self.folder, "follow.lock"), "a")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                lock.close()
+                return False
+            self.leader = lock
+            write_atomic(os.path.join(self.folder, "follow.pid"), f"{os.getpid()}\n")
+        return True
+
+    def snapshot(self):
+        """Every player now (a quitting player leaves only an empty line)."""
+        try:
+            out = subprocess.run([PLAYERCTL, "--all-players", "--format", FOLLOW_FORMAT, "metadata"],
+                                 capture_output=True, text=True, timeout=COMMAND_SECONDS, check=False).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            out = ""
+        players = {}
+        for line in out.splitlines():
+            parsed = parse_line(line)
+            if parsed:
+                players[parsed[0]] = parsed[1]
+        self.players = drop_duplicates(players)
+        self.order = [name for name in self.order if name in self.players]
+        self.order += [name for name in self.players if name not in self.order]
+        # A name that comes back may be another process's.
+        self.pids = {name: pid for name, pid in self.pids.items() if name in self.players}
+
+    def on_line(self, line):
+        parsed = parse_line(line)
+        if parsed is None:
+            self.snapshot()
+        else:
+            name, info = parsed
+            self.players[name] = info
+            self.players = drop_duplicates(self.players)
+            if name in self.order:
+                self.order.remove(name)
+            self.order.append(name)
+        self.update()
+
+    def heard(self):
+        """heard_players for the players now: pw-dump runs only while one
+        says Playing, and until its first answer every player is believed."""
+        claims = [name for name, info in self.players.items() if info["status"] == "Playing"]
+        self.want_audio(bool(claims))
+        sounding = {}
+        if self.audio is not None and self.audio.ready:
+            streams = self.audio.streams()
+            for name in claims:
+                if name not in self.pids:
+                    self.pids[name] = player_pid(name)
+                pid = self.pids[name]
+                sounding[name] = None if pid is None else makes_sound(pid, streams)
+        return heard_players(self.players, sounding, self.silent, time.monotonic())
+
+    def want_audio(self, wanted):
+        if wanted and self.audio is None and not self.audio_broken:
+            if shutil.which(PW_DUMP) is None:
+                self.audio_broken = True
+                return
+            try:
+                self.audio = AudioWatch()
+            except OSError as error:
+                warn(f"{PW_DUMP}: {error.strerror}; every player is believed")
+                self.audio_broken = True
+        elif not wanted:
+            self.stop_audio()
+
+    def stop_audio(self):
+        if self.audio is not None:
+            self.audio.stop()
+            self.audio = None
+
+    def update(self):
+        values = load_settings()[0]
+        players, self.heard_at = self.heard()
+        player = shown_player(players, self.order)
+        modules = panel_json(players, player, values["spectrum"], values["spectrum-layer"],
+                             values["spectrum-shape"])
+        leader = self.lead()
+        playing = player is not None and players[player]["status"] == "Playing"
+        words = title_words(players[player], player) if player is not None else ""
+        if words != self.words:
+            self.words, self.step, self.scrolled = words, 0, False
+        self.title = modules.pop("title")
+        # A long title scrolls through once when its track plays (again from
+        # the start if a pause cut it short), then shows its start with "…".
+        if playing and len(words) > TITLE_CHARS and not self.scrolled:
+            if self.scroll_at is None:
+                self.scroll_at = time.monotonic() + SCROLL_SECONDS
+        else:
+            self.scroll_at, self.step = None, 0
+        self.print_title()
+        if not leader:
+            return
+        changed = False
+        for module, data in modules.items():
+            text = json.dumps(data, ensure_ascii=False)
+            if self.written.get(module) != text:
+                write_atomic(os.path.join(self.folder, "panel", f"{module}.json"), text + "\n")
+                self.written[module] = text
+                changed = True
+        if self.written.get("player") != (player or ""):
+            write_atomic(os.path.join(self.folder, "player"), (player or "") + "\n")
+            self.written["player"] = player or ""
+        if changed and self.waybar and catches_signal(self.waybar, self.signum):
+            with contextlib.suppress(OSError):
+                os.kill(self.waybar, self.signum)
+        self.want_strip(values["spectrum"] == "on" and playing, values["spectrum-layer"],
+                        values["spectrum-shape"], values["spectrum-colors"], at_once=values["spectrum"] != "on")
+
+    def print_title(self):
+        title = dict(self.title)
+        if self.scroll_at is not None:
+            title["text"] = scroll_frame(self.words, self.step)
+            # base.css gives it a fixed width, so the buttons beside it stay put.
+            title["class"] = [title["class"], "scrolling"]
+        text = json.dumps(title, ensure_ascii=False)
+        if self.written.get("title") != text:
+            print(text, flush=True)
+            self.written["title"] = text
+
+    def scroll(self):
+        """One step further: only the title line, nothing read or written.
+        Back at the start, it's done for this track."""
+        self.step += 1
+        if self.step >= SCROLL_HOLD + len(self.words + SCROLL_GAP):
+            self.scroll_at, self.step, self.scrolled = None, 0, True
+        else:
+            self.scroll_at = max(self.scroll_at + SCROLL_SECONDS, time.monotonic())
+        self.print_title()
+
+    def timeout(self):
+        """Seconds until the next thing to do (poll's), or None."""
+        due = [moment for moment in (self.stop_at, self.scroll_at, self.heard_at) if moment is not None]
+        return max(0.0, min(due) - time.monotonic()) if due else None
+
+    def want_strip(self, wanted, layer, shape, colors="style", at_once=False):
+        running = self.strip is not None and self.strip.poll() is None
+        if wanted:
+            self.stop_at = None
+            if running and self.strip_shape != shape:
+                self.stop_strip()           # another shape: other windows
+                running = False
+            if not running:
+                self.strip = subprocess.Popen([sys.argv[0], "strip", "--edge", panel_edge(), "--shape", shape],
+                                              stdin=subprocess.DEVNULL, preexec_fn=die_with_parent)
+                self.strip_layer, self.strip_shape, self.strip_colors = layer, shape, colors
+            elif (self.strip_layer != layer and shape == "strip") or self.strip_colors != colors:
+                self.strip.send_signal(signal.SIGUSR1)     # it reads the layer and colors again
+                self.strip_layer, self.strip_colors = layer, colors
+        elif running:
+            if at_once:
+                self.stop_strip()
+            elif self.stop_at is None:
+                self.stop_at = time.monotonic() + STOP_SECONDS
+
+    def stop_strip(self):
+        self.stop_at = None
+        if self.strip is not None and self.strip.poll() is None:
+            self.strip.terminate()
+            try:
+                self.strip.wait(2)
+            except subprocess.TimeoutExpired:
+                self.strip.kill()
+        self.strip = None
+
+    def run(self):
+        # Signals arrive as bytes on a pipe, so poll() sees them.
+        wake_r, wake_w = os.pipe()
+        os.set_blocking(wake_w, False)
+        signal.set_wakeup_fd(wake_w)
+        for signum in (signal.SIGUSR1, signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(signum, lambda *_: None)
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+        die_with_parent()
+        try:
+            follow = subprocess.Popen([PLAYERCTL, "--all-players", "--follow", "--format", FOLLOW_FORMAT,
+                                       "metadata"], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL, preexec_fn=die_with_parent)
+        except OSError as error:
+            raise MediaError(f"{PLAYERCTL}: {error.strerror}") from None
+        lines = Lines(follow.stdout)
+        poller = select.poll()
+        poller.register(lines.fileno(), select.POLLIN)
+        poller.register(wake_r, select.POLLIN)
+        # waybar closing our pipe shows as POLLERR (always reported): a quiet
+        # player would otherwise keep us running until our next print.
+        poller.register(sys.stdout.fileno(), 0)
+        audio_fd = None                               # the AudioWatch's pipe while the poller has it
+        self.snapshot()
+        self.update()
+        # Said in the panel's log (it is our stderr): the follower is all
+        # that keeps the panel's media buttons up to date.
+        why = "the panel closed its pipe"
+        try:
+            while True:
+                fd = self.audio.fileno() if self.audio is not None else None
+                if fd != audio_fd:
+                    if audio_fd is not None:
+                        poller.unregister(audio_fd)
+                    if fd is not None:
+                        poller.register(fd, select.POLLIN)
+                    audio_fd = fd
+                timeout = self.timeout()
+                events = dict(poller.poll(None if timeout is None else timeout * 1000))
+                if events.get(sys.stdout.fileno(), 0) & (select.POLLERR | select.POLLHUP):
+                    break
+                if events.get(wake_r, 0) & select.POLLIN:
+                    ended = [s for s in os.read(wake_r, 64) if s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)]
+                    if ended:
+                        why = signal.Signals(ended[0]).name
+                        break
+                    self.update()                     # SIGUSR1: the settings changed
+                if events.get(lines.fileno(), 0) & (select.POLLIN | select.POLLHUP):
+                    got = lines.read()
+                    if got is None:
+                        raise MediaError(f"{PLAYERCTL} stopped")
+                    for line in got:
+                        self.on_line(line.decode("utf-8", "replace"))
+                if audio_fd is not None and events.get(audio_fd, 0) & (select.POLLIN | select.POLLHUP):
+                    try:
+                        heard = self.audio.read()
+                    except MediaError as error:
+                        warn(f"{error}; every player is believed")
+                        self.stop_audio()
+                        self.audio_broken = heard = True
+                    if heard:
+                        self.update()
+                if self.stop_at is not None and time.monotonic() >= self.stop_at:
+                    self.stop_strip()
+                if self.scroll_at is not None and time.monotonic() >= self.scroll_at:
+                    self.scroll()
+                if self.heard_at is not None and time.monotonic() >= self.heard_at:
+                    self.update()                     # a silent player's time is up
+        except BrokenPipeError:
+            pass                                      # waybar went away
+        finally:
+            self.stop_strip()
+            self.stop_audio()
+            follow.terminate()
+            if self.leader is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(os.path.join(self.folder, "follow.pid"))
+        warn(f"follow ended: {why}")
+
+
+# --- The strip ----------------------------------------------------------------------
+
+def cava_config(bars=BARS, framerate=FRAMERATE, sleep=SLEEP_SECONDS):
+    return CAVA_CONFIG.format(bars=bars, framerate=framerate, sleep=sleep)
+
+
+def ring_spokes(levels, size):
+    """The radial spectrum's bars in a size x size square: four (x, y)
+    corners each, mirrored left and right, the first (lowest) bar at the top,
+    growing outward from the ring."""
+    if not levels or size <= 0:
+        return []
+    middle, inner = size / 2, size * RING_INNER
+    room = middle - inner
+    step = math.pi / len(levels)                # each side holds every bar once
+    half = step * (1 - BAR_GAP) / 2
+    spokes = []
+    for index, level in enumerate(levels):
+        if not level:
+            continue
+        outer = inner + max(2.0, level / 255 * room)
+        angle = (index + 0.5) * step
+        for side in (angle, -angle):
+            corners = []
+            for radius, offset in ((inner, -half), (outer, -half), (outer, half), (inner, half)):
+                corners.append((middle + radius * math.sin(side + offset),
+                                middle - radius * math.cos(side + offset)))
+            spokes.append(tuple(corners))
+    return spokes
+
+
+def radial_size(width, height):
+    """The radial spectrum's side on a screen of that size."""
+    return max(1, int(min(width, height) * RADIAL_SHARE))
+
+
+def rainbow_color(turn):
+    """(r, g, b), 0-1, of the rainbow a turn (0-1) clockwise round the ring
+    from the top, or that far along the strip's wheel."""
+    import colorsys
+    return colorsys.hsv_to_rgb((RAINBOW_START + turn) % 1.0, RAINBOW_SATURATION, RAINBOW_VALUE)
+
+
+def rainbow_sectors(side, count=RAINBOW_SECTORS):
+    """The ring's hue wheel in a side x side square: (corners, colors) per
+    slice, from the middle out past the corners, clockwise from the top.
+    Each slice's color goes from its first edge's to its second's."""
+    middle, far = side / 2, side            # past every corner of the square
+    sectors = []
+    for index in range(count):
+        edges = []
+        for turn in (index / count, (index + 1) / count):
+            angle = turn * 2 * math.pi
+            edges.append(((middle + far * math.sin(angle), middle - far * math.cos(angle)), rainbow_color(turn)))
+        (first, first_color), (second, second_color) = edges
+        sectors.append((((middle, middle), first, second, (middle, middle)),
+                        (first_color, first_color, second_color, second_color)))
+    return sectors
+
+
+def bar_rectangles(levels, width, height, edge):
+    """(x, y, w, h) of each bar that shows: levels are 0-255, the bars grow
+    away from the panel's edge."""
+    if not levels or width <= 0 or height <= 0:
+        return []
+    slot = width / len(levels)
+    gap = max(1.0, slot * BAR_GAP)
+    rectangles = []
+    for index, level in enumerate(levels):
+        if not level:
+            continue
+        h = max(2.0, level / 255 * height)
+        y = height - h if edge == "bottom" else 0.0
+        rectangles.append((index * slot + gap / 2, y, slot - gap, h))
+    return rectangles
+
+
+class Strip:
+    """`strip`: one layer-shell window per screen drawing cava's newest frame,
+    a strip above the panel or a ring in the middle of the screen."""
+
+    def __init__(self, edge, shape="strip"):
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GtkLayerShell", "0.1")
+        gi.require_foreign("cairo")
+        from gi.repository import GLib, Gdk, Gtk, GtkLayerShell
+        import cairo
+        self.GLib, self.Gdk, self.Gtk, self.LayerShell, self.cairo = GLib, Gdk, Gtk, GtkLayerShell, cairo
+        if not Gtk.init_check(sys.argv)[0]:
+            raise MediaError("strip: no display")
+        if not GtkLayerShell.is_supported():
+            raise MediaError("strip: the compositor has no layer shell")
+        self.edge, self.shape = edge, shape
+        self.levels = bytes(BARS)
+        self.buffer = b""
+        self.windows = {}           # Gdk.Monitor -> Gtk.Window
+        self.color = None
+        self.rainbow = setting("spectrum-colors") == "rainbow"
+        self.current_layer = self.layer()
+        self.ring_pictures = {}     # (side, scale) -> (the ring alone, the gradient)
+        self.strip_pictures = {}    # (width, height, scale) -> the rainbow strip's colors
+        display = Gdk.Display.get_default()
+        for index in range(display.get_n_monitors()):
+            self.add_window(display.get_monitor(index))
+        display.connect("monitor-added", lambda _display, monitor: self.add_window(monitor))
+        display.connect("monitor-removed", lambda _display, monitor: self.remove_window(monitor))
+        self.cava = self.start_cava()
+        GLib.io_add_watch(self.cava.stdout.fileno(), GLib.PRIORITY_DEFAULT,
+                          GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.on_cava)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self.look_again)
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.quit)
+
+    def layer(self):
+        """BOTTOM (over the wallpaper, under windows) or TOP (over windows,
+        under fullscreen ones), from the spectrum-layer setting. The ring is
+        always behind windows: over them it would hide what's in the middle."""
+        top = self.shape == "strip" and setting("spectrum-layer") == "top"
+        return self.LayerShell.Layer.TOP if top else self.LayerShell.Layer.BOTTOM
+
+    def add_window(self, monitor):
+        Gtk, LayerShell = self.Gtk, self.LayerShell
+        window = Gtk.Window()
+        LayerShell.init_for_window(window)
+        LayerShell.set_namespace(window, NAME)
+        LayerShell.set_monitor(window, monitor)
+        LayerShell.set_layer(window, self.current_layer)
+        LayerShell.set_keyboard_mode(window, LayerShell.KeyboardMode.NONE)
+        # 0: no room of its own, but out of the panel's: just above it, or
+        # in the middle of the room the panel leaves.
+        LayerShell.set_exclusive_zone(window, 0)
+        if self.shape == "radial":
+            # Anchored to no edge: the compositor centers it.
+            geometry = monitor.get_geometry()
+            size = radial_size(geometry.width, geometry.height)
+            window.set_size_request(size, size)
+        else:
+            side = LayerShell.Edge.TOP if self.edge == "top" else LayerShell.Edge.BOTTOM
+            for anchor in (side, LayerShell.Edge.LEFT, LayerShell.Edge.RIGHT):
+                LayerShell.set_anchor(window, anchor, True)
+            window.set_size_request(-1, STRIP_HEIGHT)
+        visual = window.get_screen().get_rgba_visual()
+        if visual is not None:
+            window.set_visual(visual)
+        window.set_app_paintable(True)
+        window.connect("draw", self.on_draw)
+        if self.color is None:
+            found, rgba = window.get_style_context().lookup_color("theme_selected_bg_color")
+            if not found:
+                rgba = self.Gdk.RGBA()
+                rgba.parse(FALLBACK_COLOR)
+            self.color = rgba
+        window.show_all()
+        self.pass_clicks(window)
+        self.windows[monitor] = window
+
+    def pass_clicks(self, window):
+        """An empty input region: clicks go to whatever is below. Set on the
+        GtkWindow, which keeps it (GtkWindow replaces a region set on its
+        GdkWindow when it maps); cleared first, because GDK sends a new
+        surface only a region that changed."""
+        window.input_shape_combine_region(None)
+        window.input_shape_combine_region(self.cairo.Region())
+
+    def remove_window(self, monitor):
+        window = self.windows.pop(monitor, None)
+        if window is not None:
+            window.destroy()
+
+    def look_again(self):
+        """SIGUSR1: the layer or the colors changed. New colors are drawn at
+        the next frame. A new layer applies at the surface's next commit,
+        and a covered strip never commits (no frame callback), so each
+        window is unmapped and mapped again on the new layer."""
+        rainbow = setting("spectrum-colors") == "rainbow"
+        if rainbow != self.rainbow:
+            self.rainbow = rainbow
+            self.ring_pictures.clear()
+            self.strip_pictures.clear()
+            for window in self.windows.values():
+                window.queue_draw()
+        layer = self.layer()
+        if layer != self.current_layer:
+            self.current_layer = layer
+            for window in self.windows.values():
+                window.hide()
+                self.LayerShell.set_layer(window, layer)
+                window.show_all()
+                self.pass_clicks(window)
+        return self.GLib.SOURCE_CONTINUE
+
+    def start_cava(self):
+        folder = runtime_dir()
+        path = os.path.join(folder, "cava.conf")
+        write_atomic(path, cava_config())
+        # cava copies its shaders into $XDG_CONFIG_HOME/cava/ at every start.
+        env = dict(os.environ, XDG_CONFIG_HOME=folder)
+        try:
+            return subprocess.Popen([CAVA, "-p", path], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                    env=env, preexec_fn=die_with_parent)
+        except OSError as error:
+            raise MediaError(f"{CAVA}: {error.strerror}") from None
+
+    def on_cava(self, fd, _condition):
+        try:
+            data = os.read(fd, 65536)
+        except OSError:
+            data = b""
+        if not data:
+            warn("the sound spectrum ended: cava stopped")
+            self.Gtk.main_quit()
+            return False
+        self.buffer += data
+        whole = len(self.buffer) // BARS * BARS
+        if whole:
+            # Only the newest frame is drawn; GTK draws at the next frame
+            # callback, which labwc doesn't send to a covered window.
+            self.levels = self.buffer[whole - BARS:whole]
+            self.buffer = self.buffer[whole:]
+            for window in self.windows.values():
+                window.queue_draw()
+        return True
+
+    def on_draw(self, widget, cr):
+        cairo = self.cairo
+        if self.shape == "radial":
+            return self.draw_ring(widget, cr)
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        height = widget.get_allocated_height()
+        rectangles = bar_rectangles(self.levels, widget.get_allocated_width(), height, self.edge)
+        if not rectangles:
+            return True
+        for x, y, w, h in rectangles:
+            cr.rectangle(x, y, w, h)
+        if self.rainbow:
+            width = widget.get_allocated_width()
+            cr.set_source_surface(self.strip_picture(cr, width, height, widget.get_scale_factor()), 0, 0)
+        else:
+            # One gradient for the whole strip and one fill: as cheap as a plain color.
+            near, far = (height, 0) if self.edge == "bottom" else (0, height)
+            gradient = cairo.LinearGradient(0, near, 0, far)
+            r, g, b = self.color.red, self.color.green, self.color.blue
+            gradient.add_color_stop_rgba(0, r, g, b, NEAR_ALPHA)
+            gradient.add_color_stop_rgba(1, r, g, b, FAR_ALPHA)
+            cr.set_source(gradient)
+        cr.fill()
+        return True
+
+    def strip_picture(self, cr, width, height, scale):
+        """The rainbow strip's colors, drawn once per size: the hues from left
+        to right, faded away from the panel like the style's color."""
+        key = (width, height, scale)
+        if key not in self.strip_pictures:
+            cairo = self.cairo
+            picture = cr.get_target().create_similar(cairo.CONTENT_COLOR_ALPHA, width, height)
+            pen = cairo.Context(picture)
+            hues = cairo.LinearGradient(0, 0, width, 0)
+            for stop in range(13):
+                turn = stop / 12
+                hues.add_color_stop_rgb(turn, *rainbow_color(turn * RAINBOW_STRIP_TURN))
+            near, far = (height, 0) if self.edge == "bottom" else (0, height)
+            fade = cairo.LinearGradient(0, near, 0, far)
+            fade.add_color_stop_rgba(0, 0, 0, 0, NEAR_ALPHA)
+            fade.add_color_stop_rgba(1, 0, 0, 0, FAR_ALPHA)
+            pen.set_source(hues)
+            pen.mask(fade)
+            self.strip_pictures[key] = picture
+        return self.strip_pictures[key]
+
+    def ring_picture(self, cr, side, scale):
+        """The ring alone and the bars' gradient, drawn once per size: a radial
+        gradient worked out for every frame cost three times the rest."""
+        key = (side, scale)
+        if key not in self.ring_pictures:
+            cairo = self.cairo
+            middle, inner = side / 2, side * RING_INNER
+            r, g, b = self.color.red, self.color.green, self.color.blue
+            # create_similar keeps the window's scale: sharp on HiDPI screens.
+            ring = cr.get_target().create_similar(cairo.CONTENT_COLOR_ALPHA, side, side)
+            pen = cairo.Context(ring)
+            pen.arc(middle, middle, inner - 1, 0, 2 * math.pi)
+            if self.rainbow:
+                pen.set_source_rgba(1, 1, 1, RAINBOW_RING_ALPHA)
+            else:
+                pen.set_source_rgba(r, g, b, RING_ALPHA)
+            pen.set_line_width(2)
+            pen.stroke()
+            gradient = cr.get_target().create_similar(cairo.CONTENT_COLOR_ALPHA, side, side)
+            pen = cairo.Context(gradient)
+            fade = cairo.RadialGradient(middle, middle, inner, middle, middle, middle)
+            if self.rainbow:
+                # The hue wheel, faded outward the same way.
+                fade.add_color_stop_rgba(0, 0, 0, 0, NEAR_ALPHA)
+                fade.add_color_stop_rgba(1, 0, 0, 0, FAR_ALPHA)
+                wheel = cairo.MeshPattern()
+                for corners, colors in rainbow_sectors(side):
+                    wheel.begin_patch()
+                    wheel.move_to(*corners[0])
+                    for corner in corners[1:]:
+                        wheel.line_to(*corner)
+                    for number, color in enumerate(colors):
+                        wheel.set_corner_color_rgb(number, *color)
+                    wheel.end_patch()
+                pen.set_source(wheel)
+                pen.mask(fade)
+            else:
+                fade.add_color_stop_rgba(0, r, g, b, NEAR_ALPHA)
+                fade.add_color_stop_rgba(1, r, g, b, FAR_ALPHA)
+                pen.set_source(fade)
+                pen.paint()
+            self.ring_pictures[key] = (ring, gradient)
+        return self.ring_pictures[key]
+
+    def draw_ring(self, widget, cr):
+        cairo = self.cairo
+        side = min(widget.get_allocated_width(), widget.get_allocated_height())
+        ring, gradient = self.ring_picture(cr, side, widget.get_scale_factor())
+        # The ring replaces the last frame (SOURCE), then the bars over it in
+        # one fill of the gradient; FAST edges halve the bars' cost.
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_surface(ring, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        spokes = ring_spokes(self.levels, side)
+        if not spokes:
+            return True
+        cr.set_antialias(cairo.ANTIALIAS_FAST)
+        for corners in spokes:
+            cr.move_to(*corners[0])
+            for corner in corners[1:]:
+                cr.line_to(*corner)
+            cr.close_path()
+        cr.set_source_surface(gradient, 0, 0)
+        cr.fill()
+        return True
+
+    def quit(self):
+        self.Gtk.main_quit()
+        return self.GLib.SOURCE_REMOVE
+
+    def run(self):
+        try:
+            self.Gtk.main()
+        finally:
+            if self.cava.poll() is None:
+                self.cava.terminate()
+
+
+# --- Commands -----------------------------------------------------------------------
+
+def cmd_get(opts):
+    print(setting(opts.key))
+    return 0
+
+
+def cmd_set(opts):
+    change_setting(opts.key, opts.value)
+    return 0
+
+
+def cmd_toggle(opts):
+    print(change_setting(opts.key, TOGGLED[setting(opts.key)]))
+    return 0
+
+
+def cmd_state(_opts):
+    json.dump(settings_state(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_player(opts):
+    return 0 if player_command(opts.command) == 0 else 1
+
+
+def cmd_follow(_opts):
+    if shutil.which(PLAYERCTL) is None:
+        raise MediaError(f"{PLAYERCTL} is not installed")
+    Follower(runtime_dir()).run()
+    return 0
+
+
+def cmd_strip(opts):
+    if shutil.which(CAVA) is None:
+        raise MediaError(f"{CAVA} is not installed")
+    Strip(opts.edge, opts.shape).run()
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="Media controls in the panel and a sound spectrum.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
+    get = commands.add_parser("get", help="print a setting")
+    get.add_argument("key", choices=tuple(SETTINGS))
+    get.set_defaults(func=cmd_get)
+    set_ = commands.add_parser("set", help="change a setting (default puts the system's back)")
+    set_.add_argument("key", choices=tuple(SETTINGS))
+    set_.add_argument("value", help="the new value, or default")
+    set_.set_defaults(func=cmd_set)
+    toggle = commands.add_parser("toggle", help="switch the spectrum on or off, behind or over windows, "
+                                                "between the strip and the ring, or its colors")
+    toggle.add_argument("key", choices=("spectrum", "spectrum-layer", "spectrum-shape", "spectrum-colors"))
+    toggle.set_defaults(func=cmd_toggle)
+    commands.add_parser("state", help="every setting, as JSON").set_defaults(func=cmd_state)
+    for action, words in (("previous", "go back"), ("play-pause", "play or pause"), ("next", "skip")):
+        commands.add_parser(action, help=f"{words} in the player the buttons show").set_defaults(func=cmd_player)
+    commands.add_parser("follow", help="(waybar) the panel's media buttons").set_defaults(func=cmd_follow)
+    strip = commands.add_parser("strip", help="(the follower) the sound spectrum")
+    strip.add_argument("--edge", choices=("top", "bottom"), default="bottom", help="the panel's edge")
+    strip.add_argument("--shape", choices=SETTINGS["spectrum-shape"][1], default="strip",
+                       help="above the panel, or a ring in the middle of the screen")
+    strip.set_defaults(func=cmd_strip)
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except MediaError as error:
+        warn(str(error))
+        return 1
+    except OSError as error:
+        warn(f"{error.filename or ''}: {error.strerror}" if error.filename else str(error))
+        return 1
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

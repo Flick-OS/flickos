@@ -1,0 +1,978 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the flickos-kits package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: flickos-kits\n"
+"Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
+"POT-Creation-Date: 2026-11-19 22:43+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: usr/bin/flickos-kits usr/share/applications/flickos-kits.desktop
+msgid "Tool Kits"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "What do you develop?"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "For learning and teaching"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Security work"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Use these tools only on computers and networks you own or have permission to "
+"test."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Developer Basics"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Git, a compiler and the everyday command-line tools"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Python"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Virtual environments, pip and pipx for Python projects"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Node.js and npm"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Node.js and npm for web and JavaScript projects"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "C and C++"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "CMake, Meson, Ninja, Clang and Valgrind"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Containers"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Podman and Distrobox, without a daemon running"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Young Learners"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Learning apps for children, at school and at home"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Study"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Notes, flashcards and graphs for students"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Network Analysis"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Wireshark, Nmap and the tools for looking at a network"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Web Testing"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Fuzzers, sqlmap and TLS checks for testing web apps"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Passwords"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "John the Ripper, hashcat and Hydra for testing passwords"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Forensics"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "The Sleuth Kit, Autopsy and tools for disk images"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Reverse Engineering"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Debuggers, tracers and hex editors for programs"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Wireless Testing"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Aircrack-ng and the tools for testing Wi-Fi networks"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Your name and email for git"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Git puts them on every commit you make."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "SSH key"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "A key to sign in to GitHub and other code hosts."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Rust"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Rust's compiler and tools, from rust-lang.org (about 600 MB in your home "
+"folder)."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Devices on this network"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Let a phone or another computer on your home or office network reach a "
+"server you run."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Container networks with DHCP"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Let containers get addresses from your router. Almost nobody needs this."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Capture packets without administrator rights"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"You can then record all network traffic on this computer, including other "
+"accounts'."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Wireless adapter for testing"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"A second Wi-Fi adapter for monitor mode, which FlickOS then leaves alone."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"It downloads from Docker Hub ({image}, Debian's own image), then from "
+"Debian's mirrors."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"It downloads from Docker Hub ({image}, Kali's own image), then from Kali's "
+"mirrors. Kali's packages run as you, with your home folder, like any program "
+"you run."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Kali's Metasploit and Exploit-DB (about 2.4 GB)"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Newer versions for you"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"mise installs a tool's newest release for your account only, checked against "
+"what its maker publishes. mise comes from its makers' repository "
+"(mise.jdx.dev); automatic updates keep it current."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Metasploit Framework"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Rapid7's own build, made every night, from Rapid7's repository "
+"(apt.metasploit.com); automatic updates keep it current."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Its package's scripts run as root when it is installed and updated, like any "
+"package's. Nothing else is taken from that repository."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Checked against its makers' signature."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Checked against its makers' signed build record."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Checked against its makers' checksum file."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Checked only against GitHub's digest of the file, which catches a bad "
+"download but not a replaced release."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Checked against PyPI's digest of the file."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "This removes {count} package and frees {size}."
+msgid_plural "This removes {count} packages and frees {size}."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"This adds {count} package, which takes {size}. About {download} is "
+"downloaded."
+msgid_plural ""
+"This adds {count} packages, which take {size}. About {download} is "
+"downloaded."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "'{item}' isn't a port: give ports like 8000/tcp or 5000:5010/udp."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"Environment of {kits}: {count} packages, {download} to download, {disk} on "
+"disk."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"The environment itself (distrobox's tools inside it) takes about {size} more."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"It shares your home folder: it is for other software, not for keeping "
+"anything apart."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Automatic updates don't reach it: update it from Tool Kits."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Asking for today's sizes (this downloads the image and its package lists)…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Make the environment {name}? [y/N] "
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Nothing was made."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"The environment {name} is ready. Open it from Tool Kits, or with: distrobox "
+"enter {name}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"Remove the environment {name}, everything installed in it and its image when "
+"nothing else uses it? Your home folder stays. [y/N] "
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"This is the live session: what you install here is gone when you restart."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Cancel"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid " and {count} more"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Loading…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{kit} can't be changed: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{kit} can't be removed: {names} are part of the FlickOS desktop."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Install Tool Kit"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Install {kit}?"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Install"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Remove Tool Kit"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Remove {kit}?"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Your own files and projects are not touched."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Remove"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Installing {kit}…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Removing {kit}…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{kit} couldn't be installed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{kit} couldn't be removed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Couldn't read which kits are installed: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Set up"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Git needs both a name and an email."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Change…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Copy Public Key"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Make a Key…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Open to devices on this network: {ports}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Applies when you log in again."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Install Rust…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Update Rust…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "None"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{address} (not plugged in)"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "FlickOS won't connect to networks with it."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Monitor mode: sudo airmon-ng start {device} (never with check kill)"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "It isn't plugged in. FlickOS leaves it alone when it is."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Plug in a second Wi-Fi adapter that can do monitor mode."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Newer versions"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "mise can't say which versions are yours: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Install…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"Version {version}, from Rapid7. Automatic updates keep it current. Set up "
+"its database with msfdb init."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Remove…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Settings (flickos-control) can't say whether it is installed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "The computer has {version} from Debian."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "It follows the newest release."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "It follows the newest long-term release."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "It stays at this version."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Yours: {version}, from mise."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Not on this computer."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Use the Latest"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Installing {tool} for you…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{tool} is yours now."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Use the latest {tool}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Keep This Version"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{tool} stays at {version}."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Follow the Latest"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{tool} follows the newest release."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Back to the Computer's Version"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Remove Your Version"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{tool}: the computer's version again."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{tool} was removed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "More"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "More for {tool}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "mise {version}."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Your versions were last updated {date}."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"They get no restore points, History or automatic updates: update them here."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Programs use them from your next login."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Update All"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Updating your versions…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Your versions are up to date."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Remove mise…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "More for mise"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Your versions (mise)"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "About {download} is downloaded, and it takes {size}."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Add a Maker's Repository"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Install {name}?"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid ""
+"Installing {name}. The password comes first, then the download, which takes "
+"a while."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "It goes with its repository. Your own files are not touched."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"The tools you installed with it go back to the computer's versions first."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Remove"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Remove {name}?"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Removing {name}…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{name} is installed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{name} was removed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Environments"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Newer or other software in a container that shares your home folder: for "
+"other software, not for keeping anything apart."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Install Containers Kit…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Environments need the Containers kit"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Podman and Distrobox, about {size} with Developer Basics."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Couldn't list the environments: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "New Environment…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Kali Linux"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Debian testing"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Running"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Stopped"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Updated {date}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Automatic updates don't reach it."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Open Terminal"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Open a terminal in {name}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Update…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{name} updates in the terminal."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Stop"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Make a Command Available…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Start Database"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "The database starts in the terminal."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "More for {name}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{name} opens in the terminal (its first start takes a while)."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Remove Environment"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Everything installed in it goes, with the commands and menu entries it made "
+"available, and its downloaded image when nothing else uses it. Your home "
+"folder stays."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Make a Command Available"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Make Available"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Command"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Also add it to the _menu"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "You can then run it like any command, and it runs in {name}."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Starting {name}…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{command} is available."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "New Environment"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Make…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Name"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Security work: Kali Linux"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Development: Debian testing"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Kits"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Add Kali's _whole list for these kits"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "A name has lowercase letters, digits, - and _."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "There is an environment named {name} already."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Choose at least one kit."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "A terminal shows the sizes and asks before anything is installed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"The terminal shows the sizes and asks first. Come back here when it is done."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Git Name and Email"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Save"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Email"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Both a name and an email are needed."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Git's name and email couldn't be saved: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Waiting for the password…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Not changed: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Open Ports"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Ports"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Ports like 8000/tcp, separated by commas, from 1024 up. Leave it empty to "
+"close them again. Needs an administrator's password."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "The public key is copied. Paste it where the code host asks for one."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Answer in the terminal, then come back here."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Rust downloads in the terminal."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "_Close"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Tool Kits is already open."
+msgstr ""
+
+#: usr/share/applications/flickos-kits.desktop
+msgid "Install what you need for the work you do, and set it up"
+msgstr ""
+
+#. Translators: search words, each ended by a semicolon.
+#: usr/share/applications/flickos-kits.desktop
+msgid "developer;programming;python;node;containers;podman;git;compiler;kit;tools;"
+msgstr ""

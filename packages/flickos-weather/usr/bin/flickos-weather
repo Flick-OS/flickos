@@ -1,0 +1,950 @@
+#!/usr/bin/python3
+"""The weather in the panel: the temperature and the sky now, and the next
+hours and days in the tooltip, for a place the user picks.
+
+Off by default (HIG INT-9): `set enabled on` has flickos-layout put the panel
+button in (flickos-layouts' custom/weather module, inserted while `get
+enabled` says on, where a layout's flickos/weather placeholder is, else before
+the tiling button), and nothing of it runs or is sent while off. Design:
+docs/design/flickos-weather.md.
+
+How it runs. There is no daemon: waybar runs `panel` for the button every
+15 minutes. It prints the button's JSON from the cache and asks Open-Meteo
+(api.open-meteo.com) only when the cache is older than REFRESH_SECONDS, or for
+another place or unit; after a failure it waits RETRY_SECONDS. waybar runs
+the module once per screen, so the fetch holds a lock and the others read
+what it got. A setting changed while on sends waybar SIGRTMIN+PANEL_SIGNAL,
+so the button shows it at once.
+
+What is sent (PRIVACY.md): the place's position rounded to COORD_DIGITS
+decimals (about 1 km), the units and the fields asked for, with the user
+agent USER_AGENT; `find` sends what was typed and a two-letter language.
+Nothing else, and nothing while off. Weather data by Open-Meteo.com
+(CC BY 4.0). Its free service is for non-commercial use: an organization
+points [Server] in the system's file at its own.
+
+Settings (the system's file /etc/xdg/flickos/weather.conf, then the user's
+~/.config/flickos/weather; `set KEY default` puts the system's back; every
+change is recorded for Settings > History):
+  enabled   on | off                  the button in the panel
+  units     auto | celsius | fahrenheit   auto: by the region (LC_MEASUREMENT, LANG)
+  wind      auto | kmh | ms | mph | kn    auto: mph with Fahrenheit, else km/h
+  place     LAT,LON,NAME              where; `find` gives these values
+
+Commands:
+  get KEY | set KEY VALUE|default | state
+  find TEXT [--json]        places that match TEXT (asks Open-Meteo)
+  panel                     (waybar) the button's JSON
+  refresh                   ask for the forecast now, then show it
+
+Exit status: 0 done, 1 failed (the message says why), 2 wrong arguments.
+"""
+
+# `panel` runs every 15 minutes per screen: argparse, subprocess and tempfile
+# are imported only where needed (with html's escape they were 50 of its
+# 120 ms).
+import configparser
+import contextlib
+import datetime
+import fcntl
+import json
+import os
+import signal
+import sys
+import time
+
+NAME = "flickos-weather"
+# FLICKOS_WEATHER_PREFIX: run from a source tree, e.g. packages/flickos-weather.
+PREFIX = os.environ.get("FLICKOS_WEATHER_PREFIX", "")
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/weather.conf"
+# flickos-control's: [History] Enabled=, then the user's ~/.config/flickos/history.
+HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+# flickos-layouts': the panel clock's system default ([Defaults] Clock=).
+LAYOUTS_CONF = PREFIX + "/etc/xdg/flickos/layouts.conf"
+LAYOUTS_SITE_CONF = PREFIX + "/etc/xdg/flickos-site/flickos/layouts.conf"   # the site's, over LAYOUTS_CONF
+SECTION = "Weather"
+SERVER_SECTION = "Server"   # only the system's file: the user's is never read for it
+DEFAULT_CHOICE = "default"
+
+# The settings: key -> (name in the files, values (None: checked by
+# parse_place), built-in default).
+SETTINGS = {
+    "enabled": ("Enabled", ("on", "off"), "off"),
+    "units": ("Units", ("auto", "celsius", "fahrenheit"), "auto"),
+    "wind": ("Wind", ("auto", "kmh", "ms", "mph", "kn"), "auto"),
+    "place": ("Place", None, ""),
+}
+# Wind speed units: Open-Meteo's wind_speed_unit values, and what the tooltip calls them.
+WIND_UNITS = {"kmh": "km/h", "ms": "m/s", "mph": "mph", "kn": "kn"}
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+SEARCH_URL = "https://geocoding-api.open-meteo.com/v1/search"
+USER_AGENT = NAME
+CREDIT = "Weather data by Open-Meteo.com"
+COORD_DIGITS = 2            # about 1 km: all the forecast needs
+PLACE_CHARS = 200
+REFRESH_SECONDS = 3600      # ask again when the forecast is older
+RETRY_SECONDS = 900         # after a failed request
+STALE_SECONDS = 2 * 3600    # the button is dimmed
+GONE_SECONDS = 6 * 3600     # the button hides
+FETCH_SECONDS = 10          # one request's timeout
+LOCK_SECONDS = 15           # waiting for another screen's fetch
+HOURS = 6                   # in the tooltip
+DAYS = 4                    # today and three more
+FIND_COUNT = 8
+PANEL_SIGNAL = 13           # waybar's SIGRTMIN+13; flick-tiler 8, phone 9, recording 10, desktops 11, media 12
+LAYOUT = "flickos-layout"
+# Regions that measure temperature in Fahrenheit: the United States and its
+# territories, Liberia, Myanmar, and a few in the Caribbean and Pacific.
+FAHRENHEIT_REGIONS = frozenset(("US", "PR", "GU", "VI", "AS", "MP", "UM", "LR", "MM", "BS", "BZ", "KY", "PW",
+                                "FM", "MH"))
+CURRENT_FIELDS = ("temperature_2m", "apparent_temperature", "relative_humidity_2m", "weather_code", "is_day",
+                  "wind_speed_10m")
+HOURLY_FIELDS = ("temperature_2m", "weather_code", "is_day")
+DAILY_FIELDS = ("weather_code", "temperature_2m_max", "temperature_2m_min", "precipitation_probability_max")
+
+# WMO weather codes (Open-Meteo's weather_code): words, and the icon class by
+# day and by night (base.css draws weather-CLASS-symbolic).
+SKIES = {
+    0: ("Clear", "clear", "clear-night"),
+    1: ("Mostly clear", "few-clouds", "few-clouds-night"),
+    2: ("Partly cloudy", "few-clouds", "few-clouds-night"),
+    3: ("Cloudy", "overcast", "overcast"),
+    45: ("Fog", "fog", "fog"),
+    48: ("Freezing fog", "fog", "fog"),
+    51: ("Light drizzle", "showers-scattered", "showers-scattered"),
+    53: ("Drizzle", "showers-scattered", "showers-scattered"),
+    55: ("Heavy drizzle", "showers-scattered", "showers-scattered"),
+    56: ("Freezing drizzle", "showers-scattered", "showers-scattered"),
+    57: ("Freezing drizzle", "showers-scattered", "showers-scattered"),
+    61: ("Light rain", "showers-scattered", "showers-scattered"),
+    63: ("Rain", "showers", "showers"),
+    65: ("Heavy rain", "showers", "showers"),
+    66: ("Freezing rain", "showers", "showers"),
+    67: ("Freezing rain", "showers", "showers"),
+    71: ("Light snow", "snow", "snow"),
+    73: ("Snow", "snow", "snow"),
+    75: ("Heavy snow", "snow", "snow"),
+    77: ("Snow grains", "snow", "snow"),
+    80: ("Light showers", "showers-scattered", "showers-scattered"),
+    81: ("Showers", "showers", "showers"),
+    82: ("Heavy showers", "showers", "showers"),
+    85: ("Snow showers", "snow", "snow"),
+    86: ("Heavy snow showers", "snow", "snow"),
+    95: ("Thunderstorm", "storm", "storm"),
+    96: ("Thunderstorm with hail", "storm", "storm"),
+    99: ("Thunderstorm with hail", "storm", "storm"),
+}
+UNKNOWN_SKY = ("Unknown", "overcast", "overcast")
+ICON_CLASSES = sorted({cls for _words, day, night in SKIES.values() for cls in (day, night)})
+
+
+class WeatherError(Exception):
+    pass
+
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+# --- Places ----------------------------------------------------------------------
+
+def home_dir(variable, *default):
+    return os.environ.get(variable) or os.path.join(os.path.expanduser("~"), *default)
+
+
+def config_home():
+    return home_dir("XDG_CONFIG_HOME", ".config")
+
+
+def state_home():
+    return home_dir("XDG_STATE_HOME", ".local", "state")
+
+
+def cache_dir():
+    return os.path.join(home_dir("XDG_CACHE_HOME", ".cache"), "flickos", "weather")
+
+
+def user_conf():
+    return os.path.join(config_home(), "flickos", "weather")
+
+
+def write_atomic(path, text, mode=0o644):
+    import tempfile
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+# --- The place ----------------------------------------------------------------------
+
+def parse_place(value):
+    """LAT,LON,NAME -> (lat, lon, name), the position rounded to COORD_DIGITS.
+    Raises ValueError."""
+    parts = value.split(",", 2)
+    if len(parts) != 3:
+        raise ValueError("a place is LATITUDE,LONGITUDE,NAME")
+    lat, lon = round(float(parts[0]), COORD_DIGITS), round(float(parts[1]), COORD_DIGITS)
+    name = " ".join(parts[2].split())
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise ValueError("the latitude is -90 to 90 and the longitude -180 to 180")
+    if not name or len(name) > PLACE_CHARS:
+        raise ValueError(f"the place needs a name of at most {PLACE_CHARS} characters")
+    return lat, lon, name
+
+
+def place_value(lat, lon, name):
+    return f"{lat:.{COORD_DIGITS}f},{lon:.{COORD_DIGITS}f},{name}"
+
+
+def normal_place(value):
+    """The value as stored: the position rounded, spaces tidied."""
+    return place_value(*parse_place(value))
+
+
+# --- Settings ----------------------------------------------------------------------
+
+def read_ini(path):
+    """{key: value} of one file. A file that can't be read counts as absent,
+    with a warning (SET-4); so does a value that isn't one of the key's."""
+    ini = configparser.ConfigParser(interpolation=None)
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return {}
+    if not ini.has_section(SECTION):
+        return {}
+    raw = {key.lower(): value.strip() for key, value in ini[SECTION].items()}
+    values = {}
+    for key, (name, allowed, _default) in SETTINGS.items():
+        value = raw.get(name.lower(), "")
+        if not value:
+            continue
+        if allowed is None:
+            try:
+                values[key] = normal_place(value)
+            except ValueError as error:
+                warn(f"{path}: {name}={value}: {error}; left out")
+        elif value.lower() in allowed:
+            values[key] = value.lower()
+        else:
+            warn(f"{path}: {name}={value} isn't one of {', '.join(allowed)}; left out")
+    return values
+
+
+def load_settings():
+    """{key: value} in force: the user's file over the system's, over the
+    built-in defaults; and the keys the user chose."""
+    values = {key: default for key, (_name, _allowed, default) in SETTINGS.items()}
+    values.update(read_ini(SYSTEM_CONF))
+    user = read_ini(user_conf())
+    values.update(user)
+    return values, frozenset(user)
+
+
+def setting(key):
+    return load_settings()[0][key]
+
+
+def server_urls():
+    """(forecast, search) addresses: the system file's [Server], else
+    Open-Meteo's. Never the user's file."""
+    ini = configparser.ConfigParser(interpolation=None)
+    with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+        ini.read(SYSTEM_CONF, encoding="utf-8")
+    forecast = ini.get(SERVER_SECTION, "ForecastUrl", fallback="").strip() or FORECAST_URL
+    search = ini.get(SERVER_SECTION, "SearchUrl", fallback="").strip() or SEARCH_URL
+    return forecast, search
+
+
+def locale_region():
+    """The two-letter region of the measurement locale, e.g. US of en_US.UTF-8."""
+    for variable in ("LC_ALL", "LC_MEASUREMENT", "LANG"):
+        value = os.environ.get(variable, "")
+        if value:
+            territory = value.split(".")[0].split("@")[0].partition("_")[2]
+            return territory.upper() or None
+    return None
+
+
+def resolved_units(units):
+    if units != "auto":
+        return units
+    return "fahrenheit" if locale_region() in FAHRENHEIT_REGIONS else "celsius"
+
+
+def default_wind(units):
+    """The wind unit that goes with the temperature's: mph with Fahrenheit."""
+    return "mph" if units == "fahrenheit" else "kmh"
+
+
+def resolved_wind(wind, units):
+    """The wind unit in force: the chosen one, or (auto) the temperature's."""
+    return wind if wind in WIND_UNITS else default_wind(units)
+
+
+def search_language():
+    """Two letters for the place names `find` shows."""
+    for variable in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        value = os.environ.get(variable, "").split(":")[0]
+        letters = value[:2].lower()
+        if len(letters) == 2 and letters.isalpha() and value not in ("C", "POSIX"):
+            return letters
+    return "en"
+
+
+def clock_hours():
+    """12 or 24, as the panel's clock (flickos-layout clock): the user's
+    choice, else the system's default."""
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        with open(os.path.join(config_home(), "flickos", "clock"), encoding="utf-8") as f:
+            choice = f.readline().strip()
+            if choice in ("12h", "24h"):
+                return 12 if choice == "12h" else 24
+    ini = configparser.ConfigParser(interpolation=None)
+    for conf in (LAYOUTS_CONF, LAYOUTS_SITE_CONF):
+        with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+            ini.read(conf, encoding="utf-8")
+    return 12 if ini.get("Defaults", "Clock", fallback="").strip() == "12h" else 24
+
+
+def settings_state():
+    """What `state` prints: each setting, whether it is the default, the
+    place's name and units in force, and the last update or error."""
+    values, user = load_settings()
+    state = {key: {"value": values[key], "default": key not in user} for key in SETTINGS}
+    state["units"]["resolved"] = resolved_units(values["units"])
+    state["wind"]["resolved"] = resolved_wind(values["wind"], state["units"]["resolved"])
+    name = ""
+    with contextlib.suppress(ValueError):
+        name = parse_place(values["place"])[2] if values["place"] else ""
+    state["place"]["name"] = name
+    cache = read_cache()
+    fetched, tried = cache.get("fetched"), cache.get("tried")
+    state["updated"] = iso_time(fetched) if isinstance(fetched, (int, float)) else None
+    state["error"] = cache.get("error") if isinstance(tried, (int, float)) and \
+        (not isinstance(fetched, (int, float)) or tried > fetched) else None
+    state["server"] = server_urls()[0]
+    return state
+
+
+def iso_time(seconds):
+    return datetime.datetime.fromtimestamp(seconds).astimezone().isoformat(timespec="seconds")
+
+
+def save_settings(changes):
+    """Write changes ({key: value or None}) to the user's file. None removes a
+    key, so the system's applies again. A change that shows is recorded."""
+    before = load_settings()[0]
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+        ini.read(user_conf(), encoding="utf-8")
+    if not ini.has_section(SECTION):
+        ini.add_section(SECTION)
+    for key, value in changes.items():
+        name = SETTINGS[key][0]
+        for existing in list(ini[SECTION]):
+            if existing.lower() == name.lower():
+                ini.remove_option(SECTION, existing)
+        if value is not None:
+            ini[SECTION][name] = value
+    path = user_conf()
+    if ini[SECTION]:
+        lines = ["# The weather in the panel (flickos-weather). Change it with: flickos-weather set KEY VALUE",
+                 "# VALUE default puts the system's back. Settings > Weather does the same.",
+                 f"[{SECTION}]"]
+        lines += [f"{key}={value}" for key, value in ini[SECTION].items()]
+        write_atomic(path, "\n".join(lines) + "\n")
+    else:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
+    after, user = load_settings()
+    for key in changes:
+        record(key, before[key], after[key] if key in user else DEFAULT_CHOICE)
+    return after
+
+
+def change_setting(key, value):
+    """`set KEY VALUE`, then what makes it show: the panel generated again for
+    enabled, the button run again for the others. Raises WeatherError."""
+    _name, allowed, _default = SETTINGS[key]
+    if value != DEFAULT_CHOICE:
+        if allowed is None:
+            try:
+                value = normal_place(value)
+            except ValueError as error:
+                raise WeatherError(f"place: {error}") from None
+        elif value.lower() not in allowed:
+            raise WeatherError(f"{key}: {', '.join(allowed)} or {DEFAULT_CHOICE}")
+        else:
+            value = value.lower()
+    before = setting(key)
+    after = save_settings({key: None if value == DEFAULT_CHOICE else value})[key]
+    if after == before:
+        return after
+    if key == "enabled":
+        reload_panel()
+    else:
+        signal_panel()
+    return after
+
+
+def reload_panel():
+    """The button is in the panel only while enabled is on: have flickos-layout
+    generate it again (only inside the session)."""
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return
+    import subprocess
+    try:
+        subprocess.run([LAYOUT, "reload-panel"], check=False, timeout=30,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+# --- The panel's waybar -------------------------------------------------------------
+
+PROC = "/proc"
+
+
+def catches_signal(pid, signum):
+    """Whether pid has a handler for signum (SigCgt in /proc/PID/status): a
+    waybar without the button would die of SIGRTMIN+PANEL_SIGNAL."""
+    try:
+        with open(os.path.join(PROC, str(pid), "status"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16) >> (signum - 1) & 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    return False
+
+
+def own_waybars():
+    """PIDs of this user's waybar processes."""
+    pids = []
+    for entry in os.listdir(PROC):
+        if not entry.isdigit():
+            continue
+        try:
+            if os.stat(os.path.join(PROC, entry)).st_uid != os.getuid():
+                continue
+            with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
+                if f.read().strip() == "waybar":
+                    pids.append(int(entry))
+        except OSError:
+            continue
+    return sorted(pids)
+
+
+def signal_panel():
+    """Have every waybar with the button run `panel` again at once."""
+    signum = signal.SIGRTMIN + PANEL_SIGNAL
+    for pid in own_waybars():
+        if catches_signal(pid, signum):
+            with contextlib.suppress(OSError):
+                os.kill(pid, signum)
+
+
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007)."""
+    return key in SETTINGS
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
+
+
+# --- History ------------------------------------------------------------------------
+# One JSON line per change, appended. The format is shared with flickos-control,
+# flickos-layout, flick-tiler, flickos-phone, flickos-screenshot and
+# flickos-media (docs/design/flickos-history.md).
+
+HISTORY_OWNER = NAME
+HISTORY_FILE = "history.jsonl"      # in $XDG_STATE_HOME/flickos
+HISTORY_LOCK = "history.lock"
+HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
+
+
+def history_enabled():
+    enabled = True
+    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+            value = ini.get("History", "Enabled", fallback=None)
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+        if value is not None:
+            enabled = value.strip().lower() not in ("no", "false", "off", "0")
+    return enabled
+
+
+def record(key, old, new):
+    """Add a change to the history. It never stops the change itself: a
+    history that can't be written is only a warning."""
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
+        return
+    now = time.time_ns()
+    entry = {"v": 1, "id": str(now), "time": iso_time(now / 1e9),
+             "owner": HISTORY_OWNER, "key": key, "old": old, "new": new}
+    folder = os.path.join(state_home(), "flickos")
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        with open(os.path.join(folder, HISTORY_LOCK), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = os.path.join(folder, HISTORY_FILE)
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                size = os.fstat(f.fileno()).st_size
+            if size > HISTORY_BYTES:
+                trim_history(path)
+    except OSError as error:
+        warn(f"the history can't be written: {error}")
+
+
+def trim_history(path):
+    """Keep the newest lines that fit in half of HISTORY_BYTES (under the lock)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    kept, size = [], 0
+    for line in reversed(lines):
+        size += len(line.encode())
+        if size > HISTORY_BYTES // 2:
+            break
+        kept.append(line)
+    write_atomic(path, "".join(reversed(kept)), mode=0o600)
+
+
+# --- Open-Meteo -----------------------------------------------------------------------
+
+def forecast_url(lat, lon, units, base=None, wind=None):
+    """The forecast's address: the position, the units and the fields; nothing else."""
+    import urllib.parse
+    query = {
+        "latitude": f"{lat:.{COORD_DIGITS}f}",
+        "longitude": f"{lon:.{COORD_DIGITS}f}",
+        "current": ",".join(CURRENT_FIELDS),
+        "hourly": ",".join(HOURLY_FIELDS),
+        "daily": ",".join(DAILY_FIELDS),
+        "timezone": "auto",
+        "forecast_days": str(DAYS),
+        "forecast_hours": str(HOURS + 1),
+    }
+    if units == "fahrenheit":
+        query["temperature_unit"] = "fahrenheit"
+    wind = resolved_wind(wind, units)
+    if wind != "kmh":       # Open-Meteo's own default
+        query["wind_speed_unit"] = wind
+    return (base or server_urls()[0]) + "?" + urllib.parse.urlencode(query)
+
+
+def search_url(text, base=None):
+    import urllib.parse
+    query = {"name": text, "count": str(FIND_COUNT), "language": search_language(), "format": "json"}
+    return (base or server_urls()[1]) + "?" + urllib.parse.urlencode(query)
+
+
+def get_json(url):
+    """GET url, its JSON. Raises WeatherError with a short reason."""
+    import urllib.error
+    import urllib.request
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=FETCH_SECONDS) as response:
+            data = json.loads(response.read(1024 * 1024).decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        reason = ""
+        with contextlib.suppress(Exception):
+            reason = json.loads(error.read().decode("utf-8")).get("reason", "")
+        raise WeatherError(f"the weather service answered {error.code}" + (f": {reason}" if reason else ""))
+    except urllib.error.URLError as error:
+        raise WeatherError(f"the weather service can't be reached ({error.reason})") from None
+    except (OSError, ValueError) as error:
+        raise WeatherError(f"the weather service gave no forecast ({error})") from None
+    if not isinstance(data, dict):
+        raise WeatherError("the weather service gave no forecast")
+    return data
+
+
+def check_forecast(data):
+    """data if it has what the button needs, else WeatherError."""
+    try:
+        current, hourly, daily = data["current"], data["hourly"], data["daily"]
+        float(current["temperature_2m"])
+        int(current["weather_code"])
+        for block, fields in ((hourly, HOURLY_FIELDS), (daily, DAILY_FIELDS)):
+            for field in ("time",) + fields:
+                if not isinstance(block[field], list):
+                    raise TypeError(field)
+    except (KeyError, TypeError, ValueError):
+        raise WeatherError("the weather service's answer lacks the forecast") from None
+    return data
+
+
+def find_places(text):
+    """[{"name", "value"}] of the places matching text (Open-Meteo's search)."""
+    text = " ".join(text.split())
+    if len(text) < 2:
+        raise WeatherError("type at least two letters of the place")
+    results = get_json(search_url(text)).get("results") or []
+    places, seen = [], set()
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        try:
+            lat, lon = float(result["latitude"]), float(result["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        parts = []
+        for field in ("name", "admin1", "country"):
+            part = result.get(field)
+            if isinstance(part, str) and part.strip() and part.strip() not in parts:
+                parts.append(part.strip())
+        if not parts:
+            continue
+        with contextlib.suppress(ValueError):
+            value = normal_place(place_value(lat, lon, ", ".join(parts)))
+            if value not in seen:
+                seen.add(value)
+                places.append({"name": parse_place(value)[2], "value": value})
+    return places
+
+
+# --- The cache -----------------------------------------------------------------------
+
+def cache_path():
+    return os.path.join(cache_dir(), "forecast.json")
+
+
+def read_cache():
+    try:
+        with open(cache_path(), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def cache_key(lat, lon, units, wind=None):
+    """The place and the units the forecast was asked in; the wind unit only
+    when it isn't the one that goes with the temperature's, so a cache made
+    before the wind setting stays good."""
+    key = f"{lat:.{COORD_DIGITS}f},{lon:.{COORD_DIGITS}f},{units}"
+    wind = resolved_wind(wind, units)
+    return key if wind == default_wind(units) else f"{key},{wind}"
+
+
+def due(cache, key, now):
+    """Whether to ask the service: no forecast for this place and unit, or an
+    old one, and no failure within RETRY_SECONDS."""
+    tried = cache.get("tried") if cache.get("key") == key else None
+    if isinstance(tried, (int, float)) and cache.get("error") and now - tried < RETRY_SECONDS:
+        return False
+    fetched = cache.get("fetched")
+    return cache.get("key") != key or not isinstance(fetched, (int, float)) or \
+        now - fetched >= REFRESH_SECONDS or fetched > now
+
+
+def update_cache(lat, lon, units, force=False, now=None, fetch=None, wind=None):
+    """The cache for this place and unit, asked for again when due (or
+    forced). One fetch at a time: the others wait for it, then read it."""
+    fetch = fetch or (lambda: check_forecast(get_json(forecast_url(lat, lon, units, wind=wind))))
+    key = cache_key(lat, lon, units, wind)
+    os.makedirs(cache_dir(), mode=0o700, exist_ok=True)
+    with open(os.path.join(cache_dir(), "fetch.lock"), "a") as lock:
+        deadline = time.monotonic() + LOCK_SECONDS
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    return read_cache()
+                time.sleep(0.2)
+        cache = read_cache()
+        now = time.time() if now is None else now
+        if not force and not due(cache, key, now):
+            return cache
+        try:
+            data = fetch()
+        except WeatherError as error:
+            if cache.get("key") != key:
+                cache = {"key": key}
+            cache.update({"tried": now, "error": str(error)})
+        else:
+            cache = {"key": key, "fetched": now, "tried": now, "error": None, "data": data}
+        write_atomic(cache_path(), json.dumps(cache, ensure_ascii=False), mode=0o600)
+        return cache
+
+
+# --- The button ---------------------------------------------------------------------
+
+def sky(code, day=True):
+    """(words, icon class) of a WMO code."""
+    try:
+        words, by_day, by_night = SKIES.get(int(code), UNKNOWN_SKY)
+    except (TypeError, ValueError):
+        words, by_day, by_night = UNKNOWN_SKY
+    return words, by_day if day else by_night
+
+
+def escape(text):
+    """Text for Pango markup (html's escape costs 26 ms of imports)."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def degrees(value):
+    return f"{round(float(value))}°"
+
+
+def hour_label(stamp, hours):
+    """"15:00" or "3 PM" of Open-Meteo's local "2026-10-25T15:00"."""
+    when = datetime.datetime.fromisoformat(stamp)
+    if hours == 12:
+        return when.strftime("%I %p").lstrip("0")
+    return when.strftime("%H:%M")
+
+
+def day_label(stamp, index):
+    return "Today" if index == 0 else datetime.date.fromisoformat(stamp).strftime("%a")
+
+
+def column(rows):
+    """Rows of cells, each column as wide as its widest cell."""
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))] if rows else []
+    return ["  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip() for row in rows]
+
+
+def tooltip_text(data, name, units, fetched, hours=24, wind=None):
+    """The tooltip, Pango markup: the place and now, the next hours, the
+    days, when it was updated and the credit."""
+    unit = "°F" if units == "fahrenheit" else "°C"
+    speed = WIND_UNITS[resolved_wind(wind, units)]
+    current = data["current"]
+    words, _icon = sky(current.get("weather_code"), bool(current.get("is_day", 1)))
+    lines = [f"<b>{escape(name)}</b>",
+             f"{words}, {degrees(current['temperature_2m'])[:-1]}{unit}"
+             + (f", feels like {degrees(current['apparent_temperature'])[:-1]}{unit}"
+                if current.get("apparent_temperature") is not None else "")]
+    details = []
+    if current.get("relative_humidity_2m") is not None:
+        details.append(f"Humidity {round(float(current['relative_humidity_2m']))} %")
+    if current.get("wind_speed_10m") is not None:
+        details.append(f"Wind {round(float(current['wind_speed_10m']))} {speed}")
+    if details:
+        lines.append(" · ".join(details))
+    hourly, rows = data["hourly"], []
+    now_stamp = str(current.get("time", ""))
+    for i, stamp in enumerate(hourly["time"]):
+        if len(rows) == HOURS:
+            break
+        if str(stamp) <= now_stamp:
+            continue
+        with contextlib.suppress(IndexError, TypeError, ValueError):
+            hour_words, _ = sky(hourly["weather_code"][i], bool(hourly["is_day"][i]))
+            rows.append([hour_label(stamp, hours), degrees(hourly["temperature_2m"][i]), hour_words])
+    if rows:
+        lines += [""] + [f"<tt>{escape(line)}</tt>" for line in column(rows)]
+    daily, rows = data["daily"], []
+    for i, stamp in enumerate(daily["time"][:DAYS]):
+        with contextlib.suppress(IndexError, TypeError, ValueError):
+            day_words, _ = sky(daily["weather_code"][i])
+            rain = daily["precipitation_probability_max"][i]
+            rows.append([day_label(stamp, i),
+                         f"{degrees(daily['temperature_2m_max'][i])} / {degrees(daily['temperature_2m_min'][i])}",
+                         day_words, f"{round(float(rain))} % rain" if rain else ""])
+    if rows:
+        lines += [""] + [f"<tt>{escape(line)}</tt>" for line in column(rows)]
+    updated = datetime.datetime.fromtimestamp(fetched)
+    clock = updated.strftime("%I:%M %p").lstrip("0") if hours == 12 else updated.strftime("%H:%M")
+    lines += ["", f"<small>Updated {clock} · {CREDIT}</small>"]
+    return "\n".join(lines)
+
+
+def panel_json(settings, cache, now=None, hours=24):
+    """The button's JSON for waybar: text, alt, tooltip and class. Empty text
+    hides the button: off, or no forecast newer than GONE_SECONDS."""
+    now = time.time() if now is None else now
+    if settings["enabled"] != "on":
+        return {"text": ""}
+    try:
+        lat, lon, name = parse_place(settings["place"])
+    except ValueError:
+        return {"text": "Weather", "alt": "Weather\nChoose a place", "class": ["unset"],
+                "tooltip": "Choose your town or city: click here, or Settings > Weather"}
+    units = resolved_units(settings["units"])
+    wind = resolved_wind(settings.get("wind"), units)
+    fetched, data = cache.get("fetched"), cache.get("data")
+    if cache.get("key") != cache_key(lat, lon, units, wind) or not isinstance(fetched, (int, float)) \
+            or not isinstance(data, dict) or now - fetched > GONE_SECONDS:
+        return {"text": ""}
+    try:
+        current = data["current"]
+        words, icon = sky(current.get("weather_code"), bool(current.get("is_day", 1)))
+        temperature = degrees(current["temperature_2m"])
+        tooltip = tooltip_text(data, name, units, fetched, hours, wind)
+    except (KeyError, TypeError, ValueError):
+        return {"text": ""}
+    classes = [icon] + (["stale"] if now - fetched > STALE_SECONDS else [])
+    unit = "F" if units == "fahrenheit" else "C"
+    return {"text": temperature, "alt": f"{temperature}{unit}\n{words}", "tooltip": tooltip, "class": classes}
+
+
+# --- Commands -----------------------------------------------------------------------
+
+def cmd_get(opts):
+    print(setting(opts.key))
+    return 0
+
+
+def cmd_set(opts):
+    after = change_setting(opts.key, opts.value)
+    if opts.key == "enabled" and after == "on" and not setting("place"):
+        warn("choose a place: flickos-weather find TEXT, then flickos-weather set place VALUE")
+    return 0
+
+
+def cmd_state(_opts):
+    json.dump(settings_state(), sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_find(opts):
+    places = find_places(" ".join(opts.text))
+    if opts.json:
+        json.dump(places, sys.stdout, ensure_ascii=False)
+        sys.stdout.write("\n")
+    else:
+        for place in places:
+            print(f"{place['name']}\t{place['value']}")
+        if not places:
+            warn("no place of that name")
+    return 0
+
+
+def place_and_units():
+    settings = load_settings()[0]
+    lat, lon, _name = parse_place(settings["place"])
+    units = resolved_units(settings["units"])
+    return settings, lat, lon, units, resolved_wind(settings["wind"], units)
+
+
+def cmd_panel(_opts):
+    """Never fails: waybar shows what it prints, and a traceback isn't JSON."""
+    try:
+        settings = load_settings()[0]
+        cache = {}
+        if settings["enabled"] == "on" and settings["place"]:
+            _settings, lat, lon, units, wind = place_and_units()
+            cache = update_cache(lat, lon, units, wind=wind)
+        output = panel_json(settings, cache, hours=clock_hours())
+    except Exception as error:      # noqa: BLE001 - the panel gets an empty button and the log a line
+        warn(f"panel: {error}")
+        output = {"text": ""}
+    print(json.dumps(output, ensure_ascii=False), flush=True)
+    return 0
+
+
+def cmd_refresh(_opts):
+    settings = load_settings()[0]
+    if settings["enabled"] != "on":
+        raise WeatherError("the weather is off: flickos-weather set enabled on")
+    try:
+        _settings, lat, lon, units, wind = place_and_units()
+    except ValueError:
+        raise WeatherError("no place chosen: flickos-weather find TEXT") from None
+    cache = update_cache(lat, lon, units, force=True, wind=wind)
+    signal_panel()
+    if cache.get("error") and cache.get("tried") != cache.get("fetched"):
+        raise WeatherError(cache["error"])
+    return 0
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["panel"]:       # waybar's, every 15 minutes: no argparse
+        return cmd_panel(None)
+    import argparse
+    parser = argparse.ArgumentParser(prog=NAME, description="The weather in the panel.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
+    get = commands.add_parser("get", help="print a setting")
+    get.add_argument("key", choices=tuple(SETTINGS))
+    get.set_defaults(func=cmd_get)
+    set_ = commands.add_parser("set", help="change a setting (default puts the system's back)")
+    set_.add_argument("key", choices=tuple(SETTINGS))
+    set_.add_argument("value", help="the new value, or default; a place is LATITUDE,LONGITUDE,NAME")
+    set_.set_defaults(func=cmd_set)
+    commands.add_parser("state", help="every setting and the last update, as JSON").set_defaults(func=cmd_state)
+    find = commands.add_parser("find", help="places that match TEXT (asks the weather service)")
+    find.add_argument("text", nargs="+")
+    find.add_argument("--json", action="store_true", help="as JSON: [{name, value}]")
+    find.set_defaults(func=cmd_find)
+    commands.add_parser("panel", help="(waybar) the panel button's JSON").set_defaults(func=cmd_panel)
+    commands.add_parser("refresh", help="ask for the forecast now").set_defaults(func=cmd_refresh)
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except WeatherError as error:
+        warn(str(error))
+        return 1
+    except OSError as error:
+        warn(f"{error.filename or ''}: {error.strerror}" if error.filename else str(error))
+        return 1
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

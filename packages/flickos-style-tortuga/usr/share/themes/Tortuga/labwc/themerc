@@ -1,0 +1,54 @@
+# Tortuga: FlickOS's own window theme (flickos-style-tortuga, written by
+# tools/make-tortuga.py; man labwc-theme). Slate title bars with a thin frame,
+# the title in the middle, and thin glyphs that get a round face under the
+# pointer: this folder's SVGs. Close's face is red.
+border.width: 1
+window.active.border.color: #3b5560
+window.inactive.border.color: #253740
+window.active.indicator.toggled-keybind.color: #e0a25c
+
+# Shadows (<dropShadows> in rc.xml; Settings can turn them off)
+window.active.shadow.size: 40
+window.inactive.shadow.size: 20
+window.active.shadow.color: #00000060
+window.inactive.shadow.color: #00000030
+
+window.titlebar.padding.width: 0
+window.titlebar.padding.height: 0
+window.active.title.bg.color: #1c2b33
+window.inactive.title.bg.color: #1c2b33
+window.active.label.text.color: #e6edec
+window.inactive.label.text.color: #90a3a6
+window.label.text.justify: center
+window.button.width: 30
+window.button.height: 28
+window.button.spacing: 0
+window.button.hover.bg.corner-radius: 0
+window.active.button.unpressed.image.color: #e6edec
+window.inactive.button.unpressed.image.color: #90a3a6
+menu.border.width: 1
+menu.border.color: #3b5560
+menu.items.bg.color: #1c2b33
+menu.items.text.color: #e6edec
+menu.items.active.bg.color: #2c4049
+menu.items.active.text.color: #e6edec
+menu.items.padding.x: 12
+menu.items.padding.y: 6
+menu.separator.color: #3b5560
+menu.title.bg.color: #1c2b33
+menu.title.text.color: #e6edec
+osd.bg.color: #1c2b33
+osd.border.color: #3b5560
+osd.border.width: 1
+osd.label.text.color: #e6edec
+osd.window-switcher.preview.border.color: #e0a25c
+osd.window-switcher.width: 640
+osd.window-switcher.padding: 8
+osd.window-switcher.item.padding.x: 12
+osd.window-switcher.item.padding.y: 6
+osd.window-switcher.item.active.border.width: 2
+snapping.overlay.region.bg.color: #e0a25c4c
+snapping.overlay.region.border.color: #e0a25c
+snapping.overlay.edge.bg.color: #e0a25c4c
+snapping.overlay.edge.border.color: #e0a25c
+magnifier.border.color: #e0a25c

@@ -60,6 +60,11 @@ def get_image_paths(backend: str,
                     continue
                 if not has_image_extension(image_name, backend):
                     continue
+                # FlickOS: leave out a link to nothing (a removed style's
+                # wallpaper copied from another computer): the caching loop's
+                # getsize raised on it and the grid lost every picture after it.
+                if not os.path.isfile(os.path.join(root, image_name)):
+                    continue
                 if not image_name.casefold().endswith('.gif') and only_gifs:
                     continue
                 image_path_list.append(os.path.join(root, image_name))

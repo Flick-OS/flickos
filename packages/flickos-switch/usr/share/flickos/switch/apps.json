@@ -1,0 +1,1570 @@
+[
+ {
+  "id": "chrome",
+  "name": "Google Chrome",
+  "files": ["ChromeSetup*.exe", "chrome_installer*.exe", "GoogleChromeStandaloneEnterprise*.msi"],
+  "makers": ["Google"],
+  "products": ["Google Chrome"],
+  "words": ["chrome", "browser"],
+  "linux": {"app": "com.google.Chrome", "source": "flathub", "name": "Google Chrome"}
+ },
+ {
+  "id": "edge",
+  "name": "Microsoft Edge",
+  "files": ["MicrosoftEdgeSetup*.exe", "MicrosoftEdgeEnterprise*.msi"],
+  "makers": ["Microsoft"],
+  "products": ["Microsoft Edge"],
+  "words": ["edge", "browser"],
+  "linux": {"app": "com.microsoft.Edge", "source": "flathub", "name": "Microsoft Edge"}
+ },
+ {
+  "id": "firefox",
+  "name": "Firefox",
+  "files": ["Firefox Installer*.exe", "Firefox Setup*.exe", "Firefox Setup*.msi"],
+  "makers": ["Mozilla"],
+  "products": ["Firefox"],
+  "words": ["firefox", "browser", "mozilla"],
+  "linux": {"app": "firefox-esr", "source": "debian", "name": "Firefox"},
+  "note": "Firefox is already on FlickOS."
+ },
+ {
+  "id": "brave",
+  "name": "Brave",
+  "files": ["BraveBrowserSetup*.exe", "BraveBrowser*.exe"],
+  "makers": ["Brave"],
+  "products": ["Brave"],
+  "words": ["brave", "browser"],
+  "linux": {"app": "com.brave.Browser", "source": "flathub", "name": "Brave"}
+ },
+ {
+  "id": "opera",
+  "name": "Opera",
+  "files": ["OperaSetup*.exe", "Opera_*_Setup*.exe", "OperaGXSetup*.exe"],
+  "makers": ["Opera"],
+  "products": ["Opera"],
+  "words": ["opera", "opera gx", "browser"],
+  "linux": {"app": "com.opera.Opera", "source": "flathub", "name": "Opera"}
+ },
+ {
+  "id": "vivaldi",
+  "name": "Vivaldi",
+  "files": ["Vivaldi.*.exe"],
+  "makers": ["Vivaldi"],
+  "products": ["Vivaldi"],
+  "words": ["vivaldi", "browser"],
+  "linux": {"app": "com.vivaldi.Vivaldi", "source": "flathub", "name": "Vivaldi"}
+ },
+ {
+  "id": "tor-browser",
+  "name": "Tor Browser",
+  "files": ["tor-browser-windows-*.exe", "torbrowser-install-*.exe"],
+  "makers": ["Tor Project"],
+  "products": ["Tor Browser"],
+  "words": ["tor", "browser", "privacy"],
+  "linux": {"app": "org.torproject.torbrowser-launcher", "source": "flathub", "name": "Tor Browser"}
+ },
+ {
+  "id": "thunderbird",
+  "name": "Thunderbird",
+  "files": ["Thunderbird Setup*.exe", "Thunderbird Setup*.msi"],
+  "makers": ["Mozilla"],
+  "products": ["Thunderbird"],
+  "words": ["thunderbird", "email", "mail"],
+  "linux": {"app": "org.mozilla.Thunderbird", "source": "flathub", "name": "Thunderbird"}
+ },
+ {
+  "id": "discord",
+  "name": "Discord",
+  "files": ["DiscordSetup*.exe"],
+  "makers": ["Discord"],
+  "products": ["Discord"],
+  "words": ["discord", "chat"],
+  "linux": {"app": "com.discordapp.Discord", "source": "flathub", "name": "Discord"}
+ },
+ {
+  "id": "zoom",
+  "name": "Zoom",
+  "files": ["ZoomInstaller*.exe", "ZoomInstallerFull*.exe", "ZoomInstallerFull*.msi", "Zoom_*.exe"],
+  "makers": ["Zoom"],
+  "products": ["Zoom"],
+  "words": ["zoom", "meetings", "video call"],
+  "linux": {"app": "us.zoom.Zoom", "source": "flathub", "name": "Zoom"}
+ },
+ {
+  "id": "teams",
+  "name": "Microsoft Teams",
+  "files": ["MSTeamsSetup*.exe", "TeamsSetup*.exe", "Teams_windows*.exe", "MSTeams*.msix"],
+  "makers": ["Microsoft"],
+  "products": ["Microsoft Teams", "Teams"],
+  "words": ["teams", "microsoft teams", "meetings"],
+  "web": {"name": "Teams on the web", "url": "https://teams.microsoft.com"},
+  "similar": [{"app": "com.github.IsmaelMartinez.teams_for_linux", "source": "flathub", "name": "Teams for Linux", "why": "An unofficial app for Teams, made for Linux."}],
+  "wine": "no"
+ },
+ {
+  "id": "slack",
+  "name": "Slack",
+  "files": ["SlackSetup*.exe", "slack-standalone-*.msi", "Slack*.msix"],
+  "makers": ["Slack"],
+  "products": ["Slack"],
+  "words": ["slack", "chat"],
+  "linux": {"app": "com.slack.Slack", "source": "flathub", "name": "Slack"}
+ },
+ {
+  "id": "whatsapp",
+  "name": "WhatsApp",
+  "files": ["WhatsApp Installer*.exe", "WhatsAppSetup*.exe", "WhatsApp*.msixbundle"],
+  "makers": ["WhatsApp"],
+  "products": ["WhatsApp"],
+  "words": ["whatsapp", "chat"],
+  "web": {"name": "WhatsApp on the web", "url": "https://web.whatsapp.com"},
+  "similar": [{"app": "com.rtosta.zapzap", "source": "flathub", "name": "ZapZap", "why": "An unofficial WhatsApp app made for Linux."}],
+  "wine": "no"
+ },
+ {
+  "id": "telegram",
+  "name": "Telegram",
+  "files": ["tsetup*.exe", "td-setup-win*.exe"],
+  "makers": ["Telegram"],
+  "products": ["Telegram Desktop", "Telegram"],
+  "words": ["telegram", "chat"],
+  "linux": {"app": "org.telegram.desktop", "source": "flathub", "name": "Telegram"}
+ },
+ {
+  "id": "signal",
+  "name": "Signal",
+  "files": ["signal-desktop-win-*.exe", "signal-*.exe"],
+  "makers": ["Signal"],
+  "products": ["Signal"],
+  "words": ["signal", "chat"],
+  "linux": {"app": "org.signal.Signal", "source": "flathub", "name": "Signal"}
+ },
+ {
+  "id": "viber",
+  "name": "Viber",
+  "files": ["ViberSetup*.exe"],
+  "makers": ["Viber"],
+  "products": ["Viber"],
+  "words": ["viber", "chat"],
+  "linux": {"app": "com.viber.Viber", "source": "flathub", "name": "Viber"}
+ },
+ {
+  "id": "element",
+  "name": "Element",
+  "files": ["Element Setup*.exe"],
+  "makers": ["Element", "New Vector"],
+  "products": ["Element"],
+  "words": ["element", "matrix", "chat"],
+  "linux": {"app": "im.riot.Riot", "source": "flathub", "name": "Element"}
+ },
+ {
+  "id": "wechat",
+  "name": "WeChat",
+  "files": ["WeChatSetup*.exe", "WeChatWin*.exe"],
+  "makers": ["Tencent"],
+  "products": ["WeChat", "Weixin"],
+  "words": ["wechat", "weixin", "chat"],
+  "linux": {"app": "com.tencent.WeChat", "source": "flathub", "name": "WeChat"}
+ },
+ {
+  "id": "messenger",
+  "name": "Messenger",
+  "files": ["Messenger*.exe"],
+  "makers": ["Meta", "Facebook"],
+  "products": ["Messenger"],
+  "words": ["messenger", "facebook", "chat"],
+  "web": {"name": "Messenger on the web", "url": "https://www.messenger.com"},
+  "wine": "no"
+ },
+ {
+  "id": "webex",
+  "name": "Webex",
+  "files": ["Webex*.exe", "Webex*.msi"],
+  "makers": ["Cisco"],
+  "products": ["Webex"],
+  "words": ["webex", "meetings"],
+  "web": {"name": "Webex on the web", "url": "https://web.webex.com"},
+  "wine": "no"
+ },
+ {
+  "id": "anydesk",
+  "name": "AnyDesk",
+  "files": ["AnyDesk*.exe", "AnyDesk*.msi"],
+  "makers": ["AnyDesk", "philandro"],
+  "products": ["AnyDesk"],
+  "words": ["anydesk", "remote desktop"],
+  "linux": {"app": "com.anydesk.Anydesk", "source": "flathub", "name": "AnyDesk"}
+ },
+ {
+  "id": "teamviewer",
+  "name": "TeamViewer",
+  "files": ["TeamViewer_Setup*.exe", "TeamViewerQS*.exe", "TeamViewer*.msi"],
+  "makers": ["TeamViewer"],
+  "products": ["TeamViewer"],
+  "words": ["teamviewer", "remote desktop"],
+  "similar": [{"app": "com.rustdesk.RustDesk", "source": "flathub", "name": "RustDesk", "why": "Remote help and remote access, free and open source."}, {"app": "com.anydesk.Anydesk", "source": "flathub", "name": "AnyDesk", "why": "Remote help and remote access, made for Linux too."}],
+  "note": "TeamViewer has a Linux version on its website.",
+  "wine": "no"
+ },
+ {
+  "id": "rustdesk",
+  "name": "RustDesk",
+  "files": ["rustdesk-*.exe", "rustdesk-*.msi"],
+  "makers": ["Purslane", "RustDesk"],
+  "products": ["RustDesk"],
+  "words": ["rustdesk", "remote desktop"],
+  "linux": {"app": "com.rustdesk.RustDesk", "source": "flathub", "name": "RustDesk"}
+ },
+ {
+  "id": "microsoft-office",
+  "name": "Microsoft Office",
+  "files": ["OfficeSetup*.exe", "Setup.X64.*.exe", "Setup.X86.*.exe", "Setup*O365*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["Microsoft Office", "Microsoft 365", "Office 16 Click-to-Run"],
+  "words": ["office", "microsoft 365", "word", "excel", "powerpoint", "ms word", "ms office"],
+  "web": {"name": "Microsoft 365 on the web", "url": "https://www.office.com"},
+  "similar": [{"app": "org.libreoffice.LibreOffice", "source": "flathub", "name": "LibreOffice", "why": "Opens and saves Word, Excel and PowerPoint files. Already on FlickOS."}, {"app": "org.onlyoffice.desktopeditors", "source": "flathub", "name": "ONLYOFFICE", "why": "Looks like Microsoft Office and opens its files."}],
+  "wine": "no"
+ },
+ {
+  "id": "outlook",
+  "name": "Outlook",
+  "files": ["OutlookSetup*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["Outlook"],
+  "words": ["outlook", "email", "mail", "hotmail"],
+  "web": {"name": "Outlook on the web", "url": "https://outlook.live.com"},
+  "similar": [{"app": "org.mozilla.Thunderbird", "source": "flathub", "name": "Thunderbird", "why": "Email, calendars and contacts, with Outlook.com and Microsoft 365 accounts."}],
+  "wine": "no"
+ },
+ {
+  "id": "onenote",
+  "name": "OneNote",
+  "files": ["OneNoteSetup*.exe", "OneNote*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["OneNote"],
+  "words": ["onenote", "notes"],
+  "web": {"name": "OneNote on the web", "url": "https://www.onenote.com/notebooks"},
+  "similar": [{"app": "net.cozic.joplin_desktop", "source": "flathub", "name": "Joplin", "why": "Notebooks with notes, pictures and to-do lists, kept in sync."}],
+  "wine": "no"
+ },
+ {
+  "id": "acrobat-reader",
+  "name": "Adobe Acrobat Reader",
+  "files": ["AcroRdrDC*.exe", "Reader_*_Install*.exe", "Adobe Acrobat*.exe", "AcroRdr*.msi"],
+  "makers": ["Adobe"],
+  "products": ["Acrobat Reader", "Adobe Acrobat"],
+  "words": ["acrobat", "adobe reader", "pdf"],
+  "similar": [{"app": "org.gnome.Evince", "source": "debian", "name": "Document Viewer", "why": "Opens PDF files. Already on FlickOS: double-click a PDF."}, {"app": "org.kde.okular", "source": "flathub", "name": "Okular", "why": "Opens PDF files, and can fill in forms and add notes."}],
+  "note": "FlickOS opens PDF files itself: double-click one.",
+  "wine": "no"
+ },
+ {
+  "id": "foxit-reader",
+  "name": "Foxit PDF Reader",
+  "files": ["FoxitPDFReader*.exe", "FoxitReader*.exe"],
+  "makers": ["Foxit"],
+  "products": ["Foxit"],
+  "words": ["foxit", "pdf"],
+  "similar": [{"app": "org.gnome.Evince", "source": "debian", "name": "Document Viewer", "why": "Opens PDF files. Already on FlickOS: double-click a PDF."}, {"app": "org.kde.okular", "source": "flathub", "name": "Okular", "why": "Opens PDF files, and can fill in forms and add notes."}],
+  "note": "FlickOS opens PDF files itself: double-click one.",
+  "wine": "no"
+ },
+ {
+  "id": "libreoffice",
+  "name": "LibreOffice",
+  "files": ["LibreOffice_*_Win_*.msi"],
+  "makers": ["The Document Foundation"],
+  "products": ["LibreOffice"],
+  "words": ["libreoffice", "office"],
+  "linux": {"app": "org.libreoffice.LibreOffice", "source": "flathub", "name": "LibreOffice"},
+  "note": "LibreOffice is already on FlickOS."
+ },
+ {
+  "id": "onlyoffice",
+  "name": "ONLYOFFICE",
+  "files": ["DesktopEditors_*.exe", "DesktopEditors_*.msi"],
+  "makers": ["Ascensio"],
+  "products": ["ONLYOFFICE"],
+  "words": ["onlyoffice", "office"],
+  "linux": {"app": "org.onlyoffice.desktopeditors", "source": "flathub", "name": "ONLYOFFICE"}
+ },
+ {
+  "id": "wps-office",
+  "name": "WPS Office",
+  "files": ["WPSOffice*.exe", "wps_office*.exe", "WPS_Setup*.exe"],
+  "makers": ["Kingsoft", "Zhuhai"],
+  "products": ["WPS Office"],
+  "words": ["wps", "office"],
+  "linux": {"app": "com.wps.Office", "source": "flathub", "name": "WPS Office"}
+ },
+ {
+  "id": "notion",
+  "name": "Notion",
+  "files": ["Notion Setup*.exe", "NotionSetup*.exe"],
+  "makers": ["Notion"],
+  "products": ["Notion"],
+  "words": ["notion", "notes"],
+  "web": {"name": "Notion on the web", "url": "https://www.notion.so"},
+  "similar": [{"app": "io.appflowy.AppFlowy", "source": "flathub", "name": "AppFlowy", "why": "Pages, notes and tasks like Notion's, kept on your computer."}, {"app": "md.obsidian.Obsidian", "source": "flathub", "name": "Obsidian", "why": "Notes in plain files, linked to each other."}],
+  "wine": "no"
+ },
+ {
+  "id": "obsidian",
+  "name": "Obsidian",
+  "files": ["Obsidian-*.exe", "Obsidian.*.exe"],
+  "makers": ["Dynalist", "Obsidian"],
+  "products": ["Obsidian"],
+  "words": ["obsidian", "notes"],
+  "linux": {"app": "md.obsidian.Obsidian", "source": "flathub", "name": "Obsidian"}
+ },
+ {
+  "id": "evernote",
+  "name": "Evernote",
+  "files": ["Evernote*.exe"],
+  "makers": ["Evernote", "Bending Spoons"],
+  "products": ["Evernote"],
+  "words": ["evernote", "notes"],
+  "web": {"name": "Evernote on the web", "url": "https://www.evernote.com/client/web"},
+  "similar": [{"app": "net.cozic.joplin_desktop", "source": "flathub", "name": "Joplin", "why": "Notebooks like Evernote's, and it imports Evernote's files."}],
+  "wine": "no"
+ },
+ {
+  "id": "joplin",
+  "name": "Joplin",
+  "files": ["Joplin-Setup-*.exe"],
+  "makers": ["Laurent Cozic", "Joplin"],
+  "products": ["Joplin"],
+  "words": ["joplin", "notes"],
+  "linux": {"app": "net.cozic.joplin_desktop", "source": "flathub", "name": "Joplin"}
+ },
+ {
+  "id": "calibre",
+  "name": "calibre",
+  "files": ["calibre-*.msi", "calibre-64bit-*.msi"],
+  "makers": ["Kovid Goyal"],
+  "products": ["calibre"],
+  "words": ["calibre", "ebook"],
+  "linux": {"app": "com.calibre_ebook.calibre", "source": "flathub", "name": "calibre"}
+ },
+ {
+  "id": "kindle",
+  "name": "Kindle",
+  "files": ["KindleForPC-installer*.exe"],
+  "makers": ["Amazon"],
+  "products": ["Kindle"],
+  "words": ["kindle", "ebook", "amazon"],
+  "web": {"name": "Kindle on the web", "url": "https://read.amazon.com"},
+  "similar": [{"app": "com.github.johnfactotum.Foliate", "source": "flathub", "name": "Foliate", "why": "Reads e-books that aren't locked to a store."}],
+  "wine": "maybe"
+ },
+ {
+  "id": "zotero",
+  "name": "Zotero",
+  "files": ["Zotero-*_setup.exe", "Zotero-*.exe"],
+  "makers": ["Corporation for Digital Scholarship", "Zotero"],
+  "products": ["Zotero"],
+  "words": ["zotero", "references"],
+  "linux": {"app": "org.zotero.Zotero", "source": "flathub", "name": "Zotero"}
+ },
+ {
+  "id": "chatgpt",
+  "name": "ChatGPT",
+  "files": ["ChatGPT*.exe", "ChatGPT*.msix"],
+  "makers": ["OpenAI"],
+  "products": ["ChatGPT"],
+  "words": ["chatgpt", "openai", "ai"],
+  "web": {"name": "ChatGPT on the web", "url": "https://chatgpt.com"},
+  "wine": "no"
+ },
+ {
+  "id": "claude",
+  "name": "Claude",
+  "files": ["Claude Setup*.exe", "Claude*.msix"],
+  "makers": ["Anthropic"],
+  "products": ["Claude"],
+  "words": ["claude", "anthropic", "ai"],
+  "web": {"name": "Claude on the web", "url": "https://claude.ai"},
+  "wine": "no"
+ },
+ {
+  "id": "copilot",
+  "name": "Microsoft Copilot",
+  "files": ["Copilot*.exe", "Copilot*.msix"],
+  "makers": ["Microsoft"],
+  "products": ["Copilot"],
+  "words": ["copilot", "ai"],
+  "web": {"name": "Copilot on the web", "url": "https://copilot.microsoft.com"},
+  "wine": "no"
+ },
+ {
+  "id": "vlc",
+  "name": "VLC",
+  "files": ["vlc-*-win64.exe", "vlc-*-win32.exe", "vlc-*.msi"],
+  "makers": ["VideoLAN"],
+  "products": ["VLC"],
+  "words": ["vlc", "video", "player"],
+  "linux": {"app": "org.videolan.VLC", "source": "flathub", "name": "VLC"},
+  "note": "VLC is already on FlickOS."
+ },
+ {
+  "id": "spotify",
+  "name": "Spotify",
+  "files": ["SpotifySetup*.exe", "SpotifyFullSetup*.exe"],
+  "makers": ["Spotify"],
+  "products": ["Spotify"],
+  "words": ["spotify", "music"],
+  "linux": {"app": "com.spotify.Client", "source": "flathub", "name": "Spotify"}
+ },
+ {
+  "id": "itunes",
+  "name": "iTunes",
+  "files": ["iTunes64Setup*.exe", "iTunesSetup*.exe"],
+  "makers": ["Apple"],
+  "products": ["iTunes"],
+  "words": ["itunes", "apple music", "music"],
+  "web": {"name": "Apple Music on the web", "url": "https://music.apple.com"},
+  "similar": [{"app": "org.gnome.Rhythmbox3", "source": "flathub", "name": "Rhythmbox", "why": "Plays and sorts the music files on your computer."}],
+  "wine": "no"
+ },
+ {
+  "id": "icloud",
+  "name": "iCloud",
+  "files": ["iCloudSetup*.exe"],
+  "makers": ["Apple"],
+  "products": ["iCloud"],
+  "words": ["icloud", "apple", "photos"],
+  "web": {"name": "iCloud on the web", "url": "https://www.icloud.com"},
+  "wine": "no"
+ },
+ {
+  "id": "mpc",
+  "name": "MPC-HC",
+  "files": ["MPC-HC.*.exe", "MPC-BE.*.exe", "MPC-HC*.exe"],
+  "makers": ["MPC-HC", "MPC-BE"],
+  "products": ["MPC-HC", "MPC-BE", "Media Player Classic"],
+  "words": ["mpc", "media player classic", "video"],
+  "similar": [{"app": "org.videolan.VLC", "source": "flathub", "name": "VLC", "why": "Plays every video and music file. Already on FlickOS."}, {"app": "io.mpv.Mpv", "source": "flathub", "name": "mpv", "why": "A small, fast video player."}]
+ },
+ {
+  "id": "potplayer",
+  "name": "PotPlayer",
+  "files": ["PotPlayerSetup*.exe"],
+  "makers": ["Kakao"],
+  "products": ["PotPlayer"],
+  "words": ["potplayer", "video"],
+  "similar": [{"app": "org.videolan.VLC", "source": "flathub", "name": "VLC", "why": "Plays every video and music file. Already on FlickOS."}, {"app": "io.mpv.Mpv", "source": "flathub", "name": "mpv", "why": "A small, fast video player."}]
+ },
+ {
+  "id": "k-lite",
+  "name": "K-Lite Codec Pack",
+  "files": ["K-Lite_Codec_Pack_*.exe"],
+  "makers": ["KLCP"],
+  "products": ["K-Lite"],
+  "words": ["codec", "k-lite"],
+  "similar": [{"app": "org.videolan.VLC", "source": "flathub", "name": "VLC", "why": "Plays every video and music file. Already on FlickOS."}],
+  "note": "FlickOS plays video and music formats without a codec pack.",
+  "wine": "no"
+ },
+ {
+  "id": "foobar2000",
+  "name": "foobar2000",
+  "files": ["foobar2000*.exe"],
+  "makers": ["Peter Pawlowski", "foobar2000"],
+  "products": ["foobar2000"],
+  "words": ["foobar", "music"],
+  "similar": [{"app": "org.strawberrymusicplayer.strawberry", "source": "flathub", "name": "Strawberry", "why": "Plays and sorts a large music collection."}, {"app": "org.gnome.Rhythmbox3", "source": "flathub", "name": "Rhythmbox", "why": "Plays and sorts the music files on your computer."}]
+ },
+ {
+  "id": "winamp",
+  "name": "Winamp",
+  "files": ["winamp*.exe"],
+  "makers": ["Winamp", "Nullsoft", "Radionomy", "Llama"],
+  "products": ["Winamp"],
+  "words": ["winamp", "music"],
+  "similar": [{"app": "org.strawberrymusicplayer.strawberry", "source": "flathub", "name": "Strawberry", "why": "Plays and sorts a large music collection."}]
+ },
+ {
+  "id": "musicbee",
+  "name": "MusicBee",
+  "files": ["MusicBeeSetup*.exe"],
+  "makers": ["Steven Mayall", "MusicBee"],
+  "products": ["MusicBee"],
+  "words": ["musicbee", "music"],
+  "similar": [{"app": "org.strawberrymusicplayer.strawberry", "source": "flathub", "name": "Strawberry", "why": "Plays and sorts a large music collection."}]
+ },
+ {
+  "id": "aimp",
+  "name": "AIMP",
+  "files": ["aimp_*.exe"],
+  "makers": ["AIMP"],
+  "products": ["AIMP"],
+  "words": ["aimp", "music"],
+  "similar": [{"app": "org.strawberrymusicplayer.strawberry", "source": "flathub", "name": "Strawberry", "why": "Plays and sorts a large music collection."}]
+ },
+ {
+  "id": "audacity",
+  "name": "Audacity",
+  "files": ["audacity-win-*.exe"],
+  "makers": ["Audacity", "Muse"],
+  "products": ["Audacity"],
+  "words": ["audacity", "audio", "recording"],
+  "linux": {"app": "org.audacityteam.Audacity", "source": "flathub", "name": "Audacity"}
+ },
+ {
+  "id": "obs",
+  "name": "OBS Studio",
+  "files": ["OBS-Studio-*.exe"],
+  "makers": ["OBS"],
+  "products": ["OBS Studio"],
+  "words": ["obs", "streaming", "recording"],
+  "linux": {"app": "com.obsproject.Studio", "source": "flathub", "name": "OBS Studio"}
+ },
+ {
+  "id": "handbrake",
+  "name": "HandBrake",
+  "files": ["HandBrake-*-Win*.exe", "HandBrake-*.exe"],
+  "makers": ["HandBrake"],
+  "products": ["HandBrake"],
+  "words": ["handbrake", "video", "convert"],
+  "linux": {"app": "fr.handbrake.ghb", "source": "flathub", "name": "HandBrake"}
+ },
+ {
+  "id": "kodi",
+  "name": "Kodi",
+  "files": ["kodi-*.exe"],
+  "makers": ["XBMC", "Kodi"],
+  "products": ["Kodi"],
+  "words": ["kodi", "media center"],
+  "linux": {"app": "tv.kodi.Kodi", "source": "flathub", "name": "Kodi"}
+ },
+ {
+  "id": "plex",
+  "name": "Plex",
+  "files": ["Plex-*.exe", "PlexMediaServer-*.exe"],
+  "makers": ["Plex"],
+  "products": ["Plex"],
+  "words": ["plex", "media"],
+  "linux": {"app": "tv.plex.PlexDesktop", "source": "flathub", "name": "Plex"}
+ },
+ {
+  "id": "tidal",
+  "name": "TIDAL",
+  "files": ["TIDALSetup*.exe"],
+  "makers": ["TIDAL", "Aspiro"],
+  "products": ["TIDAL"],
+  "words": ["tidal", "music"],
+  "web": {"name": "TIDAL on the web", "url": "https://listen.tidal.com"},
+  "wine": "no"
+ },
+ {
+  "id": "deezer",
+  "name": "Deezer",
+  "files": ["DeezerSetup*.exe", "Deezer*.exe"],
+  "makers": ["Deezer"],
+  "products": ["Deezer"],
+  "words": ["deezer", "music"],
+  "web": {"name": "Deezer on the web", "url": "https://www.deezer.com"},
+  "wine": "no"
+ },
+ {
+  "id": "amazon-music",
+  "name": "Amazon Music",
+  "files": ["Amazon Music Installer*.exe", "AmazonMusicInstaller*.exe"],
+  "makers": ["Amazon"],
+  "products": ["Amazon Music"],
+  "words": ["amazon music", "music"],
+  "web": {"name": "Amazon Music on the web", "url": "https://music.amazon.com"},
+  "wine": "no"
+ },
+ {
+  "id": "netflix",
+  "name": "Netflix",
+  "files": ["Netflix*.msixbundle", "Netflix*.exe"],
+  "makers": ["Netflix"],
+  "products": ["Netflix"],
+  "words": ["netflix", "movies"],
+  "web": {"name": "Netflix on the web", "url": "https://www.netflix.com"},
+  "wine": "no"
+ },
+ {
+  "id": "prime-video",
+  "name": "Prime Video",
+  "files": ["PrimeVideo*.exe", "Prime Video*.exe"],
+  "makers": ["Amazon"],
+  "products": ["Prime Video"],
+  "words": ["prime video", "amazon", "movies"],
+  "web": {"name": "Prime Video on the web", "url": "https://www.primevideo.com"},
+  "wine": "no"
+ },
+ {
+  "id": "4k-video-downloader",
+  "name": "4K Video Downloader",
+  "files": ["4kvideodownloader*.exe", "4kvideodownloaderplus*.exe"],
+  "makers": ["Open Media", "InterPromo"],
+  "products": ["4K Video Downloader"],
+  "words": ["4k video downloader", "youtube", "download"],
+  "similar": [{"app": "org.nickvision.tubeconverter", "source": "flathub", "name": "Parabolic", "why": "Downloads videos and music from YouTube and other sites."}]
+ },
+ {
+  "id": "shotcut",
+  "name": "Shotcut",
+  "files": ["shotcut-win64-*.exe"],
+  "makers": ["Meltytech"],
+  "products": ["Shotcut"],
+  "words": ["shotcut", "video editor"],
+  "linux": {"app": "org.shotcut.Shotcut", "source": "flathub", "name": "Shotcut"}
+ },
+ {
+  "id": "kdenlive",
+  "name": "Kdenlive",
+  "files": ["kdenlive-*.exe"],
+  "makers": ["KDE"],
+  "products": ["Kdenlive"],
+  "words": ["kdenlive", "video editor"],
+  "linux": {"app": "org.kde.kdenlive", "source": "flathub", "name": "Kdenlive"}
+ },
+ {
+  "id": "davinci-resolve",
+  "name": "DaVinci Resolve",
+  "files": ["DaVinci_Resolve_*_Windows.exe", "DaVinci_Resolve*.exe"],
+  "makers": ["Blackmagic"],
+  "products": ["DaVinci Resolve"],
+  "words": ["davinci", "resolve", "video editor"],
+  "similar": [{"app": "org.kde.kdenlive", "source": "flathub", "name": "Kdenlive", "why": "Edits video with many tracks, titles and effects."}],
+  "note": "DaVinci Resolve has a Linux version on Blackmagic Design's website.",
+  "wine": "no"
+ },
+ {
+  "id": "capcut",
+  "name": "CapCut",
+  "files": ["CapCut*.exe"],
+  "makers": ["Bytedance", "CapCut"],
+  "products": ["CapCut"],
+  "words": ["capcut", "video editor"],
+  "web": {"name": "CapCut on the web", "url": "https://www.capcut.com/editor"},
+  "similar": [{"app": "org.kde.kdenlive", "source": "flathub", "name": "Kdenlive", "why": "Edits video with many tracks, titles and effects."}, {"app": "org.shotcut.Shotcut", "source": "flathub", "name": "Shotcut", "why": "A video editor that is quick to learn."}],
+  "wine": "no"
+ },
+ {
+  "id": "premiere-pro",
+  "name": "Adobe Premiere Pro",
+  "files": ["Premiere_Pro_Set-Up*.exe"],
+  "makers": ["Adobe"],
+  "products": ["Premiere Pro"],
+  "words": ["premiere", "adobe premiere", "video editor"],
+  "similar": [{"app": "org.kde.kdenlive", "source": "flathub", "name": "Kdenlive", "why": "Edits video with many tracks, titles and effects."}, {"app": "org.shotcut.Shotcut", "source": "flathub", "name": "Shotcut", "why": "A video editor that is quick to learn."}],
+  "wine": "no"
+ },
+ {
+  "id": "filmora",
+  "name": "Filmora",
+  "files": ["filmora*.exe"],
+  "makers": ["Wondershare"],
+  "products": ["Filmora"],
+  "words": ["filmora", "video editor"],
+  "similar": [{"app": "org.kde.kdenlive", "source": "flathub", "name": "Kdenlive", "why": "Edits video with many tracks, titles and effects."}, {"app": "org.shotcut.Shotcut", "source": "flathub", "name": "Shotcut", "why": "A video editor that is quick to learn."}],
+  "wine": "no"
+ },
+ {
+  "id": "clipchamp",
+  "name": "Clipchamp",
+  "files": ["Clipchamp*.msixbundle"],
+  "makers": ["Microsoft", "Clipchamp"],
+  "products": ["Clipchamp"],
+  "words": ["clipchamp", "video editor"],
+  "web": {"name": "Clipchamp on the web", "url": "https://app.clipchamp.com"},
+  "similar": [{"app": "org.shotcut.Shotcut", "source": "flathub", "name": "Shotcut", "why": "A video editor that is quick to learn."}],
+  "wine": "no"
+ },
+ {
+  "id": "blender",
+  "name": "Blender",
+  "files": ["blender-*-windows-x64.msi", "blender-*-windows*.exe"],
+  "makers": ["Blender Foundation"],
+  "products": ["Blender"],
+  "words": ["blender", "3d"],
+  "linux": {"app": "org.blender.Blender", "source": "flathub", "name": "Blender"}
+ },
+ {
+  "id": "reaper",
+  "name": "REAPER",
+  "files": ["reaper*-install.exe", "reaper*_x64-install.exe"],
+  "makers": ["Cockos"],
+  "products": ["REAPER"],
+  "words": ["reaper", "audio", "music production"],
+  "linux": {"app": "fm.reaper.Reaper", "source": "flathub", "name": "REAPER"}
+ },
+ {
+  "id": "fl-studio",
+  "name": "FL Studio",
+  "files": ["flstudio_win*.exe"],
+  "makers": ["Image-Line"],
+  "products": ["FL Studio"],
+  "words": ["fl studio", "music production"],
+  "similar": [{"app": "io.lmms.LMMS", "source": "flathub", "name": "LMMS", "why": "Makes music with patterns, instruments and a piano roll, like FL Studio."}]
+ },
+ {
+  "id": "ableton",
+  "name": "Ableton Live",
+  "files": ["Ableton Live*.exe", "ableton_live*.zip"],
+  "makers": ["Ableton"],
+  "products": ["Ableton Live"],
+  "words": ["ableton", "music production"],
+  "similar": [{"app": "org.ardour.Ardour", "source": "flathub", "name": "Ardour", "why": "Records, edits and mixes music."}, {"app": "io.lmms.LMMS", "source": "flathub", "name": "LMMS", "why": "Makes music with patterns, instruments and a piano roll."}],
+  "wine": "no"
+ },
+ {
+  "id": "musescore",
+  "name": "MuseScore",
+  "files": ["MuseScore-*.msi", "MuseScore-Studio-*.msi", "MuseHub*.exe"],
+  "makers": ["MuseScore", "Muse"],
+  "products": ["MuseScore"],
+  "words": ["musescore", "sheet music"],
+  "linux": {"app": "org.musescore.MuseScore", "source": "flathub", "name": "MuseScore"}
+ },
+ {
+  "id": "mp3tag",
+  "name": "Mp3tag",
+  "files": ["mp3tag*setup.exe"],
+  "makers": ["Florian Heidenreich"],
+  "products": ["Mp3tag"],
+  "words": ["mp3tag", "tags", "music"],
+  "similar": [{"app": "org.kde.kid3", "source": "flathub", "name": "Kid3", "why": "Edits the titles, artists and covers of music files."}, {"app": "org.musicbrainz.Picard", "source": "flathub", "name": "MusicBrainz Picard", "why": "Finds and fills in music files' tags."}]
+ },
+ {
+  "id": "photoshop",
+  "name": "Adobe Photoshop",
+  "files": ["Photoshop_Set-Up*.exe"],
+  "makers": ["Adobe"],
+  "products": ["Photoshop"],
+  "words": ["photoshop", "adobe photoshop", "photo editor"],
+  "similar": [{"app": "org.gimp.GIMP", "source": "flathub", "name": "GIMP", "why": "Edits photos and pictures with layers, masks and filters, and opens .psd files."}, {"app": "org.kde.krita", "source": "flathub", "name": "Krita", "why": "Paints and draws, and opens .psd files."}, {"app": "com.github.PintaProject.Pinta", "source": "flathub", "name": "Pinta", "why": "Simple picture editing, quick to learn."}],
+  "wine": "no"
+ },
+ {
+  "id": "lightroom",
+  "name": "Adobe Lightroom",
+  "files": ["Lightroom*_Set-Up*.exe", "Lightroom_Set-Up*.exe"],
+  "makers": ["Adobe"],
+  "products": ["Lightroom"],
+  "words": ["lightroom", "raw", "photos"],
+  "similar": [{"app": "org.darktable.Darktable", "source": "flathub", "name": "darktable", "why": "Develops and sorts raw photos, like Lightroom."}],
+  "wine": "no"
+ },
+ {
+  "id": "illustrator",
+  "name": "Adobe Illustrator",
+  "files": ["Illustrator_Set-Up*.exe"],
+  "makers": ["Adobe"],
+  "products": ["Illustrator"],
+  "words": ["illustrator", "vector"],
+  "similar": [{"app": "org.inkscape.Inkscape", "source": "flathub", "name": "Inkscape", "why": "Draws vector graphics, and opens .ai and .svg files."}],
+  "wine": "no"
+ },
+ {
+  "id": "indesign",
+  "name": "Adobe InDesign",
+  "files": ["InDesign_Set-Up*.exe"],
+  "makers": ["Adobe"],
+  "products": ["InDesign"],
+  "words": ["indesign", "layout"],
+  "similar": [{"app": "net.scribus.Scribus", "source": "flathub", "name": "Scribus", "why": "Lays out magazines, brochures and posters for print."}],
+  "wine": "no"
+ },
+ {
+  "id": "creative-cloud",
+  "name": "Adobe Creative Cloud",
+  "files": ["Creative_Cloud_Set-Up*.exe", "Creative_Cloud*.exe"],
+  "makers": ["Adobe"],
+  "products": ["Creative Cloud"],
+  "words": ["creative cloud", "adobe"],
+  "similar": [{"app": "org.gimp.GIMP", "source": "flathub", "name": "GIMP", "why": "Edits photos and pictures, like Photoshop."}, {"app": "org.inkscape.Inkscape", "source": "flathub", "name": "Inkscape", "why": "Draws vector graphics, like Illustrator."}, {"app": "org.darktable.Darktable", "source": "flathub", "name": "darktable", "why": "Develops raw photos, like Lightroom."}, {"app": "org.kde.kdenlive", "source": "flathub", "name": "Kdenlive", "why": "Edits video, like Premiere Pro."}],
+  "wine": "no"
+ },
+ {
+  "id": "paint-net",
+  "name": "Paint.NET",
+  "files": ["paint.net.*.exe", "paint.net.*.msi"],
+  "makers": ["dotPDN"],
+  "products": ["Paint.NET"],
+  "words": ["paint.net", "paint", "picture editor"],
+  "similar": [{"app": "com.github.PintaProject.Pinta", "source": "flathub", "name": "Pinta", "why": "Simple picture editing, made after Paint.NET."}, {"app": "org.gimp.GIMP", "source": "flathub", "name": "GIMP", "why": "Edits photos and pictures with layers and filters."}]
+ },
+ {
+  "id": "gimp",
+  "name": "GIMP",
+  "files": ["gimp-*-setup*.exe"],
+  "makers": ["GIMP", "The GIMP Team"],
+  "products": ["GIMP"],
+  "words": ["gimp", "photo editor"],
+  "linux": {"app": "org.gimp.GIMP", "source": "flathub", "name": "GIMP"}
+ },
+ {
+  "id": "krita",
+  "name": "Krita",
+  "files": ["krita-*-setup.exe", "krita-x64-*.exe"],
+  "makers": ["Krita", "KDE"],
+  "products": ["Krita"],
+  "words": ["krita", "painting"],
+  "linux": {"app": "org.kde.krita", "source": "flathub", "name": "Krita"}
+ },
+ {
+  "id": "inkscape",
+  "name": "Inkscape",
+  "files": ["inkscape-*.msi", "inkscape-*.exe"],
+  "makers": ["Inkscape"],
+  "products": ["Inkscape"],
+  "words": ["inkscape", "vector"],
+  "linux": {"app": "org.inkscape.Inkscape", "source": "flathub", "name": "Inkscape"}
+ },
+ {
+  "id": "irfanview",
+  "name": "IrfanView",
+  "files": ["iview*_setup.exe", "iview*_x64_setup.exe"],
+  "makers": ["Irfan Skiljan"],
+  "products": ["IrfanView"],
+  "words": ["irfanview", "pictures", "viewer"],
+  "similar": [{"app": "org.gnome.gThumb", "source": "flathub", "name": "gThumb", "why": "Shows, sorts and edits a folder of pictures."}],
+  "note": "FlickOS shows pictures itself: double-click one."
+ },
+ {
+  "id": "xnview",
+  "name": "XnView MP",
+  "files": ["XnViewMP-win*.exe", "XnView-win*.exe"],
+  "makers": ["XnView", "Pierre-e Gougelet"],
+  "products": ["XnView"],
+  "words": ["xnview", "pictures", "viewer"],
+  "linux": {"app": "com.xnview.XnViewMP", "source": "flathub", "name": "XnView MP"}
+ },
+ {
+  "id": "canva",
+  "name": "Canva",
+  "files": ["Canva Setup*.exe", "CanvaSetup*.exe"],
+  "makers": ["Canva"],
+  "products": ["Canva"],
+  "words": ["canva", "design"],
+  "web": {"name": "Canva on the web", "url": "https://www.canva.com"},
+  "wine": "no"
+ },
+ {
+  "id": "figma",
+  "name": "Figma",
+  "files": ["FigmaSetup*.exe", "Figma*.exe"],
+  "makers": ["Figma"],
+  "products": ["Figma"],
+  "words": ["figma", "design"],
+  "web": {"name": "Figma on the web", "url": "https://www.figma.com"},
+  "wine": "no"
+ },
+ {
+  "id": "affinity",
+  "name": "Affinity",
+  "files": ["affinity-*.exe", "Affinity*.msix"],
+  "makers": ["Serif", "Canva"],
+  "products": ["Affinity"],
+  "words": ["affinity", "affinity photo", "affinity designer"],
+  "similar": [{"app": "org.kde.krita", "source": "flathub", "name": "Krita", "why": "Paints and edits pictures."}, {"app": "org.inkscape.Inkscape", "source": "flathub", "name": "Inkscape", "why": "Draws vector graphics."}],
+  "wine": "no"
+ },
+ {
+  "id": "coreldraw",
+  "name": "CorelDRAW",
+  "files": ["CorelDRAW*.exe"],
+  "makers": ["Corel", "Alludo"],
+  "products": ["CorelDRAW"],
+  "words": ["coreldraw", "vector"],
+  "similar": [{"app": "org.inkscape.Inkscape", "source": "flathub", "name": "Inkscape", "why": "Draws vector graphics, and opens many CorelDRAW files."}],
+  "wine": "no"
+ },
+ {
+  "id": "sketchup",
+  "name": "SketchUp",
+  "files": ["SketchUp*.exe"],
+  "makers": ["Trimble"],
+  "products": ["SketchUp"],
+  "words": ["sketchup", "3d"],
+  "web": {"name": "SketchUp on the web", "url": "https://app.sketchup.com"},
+  "similar": [{"app": "org.freecad.FreeCAD", "source": "flathub", "name": "FreeCAD", "why": "Designs objects and buildings in 3D."}],
+  "wine": "no"
+ },
+ {
+  "id": "autocad",
+  "name": "AutoCAD",
+  "files": ["AutoCAD*.exe"],
+  "makers": ["Autodesk"],
+  "products": ["AutoCAD"],
+  "words": ["autocad", "cad"],
+  "web": {"name": "AutoCAD on the web", "url": "https://web.autocad.com"},
+  "similar": [{"app": "org.librecad.librecad", "source": "flathub", "name": "LibreCAD", "why": "Draws 2D plans and opens .dxf files."}, {"app": "org.freecad.FreeCAD", "source": "flathub", "name": "FreeCAD", "why": "Designs objects in 3D."}],
+  "wine": "no"
+ },
+ {
+  "id": "fusion",
+  "name": "Autodesk Fusion",
+  "files": ["Fusion*Admin Install*.exe", "Fusion Client Downloader*.exe"],
+  "makers": ["Autodesk"],
+  "products": ["Fusion"],
+  "words": ["fusion 360", "fusion", "cad"],
+  "similar": [{"app": "org.freecad.FreeCAD", "source": "flathub", "name": "FreeCAD", "why": "Designs objects in 3D."}],
+  "wine": "no"
+ },
+ {
+  "id": "screenshot-tools",
+  "name": "ShareX",
+  "files": ["ShareX-*-setup.exe", "Greenshot-INSTALLER-*.exe", "setup-lightshot*.exe", "snagit*.exe"],
+  "makers": ["ShareX", "Greenshot", "Skillbrains", "TechSmith"],
+  "products": ["ShareX", "Greenshot", "Lightshot", "Snagit"],
+  "words": ["sharex", "greenshot", "lightshot", "snagit", "screenshot"],
+  "note": "FlickOS takes screenshots and screen recordings itself: press Print Screen."
+ },
+ {
+  "id": "steam",
+  "name": "Steam",
+  "files": ["SteamSetup*.exe"],
+  "makers": ["Valve"],
+  "products": ["Steam"],
+  "words": ["steam", "games"],
+  "linux": {"app": "com.valvesoftware.Steam", "source": "flathub", "name": "Steam"},
+  "note": "Many Windows games run in Steam on FlickOS."
+ },
+ {
+  "id": "epic-games",
+  "name": "Epic Games Launcher",
+  "files": ["EpicInstaller-*.msi", "EpicGamesLauncherInstaller*.msi"],
+  "makers": ["Epic Games"],
+  "products": ["Epic Games Launcher"],
+  "words": ["epic", "epic games", "fortnite", "games"],
+  "similar": [{"app": "com.heroicgameslauncher.hgl", "source": "flathub", "name": "Heroic Games Launcher", "why": "Installs and plays your Epic, GOG and Amazon games."}],
+  "note": "Fortnite's anti-cheat doesn't work on Linux.",
+  "wine": "no"
+ },
+ {
+  "id": "gog-galaxy",
+  "name": "GOG GALAXY",
+  "files": ["GOG_Galaxy_*.exe", "setup_galaxy*.exe"],
+  "makers": ["GOG"],
+  "products": ["GOG GALAXY"],
+  "words": ["gog", "galaxy", "games"],
+  "similar": [{"app": "com.heroicgameslauncher.hgl", "source": "flathub", "name": "Heroic Games Launcher", "why": "Installs and plays your GOG, Epic and Amazon games."}],
+  "wine": "no"
+ },
+ {
+  "id": "ea-app",
+  "name": "EA app",
+  "files": ["EAappInstaller*.exe", "OriginThinSetup*.exe"],
+  "makers": ["Electronic Arts"],
+  "products": ["EA app", "Origin"],
+  "words": ["ea", "origin", "games"],
+  "similar": [{"app": "net.lutris.Lutris", "source": "flathub", "name": "Lutris", "why": "Installs games from many stores, the EA app's among them."}],
+  "wine": "no"
+ },
+ {
+  "id": "ubisoft-connect",
+  "name": "Ubisoft Connect",
+  "files": ["UbisoftConnectInstaller*.exe", "UplayInstaller*.exe"],
+  "makers": ["Ubisoft"],
+  "products": ["Ubisoft Connect", "Uplay"],
+  "words": ["ubisoft", "uplay", "games"],
+  "similar": [{"app": "net.lutris.Lutris", "source": "flathub", "name": "Lutris", "why": "Installs games from many stores, Ubisoft Connect's among them."}],
+  "wine": "no"
+ },
+ {
+  "id": "battle-net",
+  "name": "Battle.net",
+  "files": ["Battle.net-Setup*.exe"],
+  "makers": ["Blizzard"],
+  "products": ["Battle.net"],
+  "words": ["battle.net", "blizzard", "games"],
+  "similar": [{"app": "net.lutris.Lutris", "source": "flathub", "name": "Lutris", "why": "Installs games from many stores, Battle.net's among them."}],
+  "wine": "no"
+ },
+ {
+  "id": "valorant",
+  "name": "VALORANT",
+  "files": ["Install VALORANT*.exe"],
+  "makers": ["Riot Games"],
+  "products": ["VALORANT"],
+  "words": ["valorant", "riot", "games"],
+  "note": "VALORANT's anti-cheat doesn't work on Linux.",
+  "wine": "no"
+ },
+ {
+  "id": "league-of-legends",
+  "name": "League of Legends",
+  "files": ["Install League of Legends*.exe", "RiotClientInstall*.exe"],
+  "makers": ["Riot Games"],
+  "products": ["League of Legends", "Riot Client"],
+  "words": ["league of legends", "lol", "riot", "games"],
+  "note": "League of Legends' anti-cheat doesn't work on Linux.",
+  "wine": "no"
+ },
+ {
+  "id": "minecraft",
+  "name": "Minecraft",
+  "files": ["MinecraftInstaller*.exe", "MinecraftInstaller*.msi"],
+  "makers": ["Mojang", "Microsoft"],
+  "products": ["Minecraft"],
+  "words": ["minecraft", "games"],
+  "similar": [{"app": "org.prismlauncher.PrismLauncher", "source": "flathub", "name": "Prism Launcher", "why": "Plays Minecraft: Java Edition with your Microsoft account."}],
+  "wine": "no"
+ },
+ {
+  "id": "roblox",
+  "name": "Roblox",
+  "files": ["RobloxPlayerInstaller*.exe", "RobloxPlayerLauncher*.exe"],
+  "makers": ["Roblox"],
+  "products": ["Roblox"],
+  "words": ["roblox", "games"],
+  "similar": [{"app": "org.vinegarhq.Sober", "source": "flathub", "name": "Sober", "why": "An unofficial way to play Roblox on Linux."}],
+  "wine": "no"
+ },
+ {
+  "id": "xbox",
+  "name": "Xbox",
+  "files": ["XboxInstaller*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["Xbox"],
+  "words": ["xbox", "game pass", "games"],
+  "web": {"name": "Xbox Cloud Gaming", "url": "https://www.xbox.com/play"},
+  "wine": "no"
+ },
+ {
+  "id": "geforce-now",
+  "name": "GeForce NOW",
+  "files": ["GeForceNOW*.exe"],
+  "makers": ["NVIDIA"],
+  "products": ["GeForce NOW"],
+  "words": ["geforce now", "cloud gaming", "games"],
+  "web": {"name": "GeForce NOW on the web", "url": "https://play.geforcenow.com"},
+  "wine": "no"
+ },
+ {
+  "id": "playnite",
+  "name": "Playnite",
+  "files": ["Playnite*.exe"],
+  "makers": ["Josef Nemec", "Playnite"],
+  "products": ["Playnite"],
+  "words": ["playnite", "games"],
+  "similar": [{"app": "net.lutris.Lutris", "source": "flathub", "name": "Lutris", "why": "Keeps your games from many stores in one place."}]
+ },
+ {
+  "id": "itch",
+  "name": "itch",
+  "files": ["itch-setup*.exe"],
+  "makers": ["itch corp", "itch.io"],
+  "products": ["itch"],
+  "words": ["itch", "itch.io", "games"],
+  "linux": {"app": "io.itch.itch", "source": "flathub", "name": "itch"}
+ },
+ {
+  "id": "retroarch",
+  "name": "RetroArch",
+  "files": ["RetroArch-*.exe"],
+  "makers": ["Libretro"],
+  "products": ["RetroArch"],
+  "words": ["retroarch", "emulator", "games"],
+  "linux": {"app": "org.libretro.RetroArch", "source": "flathub", "name": "RetroArch"}
+ },
+ {
+  "id": "pcsx2",
+  "name": "PCSX2",
+  "files": ["pcsx2-*-windows*.exe", "pcsx2-*.exe"],
+  "makers": ["PCSX2"],
+  "products": ["PCSX2"],
+  "words": ["pcsx2", "playstation", "emulator"],
+  "linux": {"app": "net.pcsx2.PCSX2", "source": "flathub", "name": "PCSX2"}
+ },
+ {
+  "id": "dolphin-emu",
+  "name": "Dolphin",
+  "files": ["dolphin-*-x64.exe", "dolphin-master-*.7z"],
+  "makers": ["Dolphin"],
+  "products": ["Dolphin"],
+  "words": ["dolphin", "gamecube", "wii", "emulator"],
+  "linux": {"app": "org.DolphinEmu.dolphin-emu", "source": "flathub", "name": "Dolphin"}
+ },
+ {
+  "id": "msi-afterburner",
+  "name": "MSI Afterburner",
+  "files": ["MSIAfterburnerSetup*.exe"],
+  "makers": ["MSI", "Micro-Star"],
+  "products": ["Afterburner"],
+  "words": ["afterburner", "overclock"],
+  "note": "Windows drivers don't work on FlickOS.",
+  "wine": "no"
+ },
+ {
+  "id": "onedrive",
+  "name": "OneDrive",
+  "files": ["OneDriveSetup*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["OneDrive"],
+  "words": ["onedrive", "cloud"],
+  "web": {"name": "OneDrive on the web", "url": "https://onedrive.live.com"},
+  "wine": "no"
+ },
+ {
+  "id": "google-drive",
+  "name": "Google Drive",
+  "files": ["GoogleDriveSetup*.exe"],
+  "makers": ["Google"],
+  "products": ["Google Drive"],
+  "words": ["google drive", "drive", "cloud"],
+  "web": {"name": "Google Drive on the web", "url": "https://drive.google.com"},
+  "wine": "no"
+ },
+ {
+  "id": "dropbox",
+  "name": "Dropbox",
+  "files": ["DropboxInstaller*.exe", "Dropbox*Offline Installer*.exe"],
+  "makers": ["Dropbox"],
+  "products": ["Dropbox"],
+  "words": ["dropbox", "cloud"],
+  "linux": {"app": "com.dropbox.Client", "source": "flathub", "name": "Dropbox"}
+ },
+ {
+  "id": "mega",
+  "name": "MEGA",
+  "files": ["MEGAsyncSetup*.exe"],
+  "makers": ["Mega"],
+  "products": ["MEGAsync", "MEGA"],
+  "words": ["mega", "megasync", "cloud"],
+  "web": {"name": "MEGA on the web", "url": "https://mega.nz"},
+  "note": "MEGA has a Linux version on its website.",
+  "wine": "no"
+ },
+ {
+  "id": "nextcloud",
+  "name": "Nextcloud",
+  "files": ["Nextcloud-*-x64.msi", "Nextcloud-*.exe"],
+  "makers": ["Nextcloud"],
+  "products": ["Nextcloud"],
+  "words": ["nextcloud", "cloud"],
+  "linux": {"app": "com.nextcloud.desktopclient.nextcloud", "source": "flathub", "name": "Nextcloud"}
+ },
+ {
+  "id": "pcloud",
+  "name": "pCloud",
+  "files": ["pCloud_Windows_*.exe", "pCloud*.exe"],
+  "makers": ["pCloud"],
+  "products": ["pCloud"],
+  "words": ["pcloud", "cloud"],
+  "web": {"name": "pCloud on the web", "url": "https://my.pcloud.com"},
+  "note": "pCloud has a Linux version on its website.",
+  "wine": "no"
+ },
+ {
+  "id": "smart-switch",
+  "name": "Samsung Smart Switch",
+  "files": ["Smart_Switch_PC_Setup*.exe", "SmartSwitchPC*.exe"],
+  "makers": ["Samsung"],
+  "products": ["Smart Switch"],
+  "words": ["smart switch", "samsung", "phone"],
+  "note": "FlickOS connects to Android phones itself: turn on Phone in Settings.",
+  "wine": "no"
+ },
+ {
+  "id": "printer-software",
+  "name": "printer software",
+  "group": true,
+  "files": ["HPSmart*.exe", "HPEasyStart*.exe", "*_Full_WebPack_*.exe", "EPSON*.exe", "Brother*.exe"],
+  "makers": ["HP Inc", "Hewlett-Packard", "Canon", "Seiko Epson", "Brother", "Xerox", "Lexmark", "Kyocera", "Ricoh"],
+  "products": ["printer", "driver", "scan", "print"],
+  "words": ["printer", "driver", "hp smart", "canon", "epson", "brother"],
+  "note": "Most printers work on FlickOS without their Windows software: connect one and print.",
+  "wine": "no"
+ },
+ {
+  "id": "graphics-drivers",
+  "name": "a graphics driver",
+  "group": true,
+  "files": ["*-desktop-win1*-64bit-international-*.exe", "NVIDIA_app*.exe", "amd-software-*.exe", "*gfx_win*.exe", "Intel-Driver-and-Support-Assistant*.exe"],
+  "makers": ["NVIDIA", "Advanced Micro Devices", "Intel"],
+  "products": ["Graphics", "GeForce", "Radeon", "Adrenalin", "Driver"],
+  "words": ["nvidia", "geforce", "amd", "radeon", "driver", "graphics"],
+  "note": "Windows drivers don't work on FlickOS.",
+  "wine": "no"
+ },
+ {
+  "id": "device-software",
+  "name": "software for a mouse, keyboard or headset",
+  "group": true,
+  "files": ["lghub_installer*.exe", "logioptionsplus_installer*.exe", "RazerSynapseInstaller*.exe", "Install iCUE*.exe", "SteelSeriesGG*.exe"],
+  "makers": ["Logitech", "Razer", "Corsair", "SteelSeries"],
+  "products": ["G HUB", "Options", "Synapse", "iCUE", "SteelSeries GG"],
+  "words": ["logitech", "g hub", "razer", "corsair", "icue", "steelseries"],
+  "similar": [{"app": "org.freedesktop.Piper", "source": "flathub", "name": "Piper", "why": "Sets up gaming mice: buttons, lights and speed."}, {"app": "io.github.pwr_solaar.solaar", "source": "flathub", "name": "Solaar", "why": "Pairs and sets up Logitech's wireless mice and keyboards."}],
+  "note": "Windows drivers don't work on FlickOS.",
+  "wine": "no"
+ },
+ {
+  "id": "antivirus",
+  "name": "antivirus software",
+  "group": true,
+  "files": ["avast_free_antivirus_setup*.exe", "avg_antivirus_free_setup*.exe", "MBSetup*.exe", "McAfee*.exe", "Norton*.exe", "kav*.exe", "kis*.exe", "bitdefender*.exe", "eset*.exe", "avira*.exe"],
+  "makers": ["Avast", "AVG", "Malwarebytes", "McAfee", "NortonLifeLock", "Gen Digital", "Kaspersky", "Bitdefender", "ESET", "Avira"],
+  "products": ["antivirus", "internet security", "total security", "malwarebytes", "norton", "mcafee"],
+  "words": ["antivirus", "avast", "avg", "malwarebytes", "mcafee", "norton", "kaspersky", "bitdefender", "eset", "avira"],
+  "note": "Windows antivirus programs don't work on FlickOS. Keep FlickOS's updates on in Settings.",
+  "wine": "no"
+ },
+ {
+  "id": "nordvpn",
+  "name": "NordVPN",
+  "files": ["NordVPNInstall*.exe", "NordVPNSetup*.exe"],
+  "makers": ["Nord", "Tefincom"],
+  "products": ["NordVPN"],
+  "words": ["nordvpn", "vpn"],
+  "note": "NordVPN has a Linux version on its website.",
+  "wine": "no"
+ },
+ {
+  "id": "expressvpn",
+  "name": "ExpressVPN",
+  "files": ["expressvpn_setup*.exe", "expressvpn_windows*.exe"],
+  "makers": ["ExpressVPN", "Express VPN"],
+  "products": ["ExpressVPN"],
+  "words": ["expressvpn", "vpn"],
+  "note": "ExpressVPN has a Linux version on its website.",
+  "wine": "no"
+ },
+ {
+  "id": "protonvpn",
+  "name": "Proton VPN",
+  "files": ["ProtonVPN_*.exe"],
+  "makers": ["Proton"],
+  "products": ["Proton VPN", "ProtonVPN"],
+  "words": ["proton", "protonvpn", "vpn"],
+  "linux": {"app": "com.protonvpn.www", "source": "flathub", "name": "Proton VPN"}
+ },
+ {
+  "id": "bitwarden",
+  "name": "Bitwarden",
+  "files": ["Bitwarden-Installer-*.exe", "Bitwarden-*.exe"],
+  "makers": ["Bitwarden"],
+  "products": ["Bitwarden"],
+  "words": ["bitwarden", "passwords"],
+  "linux": {"app": "com.bitwarden.desktop", "source": "flathub", "name": "Bitwarden"}
+ },
+ {
+  "id": "1password",
+  "name": "1Password",
+  "files": ["1PasswordSetup*.exe", "1Password*.msi"],
+  "makers": ["AgileBits", "1Password"],
+  "products": ["1Password"],
+  "words": ["1password", "passwords"],
+  "linux": {"app": "com.onepassword.OnePassword", "source": "flathub", "name": "1Password"}
+ },
+ {
+  "id": "keepass",
+  "name": "KeePass",
+  "files": ["KeePass-*-Setup.exe", "KeePassXC-*.msi"],
+  "makers": ["Dominik Reichl", "KeePassXC"],
+  "products": ["KeePass", "KeePassXC"],
+  "words": ["keepass", "keepassxc", "passwords"],
+  "linux": {"app": "org.keepassxc.KeePassXC", "source": "flathub", "name": "KeePassXC"},
+  "note": "KeePassXC opens KeePass's password files."
+ },
+ {
+  "id": "7-zip",
+  "name": "7-Zip",
+  "files": ["7z*.exe", "7z*.msi"],
+  "makers": ["Igor Pavlov"],
+  "products": ["7-Zip"],
+  "words": ["7-zip", "7zip", "zip", "archive"],
+  "similar": [{"app": "io.github.peazip.PeaZip", "source": "flathub", "name": "PeaZip", "why": "Opens and makes archives of every kind."}],
+  "note": "FlickOS opens zip, 7z and rar files itself: double-click one."
+ },
+ {
+  "id": "winrar",
+  "name": "WinRAR",
+  "files": ["winrar-*.exe", "wrar*.exe"],
+  "makers": ["win.rar", "Alexander Roshal"],
+  "products": ["WinRAR"],
+  "words": ["winrar", "rar", "archive"],
+  "similar": [{"app": "io.github.peazip.PeaZip", "source": "flathub", "name": "PeaZip", "why": "Opens and makes archives of every kind."}],
+  "note": "FlickOS opens zip, 7z and rar files itself: double-click one."
+ },
+ {
+  "id": "winzip",
+  "name": "WinZip",
+  "files": ["winzip*.exe"],
+  "makers": ["WinZip", "Corel", "Alludo"],
+  "products": ["WinZip"],
+  "words": ["winzip", "zip", "archive"],
+  "similar": [{"app": "io.github.peazip.PeaZip", "source": "flathub", "name": "PeaZip", "why": "Opens and makes archives of every kind."}],
+  "note": "FlickOS opens zip, 7z and rar files itself: double-click one.",
+  "wine": "no"
+ },
+ {
+  "id": "ccleaner",
+  "name": "CCleaner",
+  "files": ["ccsetup*.exe", "CCleaner*.exe"],
+  "makers": ["Piriform", "Gen Digital"],
+  "products": ["CCleaner"],
+  "words": ["ccleaner", "cleaner"],
+  "similar": [{"app": "org.bleachbit.BleachBit", "source": "flathub", "name": "BleachBit", "why": "Deletes caches and other files you don't need."}],
+  "note": "FlickOS doesn't need a cleaner to stay fast.",
+  "wine": "no"
+ },
+ {
+  "id": "revo-uninstaller",
+  "name": "Revo Uninstaller",
+  "files": ["revosetup*.exe", "RevoUninProSetup*.exe"],
+  "makers": ["VS Revo"],
+  "products": ["Revo Uninstaller"],
+  "words": ["revo", "uninstaller"],
+  "note": "Software removes apps completely: open it, then Installed.",
+  "wine": "no"
+ },
+ {
+  "id": "everything",
+  "name": "Everything",
+  "files": ["Everything-*.exe", "Everything-*.msi"],
+  "makers": ["voidtools"],
+  "products": ["Everything"],
+  "words": ["everything", "search files"],
+  "similar": [{"app": "org.xfce.Catfish", "source": "debian", "name": "Catfish", "why": "Finds files by name, as you type."}]
+ },
+ {
+  "id": "powertoys",
+  "name": "PowerToys",
+  "files": ["PowerToysSetup*.exe", "PowerToysUserSetup*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["PowerToys"],
+  "words": ["powertoys", "fancyzones"],
+  "note": "FlickOS can tile windows itself: turn on tiling in Settings.",
+  "wine": "no"
+ },
+ {
+  "id": "rufus",
+  "name": "Rufus",
+  "files": ["rufus-*.exe", "rufus*.exe"],
+  "makers": ["Akeo"],
+  "products": ["Rufus"],
+  "words": ["rufus", "usb", "bootable"],
+  "similar": [{"app": "io.gitlab.adhami3310.Impression", "source": "flathub", "name": "Impression", "why": "Writes a system image, such as FlickOS's, to a USB stick."}],
+  "wine": "no"
+ },
+ {
+  "id": "balena-etcher",
+  "name": "balenaEtcher",
+  "files": ["balenaEtcher-*.exe", "balenaEtcher-Setup-*.exe"],
+  "makers": ["Balena"],
+  "products": ["balenaEtcher"],
+  "words": ["etcher", "balena", "usb"],
+  "similar": [{"app": "io.gitlab.adhami3310.Impression", "source": "flathub", "name": "Impression", "why": "Writes a system image, such as FlickOS's, to a USB stick."}],
+  "wine": "no"
+ },
+ {
+  "id": "cpu-z",
+  "name": "CPU-Z",
+  "files": ["cpu-z_*.exe", "hwi_*.exe", "hwinfo*.exe"],
+  "makers": ["CPUID", "Martin Malik", "REALiX"],
+  "products": ["CPU-Z", "HWiNFO"],
+  "words": ["cpu-z", "hwinfo", "hardware"],
+  "similar": [{"app": "io.github.thetumultuousunicornofdarkness.cpu-x", "source": "flathub", "name": "CPU-X", "why": "Shows what is inside the computer, like CPU-Z."}],
+  "wine": "no"
+ },
+ {
+  "id": "crystaldiskinfo",
+  "name": "CrystalDiskInfo",
+  "files": ["CrystalDiskInfo*.exe", "CrystalDiskMark*.exe"],
+  "makers": ["Crystal Dew World"],
+  "products": ["CrystalDiskInfo", "CrystalDiskMark"],
+  "words": ["crystaldiskinfo", "crystaldiskmark", "disk health"],
+  "similar": [{"app": "org.gnome.DiskUtility", "source": "debian", "name": "Disks", "why": "Shows a disk's health and speed, and formats drives."}],
+  "wine": "no"
+ },
+ {
+  "id": "qbittorrent",
+  "name": "qBittorrent",
+  "files": ["qbittorrent_*_setup.exe", "qbittorrent_*.exe"],
+  "makers": ["qBittorrent"],
+  "products": ["qBittorrent"],
+  "words": ["qbittorrent", "torrent"],
+  "linux": {"app": "org.qbittorrent.qBittorrent", "source": "flathub", "name": "qBittorrent"}
+ },
+ {
+  "id": "utorrent",
+  "name": "µTorrent",
+  "files": ["uTorrent*.exe", "utweb_installer*.exe", "BitTorrent*.exe"],
+  "makers": ["BitTorrent", "Rainberry"],
+  "products": ["uTorrent", "µTorrent", "BitTorrent"],
+  "words": ["utorrent", "bittorrent", "torrent"],
+  "similar": [{"app": "org.qbittorrent.qBittorrent", "source": "flathub", "name": "qBittorrent", "why": "Downloads torrents, without ads."}],
+  "wine": "no"
+ },
+ {
+  "id": "filezilla",
+  "name": "FileZilla",
+  "files": ["FileZilla_*_win64-setup.exe", "FileZilla_*.exe"],
+  "makers": ["Tim Kosse", "FileZilla"],
+  "products": ["FileZilla"],
+  "words": ["filezilla", "ftp"],
+  "linux": {"app": "org.filezillaproject.Filezilla", "source": "flathub", "name": "FileZilla"}
+ },
+ {
+  "id": "winscp",
+  "name": "WinSCP",
+  "files": ["WinSCP-*-Setup.exe", "WinSCP-*.msi"],
+  "makers": ["Martin Prikryl"],
+  "products": ["WinSCP"],
+  "words": ["winscp", "sftp", "ftp"],
+  "similar": [{"app": "org.filezillaproject.Filezilla", "source": "flathub", "name": "FileZilla", "why": "Copies files to and from servers over SFTP and FTP."}],
+  "note": "FlickOS's file manager opens sftp:// addresses too."
+ },
+ {
+  "id": "putty",
+  "name": "PuTTY",
+  "files": ["putty-*-installer.msi", "putty*.exe"],
+  "makers": ["Simon Tatham"],
+  "products": ["PuTTY"],
+  "words": ["putty", "ssh"],
+  "note": "FlickOS's terminal has ssh: open the terminal and type ssh user@host."
+ },
+ {
+  "id": "notepad-plus-plus",
+  "name": "Notepad++",
+  "files": ["npp.*.Installer*.exe", "npp.*.exe"],
+  "makers": ["Don HO", "Notepad++"],
+  "products": ["Notepad++"],
+  "words": ["notepad++", "notepad", "text editor"],
+  "similar": [{"app": "org.kde.kate", "source": "flathub", "name": "Kate", "why": "A text editor for code, with tabs, plugins and many languages."}, {"app": "com.visualstudio.code", "source": "flathub", "name": "Visual Studio Code", "why": "A code editor with extensions for every language."}]
+ },
+ {
+  "id": "vscode",
+  "name": "Visual Studio Code",
+  "files": ["VSCodeUserSetup-*.exe", "VSCodeSetup-*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["Visual Studio Code"],
+  "words": ["vscode", "visual studio code", "code"],
+  "linux": {"app": "com.visualstudio.code", "source": "flathub", "name": "Visual Studio Code"}
+ },
+ {
+  "id": "visual-studio",
+  "name": "Visual Studio",
+  "files": ["VisualStudioSetup*.exe", "vs_community*.exe", "vs_professional*.exe", "vs_enterprise*.exe"],
+  "makers": ["Microsoft"],
+  "products": ["Visual Studio"],
+  "words": ["visual studio", "c#", ".net"],
+  "similar": [{"app": "com.visualstudio.code", "source": "flathub", "name": "Visual Studio Code", "why": "A code editor with C# and .NET extensions."}],
+  "wine": "no"
+ },
+ {
+  "id": "python",
+  "name": "Python",
+  "files": ["python-*-amd64.exe", "python-*.exe"],
+  "makers": ["Python Software Foundation"],
+  "products": ["Python"],
+  "words": ["python"],
+  "note": "Python 3 is already on FlickOS: type python3 in the terminal.",
+  "wine": "no"
+ },
+ {
+  "id": "git",
+  "name": "Git for Windows",
+  "files": ["Git-*-64-bit.exe", "Git-*.exe"],
+  "makers": ["The Git Development Community", "Johannes Schindelin"],
+  "products": ["Git"],
+  "words": ["git"],
+  "similar": [{"app": "io.github.shiftey.Desktop", "source": "flathub", "name": "GitHub Desktop", "why": "Works with Git repositories in a window."}],
+  "wine": "no"
+ },
+ {
+  "id": "github-desktop",
+  "name": "GitHub Desktop",
+  "files": ["GitHubDesktopSetup*.exe", "GitHubDesktop*.msi"],
+  "makers": ["GitHub"],
+  "products": ["GitHub Desktop"],
+  "words": ["github", "git"],
+  "linux": {"app": "io.github.shiftey.Desktop", "source": "flathub", "name": "GitHub Desktop"}
+ },
+ {
+  "id": "android-studio",
+  "name": "Android Studio",
+  "files": ["android-studio-*-windows.exe"],
+  "makers": ["Google"],
+  "products": ["Android Studio"],
+  "words": ["android studio", "android"],
+  "linux": {"app": "com.google.AndroidStudio", "source": "flathub", "name": "Android Studio"}
+ },
+ {
+  "id": "intellij",
+  "name": "IntelliJ IDEA",
+  "files": ["ideaIC-*.exe", "ideaIU-*.exe"],
+  "makers": ["JetBrains"],
+  "products": ["IntelliJ IDEA"],
+  "words": ["intellij", "java"],
+  "linux": {"app": "com.jetbrains.IntelliJ-IDEA-Community", "source": "flathub", "name": "IntelliJ IDEA Community"}
+ },
+ {
+  "id": "pycharm",
+  "name": "PyCharm",
+  "files": ["pycharm-*.exe"],
+  "makers": ["JetBrains"],
+  "products": ["PyCharm"],
+  "words": ["pycharm", "python"],
+  "linux": {"app": "com.jetbrains.PyCharm-Professional", "source": "flathub", "name": "PyCharm"}
+ },
+ {
+  "id": "postman",
+  "name": "Postman",
+  "files": ["Postman-win64-*-Setup.exe", "Postman*.exe"],
+  "makers": ["Postman"],
+  "products": ["Postman"],
+  "words": ["postman", "api"],
+  "linux": {"app": "com.getpostman.Postman", "source": "flathub", "name": "Postman"}
+ },
+ {
+  "id": "virtualbox",
+  "name": "VirtualBox",
+  "files": ["VirtualBox-*-Win.exe"],
+  "makers": ["Oracle"],
+  "products": ["VirtualBox"],
+  "words": ["virtualbox", "virtual machine"],
+  "similar": [{"app": "org.gnome.Boxes", "source": "flathub", "name": "Boxes", "why": "Runs other systems, Windows too, in a window."}],
+  "wine": "no"
+ },
+ {
+  "id": "vmware",
+  "name": "VMware Workstation",
+  "files": ["VMware-workstation-*.exe", "VMware-player-*.exe"],
+  "makers": ["VMware", "Broadcom"],
+  "products": ["VMware Workstation", "VMware Player"],
+  "words": ["vmware", "virtual machine"],
+  "similar": [{"app": "org.gnome.Boxes", "source": "flathub", "name": "Boxes", "why": "Runs other systems, Windows too, in a window."}],
+  "wine": "no"
+ },
+ {
+  "id": "java",
+  "name": "Java",
+  "files": ["jre-*-windows*.exe", "JavaSetup*.exe", "jdk-*_windows-x64_bin.exe"],
+  "makers": ["Oracle"],
+  "products": ["Java"],
+  "words": ["java", "jre"],
+  "note": "Java comes with the Linux apps that need it.",
+  "wine": "no"
+ },
+ {
+  "id": "google-earth",
+  "name": "Google Earth",
+  "files": ["GoogleEarthProSetup*.exe"],
+  "makers": ["Google"],
+  "products": ["Google Earth"],
+  "words": ["google earth", "maps"],
+  "web": {"name": "Google Earth on the web", "url": "https://earth.google.com/web"},
+  "similar": [{"app": "com.google.EarthPro", "source": "flathub", "name": "Google Earth Pro", "why": "Google Earth Pro, made for Linux."}]
+ },
+ {
+  "id": "audible",
+  "name": "Audible",
+  "files": ["Audible*.exe"],
+  "makers": ["Audible", "Amazon"],
+  "products": ["Audible"],
+  "words": ["audible", "audiobooks"],
+  "web": {"name": "Audible on the web", "url": "https://www.audible.com/library"},
+  "wine": "no"
+ }
+]

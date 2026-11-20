@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+# The tests import usr/bin/flickos-fleet; no bytecode next to installed files.
+export PYTHONDONTWRITEBYTECODE = 1
+
+%:
+	dh $@
+
+# Skipped with DEB_BUILD_OPTIONS=nocheck. The real owners' test is skipped
+# where flickos-control, flickos-layouts and flick-tiler aren't next to it.
+override_dh_auto_test:
+	python3 -m unittest discover -s tests -v
+
+# `flickos-fleet join` enables the timer and `leave` disables it: installing
+# the package starts and enables nothing. An upgrade starts the timer again
+# where it is enabled (deb-systemd-invoke starts only enabled units): --no-start
+# on the timer too stopped a joined computer's check-ins until the next boot.
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start flickos-fleet.service
+	dh_installsystemd --no-enable flickos-fleet.timer

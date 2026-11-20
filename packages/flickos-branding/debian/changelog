@@ -1,3 +1,16 @@
+flickos-branding (1.15) trixie; urgency=medium
+
+  * FlickOS 2.3.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 20:06:48 +0800
+
+flickos-branding (1.14) trixie; urgency=medium
+
+  * flickos-release: FLICKOS_DEBIAN, the Debian release FlickOS is built
+    on (the single source for the build and repository scripts).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 26 Oct 2026 11:39:31 +0800
+
 flickos-branding (1.13) trixie; urgency=medium
 
   * debian/copyright: the logo files say that the FlickOS name and logo

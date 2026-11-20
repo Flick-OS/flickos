@@ -12,6 +12,8 @@
 
         "modules-left": ["custom/launcher"],
         "modules-center": ["clock", "custom/recording"],
-        "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/desktop"]
+        "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/desktop"],
+
+        "tray": { "spacing": 12 }
     }
 ]

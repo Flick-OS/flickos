@@ -13,6 +13,7 @@ config/chroot
 config/common
 config/source
 config/packages.chroot/
+config/packages.opt-in/
 repo/db/
 repo/public/
 repo/.gh-pages/
@@ -32,9 +33,15 @@ chroot.packages.*
 binary.modified_timestamps
 __pycache__/
 TODOs.md
-# wrangler state and build output (server/countme, server/store)
+# wrangler state and build output (server/countme, server/store, server/fleet)
 server/countme/.wrangler/
 server/store/.wrangler/
+server/fleet/.wrangler/
 # repo/community/build.py output
 /build/
+packages/flickos-theme/build/
+
+# Private files of the main repo, never committed here.
 CLAUDE.md
+AGENTS.md
+.claude/

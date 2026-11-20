@@ -1,0 +1,29 @@
+Source: flickos-style-experience
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-style-experience
+Architecture: all
+# flickos-layouts 1.53: check tests the panel's contrast as the style is
+# drawn; greybird-gtk-theme and tango-icon-theme: the GTK theme and icons
+# Experience names (5.4 MB and 11.6 MB).
+Depends: flickos-layouts (>= 1.53),
+         greybird-gtk-theme,
+         tango-icon-theme,
+         ${misc:Depends}
+Description: Experience style for the FlickOS desktop
+ A bright style for FlickOS in the colors of the early 2000s: deep blue
+ title bars with glossy rounded buttons and a red close button, windows in
+ Greybird's light grey with the Tango icons, a black console, pale yellow
+ notifications, and a green hill under a blue sky with FlickOS's halo.
+ .
+ Its layout has one blue panel at the bottom: a green Start button, the
+ window list, and a lighter blue notification area with the clock.
+ .
+ Installing it adds Experience to Desktop Layout & Style; Software's Use
+ sets the style and the layout together.

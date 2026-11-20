@@ -1,6 +1,6 @@
 [Unit]
 Description=FlickOS anonymous weekly count
-Documentation=https://github.com/dvbondoy/FlickOS/blob/main/PRIVACY.md
+Documentation=https://github.com/Flick-OS/flickos/blob/main/PRIVACY.md
 Wants=network-online.target
 After=network-online.target
 

@@ -1,3 +1,16 @@
+flickos-archive-keyring (1.7) trixie; urgency=medium
+
+  * Release of 1.7~test1: the store in the automatic updates.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 14:34:25 +0800
+
+flickos-archive-keyring (1.7~test1) trixie; urgency=medium
+
+  * The automatic updates also install the apps bought from the FlickOS
+    store (matches nothing until a key is added in Settings > Updates).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 09 Nov 2026 13:28:33 +0800
+
 flickos-archive-keyring (1.6) trixie; urgency=medium
 
   * Turn on the community repository (trixie-community): apps by other

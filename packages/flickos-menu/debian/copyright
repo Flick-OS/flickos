@@ -7,6 +7,10 @@ Files: *
 Copyright: 2026 Jon <dvbondoy@gmail.com>
 License: GPL-3+
 
+Files: po/fi.po
+Copyright: 2026 Pekka Kurki <pekka.kurki@proton.me>
+License: GPL-3+
+
 License: GPL-3+
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by

@@ -1,0 +1,32 @@
+flickos-style-experience (1.2) trixie; urgency=medium
+
+  * Screenshots for Software: the style and layout with two windows, and
+    the start menu.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 21:14:13 +0800
+
+flickos-style-experience (1.1) trixie; urgency=medium
+
+  * Release of 1.1~test2: window shadows.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:38 +0800
+
+flickos-style-experience (1.1~test2) trixie; urgency=medium
+
+  * Window shadows: the keys every window theme has must match, so this
+    style sets them too.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:19:39 +0800
+
+flickos-style-experience (1.0) trixie; urgency=medium
+
+  * Experience, a bright style and its layout (ricing ADR-018): deep
+    blue title bars with glossy rounded buttons and a red close,
+    Greybird windows with the Tango icons, one blue panel at the bottom
+    with a green Start button, the window list and a lighter
+    notification area, a black console, pale yellow notifications, a
+    green hill under a blue sky.
+  * Homepage is flickos.org, and debian/copyright's Source the public
+    repository.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 12:19:43 +0800

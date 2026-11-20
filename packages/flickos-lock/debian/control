@@ -1,0 +1,39 @@
+Source: flickos-lock
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-lock
+Architecture: all
+# python3-gi, python3-gi-cairo, gir1.2-gtk-3.0: the lock screen (GTK 3, the
+# Arc theme; gi-cairo for drawing the wallpaper and the picture).
+# gir1.2-gtksessionlock-0.1: ext-session-lock-v1 from GTK, so a crash keeps
+# the screens covered (19 KB). libgtk-session-lock0 (274 KB): the library it
+# describes, which trixie's gir package doesn't depend on (without it the lock
+# screen can't start and swaylock takes over every time).
+# libpam0g: the password check (through ctypes, no Python module).
+# swaylock: takes over whenever the lock screen can't (ADR-003, ADR-004).
+# flickos-control 1.48 runs it (Super+L, the menus, swayidle); an older one
+# would leave it unused, so installing it brings the newer one along.
+Depends: python3,
+         python3-gi,
+         python3-gi-cairo,
+         gir1.2-gtk-3.0,
+         gir1.2-gtksessionlock-0.1,
+         libgtk-session-lock0,
+         libpam0g,
+         swaylock,
+         ${misc:Depends}
+Breaks: flickos-control (<< 1.48~)
+Description: lock screen of the FlickOS desktop
+ Locks the screen with a password box that can show the password, the time,
+ the date and the user's name and picture, in the colors of the desktop style
+ in use.
+ .
+ The screen is covered at once, before the lock screen itself has loaded,
+ and stays covered if the lock screen stops working: swaylock then takes
+ over. FlickOS's Settings run it for Super+L, the menus and the idle lock.

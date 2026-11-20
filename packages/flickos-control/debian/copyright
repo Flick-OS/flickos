@@ -7,6 +7,23 @@ Files: *
 Copyright: 2026 Jon <dvbondoy@gmail.com>
 License: GPL-3+
 
+Files: usr/share/flickos-control/upstreams/mise.asc
+Copyright: the mise project (Jeff Dickey), https://mise.jdx.dev/gpg-key.pub
+License: public-key
+Comment: The OpenPGP public key that signs mise's apt repository,
+ fingerprint 24853EC9F655CE80B48E6C3A8B81C9D17413A06D, as its makers publish it.
+
+Files: usr/share/flickos-control/upstreams/rapid7.asc
+Copyright: Rapid7, Inc., https://apt.metasploit.com/metasploit-framework.gpg.key
+License: public-key
+Comment: The OpenPGP public key that signs Rapid7's Metasploit Framework apt
+ repository, fingerprint 97B32012EA1176F053727A95C048F0B49DEEC457, as its
+ makers publish it.
+
+License: public-key
+ A public key published by its maker so that anyone can check the
+ signatures of its repository. It is shipped unchanged, for that purpose.
+
 License: GPL-3+
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by

@@ -1,0 +1,14 @@
+/* Eleven: a see-through dark grey panel, lighter grey buttons (base_color)
+ * and the blue accent (selected_bg_color; tools/make-eleven.py). Same names
+ * as the Dark style's waybar-colors.css. */
+@define-color wm_bg rgba(32, 32, 32, 0.9);
+@define-color bg_color #2c2c2c;
+@define-color base_color #3a3a3a;
+@define-color fg_color #ffffff;
+@define-color selected_bg_color #0078d4;
+@define-color selected_fg_color #ffffff;
+@define-color borders #1c1c1c;
+@define-color warning_color #fce100;
+@define-color error_color #ff99a4;
+/* FlickOS's brand amber: only the start button's logo (base.css). */
+@define-color brand_color #ffb13d;

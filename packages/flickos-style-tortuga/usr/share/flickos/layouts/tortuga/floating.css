@@ -1,0 +1,39 @@
+/* Tortuga's islands: the bar itself is see-through and each of its three
+ * groups is a rounded island, 36 px inside the bar's 40 px, so windows have
+ * the same room as with the plain panel and never move. 80 % solid is the
+ * least A11Y-6 allows on a white wallpaper (floating panel, section 4).
+ * floating-full.css joins them into one panel while a window fills the
+ * screen. Named colors only. */
+
+window#waybar.tortuga {
+    background: transparent;
+    transition: background-color 200ms ease;
+}
+
+window#waybar.tortuga .modules-left,
+window#waybar.tortuga .modules-center,
+window#waybar.tortuga .modules-right {
+    margin: 4px 8px 0;
+    padding: 0 2px;
+    border-radius: 12px;
+    border: 1px solid alpha(@fg_color, 0.2);
+    background: alpha(@wm_bg, 0.8);
+    transition: margin 200ms ease, border-radius 200ms ease, background-color 200ms ease;
+}
+
+window#waybar.tortuga #custom-launcher,
+window#waybar.tortuga #clock,
+window#waybar.tortuga #custom-tiler,
+window#waybar.tortuga #custom-phone,
+window#waybar.tortuga #wireplumber,
+window#waybar.tortuga #battery,
+window#waybar.tortuga #quick {
+    margin: 3px 1px;
+    border-radius: 9px;
+}
+
+/* An island ends at its own edge: the strip keeps it round. */
+window#waybar.tortuga #custom-desktop {
+    margin: 6px 4px 6px 2px;
+    border-radius: 4px;
+}

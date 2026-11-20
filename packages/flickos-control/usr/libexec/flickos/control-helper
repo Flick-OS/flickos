@@ -20,6 +20,23 @@ Only these verbs exist, and every value is checked before anything changes:
   autologin-off
       The calling user leaves group autologin.
 
+  login-background default|PATH|-
+      The login screen's background (flickos-greeter ADR-014): Background= in
+      GREETER_CONF, which the login screen reads over flickos-greeter's
+      conffile. default drops the line. PATH is a PNG or JPEG under
+      /usr/share/backgrounds/ (FlickOS's wallpapers, readable by everyone),
+      or a link there into /usr/share/flickos/ (the styles' wallpapers).
+      - takes a JPEG of at most BACKGROUND_BYTES on standard input, which
+      flickos-control made from a picture of the user's, and writes it to
+      LOGIN_BACKGROUND, where the login screen's user can read it. The helper
+      never opens a path the caller names outside /usr/share/backgrounds/:
+      as root it would copy any file on the computer to a place everyone can
+      read. A copy no longer used is deleted.
+
+  login-position left|center|right|default
+      Where the login box sits on its screen (flickos-greeter ADR-015):
+      Position= in GREETER_CONF; default drops the line.
+
   user-add NAME FULLNAME ADMIN
       Add a regular account (adduser, so /etc/skel is copied) with the
       password on standard input, in the groups the installer gives the first
@@ -28,7 +45,8 @@ Only these verbs exist, and every value is checked before anything changes:
   user-remove NAME FILES
       Remove a regular account (userdel) that is not logged in and not the
       calling user's; FILES "delete" also deletes its home folder, "keep"
-      leaves it.
+      leaves it. Its picture goes either way: userdel leaves it, and a new
+      account of that name would show it on the login screen.
 
   user-admin NAME ADMIN
       Put a regular account in group sudo ("yes") or take it out ("no").
@@ -43,6 +61,59 @@ Only these verbs exist, and every value is checked before anything changes:
   firewall-off
       Turn the ufw firewall off now and at every start (ufw disable).
 
+  firewall-local-ports off|PORTS
+      Let devices on home and office networks (PRIVATE_NETWORKS) reach servers
+      you run yourself, through the firewall (docs/design/flickos-dev.md,
+      ADR-006): PORTS is a comma-separated list such as 8000/tcp,3000/tcp or
+      5000:5010/tcp (a range), each from FIRST_PORT up, with the protocol, at
+      most LOCAL_PORTS_MAX for each of tcp and udp. Writes a ufw app profile
+      (LOCAL_PORTS_PROFILE) and allows it from those networks only; off deletes
+      both. A profile that isn't FlickOS's is left alone.
+
+  containers-dhcp on|off
+      Let podman's DHCP helper (netavark) start (flickos-kit-containers keeps
+      its three units off until the file NETAVARK_FLAG exists): on creates the
+      file and starts the socket, off deletes the file and stops the units. A
+      file that isn't FlickOS's is left alone.
+
+  packet-capture on|off
+      Let the calling user (PKEXEC_UID, a regular account) capture packets
+      without root, Wireshark's own way (docs/design/flickos-security.md,
+      ADR-S02): on sets Debian's debconf answer
+      wireshark-common/install-setuid to true, reconfigures wireshark-common
+      (its postinst gives DUMPCAP, root:wireshark 754, the capture
+      capabilities) and adds the user to group wireshark. off takes the user
+      out; when no member is left, the answer goes back to false and the
+      reconfigure takes the capabilities away. Refused while an
+      administrator's dpkg-statoverride is on DUMPCAP (the postinst then
+      changes nothing, and the administrator's choice wins). Applies at the
+      user's next login.
+
+  wireless-test-adapter ADDRESS|off
+      Make NetworkManager leave one Wi-Fi adapter alone, for monitor mode
+      without airmon-ng check kill (flickos-security.md, ADR-S08): ADDRESS
+      is the permanent address (NetworkManager's PermHwAddress) of a Wi-Fi
+      adapter present now and not on a network. Writes TEST_ADAPTER_CONF
+      (unmanaged-devices=mac:ADDRESS) and reloads NetworkManager's
+      configuration; one adapter at a time. off deletes the file and
+      reloads. A file that isn't FlickOS's is left alone.
+
+  upstream ID on|off|refresh
+      A maker's own apt repository, for a tool Debian doesn't carry
+      (docs/design/flickos-dev.md ADR-008; flickos-security.md ADR-S07): ID
+      names an entry of UPSTREAMS, never an address or a key. on writes the
+      entry's sources (UPSTREAM_SOURCES, signed by the maker's key that this
+      package ships in UPSTREAM_KEYS, refused unless its fingerprint is the
+      listed one), a pin that keeps every other package of that origin out
+      (UPSTREAM_PINS) and its origin for automatic updates (UPSTREAM_ORIGINS,
+      and 60flickos-updates' list), fetches that repository's lists only, and
+      installs the entry's packages when apt's simulation removes nothing; if
+      a step fails, the files it wrote are deleted again. off removes the
+      entry's packages (refused when apt would remove anything else), then
+      the files. refresh (postinst) writes the files of the entries that are
+      on again from this version's list. Files that aren't FlickOS's are left
+      alone.
+
   firewall-phones on|off|refresh
       Let phones with the KDE Connect app (flickos-phone) through the
       firewall, only from private addresses (PRIVATE_NETWORKS), or stop
@@ -54,6 +125,14 @@ Only these verbs exist, and every value is checked before anything changes:
       read). refresh rewrites an outdated FlickOS profile and its rules
       (ufw app update) and does nothing else; flickos-control's postinst
       runs it, so an upgrade brings new ports to phones already let in.
+
+  firewall-classroom on|off
+      Let a teacher's computer reach the classroom agent
+      (flickos-classroom-view, TCP CLASSROOM_PORTS) through the firewall,
+      only from private addresses, or stop letting it. Like
+      firewall-phones: on writes CLASSROOM_PROFILE and allows it from each
+      private range, off deletes the rules and the profile, which is there
+      exactly while the port is open.
 
   power SETTING ACTION
       What the power button (SETTING power-key), closing the lid (lid) or
@@ -68,9 +147,10 @@ Only these verbs exist, and every value is checked before anything changes:
       community apps, all: also stable-updates) or reboot (no, idle: when
       nobody is logged in); VALUE default drops the choice. Written to
       UPDATES_DROP_IN, which sorts after Debian's 20auto-upgrades and
-      50unattended-upgrades. refresh writes the drop-in again from its
-      stored choices with this version's origins; flickos-control's postinst
-      runs it.
+      50unattended-upgrades. debian and all include the apps bought from the
+      FlickOS store (purchases-add), which match nothing without its key.
+      refresh writes the drop-in again from its stored choices with this
+      version's origins; flickos-control's postinst runs it.
 
   firefox-memory on|off
       Make Firefox ESR use less memory, for everyone (on), or leave it to
@@ -79,10 +159,36 @@ Only these verbs exist, and every value is checked before anything changes:
       The prefs are fixed here (FIREFOX_MEMORY_PREFS); a user's own values
       still win. on needs Debian's firefox-esr; off works without it.
 
+  i386-on
+      Let 32-bit packages be installed (Wine's 32-bit part, which every
+      Windows installer needs: flickos-switch ADR-004): dpkg
+      --add-architecture i386. The next apt update fetches i386's lists too.
+
+  i386-off
+      Take i386 away again (dpkg --remove-architecture i386), refused while
+      an i386 package that someone asked for is installed (apt's manual
+      mark). The ones left are purged first, since dpkg refuses to drop an
+      architecture while any is known: libraries only installed for others
+      (apt never autoremoves libgcc-s1, which is protected, nor what it
+      needs) when apt would remove nothing else with them, and ones only
+      their config files are left of. apt counts libgcc-s1:i386 and what it
+      needs as essential, so the purge allows that, once its simulation shows
+      that only i386 packages go.
+
   locale-add LOCALE
       Make a language available: LOCALE must be a UTF-8 locale in
       /usr/share/i18n/SUPPORTED. Its line in /etc/locale.gen is turned on
       (or added), and locale-gen generates the locales that are missing.
+
+  locale NAME=VALUE...
+      The language and formats of the login screen, the console and new
+      accounts: /etc/locale.conf (/etc/default/locale is a link to it in
+      trixie; if it is a file of its own, it is written too). NAME is LANG
+      (required), LANGUAGE or an LC_ variable, each at most once; VALUE a
+      locale of /usr/share/i18n/SUPPORTED, C, C.UTF-8 or POSIX (LANGUAGE: a
+      colon-separated list of names). Debian's systemd refuses localed's
+      SetLocale to everyone (systemd-localed-read-only.conf), so `localectl
+      set-locale` can't do it.
 
   packages-undo ID
       Undo one change to the installed software (Settings > History): the
@@ -94,6 +200,29 @@ Only these verbs exist, and every value is checked before anything changes:
       another package, anything the FlickOS desktop depends on, or install a
       live-session package, or if the transaction was part of installing the
       system. Updates can't be undone (Debian keeps only the newest version).
+
+  purchases-add
+      Add the key of apps bought from the FlickOS store, given on standard
+      input (never in the arguments, where ps shows it): the key's format is
+      checked, then the store says what it holds (/v1/key). A valid key
+      already on the computer stays, and the store links the new one to it
+      (/v1/link), so apt's one login per address holds every purchase; one
+      the store turned off is replaced. Writes apt's login (STORE_AUTH, root
+      0600), the store's sources entry (STORE_SOURCES, signed by FlickOS's
+      key), PURCHASES_FILE (what the key holds, without the key), updates the
+      store's lists and runs purchases-check. Refused in the live session.
+
+  purchases-remove
+      Delete those files and the pins. Installed apps stay installed.
+
+  purchases-check
+      Keep the store's packages this computer's key can't download at their
+      installed version (STORE_PINS, Pin-Priority -1), so one refunded app
+      never stops the automatic updates (unattended-upgrades aborts its whole
+      run on a download it can't make). Asks the store at most every
+      CHECK_SECONDS; no answer changes nothing. Run as root by apt after
+      every update (flickos-control's 61flickos-purchases), only while a key
+      is on the computer; not through pkexec.
 
 Two verbs only read, and run without root (and without pkexec), so that the
 Settings window shows the same list and plan the undo will use:
@@ -111,11 +240,13 @@ can't be removed or made a standard user.
 Exit codes: 0 ok, 1 error, 2 usage error.
 """
 
+import base64
 import contextlib
 import datetime
 import glob
 import grp
 import gzip
+import hashlib
 import json
 import os
 import pwd
@@ -123,19 +254,35 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 
 KEYBOARD_DEFAULTS = "/etc/default/keyboard"
 XKB_RULES = "/usr/share/X11/xkb/rules/evdev.lst"
 FIELDS = ("XKBMODEL", "XKBLAYOUT", "XKBVARIANT", "XKBOPTIONS")
 AUTOLOGIN_GROUP = "autologin"       # flickos-greeter's (debian/flickos-greeter.sysusers)
 LOGIN_DEFS = "/etc/login.defs"
+GREETER_CONF = "/etc/flickos/greeter"   # flickos-greeter reads it over /etc/xdg/flickos/greeter.conf
+GREETER_KEYS = ("Background", "Position")
+GREETER_HEADER = ("# The login screen: Settings > Login Screen (flickos-control) writes this file\n"
+                  "# through its helper. Read by flickos-greeter over /etc/xdg/flickos/greeter.conf.\n")
+LOGIN_BACKGROUND = "/var/lib/flickos-control/login-screen/background.jpg"
+BACKGROUNDS = "/usr/share/backgrounds/"
+FLICKOS_SHARE = "/usr/share/flickos/"   # where some of BACKGROUNDS' links lead (the styles' wallpapers)
+BACKGROUND_NAME = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.(png|jpe?g)$", re.IGNORECASE)   # under BACKGROUNDS
+BACKGROUND_BYTES = 10 * 1024 * 1024     # flickos-control's JPEG is about 1–2 MB
+PICTURE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")      # flickos-greeter's
+JPEG_MAGIC = b"\xff\xd8\xff"
+LOGIN_POSITIONS = ("left", "center", "right")
+PICTURES = "/var/lib/AccountsService/icons"     # accountsservice's, one file per user name
 PROC = "/proc"
 ADMIN_GROUP = "sudo"                # polkit's administrators (Debian) and sudo's
 # The installer's groups for the first account without sudo (flickos-installer's
 # users.conf defaultGroups); ones that don't exist here are left out.
 DEFAULT_GROUPS = ("cdrom", "floppy", "audio", "dip", "video", "plugdev", "netdev", "lpadmin", "scanner",
                   "bluetooth")
-# adduser's default NAME_REGEX (adduser.conf), at most 32 characters.
+# adduser's default NAME_REGEX (adduser.conf), at most 32 characters. Checked
+# with fullmatch: "$" alone lets a trailing newline through (audit F-2).
 USER_NAME = re.compile(r"^[a-z][-a-z0-9_]{0,31}$")
 FULL_NAME_MAX = 100
 PASSWORD_MAX = 512
@@ -149,6 +296,69 @@ PHONES_APP = "FlickOS Phones"
 # when it joins the network, the fastest way back after it was away.
 PHONES_PORTS = "1716,1739:1764/tcp|1716/udp"
 PRIVATE_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+# A teacher's computer through the firewall (firewall-classroom): the same
+# way (CLASSROOM_PROFILE and CLASSROOM_MARK; tests compare them with
+# flickos-control's, and the port with flickos-classroom-view's PORT).
+CLASSROOM_PROFILE = "/etc/ufw/applications.d/flickos-classroom"
+CLASSROOM_MARK = "# A teacher's computer: Settings > Classroom (flickos-control) writes and"
+CLASSROOM_APP = "FlickOS Classroom"
+CLASSROOM_PORTS = "47100/tcp"
+# Servers the user runs (firewall-local-ports): flickos-control reads the
+# profile's first line and its ports (LOCAL_PORTS_PROFILE and LOCAL_PORTS_MARK;
+# tests compare them). Ports below FIRST_PORT are for system services and stay
+# a job for `sudo ufw`. ufw takes at most 15 ports in one rule, a range counting
+# as two.
+LOCAL_PORTS_PROFILE = "/etc/ufw/applications.d/flickos-local-ports"
+LOCAL_PORTS_MARK = "# Servers you run yourself: Settings > Firewall (flickos-control) writes and"
+LOCAL_PORTS_APP = "FlickOS Local Ports"
+LOCAL_PORTS_MAX = 15
+FIRST_PORT = 1024
+LOCAL_PORT = re.compile(r"^(\d{1,5})(?::(\d{1,5}))?/(tcp|udp)$")
+# podman's netavark: flickos-kit-containers' drop-ins keep its units off until
+# this file exists (flickos-dev.md, ADR-001 and Q7); mark is its first line.
+NETAVARK_FLAG = "/etc/flickos/kits/netavark-on"
+NETAVARK_MARK = "# flickos-kit-containers: netavark's DHCP helper may start while this file exists. Tool Kits writes and"
+NETAVARK_SOCKET = "/usr/lib/systemd/system/netavark-dhcp-proxy.socket"
+NETAVARK_UNITS = ("netavark-firewalld-reload.service", "netavark-dhcp-proxy.service", "netavark-dhcp-proxy.socket")
+# Packet capture (packet-capture): Debian's dumpcap and the group its postinst
+# makes; flickos-control reads the group's members.
+DUMPCAP = "/usr/bin/dumpcap"
+WIRESHARK_GROUP = "wireshark"
+CAPTURE_QUESTION = "wireshark-common wireshark-common/install-setuid boolean"
+# The wireless test adapter (wireless-test-adapter): flickos-control reads the
+# file (TEST_ADAPTER_CONF and TEST_ADAPTER_MARK; tests compare them).
+TEST_ADAPTER_CONF = "/etc/NetworkManager/conf.d/90-flickos-test-adapter.conf"
+TEST_ADAPTER_MARK = "# A wireless adapter for testing: Tool Kits (flickos-control) writes and"
+HW_ADDRESS = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
+# NetworkManager's device states from prepare (40) to activated (100): the
+# adapter is on a network, or joining one.
+ACTIVE_STATES = range(40, 101)
+# Makers' apt repositories (upstream; flickos-dev.md ADR-008, Q8 decided
+# 2026-11-19: mise and Rapid7's, nothing else). Each key is the maker's,
+# shipped here, its fingerprint checked against the maker's own page (mise:
+# mise.jdx.dev/installing-mise.html; Rapid7: the key in its msfupdate
+# installer) and before every use. "packages" are the only ones apt may take
+# from that origin (with what they need of the maker's: phase 0 item 9), none
+# of them in Debian, so going back is removing them. "origin" is the
+# repository's Release (Origin, Codename, Label) for unattended-upgrades;
+# flickos-control has the same patterns and UPSTREAM_SOURCES (tests compare).
+UPSTREAM_KEYS = "/usr/share/flickos-control/upstreams"
+UPSTREAM_SOURCES = "/etc/apt/sources.list.d/flickos-upstream-{}.sources"
+UPSTREAM_PINS = "/etc/apt/preferences.d/flickos-upstream-{}"
+UPSTREAM_ORIGINS = "/etc/apt/apt.conf.d/52flickos-upstream-{}"
+UPSTREAM_MARK = "# A maker's repository: Tool Kits (flickos-control) writes and deletes this file."
+UPSTREAM_ORIGINS_MARK = "// A maker's repository: Tool Kits (flickos-control) writes and deletes this file."
+UPSTREAMS = {
+    "mise": {"name": "mise", "uri": "https://mise.jdx.dev/deb", "suite": "stable", "component": "main",
+             "fingerprint": "24853EC9F655CE80B48E6C3A8B81C9D17413A06D", "packages": ("mise",),
+             "origin": "origin=mise repository,codename=stable,label=mise"},
+    "rapid7": {"name": "Rapid7 (Metasploit Framework)", "uri": "https://apt.metasploit.com", "suite": "lucid",
+               "component": "main", "fingerprint": "97B32012EA1176F053727A95C048F0B49DEEC457",
+               "packages": ("metasploit-framework",),
+               "origin": "origin=Metasploit Framework,codename=lucid,label=Metasploit Framework"},
+}
+UPSTREAM_ID = re.compile(r"^[a-z0-9-]+$")
+UPSTREAM_SECONDS = 3600             # Metasploit is a 417 MB download
 LOGIND_DROP_IN = "/etc/systemd/logind.conf.d/60-flickos.conf"
 POWER_SETTINGS = {"power-key": "HandlePowerKey", "lid": "HandleLidSwitch",
                   "lid-external-power": "HandleLidSwitchExternalPower"}
@@ -170,19 +380,31 @@ UPDATE_SCOPES = {
                "origin=Debian,codename=${distro_codename},label=Debian-Security",
                "origin=Debian,codename=${distro_codename}-security,label=Debian-Security",
                "origin=FlickOS,codename=${distro_codename},label=FlickOS",
-               "origin=FlickOS,codename=${distro_codename}-community,label=FlickOS Community"),
+               "origin=FlickOS,codename=${distro_codename}-community,label=FlickOS Community",
+               "origin=FlickOS,codename=${distro_codename}-store,label=FlickOS Store"),
     "all": ("origin=Debian,codename=${distro_codename},label=Debian",
             "origin=Debian,codename=${distro_codename},label=Debian-Security",
             "origin=Debian,codename=${distro_codename}-security,label=Debian-Security",
             "origin=Debian,codename=${distro_codename}-updates,label=Debian",
             "origin=FlickOS,codename=${distro_codename},label=FlickOS",
-            "origin=FlickOS,codename=${distro_codename}-community,label=FlickOS Community"),
+            "origin=FlickOS,codename=${distro_codename}-community,label=FlickOS Community",
+            "origin=FlickOS,codename=${distro_codename}-store,label=FlickOS Store"),
 }
 UPDATE_SETTINGS = {"auto": ("yes", "no"), "scope": tuple(UPDATE_SCOPES), "reboot": ("no", "idle")}
 UPDATES_MARK = "// flickos-control:"
 I18N_SUPPORTED = "/usr/share/i18n/SUPPORTED"
 LOCALE_GEN = "/etc/locale.gen"
 LOCALE_GEN_COMMAND = ("/usr/sbin/locale-gen", "--keep-existing")
+LOCALE_CONF = "/etc/locale.conf"
+LOCALE_DEFAULTS = "/etc/default/locale"     # a link to LOCALE_CONF in trixie
+# flickos-control's LOCALE_VARS (a test compares).
+LOCALE_NAMES = ("LANG", "LANGUAGE", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "LC_NUMERIC", "LC_TIME",
+                "LC_MONETARY", "LC_PAPER", "LC_NAME", "LC_ADDRESS", "LC_TELEPHONE", "LC_MEASUREMENT",
+                "LC_IDENTIFICATION")
+LOCALE_WORD = re.compile(r"^[A-Za-z0-9_.@-]+$")
+LANGUAGE_LIST = re.compile(r"^[A-Za-z0-9_.@-]+(:[A-Za-z0-9_.@-]+)*$")
+BUILT_IN_LOCALES = ("C", "C.UTF-8", "POSIX")
+LOCALE_HEADER = "# The system's language: Settings > Language & Region (flickos-control).\n"
 # After the change: input devices pick up the layout (keyboard(5)), and the
 # console's keymap is saved for the next boot without touching the screen.
 AFTER = (["udevadm", "trigger", "--subsystem-match=input", "--action=change"],
@@ -209,6 +431,10 @@ DESKTOP_PACKAGE = "flickos-desktop"             # it and its Depends are never r
 UNDO_OPTION = "FlickOS::Undo"                   # apt keeps it in the Commandline: of the undo's transaction
 HISTORY_DAYS = 90
 APT_SECONDS = 1800
+DPKG = "/usr/bin/dpkg"
+DPKG_QUERY = "/usr/bin/dpkg-query"
+APT_MARK = "/usr/bin/apt-mark"
+FOREIGN_ARCH = "i386"                           # i386-on/off: the only architecture added
 
 
 class HelperError(Exception):
@@ -266,13 +492,13 @@ def rewrite(text, values):
     return "\n".join(lines) + "\n"
 
 
-def write_atomic(path, text):
+def write_atomic(path, text, mode=0o644):
     folder = os.path.dirname(path)
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
-        os.chmod(tmp, 0o644)
+        os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -363,6 +589,106 @@ def cmd_autologin_off(args):
     return 0
 
 
+# --- The login screen ---------------------------------------------------------------------
+
+def read_greeter_conf(path=None):
+    """{key: value} of GREETER_CONF's Background= and Position= lines."""
+    values = {}
+    with contextlib.suppress(FileNotFoundError), open(path or GREETER_CONF, encoding="utf-8") as f:
+        for line in f:
+            key, sep, value = line.strip().partition("=")
+            if sep and key.strip() in GREETER_KEYS:
+                values[key.strip()] = value.strip()
+    return values
+
+
+def write_greeter_conf(key, value, path=None):
+    """Set KEY (None: drop it) and write the file again; no values left: no file."""
+    path = path or GREETER_CONF
+    values = read_greeter_conf(path)
+    if value is None:
+        values.pop(key, None)
+    else:
+        values[key] = value
+    if not values:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
+        return
+    os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+    write_atomic(path, GREETER_HEADER + "".join(f"{k}={values[k]}\n" for k in GREETER_KEYS if k in values))
+
+
+def write_atomic_bytes(path, data, mode=0o644):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def check_background_path(path):
+    """A PNG or JPEG of FlickOS's (or Debian's) under BACKGROUNDS; a link
+    there may only lead into BACKGROUNDS or FLICKOS_SHARE (packages' files)."""
+    name = path[len(BACKGROUNDS):] if path.startswith(BACKGROUNDS) else ""
+    if not BACKGROUND_NAME.fullmatch(name) or any(part in (".", "..") for part in name.split("/")):
+        raise HelperError(f"'{path}' is not a picture under {BACKGROUNDS}")
+    real = os.path.realpath(path)
+    if not real.startswith((BACKGROUNDS, FLICKOS_SHARE)) or not os.path.isfile(real):
+        raise HelperError(f"'{path}' is not a picture under {BACKGROUNDS}")
+    with open(real, "rb") as f:
+        if not f.read(8).startswith(PICTURE_MAGIC):
+            raise HelperError(f"'{path}' is not a PNG or JPEG picture")
+
+
+def read_background(stream=None):
+    """The JPEG on standard input."""
+    stream = stream or sys.stdin.buffer
+    data = stream.read(BACKGROUND_BYTES + 1)
+    if len(data) > BACKGROUND_BYTES:
+        raise HelperError(f"the picture is larger than {BACKGROUND_BYTES // (1024 * 1024)} MB")
+    if not data.startswith(JPEG_MAGIC):
+        raise HelperError("no JPEG picture on standard input")
+    return data
+
+
+def cmd_login_background(args):
+    if len(args) != 1:
+        raise HelperError("login-background: give default, a picture under /usr/share/backgrounds/, "
+                          "or - with a JPEG on standard input")
+    value = args[0]
+    if value == "default":
+        write_greeter_conf("Background", None)
+        message = "The login screen shows its default picture again."
+    elif value == "-":
+        data = read_background()
+        os.makedirs(os.path.dirname(LOGIN_BACKGROUND), mode=0o755, exist_ok=True)
+        write_atomic_bytes(LOGIN_BACKGROUND, data)
+        write_greeter_conf("Background", LOGIN_BACKGROUND)
+        message = "The login screen shows your picture from its next start."
+    else:
+        check_background_path(value)
+        write_greeter_conf("Background", value)
+        message = "The login screen shows this picture from its next start."
+    if value != "-":
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(LOGIN_BACKGROUND)
+    print(message)
+    return 0
+
+
+def cmd_login_position(args):
+    if len(args) != 1 or args[0] not in (*LOGIN_POSITIONS, "default"):
+        raise HelperError(f"login-position: give one of {', '.join(LOGIN_POSITIONS)} or default")
+    write_greeter_conf("Position", None if args[0] == "default" else args[0])
+    print("The login box moves there at the login screen's next start.")
+    return 0
+
+
 # --- User accounts ------------------------------------------------------------------------
 
 def run_tool(command, stdin_text=None):
@@ -375,7 +701,7 @@ def run_tool(command, stdin_text=None):
 
 
 def check_new_name(name):
-    if not USER_NAME.match(name):
+    if not USER_NAME.fullmatch(name):
         raise HelperError(f"'{name}' is not a valid user name: lowercase letters, digits, - and _, "
                           "starting with a letter, at most 32 characters")
     with contextlib.suppress(KeyError):
@@ -390,6 +716,8 @@ def check_full_name(full_name):
     """The first GECOS field: no field separators, no control characters."""
     if len(full_name) > FULL_NAME_MAX:
         raise HelperError(f"the full name is longer than {FULL_NAME_MAX} characters")
+    if full_name.startswith("-"):
+        raise HelperError("the full name can't start with -")
     if any(c in ":,=\\" or not c.isprintable() for c in full_name):
         raise HelperError("the full name can't contain : , = \\ or control characters")
 
@@ -470,7 +798,10 @@ def cmd_user_add(args):
     check_full_name(full_name)
     admin = yes_no(admin, "user-add ADMIN")
     password = read_password()
-    run_tool(["adduser", "--quiet", "--disabled-password", "--comment", full_name, name])
+    # The full name as --comment=VALUE and the name after "--": adduser's
+    # --comment takes an optional value, so a full name given as the next
+    # word could have been read as more options (audit F-1, e.g. --system).
+    run_tool(["adduser", "--quiet", "--disabled-password", f"--comment={full_name}", "--", name])
     try:
         run_tool(["chpasswd"], f"{name}:{password}\n")
         groups = [g for g in (*DEFAULT_GROUPS, *((ADMIN_GROUP,) if admin else ())) if group_exists(g)]
@@ -482,6 +813,11 @@ def cmd_user_add(args):
         raise
     print(f"{name} can log in now{' and is an administrator' if admin else ''}.")
     return 0
+
+
+def remove_picture(name):
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(os.path.join(PICTURES, name))
 
 
 def cmd_user_remove(args):
@@ -501,7 +837,9 @@ def cmd_user_remove(args):
             pwd.getpwnam(name)
             raise
         # userdel exits 12 when the account is gone but its home folder isn't.
+        remove_picture(name)
         raise HelperError(f"{name} was removed, but not all of their files:\n{error}") from None
+    remove_picture(name)
     if files == "delete":
         print(f"{name} was removed, with their files.")
     else:
@@ -565,10 +903,40 @@ def phones_profile_text():
             f"ports={PHONES_PORTS}\n")
 
 
-def ours(path):
+def classroom_profile_text():
+    return (f"{CLASSROOM_MARK}\n# deletes this file, with the firewall rules that use it.\n"
+            f"[{CLASSROOM_APP}]\ntitle=Classroom (FlickOS)\n"
+            "description=A teacher's computer seeing and guiding this one (flickos-classroom-view)\n"
+            f"ports={CLASSROOM_PORTS}\n")
+
+
+def cmd_firewall_classroom(args):
+    if args not in (["on"], ["off"]):
+        raise HelperError("firewall-classroom: give on or off")
+    if not os.path.exists(UFW):
+        raise HelperError("ufw is not installed")
+    if os.path.exists(CLASSROOM_PROFILE) and not ours(CLASSROOM_PROFILE, CLASSROOM_MARK):
+        raise HelperError(f"{CLASSROOM_PROFILE} isn't FlickOS's; it was left as it is")
+    if args == ["on"]:
+        write_atomic(CLASSROOM_PROFILE, classroom_profile_text())
+        ufw("app", "update", CLASSROOM_APP)
+        for network in PRIVATE_NETWORKS:
+            ufw("allow", "from", network, "to", "any", "app", CLASSROOM_APP)
+        print("A teacher's computer on a school or home network can reach this one through the firewall.")
+        return 0
+    if os.path.exists(CLASSROOM_PROFILE):
+        for network in PRIVATE_NETWORKS:
+            with contextlib.suppress(HelperError):
+                ufw("delete", "allow", "from", network, "to", "any", "app", CLASSROOM_APP)
+        os.unlink(CLASSROOM_PROFILE)
+    print("The firewall blocks a teacher's computer again.")
+    return 0
+
+
+def ours(path, mark=PHONES_MARK):
     try:
         with open(path, encoding="utf-8") as f:
-            return f.readline().rstrip("\n") == PHONES_MARK
+            return f.readline().rstrip("\n") == mark
     except OSError:
         return False
 
@@ -612,6 +980,429 @@ def refresh_phones_profile():
     ufw("app", "update", PHONES_APP)
     print("Phones let through the firewall now use this version's ports.")
     return 0
+
+
+def parse_local_ports(text):
+    """The ports of a firewall-local-ports value as sorted (start, end, protocol)
+    tuples, without repeats. Raises HelperError for anything else."""
+    found = set()
+    for item in text.split(","):
+        match = LOCAL_PORT.fullmatch(item.strip())
+        if not match:
+            raise HelperError(f"'{item.strip()}' isn't a port: give ports like 8000/tcp or 5000:5010/udp")
+        start, end, protocol = int(match.group(1)), int(match.group(2) or match.group(1)), match.group(3)
+        if start > end or end > 65535:
+            raise HelperError(f"{item.strip()}: the ports must be from {FIRST_PORT} to 65535, the first below the last")
+        if start < FIRST_PORT:
+            raise HelperError(f"{item.strip()}: ports below {FIRST_PORT} are for system services; "
+                              "use sudo ufw allow for one of those")
+        found.add((start, end, protocol))
+    for protocol in ("tcp", "udp"):
+        weight = sum(2 if start != end else 1 for start, end, kind in found if kind == protocol)
+        if weight > LOCAL_PORTS_MAX:
+            raise HelperError(f"at most {LOCAL_PORTS_MAX} {protocol} ports (a range counts as two)")
+    return sorted(found, key=lambda port: (port[2], port[0], port[1]))
+
+
+def local_ports_profile_text(ports):
+    """The ufw app profile for parse_local_ports' result: ports=8000,9000/tcp|5353/udp."""
+    groups = []
+    for protocol in ("tcp", "udp"):
+        items = [f"{start}" if start == end else f"{start}:{end}" for start, end, kind in ports if kind == protocol]
+        if items:
+            groups.append(",".join(items) + "/" + protocol)
+    return (f"{LOCAL_PORTS_MARK}\n# deletes this file, with the firewall rules that use it.\n"
+            f"[{LOCAL_PORTS_APP}]\ntitle=Servers you run (FlickOS)\n"
+            "description=Ports that devices on home and office networks may reach\n"
+            f"ports={'|'.join(groups)}\n")
+
+
+def cmd_firewall_local_ports(args):
+    if len(args) != 1:
+        raise HelperError("firewall-local-ports: give off, or ports like 8000/tcp,3000/tcp")
+    ports = None if args[0] == "off" else parse_local_ports(args[0])
+    if not os.path.exists(UFW):
+        raise HelperError("ufw is not installed")
+    if os.path.exists(LOCAL_PORTS_PROFILE) and not ours(LOCAL_PORTS_PROFILE, LOCAL_PORTS_MARK):
+        raise HelperError(f"{LOCAL_PORTS_PROFILE} isn't FlickOS's; it was left as it is")
+    if ports is not None:
+        write_atomic(LOCAL_PORTS_PROFILE, local_ports_profile_text(ports))
+        # Rules from an earlier list take its new ports; then add what's missing.
+        ufw("app", "update", LOCAL_PORTS_APP)
+        for network in PRIVATE_NETWORKS:
+            ufw("allow", "from", network, "to", "any", "app", LOCAL_PORTS_APP)
+        print("Devices on home and office networks can reach those ports through the firewall.")
+        return 0
+    if os.path.exists(LOCAL_PORTS_PROFILE):
+        for network in PRIVATE_NETWORKS:
+            # A rule deleted by hand is already gone.
+            with contextlib.suppress(HelperError):
+                ufw("delete", "allow", "from", network, "to", "any", "app", LOCAL_PORTS_APP)
+        os.unlink(LOCAL_PORTS_PROFILE)
+    print("The firewall blocks those ports again.")
+    return 0
+
+
+def cmd_containers_dhcp(args):
+    if args not in (["on"], ["off"]):
+        raise HelperError("containers-dhcp: give on or off")
+    exists = os.path.exists(NETAVARK_FLAG)
+    if exists and not ours(NETAVARK_FLAG, NETAVARK_MARK):
+        raise HelperError(f"{NETAVARK_FLAG} isn't FlickOS's; it was left as it is")
+    if args == ["on"]:
+        if not os.path.exists(NETAVARK_SOCKET):
+            raise HelperError("podman's DHCP helper (netavark) isn't installed")
+        os.makedirs(os.path.dirname(NETAVARK_FLAG), exist_ok=True)
+        write_atomic(NETAVARK_FLAG, f"{NETAVARK_MARK}\n# deletes this file.\n")
+        run_tool(["systemctl", "start", "netavark-dhcp-proxy.socket"])
+        print("Containers can get addresses from your router's DHCP now, and after a restart.")
+        return 0
+    if exists:
+        os.unlink(NETAVARK_FLAG)
+    for unit in NETAVARK_UNITS:
+        # A unit that isn't there or isn't running has nothing to stop.
+        with contextlib.suppress(HelperError):
+            run_tool(["systemctl", "stop", unit])
+    print("Containers can't get addresses by DHCP any more.")
+    return 0
+
+
+# --- Security kits: packet capture and the wireless test adapter -----------------------
+
+def capture_override():
+    """An administrator's dpkg-statoverride on DUMPCAP, as dpkg prints it, or ""."""
+    result = subprocess.run(["dpkg-statoverride", "--list", DUMPCAP], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=30, check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def set_capture_answer(allowed):
+    """Debian's own answer, then its postinst does the rest (ADR-S02)."""
+    run_tool(["debconf-set-selections"], f"{CAPTURE_QUESTION} {'true' if allowed else 'false'}\n")
+    run_tool(["dpkg-reconfigure", "-f", "noninteractive", "wireshark-common"])
+
+
+def capture_members():
+    try:
+        return list(grp.getgrnam(WIRESHARK_GROUP).gr_mem)
+    except KeyError:
+        return []
+
+
+def cmd_packet_capture(args):
+    if args not in (["on"], ["off"]):
+        raise HelperError("packet-capture: give on or off")
+    user = calling_user()
+    if args == ["on"]:
+        if not os.path.exists(DUMPCAP):
+            raise HelperError("Wireshark's dumpcap (wireshark-common) isn't installed")
+        override = capture_override()
+        if override:
+            raise HelperError(f"an administrator set {DUMPCAP}'s owner and mode with dpkg-statoverride "
+                              f"({override}); it was left as it is")
+        set_capture_answer(True)
+        if user not in capture_members():
+            gpasswd("-a", user, WIRESHARK_GROUP)
+        print(f"{user} can capture packets after logging in again.")
+        return 0
+    members = capture_members()
+    if user in members:
+        gpasswd("-d", user, WIRESHARK_GROUP)
+        members.remove(user)
+    if not members and os.path.exists(DUMPCAP) and not capture_override():
+        set_capture_answer(False)
+    print(f"{user} can't capture packets without administrator rights any more.")
+    return 0
+
+
+def nm_unescape(value):
+    """A value of nmcli -t: backslash escapes its colons and backslashes."""
+    return re.sub(r"\\(.)", r"\1", value)
+
+
+def wifi_devices():
+    """[{device, state, address}] of NetworkManager's Wi-Fi devices; address is
+    the permanent one (PermHwAddress, upper case: NetworkManager scans with
+    random ones), "" when it can't say."""
+    result = subprocess.run(["nmcli", "-t", "-f", "GENERAL.DEVICE,GENERAL.TYPE,GENERAL.STATE,GENERAL.DBUS-PATH",
+                             "device", "show"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, timeout=30, check=False)
+    if result.returncode != 0:
+        raise HelperError(f"nmcli: {result.stderr.strip() or 'NetworkManager does not answer'}")
+    devices, current = [], {}
+    for line in result.stdout.splitlines() + [""]:
+        key, sep, value = line.partition(":")
+        if not sep:
+            if current.get("GENERAL.TYPE") == "wifi":
+                devices.append(current)
+            current = {}
+            continue
+        current[key] = nm_unescape(value)
+    found = []
+    for device in devices:
+        state = device.get("GENERAL.STATE", "").split(" ")[0]
+        address = subprocess.run(["busctl", "-j", "get-property", "org.freedesktop.NetworkManager",
+                                  device.get("GENERAL.DBUS-PATH", ""),
+                                  "org.freedesktop.NetworkManager.Device.Wireless", "PermHwAddress"],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 text=True, timeout=30, check=False)
+        try:
+            address = json.loads(address.stdout)["data"].upper() if address.returncode == 0 else ""
+        except (ValueError, KeyError, TypeError, AttributeError):
+            address = ""
+        found.append({"device": device.get("GENERAL.DEVICE", ""),
+                      "state": int(state) if state.isdigit() else 0, "address": address})
+    return found
+
+
+def test_adapter_text(address):
+    return (f"{TEST_ADAPTER_MARK}\n# deletes this file. NetworkManager leaves this Wi-Fi adapter alone, for "
+            f"monitor mode.\n[keyfile]\nunmanaged-devices=mac:{address}\n")
+
+
+def cmd_wireless_test_adapter(args):
+    if len(args) != 1:
+        raise HelperError("wireless-test-adapter: give off, or an adapter's address like 00:11:22:33:44:55")
+    address = None if args[0] == "off" else args[0].upper()
+    if address is not None and not HW_ADDRESS.fullmatch(address):
+        raise HelperError(f"'{args[0]}' isn't an address like 00:11:22:33:44:55")
+    exists = os.path.exists(TEST_ADAPTER_CONF)
+    if exists and not ours(TEST_ADAPTER_CONF, TEST_ADAPTER_MARK):
+        raise HelperError(f"{TEST_ADAPTER_CONF} isn't FlickOS's; it was left as it is")
+    if address is not None:
+        device = next((d for d in wifi_devices() if d["address"] == address), None)
+        if device is None:
+            raise HelperError(f"no Wi-Fi adapter with the address {address} is plugged in")
+        if device["state"] in ACTIVE_STATES:
+            raise HelperError(f"{device['device']} is on a network now; choose an adapter you don't use to "
+                              "get online")
+        os.makedirs(os.path.dirname(TEST_ADAPTER_CONF), exist_ok=True)
+        write_atomic(TEST_ADAPTER_CONF, test_adapter_text(address))
+        run_tool(["nmcli", "general", "reload"])
+        print(f"NetworkManager leaves {device['device']} alone now. Start monitor mode with "
+              f"sudo airmon-ng start {device['device']}, without check kill.")
+        return 0
+    if exists:
+        os.unlink(TEST_ADAPTER_CONF)
+        run_tool(["nmcli", "general", "reload"])
+    print("NetworkManager manages every Wi-Fi adapter again.")
+    return 0
+
+
+# --- Makers' apt repositories (flickos-dev.md ADR-008; flickos-security.md ADR-S07) -----
+
+def openpgp_fingerprint(data):
+    """The fingerprint (upper-case hex) of the first key of an OpenPGP
+    certificate, armored or binary: SHA-1 over its public-key packet (RFC 4880
+    4.2, 12.2; version 4 only). Raises HelperError."""
+    if data.lstrip().startswith(b"-----BEGIN PGP PUBLIC KEY BLOCK-----"):
+        lines = [line.strip() for line in data.decode("ascii", "replace").strip().splitlines()[1:]]
+        if "" not in lines:
+            raise HelperError("the key's armor has no blank line before its data")
+        lines = lines[lines.index("") + 1:]
+        try:
+            data = base64.b64decode("".join(line for line in lines if not line.startswith(("=", "-----"))),
+                                    validate=True)
+        except ValueError:
+            raise HelperError("the key's armor isn't base64") from None
+    if len(data) < 6 or not data[0] & 0x80:
+        raise HelperError("not an OpenPGP key")
+    first = data[0]
+    if first & 0x40:                        # new packet format
+        tag, octet = first & 0x3F, data[1]
+        if octet < 192:
+            length, start = octet, 2
+        elif octet < 224:
+            length, start = ((octet - 192) << 8) + data[2] + 192, 3
+        elif octet == 255:
+            length, start = int.from_bytes(data[2:6], "big"), 6
+        else:
+            raise HelperError("not an OpenPGP key")
+    else:
+        tag, kind = (first >> 2) & 0x0F, first & 0x03
+        if kind == 3:
+            raise HelperError("not an OpenPGP key")
+        size = (1, 2, 4)[kind]
+        length, start = int.from_bytes(data[1:1 + size], "big"), 1 + size
+    body = data[start:start + length]
+    if tag != 6 or not body or len(body) != length or length > 0xFFFF or body[0] != 4:
+        raise HelperError("not a version 4 OpenPGP public key")
+    return hashlib.sha1(b"\x99" + length.to_bytes(2, "big") + body).hexdigest().upper()
+
+
+def upstream(entry_id):
+    if not UPSTREAM_ID.fullmatch(entry_id) or entry_id not in UPSTREAMS:
+        raise HelperError(f"no maker's repository named '{entry_id}' (there are {', '.join(UPSTREAMS)})")
+    return UPSTREAMS[entry_id]
+
+
+def upstream_key(entry_id):
+    """The maker's key file, once its fingerprint is the listed one."""
+    path = os.path.join(UPSTREAM_KEYS, f"{entry_id}.asc")
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as error:
+        raise HelperError(f"{path}: {error.strerror}") from None
+    if openpgp_fingerprint(data) != UPSTREAMS[entry_id]["fingerprint"]:
+        raise HelperError(f"{path} isn't the key FlickOS lists for {UPSTREAMS[entry_id]['name']}; "
+                          "nothing was changed")
+    return path
+
+
+def upstream_paths(entry_id):
+    """{path: its first line} of the files an entry writes."""
+    return {UPSTREAM_SOURCES.format(entry_id): UPSTREAM_MARK, UPSTREAM_PINS.format(entry_id): UPSTREAM_MARK,
+            UPSTREAM_ORIGINS.format(entry_id): UPSTREAM_ORIGINS_MARK}
+
+
+def upstream_files(entry_id):
+    """{path: text} of an entry's sources, pin and update origin."""
+    entry = UPSTREAMS[entry_id]
+    key = upstream_key(entry_id)
+    packages = " ".join(entry["packages"])
+    host = entry["uri"].split("://", 1)[1].split("/", 1)[0]
+    sources, pins, origins = upstream_paths(entry_id)
+    return {
+        sources: (f"{UPSTREAM_MARK}\n# {entry['name']}'s own repository, for {packages}; "
+                  f"{os.path.basename(pins)} in preferences.d keeps its other packages out.\n"
+                  f"Types: deb\nURIs: {entry['uri']}\nSuites: {entry['suite']}\nComponents: {entry['component']}\n"
+                  f"Architectures: {native_arch()}\nSigned-By: {key}\n"),
+        pins: (f"{UPSTREAM_MARK}\n# Only {packages} may come from {host}.\n"
+               f"Package: *\nPin: origin {host}\nPin-Priority: -1\n\n"
+               f"Package: {packages}\nPin: origin {host}\nPin-Priority: 500\n"),
+        origins: (f"{UPSTREAM_ORIGINS_MARK}\n// Automatic updates install {packages} from {entry['name']}'s "
+                  f"repository too.\nUnattended-Upgrade::Origins-Pattern {{\n        \"{entry['origin']}\";\n}};\n"),
+    }
+
+
+def upstreams_on():
+    """The entries whose sources file is FlickOS's: the ones that are on."""
+    return [entry_id for entry_id in UPSTREAMS if ours(UPSTREAM_SOURCES.format(entry_id), UPSTREAM_MARK)]
+
+
+def upstream_patterns():
+    """The update origins of the entries that are on (updates_text adds them)."""
+    return tuple(UPSTREAMS[entry_id]["origin"] for entry_id in upstreams_on())
+
+
+def check_upstream_paths(entry_id):
+    for path, mark in upstream_paths(entry_id).items():
+        if os.path.exists(path) and not ours(path, mark):
+            raise HelperError(f"{path} isn't FlickOS's; it was left as it is")
+
+
+def fetch_lists(entry_id):
+    """apt's lists of this one repository (the rest stay as they are)."""
+    entry = UPSTREAMS[entry_id]
+    result = subprocess.run([APT_GET, "update", "-q", "-o", f"Dir::Etc::SourceList={UPSTREAM_SOURCES.format(entry_id)}",
+                             "-o", "Dir::Etc::SourceParts=-", "-o", "APT::Get::List-Cleanup=0"],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600,
+                            env=dict(os.environ, LC_ALL="C.UTF-8"), check=False)
+    lines = (result.stdout + result.stderr).splitlines()
+    problems = [line for line in lines if line.startswith(("E: ", "Err:"))
+                or line.startswith("W: ") and re.search(r"fetch|GPG|sign|Release", line, re.I)]
+    if result.returncode != 0 or problems:
+        raise HelperError(f"{entry['name']}'s repository can't be read ({entry['uri']}). Check the network "
+                          f"connection and try again." + (f" apt: {problems[-1]}" if problems else ""))
+
+
+def run_apt(args, what, options=(), seconds=APT_SECONDS):
+    """apt-get without questions; raises HelperError in plain words."""
+    command = [APT_GET, "-y", "-q", *options,
+               "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold", *args]
+    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            timeout=seconds, env=dict(os.environ, DEBIAN_FRONTEND="noninteractive"),
+                            check=False)
+    if result.returncode != 0:
+        text = result.stdout + result.stderr
+        if "Could not get lock" in text or "Unable to acquire the dpkg frontend lock" in text:
+            raise HelperError("Software is being installed or updated right now. Try again in a few minutes.")
+        if "Failed to fetch" in text or "Unable to fetch" in text:
+            raise HelperError(f"{what} can't be downloaded. Check the network connection and try again.")
+        errors = [line[3:] for line in result.stderr.splitlines() if line.startswith("E: ")]
+        raise HelperError("apt: " + (" ".join(errors) or f"exit code {result.returncode}"))
+
+
+def upstream_on(entry_id):
+    entry = UPSTREAMS[entry_id]
+    packages = list(entry["packages"])
+    check_upstream_paths(entry_id)
+    files = upstream_files(entry_id)            # checks the key first
+    new = [path for path in files if not os.path.exists(path)]
+    try:
+        for path, text in files.items():
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            write_atomic(path, text)
+        refresh_updates(quiet=True)
+        fetch_lists(entry_id)
+        removed, _new = simulate(["install", *packages])
+        if removed:
+            raise HelperError(f"Installing {', '.join(packages)} would remove {', '.join(sorted(removed))}, "
+                              "so nothing was changed.")
+        run_apt(["install", *packages], ", ".join(packages), seconds=UPSTREAM_SECONDS)
+    except BaseException:
+        # What this run added goes again: on stays on, off stays off.
+        for path in new:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        with contextlib.suppress(HelperError, OSError):
+            refresh_updates(quiet=True)
+        raise
+    print(f"{', '.join(packages)} is installed from {entry['name']}'s repository; automatic updates keep it "
+          "current.")
+    return 0
+
+
+def upstream_off(entry_id):
+    entry = UPSTREAMS[entry_id]
+    check_upstream_paths(entry_id)
+    present = sorted(installed_packages(list(entry["packages"])))
+    if present:
+        removed, _new = simulate(["remove", *present])
+        others = sorted(p for p in removed if p not in present and base_name(p) not in present)
+        if others:
+            raise HelperError(f"Removing {', '.join(present)} would also remove {', '.join(others)}, "
+                              "so nothing was changed.")
+        run_apt(["remove", *present], ", ".join(present))
+    for path in upstream_paths(entry_id):
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
+    refresh_updates(quiet=True)
+    print(f"{entry['name']}'s repository is gone" + (f", and {', '.join(present)} with it." if present else "."))
+    return 0
+
+
+def refresh_upstreams():
+    """An upgrade (postinst): the files of the entries that are on, written
+    again from this version's list (a new key, a new address)."""
+    failed = 0
+    for entry_id in upstreams_on():
+        try:
+            files = upstream_files(entry_id)
+        except HelperError as error:
+            print(f"control-helper: {error}", file=sys.stderr)
+            failed = 1
+            continue
+        for path, text in files.items():
+            if os.path.exists(path) and not ours(path, upstream_paths(entry_id)[path]):
+                continue
+            with contextlib.suppress(OSError), open(path, encoding="utf-8") as f:
+                if f.read() == text:
+                    continue
+            write_atomic(path, text)
+            print(f"{path} follows this version's list.")
+    refresh_updates()
+    return failed
+
+
+def cmd_upstream(args):
+    if args == ["refresh"]:
+        return refresh_upstreams()
+    if len(args) != 2 or args[1] not in ("on", "off"):
+        raise HelperError(f"upstream: give ID on|off (ID: {', '.join(UPSTREAMS)}), or refresh")
+    upstream(args[0])
+    return upstream_on(args[0]) if args[1] == "on" else upstream_off(args[0])
 
 
 # --- Power button and lid ------------------------------------------------------------------
@@ -659,8 +1450,10 @@ def updates_choices(text):
     return {}
 
 
-def updates_text(choices):
-    """The apt.conf drop-in for the choices; None when there are none."""
+def updates_text(choices, upstreams=()):
+    """The apt.conf drop-in for the choices; None when there are none. A list
+    of FlickOS's (not "Security fixes only") also gets the update origins of
+    the makers' repositories that are on (upstreams; flickos-dev.md Q9)."""
     if not choices:
         return None
     lines = ["// Automatic updates, from Settings > Updates (flickos-control), which",
@@ -670,7 +1463,8 @@ def updates_text(choices):
         lines.append(f'APT::Periodic::Unattended-Upgrade "{1 if choices["auto"] == "yes" else 0}";')
     if "scope" in choices:
         lines += ["#clear Unattended-Upgrade::Origins-Pattern;", "Unattended-Upgrade::Origins-Pattern {"]
-        lines += [f'        "{pattern}";' for pattern in UPDATE_SCOPES[choices["scope"]]] + ["};"]
+        patterns = UPDATE_SCOPES[choices["scope"]] + (tuple(upstreams) if choices["scope"] != "security" else ())
+        lines += [f'        "{pattern}";' for pattern in patterns] + ["};"]
     if "reboot" in choices:
         lines.append(f'Unattended-Upgrade::Automatic-Reboot "{"true" if choices["reboot"] == "idle" else "false"}";')
         if choices["reboot"] == "idle":
@@ -678,19 +1472,22 @@ def updates_text(choices):
     return "\n".join(lines) + "\n"
 
 
-def refresh_updates():
+def refresh_updates(quiet=False):
     """An upgrade (postinst): FlickOS's drop-in is written again from the
     choices on its mark line, so a stored scope gets this version's origins
-    (the community repository's, since 1.38). Nothing without the drop-in."""
+    (the community repository's since 1.38, the store's since 1.64), and those
+    of the makers' repositories that are on (upstream, which runs it too).
+    Nothing without the drop-in."""
     try:
         with open(UPDATES_DROP_IN, encoding="utf-8") as f:
             text = f.read()
     except FileNotFoundError:
         return 0
-    new = updates_text(updates_choices(text))
+    new = updates_text(updates_choices(text), upstream_patterns())
     if new is not None and new != text:
         write_atomic(UPDATES_DROP_IN, new)
-        print("Automatic updates use this version's list of repositories.")
+        if not quiet:
+            print("Automatic updates use this version's list of repositories.")
     return 0
 
 
@@ -710,7 +1507,7 @@ def cmd_updates(args):
         choices.pop(setting, None)
     else:
         choices[setting] = value
-    text = updates_text(choices)
+    text = updates_text(choices, upstream_patterns())
     if text is None:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(UPDATES_DROP_IN)
@@ -749,6 +1546,75 @@ def cmd_firefox_memory(args):
     return 0
 
 
+# --- 32-bit programs ----------------------------------------------------------------------
+
+def foreign_architectures():
+    result = subprocess.run([DPKG, "--print-foreign-architectures"], capture_output=True, text=True,
+                            timeout=60, check=True)
+    return result.stdout.split()
+
+
+def arch_packages(arch):
+    """({installed package}, {package with only its config files left}) of arch."""
+    result = subprocess.run([DPKG_QUERY, "-W", "-f", "${db:Status-Abbrev}\t${binary:Package}\t${Architecture}\n"],
+                            capture_output=True, text=True, timeout=60, check=True)
+    installed, configs = set(), set()
+    for line in result.stdout.splitlines():
+        status, _, rest = line.partition("\t")
+        name, _, package_arch = rest.partition("\t")
+        if package_arch != arch or status[1:2] == "n":
+            continue
+        (configs if status[1:2] == "c" else installed).add(name)
+    return installed, configs
+
+
+def cmd_i386_on(args):
+    if args:
+        raise HelperError("i386-on takes no arguments")
+    if FOREIGN_ARCH not in foreign_architectures():
+        run_tool([DPKG, "--add-architecture", FOREIGN_ARCH])
+    print("32-bit programs can be installed.")
+    return 0
+
+
+def manual_packages():
+    """The packages someone asked for (apt-mark showmanual: name, name:arch for a foreign one)."""
+    result = subprocess.run([APT_MARK, "showmanual"], capture_output=True, text=True, timeout=60, check=True)
+    return set(result.stdout.split())
+
+
+def cmd_i386_off(args):
+    if args:
+        raise HelperError("i386-off takes no arguments")
+    if FOREIGN_ARCH not in foreign_architectures():
+        print("32-bit programs can't be installed.")
+        return 0
+    installed, configs = arch_packages(FOREIGN_ARCH)
+    asked = sorted(installed & manual_packages())
+    if asked:
+        more = f" and {len(asked) - 3} more" if len(asked) > 3 else ""
+        raise HelperError(f"32-bit packages are still installed ({', '.join(asked[:3])}{more}): "
+                          f"remove them first")
+    if installed:
+        removed, _ = simulate(["remove", *sorted(installed)])        # -s purge prints Purg, not Remv
+        others = sorted(name for name in removed if not name.endswith(f":{FOREIGN_ARCH}"))
+        if others:
+            raise HelperError(f"removing the 32-bit packages left would also remove {', '.join(others)}")
+        result = subprocess.run([APT_GET, "-y", "-q", "--allow-remove-essential", "purge", *sorted(installed)],
+                                stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=APT_SECONDS,
+                                env=dict(os.environ, DEBIAN_FRONTEND="noninteractive"), check=False)
+        if result.returncode != 0:
+            errors = [line[3:] for line in result.stderr.splitlines() if line.startswith("E: ")]
+            raise HelperError("apt: " + (" ".join(errors) or f"exit code {result.returncode}"))
+        configs = arch_packages(FOREIGN_ARCH)[1]
+    if configs:
+        run_tool([DPKG, "--purge", *sorted(configs)])
+    run_tool([DPKG, "--remove-architecture", FOREIGN_ARCH])
+    print("32-bit programs can't be installed any more.")
+    return 0
+
+
 # --- Languages ----------------------------------------------------------------------------
 
 def supported_locales(path=None):
@@ -760,6 +1626,67 @@ def supported_locales(path=None):
             if len(parts) == 2 and parts[1] == "UTF-8":
                 found.add(parts[0])
     return found
+
+
+def locale_names(path=None):
+    """Every locale of SUPPORTED (any charset) and the built-in ones, by
+    locale_word: what a locale variable may name."""
+    found = {locale_word(name) for name in BUILT_IN_LOCALES}
+    with open(path or I18N_SUPPORTED, encoding="utf-8") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) == 2:
+                found.add(locale_word(parts[0]))
+    return found
+
+
+def locale_word(name):
+    """A locale name as glibc compares it: en_US.utf8 is en_US.UTF-8."""
+    base, dot, rest = name.partition(".")
+    if not dot:
+        return name
+    charset, at, modifier = rest.partition("@")
+    return base + "." + charset.lower().replace("-", "") + at + modifier
+
+
+def check_locale_settings(args, known):
+    """{NAME: VALUE} of `locale`'s arguments, in LOCALE_NAMES' order. Raises HelperError."""
+    settings = {}
+    for arg in args:
+        name, equals, value = arg.partition("=")
+        if not equals or name not in LOCALE_NAMES:
+            raise HelperError(f"give NAME=VALUE with NAME one of {', '.join(LOCALE_NAMES)}, not '{arg}'")
+        if name in settings:
+            raise HelperError(f"{name} is given twice")
+        if name == "LANGUAGE":
+            if not LANGUAGE_LIST.fullmatch(value):
+                raise HelperError(f"LANGUAGE: give names separated by colons, not '{value}'")
+        elif not LOCALE_WORD.fullmatch(value) or locale_word(value) not in known:
+            raise HelperError(f"unknown locale '{value}': it must be one of {I18N_SUPPORTED}")
+        settings[name] = value
+    if "LANG" not in settings:
+        raise HelperError("give LANG=LOCALE, and any other variables")
+    return {name: settings[name] for name in LOCALE_NAMES if name in settings}
+
+
+def cmd_locale(args):
+    try:
+        known = locale_names()
+    except OSError as error:
+        raise HelperError(f"cannot read the languages (is the locales package installed?): {error}") from None
+    settings = check_locale_settings(args, known)
+    text = LOCALE_HEADER + "".join(f"{name}={value}\n" for name, value in settings.items())
+    # Write each file the system reads, where the links lead (a link stays a link).
+    paths = []
+    for path in (LOCALE_CONF, LOCALE_DEFAULTS):
+        real = os.path.realpath(path)
+        if os.path.exists(path) and real not in paths:
+            paths.append(real)
+    for path in paths or [LOCALE_CONF]:
+        write_atomic(path, text)
+    print("The login screen uses it from its next start, accounts without a choice of their own from "
+          "their next login.")
+    return 0
 
 
 def enable_locale(text, locale):
@@ -906,7 +1833,7 @@ def package_name(name, arch, native):
 
 def undo_marker(command):
     match = re.search(re.escape(UNDO_OPTION) + r"=(\S+)", command)
-    return match.group(1) if match and TRANSACTION_ID.match(match.group(1)) else None
+    return match.group(1) if match and TRANSACTION_ID.fullmatch(match.group(1)) else None
 
 
 def describe_transaction(transaction, native):
@@ -949,7 +1876,7 @@ def software_changes(days=HISTORY_DAYS, transactions=None, live=None, now=None):
 
 
 def find_transaction(transaction_id, transactions=None, live=None):
-    if not TRANSACTION_ID.match(transaction_id or ""):
+    if not TRANSACTION_ID.fullmatch(transaction_id or ""):
         raise HelperError(f"not a change id: '{transaction_id}'")
     everything = read_apt_log() if transactions is None else transactions
     matching = [t for t in everything if t["id"] == transaction_id]
@@ -1002,11 +1929,44 @@ def base_name(package):
     return package.split(":")[0]
 
 
-def undo_plan(transaction, simulate=simulate, installed=installed_packages, protected=desktop_dependencies):
+KERNEL_PACKAGE = re.compile(r"^linux-(image|headers)-")
+
+
+def package_depends(names):
+    """{package: the names in its Depends (alternatives too)}, for the
+    installed ones of names."""
+    if not names:
+        return {}
+    result = subprocess.run(["dpkg-query", "-W", "-f", "${binary:Package}\t${Depends}\n", *names],
+                            capture_output=True, text=True, check=False)
+    found = {}
+    for line in result.stdout.splitlines():
+        name, _, depends = line.partition("\t")
+        found[name] = {re.sub(r"\(.*?\)|\[.*?\]|:any", "", part).strip() for part in re.split(r"[,|]", depends)}
+    return found
+
+
+def running_kernel():
+    return os.uname().release
+
+
+def kernel_dependencies(present, installed, depends):
+    """The installed kernel images and headers that the kernel meta-packages
+    among PRESENT depend on now, except the shared "-common" headers (a
+    flavour's other headers need those; apt autoremove takes them later)."""
+    metas = [p for p in present if KERNEL_PACKAGE.match(base_name(p))]
+    wanted = {name for names in depends(metas).values() for name in names
+              if KERNEL_PACKAGE.match(name) and "-common" not in name}
+    return sorted(installed(sorted(wanted)) - set(present))
+
+
+def undo_plan(transaction, simulate=simulate, installed=installed_packages, protected=desktop_dependencies,
+              depends=package_depends, running=running_kernel):
     """What undoing a transaction does: {"id", "action": remove|install,
     "args": apt-get's arguments, "remove": [...], "install": [...],
-    "upgraded": updates that stay, "purged"}. Raises HelperError when it
-    can't be undone, saying why."""
+    "upgraded": updates that stay, "purged", "kept": kernels another package
+    still needs, so they stay}. Raises HelperError when it can't be undone,
+    saying why."""
     change = describe_transaction(transaction, native_arch())
     if not change["undoable"]:
         raise HelperError(change["why"])
@@ -1019,20 +1979,34 @@ def undo_plan(transaction, simulate=simulate, installed=installed_packages, prot
         # whatever else is unneeded. One another package still needs makes
         # apt remove that package too, and then only the asked-for ones go.
         brought = sorted(installed(change["automatic"]))
-        args = ["remove", *present, *brought]
-        removed, _ = simulate(args)
-        if not removed <= set(present) | set(brought):
-            args = ["remove", *present]
+        # A kernel meta-package is the exception: its dependency moves to the
+        # newest kernel with every update, so the log names a kernel that is
+        # long gone. What it depends on now goes too (kept: see below).
+        kernels = kernel_dependencies(present, installed, depends)
+        running_image = f"linux-image-{running()}"
+        if running_image in {base_name(p) for p in (*present, *brought, *kernels)}:
+            raise HelperError(f"{running_image} is the kernel this computer is running. Restart on another "
+                              "kernel (choose it in the boot menu), then undo this. Nothing was changed.")
+        previous = None
+        for names in (present + brought + kernels, present + brought, present):
+            names = list(dict.fromkeys(names))
+            if names == previous:
+                continue
+            previous = names
+            args = ["remove", *names]
             removed, _ = simulate(args)
-            if not removed <= set(present):
-                others = sorted(removed - set(present))
-                raise HelperError(f"Undoing this would also remove {', '.join(others)}, so nothing was changed.")
+            if removed <= set(names):
+                break
+        else:
+            others = sorted(removed - set(present))
+            raise HelperError(f"Undoing this would also remove {', '.join(others)}, so nothing was changed.")
+        kept = [p for p in kernels if p not in args]
         needed = sorted(base_name(p) for p in removed if base_name(p) in protected())
         if needed:
             raise HelperError(f"Undoing this would remove {', '.join(needed)}, which the FlickOS desktop needs, "
                               "so nothing was changed.")
         return {"id": change["id"], "action": "remove", "args": args, "remove": sorted(removed), "install": [],
-                "upgraded": change["upgraded"], "purged": False}
+                "upgraded": change["upgraded"], "purged": False, "kept": kept}
     missing = sorted(set(packages) - installed(packages))
     if not missing:
         raise HelperError("Nothing to undo: these packages are installed again.")
@@ -1066,36 +2040,368 @@ def cmd_packages_undo(args):
     if len(args) != 1:
         raise HelperError("usage: packages-undo ID")
     plan = undo_plan(find_transaction(args[0]))
-    command = [APT_GET, "-y", "-q", "-o", f"{UNDO_OPTION}={plan['id']}",
-               "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold", *plan["args"]]
-    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                            timeout=APT_SECONDS, env=dict(os.environ, DEBIAN_FRONTEND="noninteractive"),
-                            check=False)
-    if result.returncode != 0:
-        text = result.stdout + result.stderr
-        if "Could not get lock" in text or "Unable to acquire the dpkg frontend lock" in text:
-            raise HelperError("Software is being installed or updated right now. Try again in a few minutes.")
-        if "Failed to fetch" in text or "Unable to fetch" in text:
-            raise HelperError(f"{', '.join(plan['install'])} can't be downloaded. Check the network connection "
-                              "and try again.")
-        errors = [line[3:] for line in result.stderr.splitlines() if line.startswith("E: ")]
-        raise HelperError("apt: " + (" ".join(errors) or f"exit code {result.returncode}"))
+    run_apt(plan["args"], ", ".join(plan["install"]), options=("-o", f"{UNDO_OPTION}={plan['id']}"))
     if plan["action"] == "remove":
         print(f"Removed: {', '.join(plan['remove'])}.")
+        if plan.get("kept"):
+            print(f"Still installed, because something else needs it: {', '.join(plan['kept'])}.")
     else:
         print(f"Installed again: {', '.join(plan['install'])}.")
     return 0
 
 
+# --- Bought apps (the FlickOS store) -------------------------------------------------------
+
+# docs/design/flickos-store.md, ADR-004. The key is apt's login for the
+# store's repository and lives only in STORE_AUTH (root, 0600); PURCHASES_FILE
+# says what it holds, for everyone, without it. flickos-control has the same
+# STORE_URL and PURCHASES_FILE (tests compare them).
+STORE_URL = "https://store.flickos.org"
+STORE_AUTH = "/etc/apt/auth.conf.d/flickos-store.conf"
+STORE_SOURCES = "/etc/apt/sources.list.d/flickos-store.sources"
+STORE_PINS = "/etc/apt/preferences.d/flickos-store"
+PURCHASES_FILE = "/var/lib/flickos-control/purchases.json"
+STORE_KEYRING = "/usr/share/keyrings/flickos-archive-keyring.asc"     # flickos-archive-keyring's
+FLICKOS_RELEASE = "/usr/lib/flickos-release"    # FLICKOS_DEBIAN: the store's suite is FLICKOS_DEBIAN-store
+OS_RELEASE = "/etc/os-release"
+STORE_ORIGIN, STORE_LABEL = "FlickOS", "FlickOS Store"      # the store repository's Release (new-repo.sh)
+# The first line of the three files: they are FlickOS's. No word of apt's
+# login format (machine, login, password) in it: auth.conf ignores the rest.
+STORE_MARK = "# FlickOS Store: Settings > Updates (flickos-control) writes and deletes this file."
+# The store's keys (server/store/store.js makeKey): 32 bytes in base32, 13
+# groups of four joined by dashes. Case, spaces and dashes typed don't matter.
+KEY_PATTERN = re.compile(r"^[a-z2-7]{4}(-[a-z2-7]{4}){12}$")
+KEY_CHARS = 52
+KEY_LINE_MAX = 200
+PRODUCT = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+DEB_PACKAGE = re.compile(r"^[a-z0-9][a-z0-9+.-]{1,80}$")
+RELEASE_NAME = re.compile(r"^[a-z]+$")
+STORE_SECONDS = 20                  # each request to the store
+CHECK_SECONDS = 20 * 3600           # purchases-check asks the store at most this often
+ANSWER_BYTES = 65536
+APT_HELPER = "/usr/lib/apt/apt-helper"
+LIST_SUFFIXES = ("", ".lz4", ".gz", ".xz", ".zst", ".bz2", ".lzma")     # apt's KeepCompressed lists
+KEY_REFUSED = "This key isn't valid. Check that it was copied whole."
+STORE_UNREACHABLE = "The FlickOS store can't be reached. Check the network connection and try again."
+KEY_TURNED_OFF = ("Your FlickOS Store key was turned off, so the apps bought with it no longer update. "
+                  "Remove the key in Settings > Updates.")
+
+
+class StoreUnreachable(HelperError):
+    pass
+
+
+def normal_key(text):
+    """The key as the store writes it, or None when it isn't one."""
+    plain = re.sub(r"[\s-]", "", text or "").lower()
+    if len(plain) != KEY_CHARS or not re.fullmatch(r"[a-z2-7]+", plain):
+        return None
+    key = "-".join(plain[i:i + 4] for i in range(0, KEY_CHARS, 4))
+    return key if KEY_PATTERN.fullmatch(key) else None
+
+
+def read_key(stream=None):
+    """The key: the first line of standard input."""
+    line = (stream or sys.stdin).readline(KEY_LINE_MAX + 2)
+    key = normal_key(line) if len(line.rstrip("\n")) <= KEY_LINE_MAX else None
+    if not line.strip():
+        raise HelperError("no key given (on standard input)")
+    if key is None:
+        raise HelperError(KEY_REFUSED)
+    return key
+
+
+def masked(key):
+    """What may be shown of a key: its last four characters."""
+    return key[-4:]
+
+
+def store_release():
+    """The Debian release the store's suite is named after."""
+    for path, name in ((FLICKOS_RELEASE, "FLICKOS_DEBIAN"), (OS_RELEASE, "VERSION_CODENAME")):
+        with contextlib.suppress(OSError):
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    match = re.match(rf'^{name}="?([a-z]+)"?\s*$', line.strip())
+                    if match and RELEASE_NAME.fullmatch(match.group(1)):
+                        return match.group(1)
+    raise HelperError(f"the Debian release isn't known ({FLICKOS_RELEASE} and {OS_RELEASE} don't name it)")
+
+
+def store_request(path, key=None, body=None):
+    """(HTTP status, JSON answer) of the store's API; the key in the login,
+    the body as JSON, never in the address. Raises StoreUnreachable."""
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(STORE_URL + path, data=data, method="GET" if data is None else "POST",
+                                     headers={"Accept": "application/json", "User-Agent": "flickos-control"})
+    if data is not None:
+        request.add_header("Content-Type", "application/json")
+    if key is not None:
+        # Unredirected: a redirect never carries the key to another address.
+        request.add_unredirected_header("Authorization",
+                                        "Basic " + base64.b64encode(f"key:{key}".encode()).decode())
+    try:
+        with urllib.request.urlopen(request, timeout=STORE_SECONDS) as response:
+            status, text = response.status, response.read(ANSWER_BYTES)
+    except urllib.error.HTTPError as error:
+        status, text = error.code, error.read(ANSWER_BYTES)
+    except (urllib.error.URLError, OSError, ValueError):
+        raise StoreUnreachable(STORE_UNREACHABLE) from None
+    try:
+        answer = json.loads(text)
+    except ValueError:
+        answer = None
+    return status, answer if isinstance(answer, dict) else {}
+
+
+def holdings(answer):
+    """(products, packages) of a valid answer of /v1/key or /v1/link, or None."""
+    products, packages = answer.get("products"), answer.get("packages")
+    if (answer.get("status") != "valid" or not isinstance(products, list) or not isinstance(packages, list)
+            or not all(isinstance(p, str) and PRODUCT.fullmatch(p) for p in products)
+            or not all(isinstance(p, str) and DEB_PACKAGE.fullmatch(p) for p in packages)):
+        return None
+    return sorted(set(products)), sorted(set(packages))
+
+
+def stored_key():
+    """The key on this computer (STORE_AUTH), or None."""
+    try:
+        with open(STORE_AUTH, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return None
+    if not text.startswith(STORE_MARK + "\n"):
+        raise HelperError(f"{STORE_AUTH} isn't FlickOS's; it was left as it is")
+    match = re.search(r"^machine \S+ login key password (\S+)$", text, re.M)
+    return normal_key(match.group(1)) if match else None
+
+
+def read_purchases():
+    """PURCHASES_FILE's content, or None."""
+    try:
+        with open(PURCHASES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and data.get("v") == 1 else None
+
+
+def purchases_text(key, status, products=(), packages=(), now=None):
+    now = now or datetime.datetime.now().astimezone()
+    return json.dumps({"v": 1, "key": masked(key), "status": status, "products": list(products),
+                       "packages": list(packages), "checked": now.isoformat(timespec="seconds")},
+                      indent=1) + "\n"
+
+
+def write_purchases(text):
+    os.makedirs(os.path.dirname(PURCHASES_FILE), mode=0o755, exist_ok=True)
+    write_atomic(PURCHASES_FILE, text)
+
+
+def store_auth_text(key):
+    host = STORE_URL.split("://", 1)[1]
+    # No protocol: the line matches https only (apt_auth.conf(5)).
+    machine = host if STORE_URL.startswith("https://") else STORE_URL
+    return f"{STORE_MARK}\nmachine {machine}/apt login key password {key}\n"
+
+
+def store_sources_text(release):
+    return (f"{STORE_MARK}\n# Apps bought from the FlickOS store; the key is in {STORE_AUTH}.\n"
+            f"Types: deb\nURIs: {STORE_URL}/apt\nSuites: {release}-store\nComponents: main\n"
+            f"Signed-By: {STORE_KEYRING}\n")
+
+
+def remove_ours(path):
+    """Delete one of the store's files, only if it is FlickOS's."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            if f.readline().rstrip("\n") != STORE_MARK:
+                raise HelperError(f"{path} isn't FlickOS's; it was left as it is")
+    except FileNotFoundError:
+        return False
+    os.unlink(path)
+    return True
+
+
+def store_packages():
+    """Every package in the store's lists apt has (its Packages files)."""
+    try:
+        result = subprocess.run([APT_GET, "indextargets", "--format", "$(FILENAME)", "Created-By: Packages",
+                                 f"Origin: {STORE_ORIGIN}", f"Label: {STORE_LABEL}"],
+                                capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    names = set()
+    for path in result.stdout.split():
+        found = next((path + suffix for suffix in LIST_SUFFIXES if os.path.exists(path + suffix)), None)
+        if found is None:
+            continue
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            text = subprocess.run([APT_HELPER, "cat-file", found], capture_output=True, text=True,
+                                  timeout=60, check=False).stdout
+            names |= {name for name in re.findall(r"^Package:\s*(\S+)", text, re.M) if DEB_PACKAGE.fullmatch(name)}
+    return names
+
+
+def pins_text(pinned):
+    if not pinned:
+        return None
+    return (f"{STORE_MARK}\n# The key on this computer can't download these from the store, so their\n"
+            "# installed version stays and the automatic updates go on (purchases-check).\n"
+            f"Package: {' '.join(sorted(pinned))}\nPin: release o={STORE_ORIGIN},l={STORE_LABEL}\n"
+            "Pin-Priority: -1\n")
+
+
+def write_pins(state, available=None):
+    """STORE_PINS for what the key holds: every other package of the store."""
+    held = set(state.get("packages") or ()) if state.get("status") == "valid" else set()
+    text = pins_text((store_packages() if available is None else available) - held)
+    if text is None:
+        remove_ours(STORE_PINS)
+        return
+    with contextlib.suppress(OSError), open(STORE_PINS, encoding="utf-8") as f:
+        if f.read() == text:
+            return
+    if os.path.exists(STORE_PINS):
+        remove_ours(STORE_PINS)         # refuses one that isn't FlickOS's
+    os.makedirs(os.path.dirname(STORE_PINS), mode=0o755, exist_ok=True)
+    write_atomic(STORE_PINS, text)
+
+
+def check_purchases(key, force=False, now=None):
+    """Ask the store what the key holds (at most every CHECK_SECONDS unless
+    force) and write the pins. No answer changes nothing."""
+    now = now or datetime.datetime.now().astimezone()
+    state = read_purchases()
+    checked = None
+    if state and state.get("key") == masked(key):
+        with contextlib.suppress(TypeError, ValueError):
+            checked = datetime.datetime.fromisoformat(state.get("checked"))
+    else:
+        state = None
+    if force or checked is None or not 0 <= (now - checked).total_seconds() < CHECK_SECONDS:
+        try:
+            status, answer = store_request("/v1/key", key)
+        except StoreUnreachable:
+            status, answer = None, {}
+        held = holdings(answer) if status == 200 else None
+        if held is not None:
+            text = purchases_text(key, "valid", *held, now=now)
+        elif status == 401:
+            text = purchases_text(key, "revoked", now=now)
+            if not state or state.get("status") != "revoked":
+                print(KEY_TURNED_OFF)
+        else:
+            text = None                 # offline, the store down: as it was
+        if text is not None:
+            write_purchases(text)
+            state = json.loads(text)
+    if state:
+        write_pins(state)
+    return state
+
+
+def update_store_lists():
+    """apt-get update of the store's entry only (apt runs purchases-check
+    after it); a warning when it fails, since the key is already written."""
+    try:
+        result = subprocess.run([APT_GET, "update", "-q", "-o", f"Dir::Etc::sourcelist={STORE_SOURCES}",
+                                 "-o", "Dir::Etc::sourceparts=-", "-o", "APT::Get::List-Cleanup=0"],
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=APT_SECONDS,
+                                env=dict(os.environ, LC_ALL="C.UTF-8"), check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"control-helper: apt couldn't fetch the store's list of apps: {error}", file=sys.stderr)
+        return
+    if result.returncode != 0:
+        errors = [line[3:] for line in (result.stdout + result.stderr).splitlines() if line.startswith(("E: ", "W: "))]
+        print("control-helper: apt couldn't fetch the store's list of apps: "
+              + (" ".join(errors) or f"exit code {result.returncode}"), file=sys.stderr)
+
+
+def product_names(products):
+    """notes, phone-screen: "Notes, Phone Screen" (the store's names, not a list of ours)."""
+    return ", ".join(product.replace("-", " ").title() for product in products)
+
+
+def cmd_purchases_add(args):
+    if args:
+        raise HelperError("purchases-add takes no arguments: give the key on standard input")
+    key = read_key()
+    if live_system():
+        raise HelperError("A key can't be added in the live session, where it would be lost at shutdown. "
+                          "Add it after installing FlickOS.")
+    release = store_release()
+    current = stored_key()
+    keep = key
+    if current is not None and current != key:
+        status, answer = store_request("/v1/link", body={"key": current, "add": key})
+        if status == 200:
+            keep = current                  # the computer's key now also holds the new one's
+        elif status == 409 and answer.get("status") == "replace":
+            status, answer = store_request("/v1/key", key)
+    else:
+        status, answer = store_request("/v1/key", key)
+    if status == 401:
+        raise HelperError(KEY_REFUSED)
+    held = holdings(answer) if status == 200 else None
+    if held is None:
+        raise HelperError(f"The FlickOS store answered {status}. Try again later.")
+    for path in (STORE_AUTH, STORE_SOURCES):
+        os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+    write_atomic(STORE_AUTH, store_auth_text(keep), mode=0o600)
+    write_atomic(STORE_SOURCES, store_sources_text(release))
+    write_purchases(purchases_text(keep, "valid", *held))
+    update_store_lists()
+    check_purchases(keep)                   # the pins, from the lists just fetched
+    linked = " It was added to the key already on this computer." if keep != key else ""
+    print(f"Bought with this key: {product_names(held[0])}.{linked} Install them in Software.")
+    return 0
+
+
+def cmd_purchases_remove(args):
+    if args:
+        raise HelperError("purchases-remove takes no arguments")
+    found = False
+    for path in (STORE_AUTH, STORE_SOURCES, STORE_PINS):
+        found = remove_ours(path) or found
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(PURCHASES_FILE)
+    print("The key was removed. Apps bought with it stay installed but no longer update."
+          if found else "There is no key on this computer.")
+    return 0
+
+
+def cmd_purchases_check(args):
+    if args not in ([], ["--now"]):
+        raise HelperError("purchases-check: give nothing, or --now to ask the store at once")
+    key = stored_key()
+    if key is None:
+        remove_ours(STORE_PINS)
+        return 0
+    check_purchases(key, force=bool(args))
+    return 0
+
+
 VERBS = {"keyboard": cmd_keyboard, "autologin-on": cmd_autologin_on, "autologin-off": cmd_autologin_off,
+         "login-background": cmd_login_background, "login-position": cmd_login_position,
          "user-add": cmd_user_add, "user-remove": cmd_user_remove, "user-admin": cmd_user_admin,
          "user-password": cmd_user_password, "firewall-on": cmd_firewall_on, "firewall-off": cmd_firewall_off,
-         "firewall-phones": cmd_firewall_phones,
-         "power": cmd_power, "locale-add": cmd_locale_add, "updates": cmd_updates,
-         "firefox-memory": cmd_firefox_memory,
-         "packages-undo": cmd_packages_undo, "packages-list": cmd_packages_list, "packages-plan": cmd_packages_plan}
+         "firewall-phones": cmd_firewall_phones, "firewall-local-ports": cmd_firewall_local_ports,
+         "firewall-classroom": cmd_firewall_classroom,
+         "containers-dhcp": cmd_containers_dhcp,
+         "packet-capture": cmd_packet_capture, "wireless-test-adapter": cmd_wireless_test_adapter,
+         "upstream": cmd_upstream,
+         "power": cmd_power, "locale-add": cmd_locale_add, "locale": cmd_locale,
+         "updates": cmd_updates,
+         "firefox-memory": cmd_firefox_memory, "i386-on": cmd_i386_on, "i386-off": cmd_i386_off,
+         "packages-undo": cmd_packages_undo, "packages-list": cmd_packages_list, "packages-plan": cmd_packages_plan,
+         "purchases-add": cmd_purchases_add, "purchases-remove": cmd_purchases_remove,
+         "purchases-check": cmd_purchases_check}
 # These only read (apt's log, and apt-get -s): no root needed.
 READ_ONLY = ("packages-list", "packages-plan")
+# Run as root by apt (61flickos-purchases), never through pkexec: no polkit action.
+APT_HOOK = ("purchases-check",)
 
 
 def main(argv=None):

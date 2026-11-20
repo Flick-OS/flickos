@@ -232,18 +232,30 @@ class SuperviseSignalTest(EngineTest):
     def setUp(self):
         super().setUp()
         self.got = self.path("got")
+        self.ready = self.path("ready")
         self.waybar = self.write("bin/waybar", f"#!{sys.executable}\nimport signal, sys, time\n"
                                  f"def got(*_):\n    open({self.got!r}, 'w').write('read')\n    sys.exit(0)\n"
-                                 f"signal.signal(signal.SIGRTMIN + {fl.DESKTOPS_SIGNAL}, got)\ntime.sleep(10)\n")
+                                 f"signal.signal(signal.SIGRTMIN + {fl.DESKTOPS_SIGNAL}, got)\n"
+                                 f"open({self.ready!r}, 'w').close()\ntime.sleep(10)\n")
         os.chmod(self.waybar, 0o755)
 
     def run_supervise(self, desktops):
         calls = []
+
+        def announce():
+            # Not after a fixed time: on a busy computer the stand-in may not
+            # catch the signal yet, and then supervise rightly doesn't send it.
+            deadline = time.monotonic() + 10
+            while not os.path.exists(self.ready) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            calls[0](desktops)
+
         with mock.patch.object(fl, "watch_screens", lambda env, changed, cb=None: calls.append(cb)), \
                 mock.patch.object(fl, "log_line"), mock.patch.object(fl, "PROC", "/proc"):
-            timer = threading.Timer(0.5, lambda: calls[0](desktops))
-            timer.start()
+            thread = threading.Thread(target=announce)
+            thread.start()
             status = fl.supervise([self.waybar], dict(os.environ))
+            thread.join()
         return status, calls
 
     def test_signal_after_writing(self):
@@ -332,6 +344,21 @@ class HelperTest(unittest.TestCase):
 
     def test_no_desktops(self):
         self.assertEqual(self.run_helper("1", manager=False), (1, []))
+
+    def test_show_runs_the_card_with_the_current_desktop(self):
+        osd = os.path.join(self.runtime, "osd")
+        with open(osd, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/shown\"\n")
+        os.chmod(osd, 0o755)
+        with mock.patch.object(helper, "OSD", osd), mock.patch.object(helper.os, "execv") as execv:
+            self.assertEqual(self.run_helper("show"), (0, []))      # nothing is activated
+        execv.assert_called_once_with(osd, [osd, "desktop", "2", "3"])
+
+    def test_show_without_the_client_does_nothing(self):
+        with mock.patch.object(helper, "OSD", os.path.join(self.runtime, "none")), \
+                mock.patch.object(helper.os, "execv") as execv:
+            self.assertEqual(self.run_helper("show"), (0, []))
+        execv.assert_not_called()
 
     def test_usage(self):
         with mock.patch("sys.stderr"):

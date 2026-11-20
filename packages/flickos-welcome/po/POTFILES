@@ -1,0 +1,4 @@
+# Files with text to translate, relative to the package folder.
+# tools/update-po.sh flickos-welcome reads them into flickos-welcome.pot.
+usr/bin/flickos-welcome
+usr/share/applications/flickos-welcome.desktop

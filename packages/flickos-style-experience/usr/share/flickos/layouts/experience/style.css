@@ -1,0 +1,88 @@
+/* Experience's panel: FlickOS's shared rules, then a solid blue bar with a
+ * glossy edge, a green Start button (the style's selected_bg_color) with
+ * the halo and the word in bold italics, raised window buttons, and the
+ * notification area on a lighter blue (base_color). Named colors only, so
+ * the layout follows any style. */
+@import url("../common/base.css");
+
+/* Solid, lighter at the top edge and darker at the bottom. Drawn opaque:
+ * darker than check tests it (PANEL_ALPHA over white). */
+window#waybar.experience {
+    background-color: @wm_bg;
+    background-image: linear-gradient(to bottom, shade(@wm_bg, 1.45), shade(@wm_bg, 1.12) 12%,
+                                      @wm_bg 45%, @wm_bg 85%, shade(@wm_bg, 0.8));
+}
+
+/* Start: the halo, then the word, on a green button with a round end. The
+ * halo keeps the brand amber under the pointer: the button turns brighter
+ * instead of the logo turning green (base.css's hover). */
+window#waybar.experience #custom-launcher {
+    margin-right: 10px;
+    padding: 0 20px 0 34px;
+    border-radius: 0 14px 14px 0;
+    font-style: italic;
+    font-weight: bold;
+    color: @selected_fg_color;
+    text-shadow: 1px 1px 1px alpha(@borders, 0.9);
+    background-color: @selected_bg_color;
+    background-image: -gtk-icontheme("flickos-symbolic"),
+                      linear-gradient(to bottom, shade(@selected_bg_color, 1.45), shade(@selected_bg_color, 1.1) 20%,
+                                      @selected_bg_color 60%, shade(@selected_bg_color, 0.8));
+    background-repeat: no-repeat, no-repeat;
+    background-position: 10px center, center;
+    background-size: 18px 18px, 100% 100%;
+    box-shadow: inset -1px 0 alpha(@borders, 0.6), 2px 0 3px alpha(@borders, 0.5);
+}
+
+window#waybar.experience #custom-launcher:hover {
+    color: @selected_fg_color;
+    -gtk-icon-palette: warning @brand_color;
+    background-color: shade(@selected_bg_color, 1.15);
+    background-image: -gtk-icontheme("flickos-symbolic"),
+                      linear-gradient(to bottom, shade(@selected_bg_color, 1.65), shade(@selected_bg_color, 1.25) 20%,
+                                      shade(@selected_bg_color, 1.1) 60%, shade(@selected_bg_color, 0.9));
+}
+
+/* Window buttons: raised in a lighter blue, the active one pressed in. */
+window#waybar.experience #taskbar button {
+    min-width: 24px;
+    margin: 3px 2px;
+    padding: 0 12px;
+    border-radius: 3px;
+    background-image: linear-gradient(to bottom, shade(@wm_bg, 1.5), shade(@wm_bg, 1.25) 30%, shade(@wm_bg, 1.15));
+    box-shadow: inset 0 0 0 1px alpha(@borders, 0.5), inset 1px 1px alpha(@fg_color, 0.25);
+}
+
+window#waybar.experience #taskbar button:hover {
+    background-image: linear-gradient(to bottom, shade(@wm_bg, 1.7), shade(@wm_bg, 1.4) 30%, shade(@wm_bg, 1.3));
+}
+
+window#waybar.experience #taskbar button.active {
+    border-bottom: none;
+    background-image: linear-gradient(to bottom, shade(@wm_bg, 0.7), shade(@wm_bg, 0.85));
+    box-shadow: inset 0 0 0 1px alpha(@borders, 0.7), inset 1px 2px 2px alpha(@borders, 0.8);
+}
+
+/* The notification area: a lighter blue box at the right end, with a dark
+ * line and a light one at its left edge. */
+window#waybar.experience .modules-right {
+    padding-left: 4px;
+    background-image: linear-gradient(to bottom, shade(@base_color, 1.4), shade(@base_color, 1.1) 12%,
+                                      @base_color 45%, @base_color 85%, shade(@base_color, 0.8));
+    border-left: 1px solid @borders;
+    box-shadow: inset 1px 0 alpha(@fg_color, 0.35);
+}
+
+window#waybar.experience #clock {
+    padding: 0 12px;
+}
+
+window#waybar.experience #custom-tiler:hover,
+window#waybar.experience #custom-phone:hover,
+window#waybar.experience #custom-recording:hover,
+window#waybar.experience #wireplumber:hover,
+window#waybar.experience #battery:hover,
+window#waybar.experience #quick:hover,
+window#waybar.experience #clock:hover {
+    background-color: alpha(@fg_color, 0.15);
+}

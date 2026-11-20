@@ -1,0 +1,4 @@
+# Files with text to translate, relative to the package folder.
+# tools/update-po.sh flickos-kits reads them into flickos-kits.pot.
+usr/bin/flickos-kits
+usr/share/applications/flickos-kits.desktop

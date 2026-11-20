@@ -7,7 +7,7 @@
      password for that. -->
 <policyconfig>
   <vendor>FlickOS</vendor>
-  <vendor_url>https://github.com/dvbondoy/FlickOS</vendor_url>
+  <vendor_url>https://github.com/Flick-OS/flickos</vendor_url>
 
   <action id="org.flickos.countme.on">
     <description>Count this computer once a week</description>

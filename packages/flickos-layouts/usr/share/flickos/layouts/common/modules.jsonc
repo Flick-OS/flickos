@@ -82,6 +82,80 @@
         "on-click": "flickos-phone menu",
         "on-click-right": "flickos-phone menu"
     },
+    // Media controls (flickos-media), only while its controls setting is on:
+    // flickos-layout puts them into the generated panel (MEDIA_MODULES), in
+    // this order. Hidden while no app plays (empty text). The title runs
+    // flickos-media's follower, which writes the buttons' panel/NAME.json and
+    // sends signal 12 (flickos-media's PANEL_SIGNAL) so they read it again.
+    "custom/media-previous": {
+        "exec": "cat \"$XDG_RUNTIME_DIR/flickos/media/panel/previous.json\" 2>/dev/null",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 12,
+        "on-click": "flickos-media previous"
+    },
+    "custom/media-play": {
+        "exec": "cat \"$XDG_RUNTIME_DIR/flickos/media/panel/play.json\" 2>/dev/null",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 12,
+        "on-click": "flickos-media play-pause"
+    },
+    "custom/media-next": {
+        "exec": "cat \"$XDG_RUNTIME_DIR/flickos/media/panel/next.json\" 2>/dev/null",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 12,
+        "on-click": "flickos-media next"
+    },
+    "custom/media-title": {
+        "exec": "flickos-media follow",
+        "return-type": "json",
+        // Started again if it ends: it alone keeps the buttons up to date.
+        "restart-interval": 10,
+        "escape": true,
+        // A long title scrolls: from the left, so it doesn't move about.
+        "align": 0,
+        "on-click": "flickos-media play-pause"
+    },
+    // The sound spectrum above the panel: a click shows or hides it, a right
+    // click keeps it behind windows or over them (also in Settings).
+    "custom/media-spectrum": {
+        "exec": "cat \"$XDG_RUNTIME_DIR/flickos/media/panel/spectrum.json\" 2>/dev/null",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 12,
+        "on-click": "flickos-media toggle spectrum",
+        "on-click-right": "flickos-media toggle spectrum-layer"
+    },
+    // The weather (flickos-weather), only while it is on: flickos-layout puts
+    // it into the generated panel where a layout has the flickos/weather
+    // placeholder, else before the tiling button. waybar runs `panel` every
+    // 15 minutes; it answers from a cache and asks the weather service at most
+    // once an hour. A settings change sends signal 13 (flickos-weather's
+    // PANEL_SIGNAL). Its text is the temperature; "{alt}" is the temperature
+    // with its unit over the sky in words, for a two-line button. Empty, so
+    // hidden, without a forecast.
+    "custom/weather": {
+        "exec": "flickos-weather panel",
+        "return-type": "json",
+        "interval": 900,
+        "signal": 13,
+        "on-click": "flickos-control --page weather"
+    },
+    // Sharing this screen with a teacher (flickos-classroom-view), only while
+    // sharing is on: flickos-layout puts it into the generated panel, and it
+    // can't be hidden then (its design's ADR-004). The agent writes the state
+    // (no teacher paired, open, a teacher looking, locked for the class) and
+    // sends signal 14 (its PANEL_SIGNAL); empty, so hidden, while the agent
+    // isn't running.
+    "custom/classroom": {
+        "exec": "flickos-classroom-view student panel",
+        "return-type": "json",
+        "interval": "once",
+        "signal": 14,
+        "on-click": "flickos-control --page classroom"
+    },
     // A screen recording (flickos-screenshot), next to the clock in every
     // layout: empty and hidden while nothing records (one `cat` of a missing
     // file when the panel starts). While recording, the recorder writes the
@@ -98,8 +172,8 @@
         "on-click": "flickos-screenshot stop"
     },
     // Signal 11 is the desktop buttons' (flickos/desktops: flickos-layout
-    // generates custom/desk#N modules and their supervisor sends it); no
-    // module here may take it.
+    // generates custom/desk#N modules and their supervisor sends it), 12 the
+    // media buttons'; no other module here may take them.
     // The size of base.css's own icons (volume, battery, tiling), so an app's
     // full-size icon is no bigger than theirs, and the space between two
     // modules (base.css: 10px padding each side), so tray icons are as far

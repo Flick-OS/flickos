@@ -3,16 +3,19 @@
 # gsettings or nwg-look; their changes are stored in dconf and win over these
 # defaults.
 #
-# Arc-Dark (arc-theme) and Numix-Circle (numix-icon-theme-circle) are
-# dependencies of flickos-settings. libadwaita apps ignore gtk-theme.
+# FlickOS-Arc-Dark (flickos-theme), Numix-Circle (numix-icon-theme-circle), Inter
+# (fonts-inter-variable) and FlickOS-Bibata (flickos-cursor) are dependencies of
+# flickos-settings. libadwaita apps ignore gtk-theme. The cursor is also in
+# labwc's environment: the two must match. The panels follow font-name; labwc's title bars (rc.xml),
+# mako and fuzzel name the same font themselves.
 [org.gnome.desktop.interface]
-gtk-theme='Arc-Dark'
+gtk-theme='FlickOS-Arc-Dark'
 color-scheme='prefer-dark'
 icon-theme='Numix-Circle'
-cursor-theme='Adwaita'
+cursor-theme='FlickOS-Bibata'
 cursor-size=24
-font-name='DejaVu Sans 10'
-document-font-name='DejaVu Sans 10'
+font-name='Inter Variable 10'
+document-font-name='Inter Variable 10'
 monospace-font-name='DejaVu Sans Mono 10'
 
 # Buttons of windows that draw their own title bar (Firefox, GTK header bars,

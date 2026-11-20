@@ -1,0 +1,14 @@
+$variant: '@variant@';
+$transparency: '@transparency@';
+
+@import '@sass_path@/_colors';
+@import '@sass_path@/_drawing';
+@import '@sass_path@/_common';
+@import '@sass_path@/_applications';
+@import '@sass_path@/_unity';
+@import '@sass_path@/_granite';
+@import '@sass_path@/_lightdm';
+@import '@sass_path@/_transparent_widgets';
+@import '@sass_path@/_colors-public';
+@import '@sass_path@/_budgie';
+@import '@sass_path@/_libhandy';

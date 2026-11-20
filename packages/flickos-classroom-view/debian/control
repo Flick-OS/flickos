@@ -1,0 +1,83 @@
+Source: flickos-classroom-view
+Section: education
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+# python3-pil and openssl: the tests make thumbnails and certificates.
+Build-Depends: debhelper-compat (= 13),
+               python3,
+               python3-pil,
+               openssl
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-classroom-view
+Architecture: all
+# The program, the student's agent, the strip and a lab computer's service;
+# the teacher's window comes with flickos-classroom-teacher, so a student's
+# computer has no Classroom in its menu.
+# python3-gi, gir1.2-gtk-3.0: the console, the strip and the pairing window
+#   (GTK loaded only for a window);
+# python3-pil: thumbnails, reduced and saved as JPEG (Debian's grim has no
+#   JPEG, phase 0);
+# grim: the screen, through zwlr_screencopy;
+# openssl: each computer's key and certificate;
+# libnotify-bin: the teacher's messages and the first-run notice;
+# xdg-utils: a web page the teacher opens;
+# flickos-lock (>= 1.4~test1): the class lock (lock --class-message, ADR-007)
+#   and the demo in it (--class-image, ADR-014);
+# flickos-layouts (>= 1.88~test1): the panel button that shows the screen can
+#   be seen (custom/classroom, ADR-004: it can't be hidden);
+# flickos-control (>= 1.78~test1): Settings > Classroom (the button opens it),
+#   its list of teachers (`student teachers`, ADR-016) and its
+#   firewall.classroom, which lets the teacher's computer in;
+# systemd: a lab computer's service (ADR-011), enabled only by `lab on`;
+# wayvnc, libneatvnc0 (>= 0.9.1+dfsg+flickos1~test1): one screen seen or
+#   controlled (ADR-012), started only for that; FlickOS's libneatvnc0 has
+#   no H.264, so 1.2 MB instead of Debian's 53 MB (ADR-013);
+# gir1.2-gtklayershell-0.1: the strip that says a teacher views or
+#   controls the screen (ADR-015).
+Depends: python3,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         python3-pil,
+         grim,
+         openssl,
+         libnotify-bin,
+         xdg-utils,
+         flickos-lock (>= 1.4~test1),
+         flickos-layouts (>= 1.88~test1),
+         flickos-control (>= 1.78~test1),
+         systemd,
+         wayvnc,
+         libneatvnc0 (>= 0.9.1+dfsg+flickos1~test1),
+         gir1.2-gtklayershell-0.1,
+         ${misc:Depends}
+Description: share a FlickOS computer's screen with a teacher
+ A student's half of FlickOS Classroom: a paired teacher's computer sees
+ this screen, and can lock it with a message, show a message, open a web
+ page, or view and control it. Students pair with the teacher's computer by
+ typing a six-digit code; a school's lab computers are paired once by an
+ administrator.
+ .
+ Nothing runs until sharing is turned on in Settings > Classroom, and the
+ panel always shows when the screen can be seen and when a teacher is
+ looking. Nothing is recorded. The teacher's computer needs
+ flickos-classroom-teacher. FlickOS computers only.
+
+Package: flickos-classroom-teacher
+Architecture: all
+# flickos-classroom-view (same version): the program (one program, two roles,
+#   ADR-002); this package adds its teacher's window to the menu;
+# gir1.2-gtk-vnc-2.0: one student's screen, seen or controlled (Q5).
+Depends: flickos-classroom-view (= ${binary:Version}),
+         gir1.2-gtk-vnc-2.0,
+         ${misc:Depends}
+Description: see and guide a classroom of FlickOS computers
+ The teacher's window of FlickOS Classroom: every paired student's screen
+ in a grid; lock the screens with a message, show a message, open a web
+ page on every screen, view or control one student's screen, or show the
+ teacher's screen in the students' class lock. Students pair with this
+ computer by typing a six-digit code.
+ .
+ Students' computers need only flickos-classroom-view. FlickOS computers
+ only.

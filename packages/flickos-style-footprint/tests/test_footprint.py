@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -54,6 +55,23 @@ class MetainfoTest(unittest.TestCase):
 
     def setUp(self):
         self.root = ET.parse(METAINFO).getroot()
+
+    def test_screenshots(self):
+        """Software's two screenshots, at the apt repository's address, and (in
+        the source tree) the files repo/upload.sh publishes there, as
+        tools/make-style-shots.sh takes them."""
+        shots = self.root.findall("screenshots/screenshot")
+        self.assertEqual([shot.findtext("image") for shot in shots],
+                         [f"https://dvbondoy.github.io/flickos-apt/screenshots/footprint/{n}.png" for n in (1, 2)])
+        self.assertTrue(all(shot.findtext("caption") for shot in shots))
+        folder = os.path.join(PACKAGE, "../../repo/screenshots")
+        if not os.path.isdir(folder):
+            self.skipTest("not in the source tree")
+        for n in (1, 2):
+            with open(os.path.join(folder, "footprint", f"{n}.png"), "rb") as f:
+                head = f.read(24)
+            self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack(">II", head[16:24]), (1366, 768))
 
     def test_addon_of_the_layout_chooser(self):
         self.assertEqual(self.root.get("type"), "addon")
@@ -101,8 +119,10 @@ class FilesTest(unittest.TestCase):
 
     def test_depends_on_the_dock_launcher(self):
         """flickos-layouts 1.61 fills in Exec("flickos/launcher"), and 1.62's
-        check takes it as the apps button."""
-        self.assertIn("flickos-layouts (>= 1.62)", self.control)
+        check takes it as the apps button; 1.86's `pinned` takes the app id
+        the right-click menu sends, which needs sfwbar +flickos9 to send it."""
+        self.assertIn("flickos-layouts (>= 1.86)", self.control)
+        self.assertIn("sfwbar (>= 1.0~beta17+git20260910+flickos9)", self.control)
 
     def test_window_theme_has_every_button(self):
         names = set(os.listdir(THEME))
@@ -129,6 +149,19 @@ class FilesTest(unittest.TestCase):
         self.assertEqual(self.layout["Desktops"], "4")
         self.assertEqual((self.layout["Menu"], self.layout["MenuStyle"]), ("top-left", "grid"))
 
+    def test_show_apps_does_not_take_clicks_over_the_whole_dock(self):
+        """sfwbar wraps a widget in an event box that takes the clicks, and a
+        vexpand on the button stretches that box over the end part's whole half
+        of the dock: a click above the icon opened the menu. The box is aligned
+        instead."""
+        css = text(os.path.join(LAYOUT, "dock.css"))
+        self.assertNotIn("-GtkWidget-vexpand", css)
+        self.assertIn(":last-child > * {\n    -GtkWidget-valign: end;", css)
+
+    def test_bars_have_a_line_against_the_windows(self):
+        for name, edge in (("style.css", "border-bottom"), ("dock.css", "border-right")):
+            self.assertIn(edge + ": 1px solid alpha(@fg_color", text(os.path.join(LAYOUT, name)), name)
+
     def test_dock_on_the_left_below_the_top_bar(self):
         """ADR-016: the bottom layer, so the top bar keeps the whole width."""
         dock = text(os.path.join(LAYOUT, self.layout["Dock"]))
@@ -137,6 +170,27 @@ class FilesTest(unittest.TestCase):
         self.assertIn('pins = "flickos/pinned"', dock)
         self.assertIn('Exec("flickos/launcher")', dock)
         self.assertNotRegex(dock, r"(?m)^#CSS")
+
+    def test_right_click_pins_and_unpins(self):
+        """A right click on an app opens Pin to Dock or Unpin from Dock
+        (which one: WindowInfo("pinned"), a FlickOS patch to sfwbar), and each
+        item runs flickos-layout pinned with the app's id."""
+        dock = text(os.path.join(LAYOUT, self.layout["Dock"]))
+        self.assertIn('action[RightClick] = Menu(If(WindowInfo("pinned"), "dock_unpin", "dock_pin"))', dock)
+        for menu, label, verb in (("dock_pin", "Pin to Dock", "add"), ("dock_unpin", "Unpin from Dock", "remove")):
+            self.assertRegex(dock, r'\nmenu "%s" \{\n  item \{\n    value = "%s"\n    action = '
+                                   r'Exec\("flickos-layout pinned %s \'" \+ WindowInfo\("appid"\) \+ "\'"\)'
+                                   % (menu, label, verb))
+
+    def test_show_apps_is_declared_before_the_mirror_line(self):
+        """sfwbar copies a bar to the other screens when it reads `mirror`, so
+        a section declared after that line never reaches them: Show Apps was
+        missing on a second monitor (found on a laptop with an HDMI screen,
+        and reproduced in a headless labwc with two outputs)."""
+        dock = text(os.path.join(LAYOUT, self.layout["Dock"]))
+        self.assertIn('\nbar ":end" {', dock)
+        self.assertIn('\n  mirror = "*"\n', dock)
+        self.assertLess(dock.index('\nbar ":end" {'), dock.index('\n  mirror = "*"\n'))
 
     def test_installed(self):
         installed = text(os.path.join(PACKAGE, "debian/install"))
@@ -148,7 +202,9 @@ class FilesTest(unittest.TestCase):
 @unittest.skipUnless(os.path.isdir(LAYOUTS), "flickos-layouts is not next to this package")
 class CheckTest(unittest.TestCase):
     """flickos-layout's own check, with this package installed as it would be:
-    its files next to flickos-layouts' common/ in one share folder."""
+    its files next to flickos-layouts' common/ in one share folder, and
+    stand-ins for the themes the package depends on (the build host need not
+    have them)."""
 
     @classmethod
     def setUpClass(cls):
@@ -157,13 +213,18 @@ class CheckTest(unittest.TestCase):
         shutil.copytree(SHARE, cls.share)
         shutil.copytree(os.path.join(LAYOUTS, "usr/share/flickos/layouts/common"),
                         os.path.join(cls.share, "flickos/layouts/common"))
+        os.makedirs(os.path.join(cls.tmp, "depends/themes/Adwaita-dark/gtk-3.0"))
+        icons = os.path.join(cls.tmp, "depends/icons/Adwaita")
+        os.makedirs(icons)
+        with open(os.path.join(icons, "index.theme"), "w", encoding="utf-8") as f:
+            f.write("[Icon Theme]\nName=Adwaita\n")
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp)
 
     def env(self, home):
-        return {"HOME": home, "PATH": "/usr/bin:/bin", "XDG_DATA_DIRS": f"{self.share}:/usr/share",
+        return {"HOME": home, "PATH": "/usr/bin:/bin", "XDG_DATA_DIRS": f"{self.share}:{self.tmp}/depends:/usr/share",
                 "FLICKOS_LAYOUT_PREFIX": os.path.abspath(LAYOUTS)}
 
     def run_layout(self, *args):

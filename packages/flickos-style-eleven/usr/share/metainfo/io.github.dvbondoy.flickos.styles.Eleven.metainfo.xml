@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS style is an AppStream add-on of the layout chooser
+     (docs/design/flickos-ricing.md, ADR-006, ADR-013, ADR-014 and ADR-019):
+     Software lists add-ons that extend flickos-layout.desktop under Styles,
+     FlickOS::style names the style's folder in /usr/share/flickos/styles,
+     and FlickOS::layout the layout Use sets with it. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.styles.Eleven</id>
+  <extends>flickos-layout.desktop</extends>
+  <name>Eleven</name>
+  <summary>Dark grey windows, a dark panel with the apps in the middle</summary>
+  <description>
+    <p>
+      A dark style for the FlickOS desktop: neutral dark grey windows and
+      title bars with wide, flat buttons drawn in thin lines (close turns red
+      under the pointer), a sky blue accent, a near-black terminal, and folds
+      of blue light on a deep blue wallpaper.
+    </p>
+    <p>
+      It comes with a layout of the same name: one see-through dark panel at
+      the bottom with the apps button and your open windows in the middle, a
+      line under each window and a blue one under the window you are using,
+      and the status icons and a two-line clock at the right. The start menu
+      opens above the middle of the panel. Use sets both; you can still pick
+      another layout in Settings.
+    </p>
+  </description>
+  <screenshots>
+    <!-- Taken by tools/make-style-shots.sh, published by repo/upload.sh from
+         repo/screenshots/. -->
+    <screenshot type="default">
+      <caption>Files and a terminal in the Eleven style and layout</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/eleven/1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The start menu</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/eleven/2.png</image>
+    </screenshot>
+  </screenshots>
+  <icon type="stock">preferences-desktop-theme</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::style">eleven</value>
+    <value key="FlickOS::layout">eleven</value>
+  </custom>
+</component>

@@ -1170,6 +1170,7 @@ class FakePhone:
         self.id = device_id or uuid.uuid4().hex
         self.cert, self.key, self.der = cert or make_cert(folder, self.id)
         self.name = "Fake Phone"
+        self.device_type = "phone"
         # The computer asks every paired phone for its players when it
         # connects (ADR-018). read() skips that unless a test wants it.
         self.media_requests = False
@@ -1186,7 +1187,7 @@ class FakePhone:
         ctx.verify_mode = ssl.CERT_NONE
         self.tls = ctx.wrap_socket(sock, server_side=True)
         self.tls.sendall(fp.packet("kdeconnect.identity", {
-            "deviceId": self.id, "deviceName": self.name, "deviceType": "phone", "protocolVersion": 8,
+            "deviceId": self.id, "deviceName": self.name, "deviceType": self.device_type, "protocolVersion": 8,
             "incomingCapabilities": [], "outgoingCapabilities": []}))
         self.reader = fp.LineReader(self.tls, 1 << 20)
         return self.reader.packet()["body"]
@@ -1272,13 +1273,13 @@ class DaemonTest(Isolated):
         self.addCleanup(theirs.close)
         return ours, theirs
 
-    def pair(self, answer="yes"):
+    def pair(self, answer="yes", timestamp=None):
         """Run `pair` through a socket pair, the phone asks, answer."""
         ours, theirs = self.socketpair()
         thread = threading.Thread(target=self.daemon.pair_session, args=(theirs,), daemon=True)
         thread.start()
         waiting = fp.read_json(ours, 5)
-        self.phone.send("kdeconnect.pair", {"pair": True, "timestamp": int(time.time())})
+        self.phone.send("kdeconnect.pair", {"pair": True, "timestamp": timestamp or int(time.time())})
         request = fp.read_json(ours, 5)
         fp.reply(ours, {"answer": answer})
         done = fp.read_json(ours, 5)
@@ -1377,6 +1378,27 @@ class DaemonTest(Isolated):
         self.assertFalse(self.daemon.links[self.phone.id].paired)
         self.assertEqual(fp.load_devices(), {})
 
+    def test_timestamp_as_text(self):
+        """kdeconnect-kde sends the timestamp as text, the Android app as a number."""
+        self.connect()
+        stamp = int(time.time())
+        _, request, done, answer = self.pair(timestamp=str(stamp))
+        self.assertEqual(request["key"], fp.verification_key(self.identity.der, self.phone.der, stamp))
+        self.assertEqual(done["event"], "paired")
+        self.assertEqual(answer["body"], {"pair": True})
+
+    def test_timestamp_not_a_time_refused(self):
+        self.connect()
+        for bad in ("soon", "", "-5", "1.5", "٣", "9" * 5000, None, 1.5, [1]):
+            ours, theirs = self.socketpair()
+            thread = threading.Thread(target=self.daemon.pair_session, args=(theirs,), daemon=True)
+            thread.start()
+            fp.read_json(ours, 5)
+            self.phone.send("kdeconnect.pair", {"pair": True, "timestamp": bad})
+            self.assertEqual(self.phone.read()["body"], {"pair": False}, bad)
+            ours.close()
+            thread.join(5)
+
     def test_old_clock_refused(self):
         self.connect()
         ours, theirs = self.socketpair()
@@ -1442,6 +1464,30 @@ class DaemonTest(Isolated):
             self.phone.send("kdeconnect.clipboard", {"content": "from the phone"})
             self.wait(lambda: copied)
         self.assertEqual(copied, ["from the phone"])
+
+    def test_computers_clipboard_is_ignored(self):
+        # kdeconnect-kde sends its clipboard whenever it changes, passwords
+        # included, with nobody choosing to: only a phone's is someone's choice.
+        for kind in ("desktop", "laptop"):
+            with self.subTest(kind):
+                self.phone.device_type = kind
+                self.paired()
+                copied = []
+                self.notes.clear()
+                with mock.patch.object(fp, "copy_text", copied.append):
+                    self.phone.send("kdeconnect.clipboard", {"content": "hunter2"})
+                    self.phone.send("kdeconnect.ping", {})
+                    self.wait(lambda: self.notes)
+                self.assertEqual(copied, [])
+                self.assertEqual(fp.read_received(), [])
+                self.assertEqual(len(self.notes), 1)
+
+    def test_computers_chosen_text_arrives(self):
+        self.phone.device_type = "desktop"
+        self.paired()
+        self.phone.send("kdeconnect.share.request", {"text": "from the desktop"})
+        self.wait(lambda: fp.read_received())
+        self.assertEqual([i["value"] for i in fp.read_received()], ["from the desktop"])
 
     def test_sent_text_coming_back_is_dropped(self):
         # The phone puts text it gets onto its clipboard, and its clipboard sync
@@ -1806,6 +1852,37 @@ class DaemonTest(Isolated):
         self.assertEqual(events[1]["key"], fp.verification_key(self.phone.der, self.identity.der, stamp))
         self.assertEqual(result["code"], 0)
         self.assertEqual(self.phone.read()["body"], {"pair": True})
+
+    def test_pair_keeps_events_that_come_together(self):
+        # A phone that asks at once: `waiting` and `request` arrive in one
+        # recv, and `pair` must not drop the second (it then waited 150 s).
+        os.makedirs(fp.runtime_dir(), exist_ok=True)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(server.close)
+        server.bind(fp.control_path())
+        self.addCleanup(os.unlink, fp.control_path())
+        server.listen(1)
+        seen = {}
+
+        def daemon():
+            conn, _ = server.accept()
+            with conn:
+                seen["command"] = fp.read_json(conn, 5)
+                conn.sendall(b'{"event": "waiting", "name": "PC", "firewall": false}\n'
+                             b'{"event": "request", "id": "x", "name": "Phone", "key": "ABCD1234"}\n')
+                seen["answer"] = fp.read_json(conn, 5)
+                fp.reply(conn, {"event": "paired", "id": "x", "name": "Phone"})
+
+        thread = threading.Thread(target=daemon, daemon=True)
+        thread.start()
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out), mock.patch("sys.stdin", io.StringIO("yes\n")):
+            code = fp.main(["pair", "--json"])
+        thread.join(5)
+        events = [json.loads(line)["event"] for line in out.getvalue().splitlines()]
+        self.assertEqual(events, ["waiting", "request", "paired"])
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, {"command": {"command": "pair"}, "answer": {"answer": "yes"}})
 
     def test_watch_reports_the_phone(self):
         self.control_socket()

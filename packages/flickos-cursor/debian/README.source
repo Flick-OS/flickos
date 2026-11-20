@@ -1,0 +1,13 @@
+flickos-cursor
+==============
+
+Upstream: https://github.com/ful1e5/Bibata_Cursor (GPL-3), through Debian's
+bibata-cursor-theme 2.0.6-1, theme Bibata-Modern-Classic.
+
+usr/share/icons/FlickOS-Bibata/ is generated and committed:
+
+    tools/make-cursor.py [SOURCE]
+
+Changes to upstream: only the sizes 24, 32, 48 and 64 are kept, out of 14, and
+the theme has its own name and an index.theme that inherits Adwaita. Pictures,
+hot spots and frame delays are as they are in Debian's files.

@@ -6,5 +6,6 @@ Exec=flickos-welcome show
 Icon=flickos
 Terminal=false
 Categories=System;
+# Translators: search words, each ended by a semicolon.
 Keywords=welcome;first;start;help;getting;started;
 StartupNotify=false

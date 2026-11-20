@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# A lab computer's identity and teacher (`flickos-classroom-view lab on`,
+# ADR-011) go with the package only when it is purged.
+if [ "$1" = "purge" ]; then
+    rm -rf /etc/flickos/classroom
+fi
+
+#DEBHELPER#

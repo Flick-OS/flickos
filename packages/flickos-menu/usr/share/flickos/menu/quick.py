@@ -24,8 +24,20 @@ def warn(message):
     print(f"flickos-menu: {message}", file=sys.stderr)
 
 
+def _(text):
+    """text in the user's language: load_quick replaces this with the
+    menu's translation. Loaded on its own (the tests), English."""
+    return text
+
+
+def N_(text):
+    """Marks text for the translation template; _() translates it where it is shown."""
+    return text
+
+
 SYS = "/sys"
 QUICK_WIDTH = 360
+POPUP_GAP = 8                   # flickos-menu's
 QUICK_REFRESH_SECONDS = 2       # volume, Wi-Fi and battery, only while it is shown (PERF-5)
 QUICK_READ_SECONDS = 10         # an owner that takes longer is left as it was
 # A slider the user moved keeps its place this long: a read that was already
@@ -34,11 +46,11 @@ SLIDE_HOLD_MS = 1500
 SINK = "@DEFAULT_AUDIO_SINK@"
 # Switches: (key, title, icon while on, icon while off).
 QUICK_TILES = (
-    ("wifi", "Wi-Fi", "network-wireless-symbolic", "network-wireless-disabled-symbolic"),
-    ("dnd", "Do Not Disturb", "notifications-disabled-symbolic", "notifications-disabled-symbolic"),
-    ("night", "Night light", "night-light-symbolic", "night-light-symbolic"),
-    ("tiler", "Tiling", "view-grid-symbolic", "view-grid-symbolic"),
-    ("phone", "Phone", "phone-symbolic", "phone-symbolic"),
+    ("wifi", N_("Wi-Fi"), "network-wireless-symbolic", "network-wireless-disabled-symbolic"),
+    ("dnd", N_("Do Not Disturb"), "notifications-disabled-symbolic", "notifications-disabled-symbolic"),
+    ("night", N_("Night light"), "night-light-symbolic", "night-light-symbolic"),
+    ("tiler", N_("Tiling"), "view-grid-symbolic", "view-grid-symbolic"),
+    ("phone", N_("Phone"), "phone-symbolic", "phone-symbolic"),
 )
 # The owners' reads, one run each per show: key -> commands. flickos-control
 # prints all its settings in one run (Do Not Disturb and night light).
@@ -193,19 +205,28 @@ def battery_state(folders):
     return min(percent, 100), status, hours
 
 
+def percent_text(percent):
+    # Translators: a percentage, such as 82%. Some languages put a space before %.
+    return _("{percent}%").format(percent=percent)
+
+
 def battery_text(state):
     """What the battery row says: "82%, 3:10 left" (HIG TXT-2)."""
     percent, status, hours = state
     time = f"{int(hours)}:{int(hours * 60) % 60:02d}" if hours is not None and hours < 100 else None
-    if status == "Discharging":
-        return f"{percent}%, {time} left" if time else f"{percent}%"
-    if status == "Charging":
-        return f"{percent}%, charging, full in {time}" if time else f"{percent}%, charging"
-    if status == "Full":
-        return f"{percent}%, fully charged"
-    if status == "Not charging":
-        return f"{percent}%, plugged in"
-    return f"{percent}%"
+    if status == "Discharging" and time:
+        # Translators: {time} is hours and minutes, such as 3:10.
+        text = _("{percent}%, {time} left")
+    elif status == "Charging":
+        # Translators: {time} is hours and minutes, such as 0:45.
+        text = _("{percent}%, charging, full in {time}") if time else _("{percent}%, charging")
+    elif status == "Full":
+        text = _("{percent}%, fully charged")
+    elif status == "Not charging":
+        text = _("{percent}%, plugged in")
+    else:
+        return percent_text(percent)
+    return text.format(percent=percent, time=time)
 
 
 def battery_icon(state):
@@ -236,8 +257,8 @@ def nmcli_fields(line):
 def parse_wifi(radio, devices):
     """(on, subtitle) from nmcli's Wi-Fi radio and its devices."""
     if radio.strip() != "enabled":
-        return False, "Off"
-    subtitle = "Not connected"
+        return False, _("Off")
+    subtitle = _("Not connected")
     for line in devices.splitlines():
         fields = nmcli_fields(line)
         if len(fields) < 4 or fields[1] != "wifi":
@@ -245,7 +266,7 @@ def parse_wifi(radio, devices):
         if fields[2].startswith("connected") and fields[3]:
             return True, fields[3]
         if fields[2].startswith("connecting"):
-            subtitle = "Connecting…"
+            subtitle = _("Connecting…")
     return True, subtitle
 
 
@@ -266,7 +287,7 @@ def parse_tiler(text, modes=None):
     classes = status.get("class") or []
     on = status.get("alt") != "off"
     mode = classes[1] if len(classes) > 1 else ""
-    return on, ((modes or {}).get(mode) or mode.replace("-", " ").capitalize() or "On") if on else "Off"
+    return on, ((modes or {}).get(mode) or mode.replace("-", " ").capitalize() or _("On")) if on else _("Off")
 
 
 def parse_modes(text):
@@ -282,7 +303,7 @@ def parse_phone(text):
     paired = bool(phones) and not state.get("live")
     on = bool(state.get("enabled"))
     connected = next((phone.get("name") for phone in phones if phone.get("connected")), None)
-    return paired, on, (connected or "Not connected") if on else "Off"
+    return paired, on, (connected or _("Not connected")) if on else _("Off")
 
 
 def parse_volume(text):
@@ -382,7 +403,7 @@ class QuickSettings:
         self.device = None          # (name, folder) of the backlight
         self.shown = []             # the tiles shown, in order
         self.muted = False
-        window = self.window = Gtk.Window(title="Quick Settings")
+        window = self.window = Gtk.Window(title=_("Quick Settings"))
         self.fader = menu.fader(window)
         window.get_style_context().add_class("flickos-quick")
         GtkLayerShell.init_for_window(window)
@@ -405,9 +426,9 @@ class QuickSettings:
             self.tiles[key] = self.tile(key, title, off)
 
         self.sliders = {}
-        self.mute = Gtk.Button(relief=Gtk.ReliefStyle.NONE, tooltip_text="Mute")
+        self.mute = Gtk.Button(relief=Gtk.ReliefStyle.NONE, tooltip_text=_("Mute"))
         self.mute.add(Gtk.Image.new_from_icon_name("audio-volume-high-symbolic", Gtk.IconSize.BUTTON))
-        self.mute.get_accessible().set_name("Mute")
+        self.mute.get_accessible().set_name(_("Mute"))
         self.mute.connect("clicked", lambda _b: self.toggle_mute())
         self.volume = Coalescer(lambda value, done: self.run(
             change_command("volume", value), self.slid("volume", done)))
@@ -415,8 +436,8 @@ class QuickSettings:
             change_command("brightness", value, self.device[0]), self.slid("brightness", done)))
         brightness_icon = Gtk.Image.new_from_icon_name("display-brightness-symbolic", Gtk.IconSize.BUTTON)
         brightness_icon.get_style_context().add_class("slider-icon")
-        for key, title, icon, coalescer in (("volume", "Volume", self.mute, self.volume),
-                                            ("brightness", "Brightness", brightness_icon, self.brightness)):
+        for key, title, icon, coalescer in (("volume", _("Volume"), self.mute, self.volume),
+                                            ("brightness", _("Brightness"), brightness_icon, self.brightness)):
             row = Gtk.Box(spacing=8)
             row.get_style_context().add_class("slider")
             scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
@@ -474,7 +495,7 @@ class QuickSettings:
         box = Gtk.Box(spacing=10)
         button.image = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.LARGE_TOOLBAR)
         texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
-        name = Gtk.Label(label=title, xalign=0)
+        name = Gtk.Label(label=_(title), xalign=0)
         name.get_style_context().add_class("title")
         button.subtitle = Gtk.Label(xalign=0)
         button.subtitle.get_style_context().add_class("subtitle")
@@ -500,6 +521,8 @@ class QuickSettings:
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.TOP, vertical == "top")
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.BOTTOM, vertical == "bottom")
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.RIGHT, True)
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_margin(self.window, edge, POPUP_GAP)
 
     def show(self, corner):
         import shutil
@@ -581,7 +604,10 @@ class QuickSettings:
         for widget in (self.battery_icon, self.battery):
             widget.set_visible(state is not None)
         if state is not None:
-            self.battery.set_text(battery_text(state))
+            text = battery_text(state)
+            self.battery.set_text(text)
+            # The row is narrow and the label ellipsized (charging, full in …).
+            self.battery.set_tooltip_text(text)
             self.battery_icon.set_from_icon_name(self.icon(battery_icon(state), "battery-symbolic"),
                                                  self.Gtk.IconSize.BUTTON)
         if self.device is not None and not self.held("brightness"):
@@ -638,7 +664,7 @@ class QuickSettings:
             for tile, setting in CONTROL_KEYS.items():
                 if setting in values:
                     on = values[setting] == "yes"
-                    self.set_tile(tile, on, "On" if on else "Off")
+                    self.set_tile(tile, on, _("On") if on else _("Off"))
         elif key == "tiler":
             if len(outputs) > 1 and outputs[1] is not None:
                 self.tiler_modes = parse_modes(outputs[1])
@@ -684,13 +710,13 @@ class QuickSettings:
         self.quiet = True
         row.scale.set_value(percent)
         self.quiet = False
-        row.value.set_text(f"{int(percent)}%")
+        row.value.set_text(percent_text(int(percent)))
 
     def set_muted(self, muted, percent):
         self.muted = muted
         self.mute.get_child().set_from_icon_name(volume_icon(percent, muted), self.Gtk.IconSize.BUTTON)
-        self.mute.set_tooltip_text("Unmute" if muted else "Mute")
-        self.mute.get_accessible().set_name("Unmute" if muted else "Mute")
+        self.mute.set_tooltip_text(_("Unmute") if muted else _("Mute"))
+        self.mute.get_accessible().set_name(_("Unmute") if muted else _("Mute"))
 
     def held(self, slider):
         """True while the user's own move of slider is fresher than a read."""
@@ -724,16 +750,21 @@ class QuickSettings:
         if self.quiet:
             return
         on = tile.get_active()
-        title = next(t[1] for t in QUICK_TILES if t[0] == key)
+        title = _(next(t[1] for t in QUICK_TILES if t[0] == key))
         self.changing.add(key)
-        self.show_state(key, on, "On" if on else "Off")
+        self.show_state(key, on, _("On") if on else _("Off"))
         self.message.hide()
 
         def done(ok, message):
             self.changing.discard(key)
             if not ok:
-                self.set_tile(key, not on, "On" if not on else "Off")
-                self.say(f"Could not turn {title} {'on' if on else 'off'}" + (f": {message}" if message else "."))
+                self.set_tile(key, not on, _("On") if not on else _("Off"))
+                # Translators: {name} is a switch's title (Wi-Fi, Tiling); {error} is the reason, in English.
+                if on:
+                    text = _("Could not turn {name} on: {error}") if message else _("Could not turn {name} on.")
+                else:
+                    text = _("Could not turn {name} off: {error}") if message else _("Could not turn {name} off.")
+                self.say(text.format(name=title, error=message))
             if self.visible():
                 self.read({TILE_READS[key]})    # what it is doing now (the network, the arrangement)
 
@@ -743,7 +774,7 @@ class QuickSettings:
         if self.quiet:
             return
         percent = int(round(scale.get_value()))
-        value.set_text(f"{percent}%")
+        value.set_text(percent_text(percent))
         self.moved[key] = self.menu.clock()
         if key == "volume":
             self.set_muted(self.muted, percent)
@@ -754,14 +785,19 @@ class QuickSettings:
         the coalescer send the newest value."""
         def finished(ok, message):
             if not ok:
-                self.say(f"Could not change the {key}" + (f": {message}" if message else "."))
+                if key == "volume":
+                    text = _("Could not change the volume: {error}") if message else _("Could not change the volume.")
+                else:
+                    text = (_("Could not change the brightness: {error}") if message else
+                            _("Could not change the brightness."))
+                self.say(text.format(error=message))
             done()
         return finished
 
     def toggle_mute(self):
         def done(ok, message):
             if not ok:
-                self.say(f"Could not mute: {message}" if message else "Could not mute.")
+                self.say(_("Could not mute: {error}").format(error=message) if message else _("Could not mute."))
             self.read({"volume"})
 
         self.run(change_command("mute", None), done)

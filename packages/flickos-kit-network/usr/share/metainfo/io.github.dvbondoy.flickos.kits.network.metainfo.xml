@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS kit is an AppStream add-on of the Tool Kits window
+     (docs/design/flickos-dev.md, ADR-001 and ADR-002): Software lists add-ons
+     that extend flickos-kits.desktop, and FlickOS::kit names the kit. The
+     category is a custom value because appstreamcli ignores an X-FlickOS-*
+     category. This kit's is "security" (docs/design/flickos-security.md,
+     ADR-S01): Software shows it under Security Tools, with the permission
+     sentence (ADR-S05) above the description, so the sentence isn't here. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.kits.network</id>
+  <extends>flickos-kits.desktop</extends>
+  <name>Network Analysis</name>
+  <summary>Wireshark, Nmap and the tools for looking at a network</summary>
+  <description>
+    <p>
+      Nmap, Wireshark and tshark, tcpdump, arp-scan, Ettercap and
+      bettercap from Debian, with the everyday tools for networks:
+      ncat, socat, dig, whois, traceroute, mtr, iperf3, ngrep,
+      tcpflow, and the SMB, LDAP, NetBIOS and SNMP clients.
+    </p>
+    <p>
+      Capturing packets needs administrator rights as Debian installs
+      it: Wireshark lists no interfaces until your account may capture
+      (sudo dpkg-reconfigure wireshark-common, add yourself to the
+      wireshark group and log in again). Raw scans stay sudo nmap.
+    </p>
+  </description>
+  <icon type="stock">security-high</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::kit">network</value>
+    <value key="FlickOS::kit-category">security</value>
+  </custom>
+</component>

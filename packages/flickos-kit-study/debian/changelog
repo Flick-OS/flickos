@@ -1,0 +1,11 @@
+flickos-kit-study (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1: the Study kit.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:16:40 +0800
+
+flickos-kit-study (1.0~test1) trixie; urgency=medium
+
+  * A kit, opt-in: apps for students (docs/design/flickos-dev.md, Q16).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:00:20 +0800

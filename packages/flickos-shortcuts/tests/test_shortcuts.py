@@ -83,6 +83,17 @@ class KeyTest(unittest.TestCase):
         self.assertEqual(fs.format_keys(arrows), ["Alt + ← → ↑ ↓"])
         self.assertEqual(fs.format_keys([fs.key_parts("W-bracketleft")]), ["Super + ["])
 
+    def test_keys_moved_for_the_keyboard_as_it_labels_them(self):
+        """flickos-layouts moves Super+[ to the key in its place (docs/design/flickos-keys.md)."""
+        self.assertEqual(fs.key_name("dead_diaeresis"), "¨")
+        if fs.keysym_character("aring") is None:
+            self.skipTest("libxkbcommon is not installed")
+        self.assertEqual(fs.key_name("aring"), "Å")
+        self.assertEqual(fs.key_name("Cyrillic_i"), "И")
+        self.assertEqual(fs.key_name("ampersand"), "&")
+        self.assertEqual(fs.key_name("F2"), "F2")
+        self.assertEqual(fs.key_name("nosuchkey"), "nosuchkey")
+
 
 class ReadTest(unittest.TestCase):
     def setUp(self):
@@ -288,6 +299,24 @@ class ShortcutsTest(unittest.TestCase):
         self.addCleanup(os.unlink, f.name)
         self.assertEqual(fs.shortcuts(f.name), {"Applications": [("Start menu (tap)", ["Super"])]})
 
+    def test_prompt_menu_keys(self):
+        """flickos-menu's own keys, only while its prompt style is the start menu."""
+        anchor = os.path.join(RUNTIME.name, "flickos", "menu", "anchor")
+        os.makedirs(os.path.dirname(anchor), exist_ok=True)
+        self.addCleanup(lambda: os.path.exists(anchor) and os.unlink(anchor))
+        self.assertNotIn("Start menu", fs.shortcuts(self.path))
+        for style in ("classic", "", "bottom-left"):
+            with open(anchor, "w", encoding="utf-8") as f:
+                f.write(f"bottom-left\n{style}\n")
+            self.assertNotIn("Start menu", fs.shortcuts(self.path), style)
+        with open(anchor, "w", encoding="utf-8") as f:
+            f.write("bottom-left\nprompt\n120\n")
+        sections = fs.shortcuts(self.path)
+        self.assertEqual(list(sections)[:2], ["Applications", "Start menu"])
+        keys = dict(sections["Start menu"])
+        self.assertEqual(keys["Open a pinned app"], ["Ctrl + 1 … 6"])
+        self.assertEqual(keys["What you can type"], ["F1"])
+
     def test_quick_settings(self):
         """flickos-layouts' overlay while Quick Settings is on: Super+A, which
         replaces labwc's default (maximize) since it comes later."""
@@ -311,6 +340,28 @@ class ShortcutsTest(unittest.TestCase):
         self.assertEqual(fs.shortcuts(f.name), {"Windows": [
             ("Go to the desktop with that number", ["Super + 1 2 3 4"]),
             ("Move window to the desktop with that number", ["Super + Shift + 1 2 3 4"])]})
+
+    def test_numbered_desktops_moved_for_the_keyboard(self):
+        """On a French keyboard flickos-layouts moves Super+1 to Super+&: still one row."""
+        french = {1: "ampersand", 2: "eacute"}
+        binds = "".join(f'<keybind key="W-{name}"><action name="GoToDesktop" to="{n}"/></keybind>'
+                        for n, name in french.items())
+        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as f:
+            f.write(f"<labwc_config><keyboard>{binds}</keyboard></labwc_config>")
+        rc_xml = f.name
+        self.addCleanup(os.unlink, rc_xml)
+        path = os.path.join(RUNTIME.name, "flickos", fs.KEYS_REPORT)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self.addCleanup(os.unlink, path)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{"keyboard": "fr", "moved": [{"key": "W-1", "to": "W-ampersand"}, '
+                    '{"key": "W-2", "to": "W-eacute"}, {"key": 3}], "kept": []}')
+        self.assertEqual(fs.moved_keys(), {"W-ampersand": "W-1", "W-eacute": "W-2"})
+        self.assertEqual(fs.shortcuts(rc_xml), {"Windows": [("Go to the desktop with that number",
+                                                             ["Super + & É"])]})
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("[broken")
+        self.assertEqual(fs.moved_keys(), {})
 
     def test_addon_descriptions(self):
         """flickos-layouts' descriptions of add-on keybinds, by command."""
@@ -356,6 +407,45 @@ class ShortcutsTest(unittest.TestCase):
         printed = "".join(call.args[0] for call in out.write.call_args_list)
         self.assertIn("Super + Enter", printed)
         self.assertIn("Terminal", printed)
+
+
+class FitTest(unittest.TestCase):
+    def test_room_is_the_smallest_screen_less_the_margin(self):
+        self.assertEqual(fs.screen_room([(1920, 1080), (1366, 768)], (64, 128)), (1302, 640))
+        self.assertEqual(fs.screen_room([(1280, 1024), (1920, 720)], (0, 0)), (1280, 720))
+        self.assertEqual(fs.screen_room([(40, 40)], (64, 128)), (0, 0))
+        self.assertIsNone(fs.screen_room([]))
+
+    def test_first_that_fits(self):
+        sizes = {(3, False): (1438, 555), (4, False): (1794, 393), (2, False): (1048, 679),
+                 (3, True): (1234, 414)}
+        measured = []
+
+        def measure(fit):
+            measured.append(fit)
+            return sizes[fit]
+
+        fits = tuple(sizes)
+        self.assertEqual(fs.fit_sheet(measure, (1856, 952), fits), ((3, False), (1438, 555), True))
+        self.assertEqual(measured, [(3, False)])
+        measured.clear()
+        self.assertEqual(fs.fit_sheet(measure, (1302, 640), fits), ((3, True), (1234, 414), True))
+        self.assertEqual(measured, list(fits))
+        self.assertEqual(fs.fit_sheet(measure, None, fits)[0], (3, False))
+
+    def test_closest_when_none_fits(self):
+        sizes = {(3, False): (1000, 1000), (3, True): (600, 900), (5, True): (900, 300)}
+        fit, size, fits = fs.fit_sheet(sizes.get, (500, 500), tuple(sizes))
+        self.assertEqual((fit, size, fits), ((3, True), (600, 900), False))
+
+    def test_fits(self):
+        self.assertEqual(fs.FITS[0], (fs.COLUMNS, False), "the roomy sheet comes first")
+        self.assertEqual(len(set(fs.FITS)), len(fs.FITS))
+        sections = {f"Section {n}": [("Thing", ["Super + X"])] * n for n in range(1, 8)}
+        for count, _ in fs.FITS:
+            columns = fs.split_columns(sections, count)
+            self.assertLessEqual(len(columns), count)
+            self.assertEqual([name for column in columns for name, _ in column], list(sections))
 
 
 class HoldTest(unittest.TestCase):

@@ -53,7 +53,10 @@ CSS; mako/config includes the system config and the style's palette. A layout
 with a dock (Dock=, an sfwbar config: Cupertino's dock, Traditional's window
 list) also gets dock/sfwbar.config: its config with the pinned apps filled in,
 then the style's palette and the layout's DockStyle= CSS. sfwbar runs next to
-waybar and is replaced along with it. A layout with Desktops= gets that many
+waybar and is replaced along with it. The pinned apps are the layout's
+Pinned=, unless the user chose their own for that layout (`pinned set|add|
+remove`, in ~/.config/flickos/pinned; Settings' Pinned Apps): a stopgap while
+sfwbar, in beta, can't pin apps itself in a way that lasts. A layout with Desktops= gets that many
 labwc desktops, and their keyboard shortcuts, in the overlay rc.xml.
 
 The user's tweaks, ~/.config/flickos/tweaks/style.css (`tweaks new` writes a
@@ -70,8 +73,10 @@ stopped. What they print goes to $XDG_RUNTIME_DIR/flickos/panel.log, together
 with this program's own warnings while it runs the panel.
 
 Choice: ~/.config/flickos/layout (style, clicks, launcher, menu-style, clock,
-quick-settings), else [Defaults] Layout= (Style=, Clicks=, Launcher=,
-MenuStyle=, Clock=, QuickSettings=) in
+buttons, quick-settings, floating-panel), else [Defaults] Layout= (Style=,
+Clicks=, Launcher=, MenuStyle=, Clock=, Buttons=, QuickSettings=,
+FloatingPanel=) in
+the site's /etc/xdg/flickos-site/flickos/layouts.conf (key by key), else
 /etc/xdg/flickos/layouts.conf, else the built-in default. Unknown ids fall back.
 Choosing "default" removes the user's choice. Every change that shows is
 recorded in $XDG_STATE_HOME/flickos/history.jsonl, where Settings > History
@@ -102,6 +107,14 @@ While that is on and flickos-menu is installed, for a layout with a Quick=
 corner, menu/phone holds the corner and the panel's phone button opens the
 popup. Otherwise the button keeps flickos-phone menu.
 
+The media buttons (flickos-media's custom/media-* modules, MEDIA_MODULES) go
+into the generated panel only while `flickos-media get controls` says on,
+before the phone's button; flickos-media set controls runs reload-panel.
+The weather (flickos-weather's custom/weather) goes in only while
+`flickos-weather get enabled` says on: where a layout's bar has the
+flickos/weather placeholder (dropped while off), else before the tiling
+button; flickos-weather set enabled runs reload-panel.
+
 Other FlickOS programs add labwc config fragments, merged into the overlay
 rc.xml in this order: flickos-control's mouse, touchpad and keyboard options
 ($XDG_RUNTIME_DIR/flickos/control/labwc.xml), then, while tiling is on,
@@ -109,6 +122,13 @@ flick-tiler's regions, window rule and keybinds (tiler/labwc.xml).
 flickos-control's keyboard layout (control/environment) goes into an overlay
 labwc environment file, after the system one: labwc reads only the first it
 finds. `reconfigure` regenerates the overlay and reloads labwc.
+
+Site defaults: /etc/xdg/flickos-site/flickos/layouts.conf (a variant package,
+flickos-fleet) goes over FlickOS's, key by key. `apply-defaults` applies a
+change of them in the session (overlay, labwc, panel, notifications, menu,
+wallpaper) without saving a choice of the user's. What the account never
+chose also reaches GTK (style, window buttons), once per change of the
+defaults, at login and in `apply-defaults`.
 
 Add-ons are programs that aren't FlickOS packages (yet, like experiments)
 but want a place on the desktop: a folder ~/.config/flickos/addons/NAME/ (or
@@ -167,6 +187,8 @@ PREFIX = os.environ.get("FLICKOS_LAYOUT_PREFIX", "")
 LAYOUTS_DIR = PREFIX + "/usr/share/flickos/layouts"
 STYLES_DIR = PREFIX + "/usr/share/flickos/styles"
 SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/layouts.conf"
+# The site's defaults (a variant package, flickos-fleet): key by key over SYSTEM_CONF.
+SITE_CONF = PREFIX + "/etc/xdg/flickos-site/flickos/layouts.conf"
 DEFAULT_LAYOUT = "redmond"
 DEFAULT_STYLE = "dark"
 
@@ -201,6 +223,40 @@ DPKG_QUERY = "dpkg-query"
 # style. Not mako's: mako exits when an included file is missing (spike Q4).
 STYLE_PALETTES = "style"
 STABLE_PALETTES = (("foot.ini", "foot"), ("fuzzel.ini", "fuzzel"))
+# The style in use's swaylock config, always written next to them from its
+# waybar palette; flickos-control's lock passes it with -C. Its look, then
+# (option, palette key, the color's alpha times this or None) per color; a
+# key the palette lacks is left to swaylock.
+SWAYLOCK_PALETTE = "swaylock"
+SWAYLOCK_LOOK = ("indicator-radius=60", "indicator-thickness=8", "line-uses-inside")
+SWAYLOCK_COLORS = (
+    ("color", "bg_color", None),
+    ("inside-color", "bg_color", 0.8),
+    ("inside-clear-color", "bg_color", 0.8),
+    ("inside-ver-color", "bg_color", 0.8),
+    ("inside-wrong-color", "bg_color", 0.8),
+    ("inside-caps-lock-color", "bg_color", 0.8),
+    ("ring-color", "selected_bg_color", None),
+    ("ring-clear-color", "fg_color", None),
+    ("ring-ver-color", "selected_bg_color", None),
+    ("ring-wrong-color", "error_color", None),
+    ("ring-caps-lock-color", "warning_color", None),
+    ("key-hl-color", "fg_color", None),
+    ("bs-hl-color", "warning_color", None),
+    ("caps-lock-key-hl-color", "fg_color", None),
+    ("caps-lock-bs-hl-color", "error_color", None),
+    ("separator-color", "bg_color", 0.0),
+    ("text-color", "fg_color", None),
+    ("text-clear-color", "fg_color", None),
+    ("text-ver-color", "fg_color", None),
+    ("text-wrong-color", "fg_color", None),
+    ("text-caps-lock-color", "fg_color", None),
+    ("layout-bg-color", "bg_color", 0.8),
+    ("layout-border-color", "borders", None),
+    ("layout-text-color", "fg_color", None),
+)
+GTK_SETTINGS_FILES = ("gtk-3.0/settings.ini", "gtk-4.0/settings.ini")   # under XDG_CONFIG_HOME
+GTK_PREFER_DARK = "gtk-application-prefer-dark-theme"
 # check: contrast below these (A11Y-6) is a warning. Text 4.5:1; the accent
 # with its text 3:1, which Arc's own white on blue (3.1:1) meets.
 TEXT_CONTRAST = 4.5
@@ -285,11 +341,25 @@ KEY_SCHEMAS = {"button-layout": "org.gnome.desktop.wm.preferences"}
 PINNED_MODULE = "flickos/pinned"
 DOCK_PINS = re.compile(r'^([ \t]*pins[ \t]*=[ \t]*)"' + re.escape(PINNED_MODULE) + r'"[ \t]*;?[ \t]*$',
                        re.MULTILINE | re.IGNORECASE)
+# The user's own pinned apps (`pinned`, Settings' Pinned Apps), per layout:
+# [PINNED_SECTION] LAYOUT=ID;ID in ~/.config/flickos/PINNED_CHOICE (an empty
+# value: none), else the layout's Pinned=. A stopgap while sfwbar is in beta:
+# its dock can't pin or unpin apps itself in a way that lasts.
+PINNED_CHOICE = "pinned"
+PINNED_SECTION = "Pinned"
+PINNED_HISTORY = "pinned."          # + the layout's id: the History key
+# The choices apply_choice records, as History names them; each fires the
+# hooks' `changed` (changed_key).
+CHANGED_CHOICES = ("layout", "style", "clicks", "launcher", "menu-style", "clock", "quick-settings",
+                   "floating-panel", "buttons")
+DESKTOP_ID = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+-]*\.desktop$")
+APP_ID = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+-]*$")   # a window's app id, as the dock names it
 # A dock's (sfwbar) `Exec("flickos/launcher")` runs what the panel's apps
 # button runs: the start menu while it is on, else fuzzel (Footprint's Show
 # Apps). sfwbar splits Exec's command like a shell but runs no shell.
 DOCK_LAUNCHER = "flickos/launcher"
 DOCK_LAUNCHER_EXEC = re.compile(r'\bExec\(\s*"' + re.escape(DOCK_LAUNCHER) + r'"\s*\)')
+DOCK_PAGER = re.compile(r"^[^#\n]*\bpager\s*\{", re.MULTILINE)     # a desktop switcher in a dock's sfwbar config
 PIN_MODULE = "custom/pin"
 # Desktop buttons in waybar, which has no desktop switcher for labwc
 # (docs/design/flickos-ricing.md, phase 5 step 5a): DESKTOPS_MODULE in a
@@ -305,6 +375,9 @@ DESKTOPS_DIR = "desktops"
 DESKTOPS_COUNT = "count"        # in DESKTOPS_DIR while the panel has desktop buttons
 DESKTOPS_SIGNAL = 11
 DESKTOP_HELPER = PREFIX + "/usr/libexec/flickos/desktop"
+# flickos-menu's ring client: when it is installed, the desktop keys also run
+# `desktop show` and labwc's own pop-up is off (docs/design/flickos-desktops.md ADR-006).
+OSD_CLIENT = PREFIX + "/usr/libexec/flickos/osd"
 WORKSPACE_MANAGER = b"ext_workspace_manager_v1"
 # Buttons that aren't in every layout's waybar.jsonc (the phone's, add-ons')
 # go into the first bar that has one of these, just before it.
@@ -314,7 +387,34 @@ MODULE_BEFORE = ("custom/tiler", "tray")
 # enabled runs reload-panel.
 PHONE = "flickos-phone"
 PHONE_MODULE = "custom/phone"
+# Media controls (flickos-media): previous, play, next, the title and the sound
+# spectrum's button, in this order, only while its controls setting is on
+# (HIG INT-9). Their settings are in common/modules.jsonc; flickos-media set
+# controls runs reload-panel.
+MEDIA = "flickos-media"
+MEDIA_MODULES = ("custom/media-previous", "custom/media-play", "custom/media-next", "custom/media-title",
+                 "custom/media-spectrum")
+MEDIA_SIGNAL = 12           # flickos-media's PANEL_SIGNAL: the buttons read their files again
+# The weather (flickos-weather): in the panel only while it is on (HIG
+# INT-9). A layout puts WEATHER_PLACEHOLDER where it wants the button; without
+# one it goes before MODULE_BEFORE. Its settings are in common/modules.jsonc;
+# flickos-weather set enabled runs reload-panel.
+WEATHER = "flickos-weather"
+WEATHER_PLACEHOLDER = "flickos/weather"
+WEATHER_MODULE = "custom/weather"
+WEATHER_SIGNAL = 13         # flickos-weather's PANEL_SIGNAL: run the button again
+# Sharing with a teacher (flickos-classroom-view): the button is in the panel
+# only while sharing is on (HIG INT-9), before MODULE_BEFORE, and can't be
+# hidden while it is (that design's ADR-004). `student on|off` runs
+# reload-panel; the agent sends CLASSROOM_SIGNAL when its state changes.
+CLASSROOM = "flickos-classroom-view"
+CLASSROOM_MODULE = "custom/classroom"
+CLASSROOM_SIGNAL = 14       # flickos-classroom-view's PANEL_SIGNAL
 LAUNCHER_MODULE = "custom/launcher"
+# Bar names GTK themes style: waybar gives the bar's window its name as a CSS
+# class, and the tray's menus inherit from it (Arc's .panel: white bold text
+# with a shadow, unreadable on a light menu).
+THEMED_CLASSES = ("panel", "osd", "view", "titlebar", "toolbar", "sidebar", "menu", "popup", "csd")
 # Add-ons: programs that are not FlickOS packages (yet) plug into the desktop
 # with a folder NAME/ in the user's ADDONS_HOME or in ADDONS_DIR; the user's
 # wins, so an empty one turns off the system's. Nothing is read or generated
@@ -331,6 +431,32 @@ ADDON_MODULE_PREFIX = "custom/"  # the only waybar modules an add-on may add
 # flickos-shortcuts reads it from here ({command: description}).
 ADDON_DESCRIPTION = "description"
 SHORTCUT_DESCRIPTIONS = os.path.join("shortcuts", "addons.json")
+# Keys on keyboards that lack them (docs/design/flickos-keys.md). labwc finds a
+# keybind's key only where a layout gives its symbol without Shift or AltGr, so
+# Super+[ never fires on a Finnish keyboard. The overlay moves such keybinds to
+# KEY_ALIASES' stand-in, else to the key in the same place on a US keyboard
+# (ADR-002); KEY_PAIRS move both or neither (ADR-006). The keymap is labwc's:
+# XKB_DEFAULT_* from its environment files, else KEYBOARD_DEFAULTS (ADR-003).
+# KEYS_REPORT says what moved, for explain, doctor and flickos-shortcuts.
+KEYBOARD_DEFAULTS = "/etc/default/keyboard"
+# (name, labwc's variable, /etc/default/keyboard's)
+KEYBOARD_VARIABLES = (("rules", "XKB_DEFAULT_RULES", None), ("model", "XKB_DEFAULT_MODEL", "XKBMODEL"),
+                      ("layout", "XKB_DEFAULT_LAYOUT", "XKBLAYOUT"),
+                      ("variant", "XKB_DEFAULT_VARIANT", "XKBVARIANT"),
+                      ("options", "XKB_DEFAULT_OPTIONS", "XKBOPTIONS"))
+US_KEYBOARD = {"layout": "us"}
+KEY_ALIASES = {"equal": "plus"}                    # zoom in: what browsers use where = needs Shift
+KEY_PAIRS = (("bracketleft", "bracketright"),)     # flick-tiler's ratio
+KEYS_REPORT = os.path.join("keys", "moved.json")
+XKBCOMMON = "libxkbcommon.so.0"
+# labwc's modifiers (parse_modifier) and their words
+KEY_MODIFIERS = {"S": "Shift", "C": "Ctrl", "A": "Alt", "Mod1": "Alt", "W": "Super", "Mod4": "Super",
+                 "M": "AltGr", "Mod5": "AltGr", "H": "Hyper", "Mod3": "Hyper"}
+# libxkbcommon gives dead keys no character; flickos-shortcuts has the same table.
+DEAD_KEYS = {"dead_grave": "`", "dead_acute": "´", "dead_circumflex": "^", "dead_tilde": "~",
+             "dead_macron": "¯", "dead_breve": "˘", "dead_abovedot": "˙", "dead_diaeresis": "¨",
+             "dead_abovering": "˚", "dead_doubleacute": "˝", "dead_caron": "ˇ", "dead_cedilla": "¸",
+             "dead_ogonek": "˛"}
 # The user's tweaks of the panel's look (ADR-015): one CSS file, imported last
 # into the generated waybar CSS and copied after the dock's CSS. `tweaks new`
 # writes a starter of TWEAKS_EXAMPLES.
@@ -346,6 +472,11 @@ CSS_CHECK_SECONDS = 20
 GTK_LIBRARY = "/usr/lib/*/libgtk-3.so.0"            # its real name has the version
 # Icon themes searched after the current one and its parents.
 FALLBACK_ICON_THEMES = ["Numix", "Adwaita", "hicolor"]
+# GTK themes FlickOS's styles named before flickos-theme (2.x): gsettings
+# gtk-theme holding one was set by a style, so a style may replace it.
+RETIRED_GTK_THEMES = frozenset({"Arc-Dark", "Arc"})
+GTK_MOVED = "gtk-theme-moved"       # in $XDG_STATE_HOME/flickos: move_retired_gtk_theme ran
+DEFAULT_LOOK = "default-look"       # in $XDG_STATE_HOME/flickos: the defaults sync_default_look applied
 ICON_SIZE = 48
 ICON_EXTENSIONS = (".svg", ".png", ".xpm")
 
@@ -382,12 +513,21 @@ RESTART_HEALTHY_SECONDS = 60.0    # ran this long: the next failure counts as th
 RESTART_LIMIT = 5                 # failures in a row before giving up
 # waybar 0.12 can keep a second bar on a screen turned on while it runs (a
 # laptop's own screen turned on next to an external one, 2026-10-13); a
-# reload draws one bar per screen. So `supervise` watches the compositor's
-# screens (wl_output) and reloads its waybar once they have been still for
-# SCREENS_SETTLE_SECONDS: an arrangement tool may move the new screen just
-# after turning it on.
+# fresh start draws one bar per screen. So `supervise` watches the
+# compositor's screens (wl_output) and restarts its waybar once they have
+# been still for SCREENS_SETTLE_SECONDS: an arrangement tool may move the new
+# screen just after turning it on.
 SCREENS_SETTLE_SECONDS = 1.5
-RELOAD_ON_SCREENS = {"waybar": signal.SIGUSR2}
+RESTART_ON_SCREENS = ("waybar",)
+# A restart, never waybar's own reload (SIGUSR2): after one, the clock's
+# calendar is empty until the month changes (waybar 0.12 to 0.15: its month
+# cache cldMonShift_ is never set, and the new clock finds the old one's
+# month in the memory it reuses; 2026-11-04). A supervisor starts its program
+# again at RESTART_SIGNAL (reload_panel_programs).
+RESTART_SIGNAL = signal.SIGUSR1
+# The commands that run supervise(): `supervise` for what start_supervised
+# starts, and `panel` for the login's waybar, which it supervises itself.
+SUPERVISORS = (b"supervise", b"panel")
 # Set by open_log(): warnings then go to the panel log as well.
 LOG_STREAM = None
 
@@ -396,6 +536,7 @@ PREVIEW_WIDTH, PREVIEW_HEIGHT = 240, 150
 # Style swatches: these palette colors (waybar-colors.css), left to right.
 SWATCH_COLORS = ("wm_bg", "bg_color", "fg_color", "selected_bg_color")
 SWATCH_SIZE = 20
+STYLES_SHOWN = 3        # style cards side by side at first (more in a wider window), the rest scrolled to
 CHOOSER_TITLE = "Desktop Layout & Style"
 CHOOSER_ICON = "preferences-desktop-theme"
 # ~/.config/flickos/choose-layout, copied from /etc/skel into new accounts:
@@ -475,7 +616,9 @@ DEFAULT_LAUNCHER = "menu"
 FALLBACK_LAUNCHER = "fuzzel"
 MENU_PROGRAM = "flickos-menu"
 MENU_ANCHOR = os.path.join("menu", "anchor")
-MENU_ANCHORS = ("bottom-left", "top-left")
+# bottom-center: the apps button is in the middle of a bottom bar (Eleven);
+# the menu opens above it (flickos-menu >= 1.22).
+MENU_ANCHORS = ("bottom-left", "top-left", "bottom-center")
 # Desktops= in layout.ini: how many labwc desktops (workspaces) the layout has,
 # named 1, 2, ... so the switcher's buttons stay small. More than one also
 # binds desktop_keys() in the overlay rc.xml: DESKTOP_KEYS, Windows'
@@ -486,9 +629,11 @@ MENU_ANCHORS = ("bottom-left", "top-left")
 MAX_DESKTOPS = 9
 DESKTOP_KEYS = (("W-C-Left", "GoToDesktop", "left"), ("W-C-Right", "GoToDesktop", "right"),
                 ("W-C-S-Left", "SendToDesktop", "left"), ("W-C-S-Right", "SendToDesktop", "right"))
+# The third line of MENU_ANCHOR is the layout's MenuArrow=, if it has one.
 # Each layout's kind of start menu (MenuStyle=), the second line of MENU_ANCHOR:
-# classic (Windows 7), categories (GNOME 2/Whisker), grid (Launchpad).
-MENU_STYLES = ("classic", "categories", "grid")
+# classic (Windows 7), categories (GNOME 2/Whisker), grid (Launchpad),
+# prompt (FlickOS's own, flickos-menu ADR-022; needs flickos-menu 1.32).
+MENU_STYLES = ("classic", "categories", "grid", "prompt")
 DEFAULT_MENU_STYLE = "classic"
 # The user's choice of start menu style: the layout's own (MenuStyle= in its
 # layout.ini), or one of MENU_STYLES for every layout.
@@ -499,6 +644,8 @@ MENU_STYLE_CHOICES = {choice.id: choice for choice in (
     Choice("classic", "Classic", "Pinned apps, all apps, your folders and the power buttons (Windows 7)"),
     Choice("categories", "Categories", "Categories on the left, their apps on the right (GNOME 2, Whisker)"),
     Choice("grid", "Grid", "All apps as big icons over the whole screen (Launchpad)"),
+    Choice("prompt", "Prompt", "A search line, your pinned apps on Ctrl+1–6, and every app as icons "
+                               "from A to Z"),
 )}
 DEFAULT_MENU_STYLE_CHOICE = FOLLOW_LAYOUT
 # The panel clock's hours. Layouts write 24-hour formats (%H:%M); 12h turns
@@ -508,6 +655,19 @@ CLOCKS = {choice.id: choice for choice in (
     Choice("12h", "12-hour", "1:45 PM"),
 )}
 DEFAULT_CLOCK = "24h"
+# The window buttons: the layout's own (TitlebarLayout=, else labwc's), or one
+# arrangement for every layout, in labwc's <theme><titlebar><layout> words.
+# The user's choice (`buttons`) replaces the layout's value in the overlay
+# rc.xml and in GTK's button-layout, for windows that draw their own title bar.
+BUTTON_ARRANGEMENTS = {"left": "close,iconify,max:", "right": ":iconify,max,close", "split": "close:max"}
+BUTTON_CHOICES = {choice.id: choice for choice in (
+    Choice(FOLLOW_LAYOUT, "Follow the layout",
+           "Each layout's own: on the left for Cupertino, on the right for Redmond"),
+    Choice("left", "Left", "Close, minimize and maximize on the left of the title bar (macOS)"),
+    Choice("right", "Right", "Minimize, maximize and close on the right of the title bar (Windows, GNOME)"),
+    Choice("split", "Split", "Close on the left, maximize on the right (elementary OS)"),
+)}
+DEFAULT_BUTTONS = FOLLOW_LAYOUT
 # `set default` (and `style set default`, ...) removes the user's choice, so
 # the system default applies again (HIG SET-8; undoing a first choice).
 DEFAULT_CHOICE = "default"
@@ -551,6 +711,21 @@ QUICK_SETTINGS = {choice.id: choice for choice in (
                        "click the volume or battery icon, or press Super+A"),
 )}
 DEFAULT_QUICK_SETTINGS = "off"
+
+# The floating panel, in the layouts with Floating= and FloatingFull=
+# (docs/design/flickos-floating-panel.md). flick-tiler rewrites this file in
+# the overlay's waybar folder while it exists: empty while the panel floats,
+# an @import of PANEL_FULL while a window fills the screen. waybar
+# (reload_style_on_change) restyles itself, with no reload that would touch
+# the modules. Both files must be there before waybar reads the @import.
+FLOATING_PANELS = {choice.id: choice for choice in (
+    Choice("off", "Off", "The panel always fills the bottom of the screen"),
+    Choice("on", "On", "A slimmer panel floats above the bottom of the screen, and fills it while a window "
+                       "is maximized"),
+)}
+DEFAULT_FLOATING_PANEL = "off"
+PANEL_STATE = "panel-state.css"
+PANEL_FULL = "panel-full.css"     # what flick-tiler's text imports: the layout's FloatingFull=
 MENU_QUICK = os.path.join("menu", "quick")
 QUICK_ANCHORS = ("bottom-right", "top-right")
 QUICK_MODULES = ("wireplumber", "battery")
@@ -630,11 +805,15 @@ class Layout:
     titlebar_layout: str | None = None
     pinned: list[str] = dataclasses.field(default_factory=list)
     preview: str | None = None
+    floating: str | None = None
+    floating_full: str | None = None
+    floating_default: bool = False      # FloatingDefault=on: floats until the user says otherwise
     wallpaper: str | None = None
     dock: str | None = None
     dock_style: str | None = None
     menu: str | None = None
     menu_style: str = "classic"
+    menu_arrow: str | None = None
     desktops: int = 1
     quick: str | None = None
     folder: str = ""
@@ -698,7 +877,8 @@ def read_section(folder, filename, section_name, required):
 
 def load_layout(folder, user=False):
     """Read folder/layout.ini. Relative file paths are relative to the folder.
-    A user's layout (user) is waybar only: its Dock= is left out."""
+    A user's layout (user) is waybar only: its Dock= is left out, and so is
+    Floating=, whose CSS the panel's check doesn't read."""
     path, section, order = read_section(folder, "layout.ini", "Layout", ("Name", "Waybar", "Style"))
     titlebar = section.get("TitlebarLayout") or None
     if titlebar is not None and not valid_titlebar_layout(titlebar):
@@ -714,6 +894,13 @@ def load_layout(folder, user=False):
     if menu is not None and menu not in MENU_ANCHORS:
         warn(f"{path}: ignoring invalid Menu={menu} (use {' or '.join(MENU_ANCHORS)})")
         menu = None
+    floating, floating_full = section.get("Floating") or None, section.get("FloatingFull") or None
+    if bool(floating) != bool(floating_full):
+        warn(f"{path}: ignoring Floating=: it needs both Floating= and FloatingFull=")
+        floating = floating_full = None
+    if user and floating:
+        warn(f"{path}: ignoring Floating=: your own layouts can't float")
+        floating = floating_full = None
     quick = section.get("Quick") or None
     if quick is not None and quick not in QUICK_ANCHORS:
         warn(f"{path}: ignoring invalid Quick={quick} (use {' or '.join(QUICK_ANCHORS)})")
@@ -722,6 +909,10 @@ def load_layout(folder, user=False):
     if menu_style not in MENU_STYLES:
         warn(f"{path}: ignoring invalid MenuStyle={menu_style} (use {', '.join(MENU_STYLES)})")
         menu_style = DEFAULT_MENU_STYLE
+    menu_arrow = section.get("MenuArrow") or None
+    if menu_arrow is not None and not re.fullmatch(r"[0-9]+( [0-9]+)?", menu_arrow):
+        warn(f"{path}: ignoring invalid MenuArrow={menu_arrow} (use pixels, and pixels while floating)")
+        menu_arrow = None
     try:
         desktops = int(section.get("Desktops") or 1)
     except ValueError:
@@ -739,11 +930,15 @@ def load_layout(folder, user=False):
         titlebar_layout=titlebar,
         pinned=[p.strip() for p in section.get("Pinned", "").split(";") if p.strip()],
         preview=os.path.join(folder, section["Preview"]) if section.get("Preview") else None,
+        floating=os.path.join(folder, floating) if floating else None,
+        floating_full=os.path.join(folder, floating_full) if floating_full else None,
+        floating_default=bool(floating) and section.get("FloatingDefault") == "on",
         wallpaper=os.path.join(folder, section["Wallpaper"]) if section.get("Wallpaper") else None,
         dock=os.path.join(folder, dock) if dock else None,
         dock_style=os.path.join(folder, dock_style) if dock else None,
         menu=menu,
         menu_style=menu_style,
+        menu_arrow=menu_arrow,
         desktops=desktops,
         quick=quick,
         folder=folder,
@@ -1009,21 +1204,32 @@ def read_first_line(path):
         return None
 
 
-def system_default(key="Layout"):
-    ini = configparser.ConfigParser(interpolation=None)
-    try:
-        ini.read(SYSTEM_CONF, encoding="utf-8")
-    except (configparser.Error, UnicodeDecodeError) as error:
-        warn(f"{SYSTEM_CONF}: {error}")
-        return None
-    return ini.get("Defaults", key, fallback=None) or None
+def system_default(key="Layout", with_source=False):
+    """[Defaults] KEY= of the site's layouts.conf, else FlickOS's: the value, or
+    (value, file) with with_source."""
+    found = None
+    for path in (SITE_CONF, SYSTEM_CONF):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+        except (configparser.Error, UnicodeDecodeError) as error:
+            warn(f"{path}: {error}")
+            continue
+        value = ini.get("Defaults", key, fallback=None) or None
+        if value:
+            found = (value, path)
+            break
+    if with_source:
+        return found or (None, SYSTEM_CONF)
+    return found[0] if found else None
 
 
 def resolve(available, kind, default, directory, key=None):
     """The layout or style in use: user choice, system default (key in
     [Defaults], else the kind in title case), built-in default."""
+    default_id, default_file = system_default(key or kind.title(), with_source=True)
     for source, item_id in ((choice_path(kind), read_first_line(choice_path(kind))),
-                            (SYSTEM_CONF, system_default(key or kind.title())),
+                            (default_file, default_id),
                             (None, default)):
         if item_id in available:
             return available[item_id]
@@ -1101,6 +1307,18 @@ def resolve_clock():
     return resolve(CLOCKS, "clock", DEFAULT_CLOCK, "flickos-layout")
 
 
+def resolve_buttons():
+    return resolve(BUTTON_CHOICES, "buttons", DEFAULT_BUTTONS, "flickos-layout", key="Buttons")
+
+
+def titlebar_layout(layout, buttons=None):
+    """The window buttons in use, in labwc's words: the user's choice of
+    arrangement, else the layout's TitlebarLayout=, else None (labwc's own)."""
+    if buttons is not None and buttons.id in BUTTON_ARRANGEMENTS:
+        return BUTTON_ARRANGEMENTS[buttons.id]
+    return layout.titlebar_layout
+
+
 def available_quick_settings():
     """QUICK_SETTINGS, without on while flickos-menu isn't installed."""
     return {key: choice for key, choice in QUICK_SETTINGS.items() if key != "on" or installed(MENU_PROGRAM)}
@@ -1115,6 +1333,15 @@ def resolve_quick_settings():
             warn(f"{MENU_PROGRAM} is not installed; Quick Settings is off")
         return QUICK_SETTINGS["off"]
     return resolve(available, "quick-settings", DEFAULT_QUICK_SETTINGS, "flickos-layout", key="QuickSettings")
+
+
+def resolve_floating_panel(layout=None):
+    """The user's choice, else the system's, else off; on in a layout with
+    FloatingDefault=on, whose look is the floating panel. layout: the one in
+    use, when the caller has it."""
+    layout = layout or resolve_layout(layouts())
+    default = "on" if layout.floating_default else DEFAULT_FLOATING_PANEL
+    return resolve(FLOATING_PANELS, "floating-panel", default, "flickos-layout", key="FloatingPanel")
 
 
 def menu_style(layout, choice):
@@ -1140,6 +1367,52 @@ def phone_corner(layout):
     return layout.quick
 
 
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007):
+    every choice apply_choice records, and each layout's pinned apps."""
+    return key in CHANGED_CHOICES or key.startswith(PINNED_HISTORY)
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
+
+
 # --- History --------------------------------------------------------------
 # Every change of a choice is recorded for Settings > History, which can undo
 # it (flickos-control history). One JSON line per change, appended; the format
@@ -1152,11 +1425,12 @@ HISTORY_LOCK = "history.lock"
 HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
 # flickos-control's: [History] Enabled=, then the user's ~/.config/flickos/history.
 HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+HISTORY_SITE_CONF = PREFIX + "/etc/xdg/flickos-site/flickos/history.conf"
 
 
 def history_enabled():
     enabled = True
-    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+    for path in (HISTORY_CONF, HISTORY_SITE_CONF, os.path.join(config_home(), "flickos", "history")):
         ini = configparser.ConfigParser(interpolation=None)
         try:
             ini.read(path, encoding="utf-8")
@@ -1171,7 +1445,10 @@ def history_enabled():
 def record(key, old, new):
     """Add a change to the history. It never stops the change itself: a
     history that can't be written is only a warning."""
-    if old == new or not history_enabled():
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
         return
     now = time.time_ns()
     entry = {"v": 1, "id": str(now),
@@ -1324,17 +1601,18 @@ def set_option(element, path, value, only_replace=None):
     return True
 
 
-def rcxml_changes(layout, style, style_themes):
+def rcxml_changes(layout, style, style_themes, buttons=None):
     """(path, value, only_replace) for every option the layout and style set.
 
     The window theme and the title bar's icon theme are only replaced if the
     system rc.xml selects one of the styles' themes (style_themes), so an
     administrator's own theme stays. The icon theme is the one GTK uses
     (gsettings icon-theme, which the style sets unless the user chose one),
-    so window icons match the apps'."""
+    so window icons match the apps'. buttons: the user's window buttons
+    choice (resolve_buttons), which wins over the layout's."""
     changes = []
-    if layout.titlebar_layout:
-        changes.append((("theme", "titlebar", "layout"), layout.titlebar_layout, None))
+    if titlebar_layout(layout, buttons):
+        changes.append((("theme", "titlebar", "layout"), titlebar_layout(layout, buttons), None))
     if style is not None:
         changes.append((("theme", "name"), style.labwc_theme, style_themes | {style.labwc_theme}))
         changes.append((("theme", "icon"), current_icon_theme() or style.icon_theme,
@@ -1444,13 +1722,19 @@ def desktop_keys(count):
             + tuple((f"W-S-{n}", "SendToDesktop", n) for n in numbers))
 
 
+DESKTOP_SHOW = DESKTOP_HELPER + " show"
+
+
 def set_desktops(top, count):
     """labwc desktops named 1 to count, replacing the system rc.xml's, and
     desktop_keys(count) to go to another one and to move the window there.
     Returns True (the system rc.xml has neither)."""
     for element in top.findall("desktops"):
         top.remove(element)
+    card = os.access(OSD_CLIENT, os.X_OK)
     desktops = ET.Element("desktops", number=str(count))
+    if card:
+        ET.SubElement(desktops, "popupTime").text = "0"     # the card replaces labwc's pop-up
     names = ET.SubElement(desktops, "names")
     for number in range(1, count + 1):
         ET.SubElement(names, "name").text = str(number)
@@ -1474,6 +1758,9 @@ def set_desktops(top, count):
         action = ET.SubElement(bind, "action", name=name, to=to)
         if not to.isdigit():
             action.set("wrap", "no")
+        if card:
+            show = ET.SubElement(bind, "action", name="Execute")
+            ET.SubElement(show, "command").text = DESKTOP_SHOW
         bind.tail = indent if i < len(binds) - 1 else "\n  "
     return True
 
@@ -1575,14 +1862,14 @@ def drop_bound_keys(top, fragment):
 
 def merge_fragment(top, fragment):
     """Add a fragment to rc.xml: its regions and window rules are added, its
-    keybinds replace the ones with the same key, its core, magnifier and
-    keyboard options are set, and its libinput <device> categories are appended (labwc uses the
+    keybinds replace the ones with the same key, its core, magnifier, theme
+    and keyboard options are set, and its libinput <device> categories are appended (labwc uses the
     last category of a device's type, so they win over the system rc.xml's,
     while one for a named device still wins over a type). Returns True if
     anything was added."""
     changed = False
     for section in fragment:
-        if section.tag in ("core", "magnifier"):
+        if section.tag in ("core", "magnifier", "theme"):
             for option in section:
                 if isinstance(option.tag, str):
                     changed |= set_option(top, (section.tag, option.tag), (option.text or "").strip())
@@ -1607,8 +1894,267 @@ def merge_fragment(top, fragment):
     return changed
 
 
+# --- Keys on every keyboard (docs/design/flickos-keys.md) --------------------------
+
+def environment_values(path):
+    """{KEY: VALUE} of an environment file (labwc's, or /etc/default/keyboard
+    with its quotes)."""
+    values = {}
+    for line in (text_of(path) or "").splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key and not key.startswith("#"):
+            values[key.strip()] = value.strip().strip("\"'")
+    return values
+
+
+def keyboard_names(root):
+    """The keymap labwc builds, as {rules, model, layout, variant, options}
+    (ADR-003): the first of the user's labwc environment (not in the plain
+    session), flickos-control's, the system's that sets XKB_DEFAULT_LAYOUT
+    gives every name (an empty one too), else /etc/default/keyboard, which
+    flickos-session exports."""
+    files = [] if plain_session() else [os.path.join(config_home(), "labwc", "environment")]
+    files += [os.path.join(root, CONTROL_ENVIRONMENT), find_base_rcxml(root, "environment")]
+    for path in files:
+        values = environment_values(path) if path else {}
+        if "XKB_DEFAULT_LAYOUT" in values:
+            return {name: values.get(variable, "") for name, variable, _debian in KEYBOARD_VARIABLES}
+    values = environment_values(KEYBOARD_DEFAULTS)
+    return {name: values.get(debian, "") if debian else "" for name, _variable, debian in KEYBOARD_VARIABLES}
+
+
+def us_keyboard(names):
+    """True for a US keymap: every key FlickOS binds is where it is, and
+    libxkbcommon isn't loaded at all."""
+    return names.get("layout", "").strip() in ("", "us") and not names.get("variant", "").strip()
+
+
+_XKB = []
+
+
+def xkb():
+    """libxkbcommon and a context that never reads XKB_DEFAULT_* itself, or
+    None without it."""
+    if not _XKB:
+        import ctypes
+        try:
+            lib = ctypes.CDLL(XKBCOMMON)
+        except OSError:
+            _XKB.append(None)
+            return None
+
+        class RuleNames(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_char_p) for name, _variable, _debian in KEYBOARD_VARIABLES]
+
+        lib.xkb_context_new.restype = ctypes.c_void_p
+        lib.xkb_keymap_new_from_names.restype = ctypes.c_void_p
+        lib.xkb_keymap_new_from_names.argtypes = [ctypes.c_void_p, ctypes.POINTER(RuleNames), ctypes.c_int]
+        lib.xkb_keymap_unref.argtypes = [ctypes.c_void_p]
+        for name in ("xkb_keymap_num_layouts", "xkb_keymap_min_keycode", "xkb_keymap_max_keycode"):
+            getattr(lib, name).argtypes = [ctypes.c_void_p]
+        lib.xkb_keymap_key_get_syms_by_level.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint32))]
+        lib.xkb_keysym_get_name.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_size_t]
+        lib.xkb_keysym_from_name.restype = ctypes.c_uint32
+        lib.xkb_keysym_from_name.argtypes = [ctypes.c_char_p, ctypes.c_int]
+        lib.xkb_keysym_to_lower.restype = ctypes.c_uint32
+        lib.xkb_keysym_to_lower.argtypes = [ctypes.c_uint32]
+        lib.xkb_utf32_to_keysym.restype = ctypes.c_uint32
+        lib.xkb_utf32_to_keysym.argtypes = [ctypes.c_uint32]
+        lib.xkb_keysym_to_utf8.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_size_t]
+        lib.xkb_context_set_log_level.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        context = lib.xkb_context_new(2)       # XKB_CONTEXT_NO_ENVIRONMENT_NAMES
+        if context:
+            lib.xkb_context_set_log_level(context, 10)     # XKB_LOG_LEVEL_CRITICAL: move_keys warns itself
+        _XKB.append((lib, context, RuleNames, ctypes) if context else None)
+    return _XKB[0]
+
+
+def keysym_name(lib, sym):
+    import ctypes
+    buf = ctypes.create_string_buffer(64)
+    lib.xkb_keysym_get_name(sym, buf, len(buf))
+    return buf.value.decode("ascii", "replace")
+
+
+def keymap_symbols(names):
+    """[{keycode: (symbol, …)}] of each layout's keys without Shift or AltGr,
+    the level labwc looks up a keybind's keys on; None if the keymap can't
+    be built."""
+    loaded = xkb()
+    if loaded is None:
+        return None
+    lib, context, rule_names, ctypes = loaded
+    rmlvo = rule_names(*((names.get(name) or "").encode() or None for name, _v, _d in KEYBOARD_VARIABLES))
+    keymap = lib.xkb_keymap_new_from_names(context, ctypes.byref(rmlvo), 0)
+    if not keymap:
+        return None
+    try:
+        layouts = []
+        for layout in range(lib.xkb_keymap_num_layouts(keymap)):
+            keys = {}
+            for code in range(lib.xkb_keymap_min_keycode(keymap), lib.xkb_keymap_max_keycode(keymap) + 1):
+                syms = ctypes.POINTER(ctypes.c_uint32)()
+                count = lib.xkb_keymap_key_get_syms_by_level(keymap, code, layout, 0, ctypes.byref(syms))
+                if count > 0:
+                    keys[code] = tuple(keysym_name(lib, syms[i]) for i in range(count))
+            layouts.append(keys)
+        return layouts
+    finally:
+        lib.xkb_keymap_unref(keymap)
+
+
+def parse_key(lib, key):
+    """((modifiers, symbol), parts, index) of a labwc key such as 'W-S-['
+    (labwc's keybind_create: any case, or one character; the symbol in lower
+    case), or None for a key of several symbols or none it knows."""
+    parts = key.split("-")
+    found = [i for i, part in enumerate(parts) if part not in KEY_MODIFIERS]
+    if len(found) != 1 or not parts[found[0]]:
+        return None
+    name = parts[found[0]]
+    sym = lib.xkb_keysym_from_name(name.encode(), 1)     # XKB_KEYSYM_CASE_INSENSITIVE
+    if not sym and len(name) == 1:
+        sym = lib.xkb_utf32_to_keysym(ord(name))
+    sym = lib.xkb_keysym_to_lower(sym)
+    if not sym:
+        return None
+    mods = frozenset(KEY_MODIFIERS[part] for i, part in enumerate(parts) if i != found[0])
+    return (mods, keysym_name(lib, sym)), parts, found[0]
+
+
+def moved_keys(keys, layouts, us):
+    """Where keybinds go on a keymap (ADR-002, ADR-006).
+
+    keys: (modifiers, symbol) of every keybind, rc.xml order first; layouts:
+    the keymap's [{keycode: symbols}] (keymap_symbols); us: the US keymap's
+    one layout. A symbol on a plain level of any layout stays (labwc finds
+    it whichever layout is active). Otherwise KEY_ALIASES' stand-in, else the
+    first layout's symbol on the key that gives it on a US keyboard, unless
+    that key is taken with the same modifiers. Returns ({key: new symbol},
+    [(key, why, other)]) with why "taken" (other: the key in the way), "pair"
+    (other: the half that couldn't move) or "none" (no key in that place)."""
+    plain = {sym for layout in layouts for syms in layout.values() for sym in syms}
+    first = layouts[0] if layouts else {}
+    place = {}
+    for code in sorted(us):
+        for sym in us[code]:
+            place.setdefault(sym, code)
+    bound = set(keys)
+    taken = set(bound)
+    moves, kept = {}, []
+    for key in dict.fromkeys(keys):
+        mods, sym = key
+        if sym in plain:
+            continue
+        if KEY_ALIASES.get(sym) in plain:
+            new = KEY_ALIASES[sym]
+        elif sym in place:
+            new = (first.get(place[sym]) or (None,))[0]
+        else:
+            continue             # not a key of US keyboards either (KP_Add, XF86…): the same everywhere
+        if new is None:
+            kept.append((key, "none", None))
+        elif (mods, new) in taken:
+            kept.append((key, "taken", (mods, new)))
+        else:
+            moves[key] = new
+            taken.add((mods, new))
+    stuck = {key: why for key, why, _other in kept}
+    for pair in KEY_PAIRS:
+        for mods in {mods for mods, _sym in keys}:
+            halves = [(mods, sym) for sym in pair]
+            blocked = [half for half in halves if half in stuck and stuck[half] != "pair"]
+            if all(half in bound for half in halves) and blocked:
+                for half in halves:
+                    if half in moves:
+                        del moves[half]
+                        kept.append((half, "pair", blocked[0]))
+    return moves, kept
+
+
+def symbol_text(lib, sym):
+    """A symbol as its key is labelled: 'Å', '¨', '+', else its name."""
+    if sym in DEAD_KEYS:
+        return DEAD_KEYS[sym]
+    import ctypes
+    buf = ctypes.create_string_buffer(16)
+    lib.xkb_keysym_to_utf8(lib.xkb_keysym_from_name(sym.encode(), 0), buf, len(buf))
+    text = buf.value.decode("utf-8", "replace")
+    return text.upper() if len(text) == 1 and text.isprintable() and not text.isspace() else sym
+
+
+def key_text(lib, key):
+    """'Super+Å' for (modifiers, symbol)."""
+    mods, sym = key
+    order = [word for word in ("Super", "Ctrl", "Alt", "AltGr", "Hyper", "Shift") if word in mods]
+    return "+".join(order + [symbol_text(lib, sym)])
+
+
+def move_keys(top, names):
+    """Move rc.xml's keybinds whose keys this keymap lacks (moved_keys).
+    Returns the report for KEYS_REPORT: {"keyboard", "moved": [{"key", "to",
+    "text", "to_text"}], "kept": [{"key", "text", "why", "other"}]}, or None
+    when nothing moves or stays behind."""
+    layouts, us = keymap_symbols(names), keymap_symbols(US_KEYBOARD)
+    if not layouts or not us:
+        warn(f"cannot read the keyboard layout {names.get('layout')!r} (libxkbcommon); FlickOS's keys that "
+             "this keyboard lacks are not moved")
+        return None
+    lib = xkb()[0]
+    binds = []
+    for bind in top.iter("keybind"):
+        parsed = parse_key(lib, bind.get("key", ""))
+        if parsed:
+            binds.append((bind, *parsed))
+    moves, kept = moved_keys([key for _bind, key, _parts, _i in binds], layouts, us[0])
+    moved = []
+    for bind, key, parts, index in binds:
+        if key in moves:
+            old = bind.get("key")
+            bind.set("key", "-".join(parts[:index] + [moves[key]] + parts[index + 1:]))
+            moved.append({"key": old, "to": bind.get("key"), "text": key_text(lib, key),
+                          "to_text": key_text(lib, (key[0], moves[key]))})
+    if not moved and not kept:
+        return None
+    return {"keyboard": names.get("layout", ""), "moved": moved,
+            "kept": [{"text": key_text(lib, key), "why": why, "other": other and key_text(lib, other)}
+                     for key, why, other in kept]}
+
+
+def update_key_report(root, report):
+    target = os.path.join(root, KEYS_REPORT)
+    if report:
+        write_atomic(target, json.dumps(report, indent=1, ensure_ascii=False) + "\n")
+    else:
+        remove(target)
+
+
+def key_report(root):
+    """KEYS_REPORT, or None."""
+    with contextlib.suppress(OSError, ValueError):
+        with open(os.path.join(root, KEYS_REPORT), encoding="utf-8") as f:
+            report = json.load(f)
+        if isinstance(report, dict):
+            return report
+    return None
+
+
+def kept_key_lines(report):
+    """Why keys of FlickOS's didn't move (ADR-006), one line each."""
+    lines = []
+    for item in (report or {}).get("kept", []):
+        why = {"taken": f"the key in its place is already {item.get('other')}",
+               "pair": f"{item.get('other')} couldn't move, and the two go together",
+               "none": "this layout has no key in its place"}.get(item.get("why"), "")
+        lines.append(f"{item.get('text')} doesn't work with the keyboard layout {report.get('keyboard')} and "
+                     f"wasn't moved: {why}.")
+    return lines
+
+
 def update_rcxml(root, layout, style=None, style_themes=frozenset(), clicks=None, menu=False, extra=(),
-                 quick=False):
+                 quick=False, buttons=None):
     """Write or delete the overlay rc.xml. Returns its path if written.
 
     The overlay is needed only if it differs from the system rc.xml. Clicks
@@ -1618,23 +2164,29 @@ def update_rcxml(root, layout, style=None, style_themes=frozenset(), clicks=None
     on), QUICK_KEY opens that and every desktop click closes it. A layout
     with more than one desktop gets them and their keys. The fragments
     (FRAGMENTS), then extra ones (the add-ons', addon_fragments), are merged
-    in."""
+    in. Last, keys the keyboard lacks are moved (move_keys). buttons: the
+    window buttons choice (resolve_buttons)."""
     target = os.path.join(overlay_xdg(root), "labwc", "rc.xml")
-    changes = rcxml_changes(layout, style, style_themes)
+    changes = rcxml_changes(layout, style, style_themes, buttons)
     if menu or quick:
         clicks = clicks or CLICKS[DEFAULT_CLICKS]
     elif clicks is not None and clicks.id == DEFAULT_CLICKS:
         clicks = None
     own = fragments(root)
     found = own + list(extra)
-    if not changes and clicks is None and not found and not menu and not quick and layout.desktops == 1:
+    keyboard = keyboard_names(root)
+    moving = not us_keyboard(keyboard)
+    if (not changes and clicks is None and not found and not menu and not quick and layout.desktops == 1
+            and not moving):
         remove(target)
+        update_key_report(root, None)
         return None
     base = find_base_rcxml(root)
     if base is None:
         warn("no system labwc rc.xml found; window buttons, window theme, desktop clicks, desktops, tiling "
              "and input settings not changed")
         remove(target)
+        update_key_report(root, None)
         return None
     try:
         parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
@@ -1643,6 +2195,7 @@ def update_rcxml(root, layout, style=None, style_themes=frozenset(), clicks=None
         warn(f"cannot read {base} ({error}); window buttons, window theme, desktop clicks, desktops, tiling "
              "and input settings not changed")
         remove(target)
+        update_key_report(root, None)
         return None
     top = tree.getroot()
     changed = [set_option(top, path, value, only_replace) for path, value, only_replace in changes]
@@ -1660,6 +2213,9 @@ def update_rcxml(root, layout, style=None, style_themes=frozenset(), clicks=None
     for fragment in extra:
         drop_bound_keys(top, fragment)
         changed.append(merge_fragment(top, fragment))
+    report = move_keys(top, keyboard) if moving else None
+    update_key_report(root, report)
+    changed.append(bool(report and report["moved"]))
     if not any(changed):
         remove(target)
         return None
@@ -1850,6 +2406,11 @@ def explain_labwc(ctx):
     if theme:
         found = theme_file(theme)
         lines.append(f"window theme {theme}: " + (shown_path(found) if found else "not installed"))
+    report = key_report(root) if root else None
+    if report and report.get("moved"):
+        lines.append(f"keys moved for the keyboard layout {report.get('keyboard')}:")
+        lines += [f"  {item.get('text')} is {item.get('to_text')}" for item in report["moved"]]
+    lines += kept_key_lines(report)
     return lines
 
 
@@ -2534,13 +3095,15 @@ def watch_say(text):
 
 def reload_panel_programs(layout, style):
     """Regenerate the panel, dock, notification and palette files, then have
-    FlickOS's waybars (SIGUSR2), docks (SIGHUP) and mako (makoctl reload)
-    read them again without a restart (spike Q8b-d). Returns what was reloaded."""
+    FlickOS's docks (SIGHUP) and mako (makoctl reload) read them again
+    without a restart (spike Q8b-d), and FlickOS's waybars start again
+    (restart_waybar). Returns what was reloaded."""
     update_style_files(required_root("panel"), style)
     done = []
-    for name, generate, running, how in (
-            ("panel", lambda: waybar_command(layout, style), managed_waybars, signal.SIGUSR2),
-            ("dock", lambda: dock_command(layout, style), managed_docks, signal.SIGHUP)):
+    for name, generate, running, send in (
+            ("panel", lambda: waybar_command(layout, style), managed_waybars, restart_waybar),
+            ("dock", lambda: dock_command(layout, style), managed_docks,
+             lambda pid: os.kill(pid, signal.SIGHUP))):
         try:
             if not generate():
                 continue
@@ -2549,7 +3112,7 @@ def reload_panel_programs(layout, style):
             continue
         for pid in running():
             with contextlib.suppress(OSError):
-                os.kill(pid, how)
+                send(pid)
                 if name not in done:
                     done.append(name)
     try:
@@ -2573,7 +3136,7 @@ def reapply_style():
         warn_style_fallbacks(style)
         style_gsettings(style, available_styles)
         prepare(layout, style, labwc_themes(available_styles), resolve_clicks(), resolve_launcher(),
-                resolve_menu_style(), resolve_quick_settings())
+                resolve_menu_style(), resolve_quick_settings(), resolve_buttons())
         run_quiet(["labwc", "--reconfigure"])
         done = reload_panel_programs(layout, style)
         restart_wallpaper(layout, style)
@@ -2713,6 +3276,7 @@ def cmd_watch(opts):
                         watch_apply(action, argument)
                     except LayoutError as error:
                         watch_say(str(error))
+                    fire_changed()          # applied: this runs until Ctrl+C
         except KeyboardInterrupt:
             return 0
         finally:
@@ -2778,6 +3342,21 @@ def update_style_files(root, style):
             write_atomic(target, include_file(style, base, palettes))
     for name, kind in STABLE_PALETTES:
         write_atomic(os.path.join(root, STYLE_PALETTES, name), include_file(style, None, palette_chain(style, kind)))
+    write_atomic(os.path.join(root, STYLE_PALETTES, SWAYLOCK_PALETTE), swaylock_config(style))
+
+
+def swaylock_config(style):
+    """A swaylock config (-C) in the style's colors: SWAYLOCK_LOOK, then
+    SWAYLOCK_COLORS from its waybar palette chain as rrggbbaa."""
+    colors = palette_rgba(palette_chain(style, "waybar"))
+    lines = [f"# Generated by flickos-layout at every login for the {style.name} style. Do not edit.",
+             *SWAYLOCK_LOOK]
+    for option, key, alpha in SWAYLOCK_COLORS:
+        if key in colors:
+            *rgb, own = colors[key]
+            values = (*rgb, own if alpha is None else own * alpha)
+            lines.append(f"{option}=" + "".join(f"{round(v * 255):02x}" for v in values))
+    return "\n".join(lines) + "\n"
 
 
 def update_mako(root, style):
@@ -2790,15 +3369,15 @@ def update_mako(root, style):
     return target
 
 
-def update_menu(root, anchor, style=DEFAULT_MENU_STYLE):
-    """Write the start menu's corner and style to MENU_ANCHOR while it is on
-    (flickos-menu reads it at every show), or delete it. Written only when it
-    changes."""
+def update_menu(root, anchor, style=DEFAULT_MENU_STYLE, arrow=None):
+    """Write the start menu's corner, style and arrow (the layout's MenuArrow=,
+    if it has one) to MENU_ANCHOR while it is on (flickos-menu reads it at
+    every show), or delete it. Written only when it changes."""
     target = os.path.join(root, MENU_ANCHOR)
     if anchor is None:
         remove(target)
         return None
-    text = f"{anchor}\n{style}\n"
+    text = f"{anchor}\n{style}\n" + (f"{arrow}\n" if arrow is not None else "")
     try:
         with open(target, encoding="utf-8") as f:
             unchanged = f.read() == text
@@ -2854,14 +3433,16 @@ def menu_daemon_wanted(root):
     return menu_running_on(root) or quick_running_on(root) or phone_popup_on(root)
 
 
-def prepare(layout, style, style_themes=frozenset(), clicks=None, launcher=None, style_choice=None, quick=None):
+def prepare(layout, style, style_themes=frozenset(), clicks=None, launcher=None, style_choice=None, quick=None,
+            buttons=None):
     """Regenerate the runtime overlay. False without XDG_RUNTIME_DIR.
 
     style_themes: the labwc and icon themes of all installed styles
     (labwc_themes). launcher: the apps
     button's choice (resolve_launcher); None is the app launcher. style_choice:
     the start menu style choice (resolve_menu_style); None follows the layout.
-    quick: Quick Settings' choice (resolve_quick_settings); None is off."""
+    quick: Quick Settings' choice (resolve_quick_settings); None is off.
+    buttons: the window buttons choice (resolve_buttons); None follows the layout."""
     root = runtime_root()
     if root is None:
         warn("XDG_RUNTIME_DIR is not set; no runtime overlay")
@@ -2871,13 +3452,13 @@ def prepare(layout, style, style_themes=frozenset(), clicks=None, launcher=None,
     anchor, corner = menu_anchor(layout, launcher), quick_anchor(layout, quick)
     extra, descriptions = addon_fragments(addons())
     update_rcxml(root, layout, style, style_themes, clicks, menu=anchor is not None, extra=extra,
-                 quick=corner is not None)
+                 quick=corner is not None, buttons=buttons)
     update_shortcut_descriptions(root, descriptions)
     update_environment(root)
     update_plain(root)
     update_merge_marker(root)
     update_style_files(root, style)
-    update_menu(root, anchor, menu_style(layout, style_choice))
+    update_menu(root, anchor, menu_style(layout, style_choice), layout.menu_arrow)
     update_quick(root, corner)
     update_phone(root, phone_corner(layout))
     return True
@@ -3059,11 +3640,34 @@ def style_gsettings(style, available):
         current = gsettings_get(key)
         if current is None or current == wanted:
             continue
-        if current in {getattr(s, attribute) for s in available.values()}:
+        ours = {getattr(s, attribute) for s in available.values()}
+        if current in (ours | RETIRED_GTK_THEMES if key == "gtk-theme" else ours):
             gsettings_set(key, wanted)
         else:
             kept.append((key, current))
     return kept
+
+
+def move_retired_gtk_theme(style):
+    """Once per account (GTK_MOVED): gsettings gtk-theme still holding a GTK
+    theme FlickOS's styles named before flickos-theme (RETIRED_GTK_THEMES), from
+    the 2.x defaults or a `style set`, becomes style's. Once, so Arc-Dark chosen
+    again later in Appearance stays. Without gsettings it waits for the next
+    login."""
+    marker = os.path.join(state_home(), "flickos", GTK_MOVED)
+    if os.path.exists(marker):
+        return
+    current = gsettings_get("gtk-theme")
+    if current is None:
+        return
+    if current in RETIRED_GTK_THEMES and current != style.gtk_theme:
+        if not theme_installed("gtk_theme", style.gtk_theme):
+            return                  # not there yet: try again at the next login
+        gsettings_set("gtk-theme", style.gtk_theme)
+    try:
+        write_atomic(marker, "")
+    except OSError as error:
+        warn(f"can't write {marker}: {error}")
 
 
 def gtk_button_layout(titlebar_layout):
@@ -3077,28 +3681,61 @@ def layout_button_layouts(available, default):
     """The button-layout values layouts set: the default (layouts without a
     TitlebarLayout) and the installed layouts' TitlebarLayouts."""
     values = {gtk_button_layout(l.titlebar_layout) for l in available.values() if l.titlebar_layout}
+    values |= {gtk_button_layout(value) for value in BUTTON_ARRANGEMENTS.values()}
     return values | {default} if default is not None else values
 
 
-def layout_gsettings(layout, available):
+def layout_gsettings(layout, available, buttons=None):
     """Give windows that draw their own title bar (Firefox, GTK header bars) the
-    layout's window buttons, or the default ones for a layout without a
-    TitlebarLayout. Only while button-layout holds one of the layouts' values,
-    so buttons the user chose are kept. Returns the kept value, or None."""
+    window buttons in use (the user's choice, else the layout's), or the
+    default ones for a layout without a TitlebarLayout. Only while
+    button-layout holds one of the layouts' or choices' values, so buttons the
+    user chose elsewhere are kept. Returns the kept value, or None."""
     current = gsettings_get("button-layout")
     if current is None:
         return None
     default = gsettings_default("button-layout")
-    wanted = gtk_button_layout(layout.titlebar_layout) if layout.titlebar_layout else default
+    titlebar = titlebar_layout(layout, buttons)
+    wanted = gtk_button_layout(titlebar) if titlebar else default
     if current == wanted:
         return None
     if current not in layout_button_layouts(available, default):
         return current
-    if layout.titlebar_layout:
+    if titlebar:
         gsettings_set("button-layout", wanted)
     else:
         gsettings_reset("button-layout")
     return None
+
+
+def sync_default_look(layout, style, buttons, available, available_styles):
+    """GTK settings for what the account never chose. Only `set` wrote them, so
+    a default style or layout other than FlickOS's own (a variant's, the site's
+    layouts.conf) left GTK apps on the dark theme and the window buttons on the
+    default. Done once per change of the defaults, noted in DEFAULT_LOOK, and
+    only for the parts without a choice of the user's; style_gsettings and
+    layout_gsettings keep what the user set elsewhere. Returns True when it
+    applied something. Without gsettings it waits for the next login."""
+    if gsettings_get("gtk-theme") is None:
+        return False
+    parts = ["-", "-"]
+    if user_choice("style") == DEFAULT_CHOICE:
+        parts[1] = style.id
+    if user_choice("layout") == DEFAULT_CHOICE and user_choice("buttons") == DEFAULT_CHOICE:
+        parts[0] = layout.id
+    wanted = " ".join(parts)
+    marker = os.path.join(state_home(), "flickos", DEFAULT_LOOK)
+    if read_first_line(marker) == wanted:
+        return False
+    if parts[1] != "-":
+        style_gsettings(style, available_styles)
+    if parts[0] != "-":
+        layout_gsettings(layout, available, buttons)
+    try:
+        write_atomic(marker, wanted + "\n")
+    except OSError as error:
+        warn(f"can't write {marker}: {error}")
+    return True
 
 
 class IconFinder:
@@ -3229,6 +3866,69 @@ def pinned_apps(desktop_ids, icons=None):
         name = entry.get("Name") or desktop_id.removesuffix(".desktop")
         apps.append(PinnedApp(desktop_id, path, name, icon, css_class))
     return apps
+
+
+def split_pins(value):
+    return [p.strip() for p in value.split(";") if p.strip()]
+
+
+def pins_path():
+    return choice_path(PINNED_CHOICE)
+
+
+def read_user_pins():
+    """{layout id: [desktop ids]} the user chose. A broken file counts as none."""
+    path = pins_path()
+    ini = configparser.ConfigParser(interpolation=None)
+    try:
+        ini.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}; using the layouts' own pinned apps")
+        return {}
+    if not ini.has_section(PINNED_SECTION):
+        return {}
+    return {layout_id: split_pins(value) for layout_id, value in ini[PINNED_SECTION].items()
+            if LAYOUT_ID.match(layout_id)}
+
+
+def write_user_pins(layout_id, pins):
+    """Save layout_id's pinned apps; None goes back to the layout's own.
+    The file is deleted when no layout has the user's."""
+    found = read_user_pins()
+    if pins is None:
+        found.pop(layout_id, None)
+    else:
+        found[layout_id] = pins
+    if not found:
+        remove(pins_path())
+        return
+    lines = ["# Your pinned apps per layout, written by flickos-layout pinned (Settings > Desktop Layout & Style).",
+             "# A layout that isn't listed has its own (Pinned= in its layout.ini).",
+             f"[{PINNED_SECTION}]"]
+    lines += [f"{item_id}={';'.join(ids)}" for item_id, ids in sorted(found.items())]
+    write_atomic(pins_path(), "\n".join(lines) + "\n")
+
+
+def layout_pins(layout):
+    """The desktop ids of layout's pinned apps: the user's for it, else its
+    Pinned=. The plain session leaves the user's out."""
+    if not plain_session():
+        pins = read_user_pins().get(layout.id)
+        if pins is not None:
+            return pins
+    return layout.pinned
+
+
+def shows_pinned(layout):
+    """Whether layout's dock or one of its bars shows the pinned apps."""
+    if layout.dock and DOCK_PINS.search(text_of(layout.dock) or ""):
+        return True
+    try:
+        bars = load_bars(layout)
+    except LayoutError:
+        return False
+    return any(isinstance(bar.get(key), list) and PINNED_MODULE in bar[key] for bar in bars
+               for key in ("modules-left", "modules-center", "modules-right"))
 
 
 def expand_pinned(bars, apps):
@@ -3391,6 +4091,75 @@ def phone_on():
     except (OSError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0 and result.stdout.strip() == "yes"
+
+
+def media_on():
+    """Whether the media buttons are on: flickos-media owns the setting."""
+    if shutil.which(MEDIA) is None:
+        return False
+    try:
+        result = subprocess.run([MEDIA, "get", "controls"], capture_output=True, text=True, timeout=5,
+                                check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "on"
+
+
+def weather_on():
+    """Whether the weather button is on: flickos-weather owns the setting."""
+    if shutil.which(WEATHER) is None:
+        return False
+    try:
+        result = subprocess.run([WEATHER, "get", "enabled"], capture_output=True, text=True, timeout=5,
+                                check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "on"
+
+
+def classroom_on():
+    """Whether this screen is shared with a teacher: flickos-classroom-view
+    owns the setting (never in the live session)."""
+    if live_system() or shutil.which(CLASSROOM) is None:
+        return False
+    try:
+        result = subprocess.run([CLASSROOM, "student", "get", "sharing"], capture_output=True, text=True,
+                                timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "on"
+
+
+def use_weather(bars, on):
+    """Replace WEATHER_PLACEHOLDER with WEATHER_MODULE while on, drop it while
+    off (bars change in place). On, a layout without the placeholder gets the
+    button before MODULE_BEFORE. Returns the bar that has it, or None."""
+    placed = None
+    for bar in bars:
+        for key in ("modules-left", "modules-center", "modules-right"):
+            modules = bar.get(key)
+            if isinstance(modules, list) and WEATHER_PLACEHOLDER in modules:
+                bar[key] = [WEATHER_MODULE if module == WEATHER_PLACEHOLDER else module
+                            for module in modules if on or module != WEATHER_PLACEHOLDER]
+                if on and placed is None:
+                    placed = bar
+    if on and placed is None:
+        placed = insert_module(bars, WEATHER_MODULE)
+    return placed
+
+
+def use_media(bars):
+    """Put the media buttons into the panel, in MEDIA_MODULES' order (bars
+    change in place). A layout that places one of them already keeps its
+    own place for it (their settings are in the shared include, so
+    module_taken would say every layout has them). Returns the bar that got
+    them, or None."""
+    placed = None
+    for module in MEDIA_MODULES:
+        if not any(isinstance(bar.get(key), list) and module in bar[key]
+                   for bar in bars for key in ("modules-left", "modules-center", "modules-right")):
+            placed = insert_module(bars, module) or placed
+    return placed
 
 
 def insert_module(bars, module):
@@ -3679,27 +4448,42 @@ def panel_css_errors(layout, found, tweaks):
     return css_errors(([layout.style] if layout.user else []) + user_addon_styles(found) + [tweaks])
 
 
-def update_waybar(root, layout, style, menu=False, phone=False, found=None, quick=False, popup=False):
+def update_waybar(root, layout, style, menu=False, phone=False, found=None, quick=False, popup=False,
+                  media=False, weather=False, floating=False, classroom=False):
     """Generate the panel files in root/waybar/. Returns the waybar command.
-    With menu, the apps button opens the start menu; with phone, the panel
-    has the phone connection's button (with popup, that button opens the
-    phone popup); found (addons()) adds the add-ons' buttons and stylesheets;
-    with quick, the volume and battery icons open Quick Settings."""
-    for path in [layout.style] + palette_chain(style, "waybar"):
+    With menu, the apps button opens the start menu; with media, the panel
+    has the media buttons; with weather, the weather button; with classroom,
+    the button that shows a teacher can see the screen; with phone, the phone connection's button (with
+    popup, that button opens the phone popup); found (addons()) adds the
+    add-ons' buttons and stylesheets; with quick, the volume and battery
+    icons open Quick Settings; with floating, a layout with Floating= has the
+    floating panel."""
+    floating_css = layout.floating if floating else None
+    for path in [layout.style] + palette_chain(style, "waybar") + ([floating_css, layout.floating_full]
+                                                                   if floating_css else []):
         if not os.path.isfile(path):
             raise LayoutError(f"layout {layout.id}, style {style.id}: {path} not found")
     bars = load_bars(layout)
-    apps = pinned_apps(layout.pinned) if layout.pinned else []
+    pins = layout_pins(layout)
+    apps = pinned_apps(pins) if pins else []
     expand_pinned(bars, apps)
     desktops = expand_desktops(bars, layout.desktops)
     if menu:
         use_start_menu(bars)
     if quick:
         use_quick_settings(bars)
+    if media:
+        use_media(bars)
+    use_weather(bars, weather)
+    if classroom:
+        insert_module(bars, CLASSROOM_MODULE)
     if phone:
         use_phone(bars, popup=popup)
     addon_styles = use_addons(bars, found or {})
     use_clock(bars, resolve_clock(), calendar_today(style))
+    if floating_css:
+        for bar in bars:
+            bar["reload_style_on_change"] = True
     tweaks = tweaks_css()
     broken = panel_css_errors(layout, found or {}, tweaks)
     for path, error in broken.items():
@@ -3713,6 +4497,7 @@ def update_waybar(root, layout, style, menu=False, phone=False, found=None, quic
     folder = os.path.join(root, "waybar")
     config = os.path.join(folder, "config.jsonc")
     css = os.path.join(folder, "style.css")
+    state, full = os.path.join(folder, PANEL_STATE), os.path.join(folder, PANEL_FULL)
     note = "Generated by flickos-layout at every login. Do not edit."
     write_atomic(config, f"// {note} Layout: {layout.waybar}\n"
                          + json.dumps(bars, indent=4, ensure_ascii=False) + "\n")
@@ -3722,10 +4507,18 @@ def update_waybar(root, layout, style, menu=False, phone=False, found=None, quic
     lines += [f"@import url({css_string(path)});" for path in addon_styles if path not in broken]
     lines += [f"#custom-pin.{app.css_class} {{ background-image: url({css_string(app.icon)}); }}"
               for app in apps if app.icon]
+    if floating_css:
+        write_atomic(full, f"@import url({css_string(layout.floating_full)});\n")
+        if not os.path.exists(state):       # else flick-tiler's, which is right as it is
+            write_atomic(state, "")
+        lines += [f"@import url({css_string(floating_css)});", f"@import url({css_string(state)});"]
     if tweaks and tweaks not in broken:
         # Last, so they win over everything at the same strength (GTK takes a late @import).
         lines += ["/* Your tweaks (flickos-layout tweaks new) */", f"@import url({css_string(tweaks)});"]
     write_atomic(css, "\n".join(lines) + "\n")
+    if not floating_css:
+        remove(state)
+        remove(full)
     update_desktop_files(root, layout.desktops if desktops else 0)
     return ["waybar", "-c", config, "-s", css]
 
@@ -3756,7 +4549,8 @@ def update_dock(root, layout, style, menu=False):
     palette = "\n".join(text.rstrip() for text in palettes)
     if re.search(r"^#CSS", config, re.MULTILINE):
         raise LayoutError(f"{layout.dock}: has a #CSS section; the dock's CSS belongs in DockStyle=")
-    apps = installed_apps(layout.pinned) if layout.pinned else []
+    pins = layout_pins(layout)
+    apps = installed_apps(pins) if pins else []
     pins = ", ".join(css_string(desktop_id.removesuffix(".desktop")) for desktop_id, _path, _entry in apps)
     config = DOCK_PINS.sub(lambda m: m.group(1) + pins if pins else "", config)
     launcher = "sh -c " + shlex.quote(MENU_TOGGLE if menu else f"{CLOSE_LAUNCHER} || {FALLBACK_LAUNCHER}")
@@ -3788,7 +4582,9 @@ def waybar_command(layout, style):
     Quick Settings while it wrote MENU_QUICK."""
     root = required_root("panel")
     return update_waybar(root, layout, style, menu=menu_running_on(root), phone=phone_on(), found=addons(),
-                         quick=quick_running_on(root), popup=phone_popup_on(root))
+                         quick=quick_running_on(root), popup=phone_popup_on(root), media=media_on(),
+                         weather=weather_on(), floating=resolve_floating_panel(layout).id == "on",
+                         classroom=classroom_on())
 
 
 def dock_command(layout, style):
@@ -4083,6 +4879,31 @@ def catches_signal(pid, signum):
     return False
 
 
+def supervisor_of(pid):
+    """The PID of process pid's supervisor (SUPERVISORS), or None."""
+    try:
+        with open(os.path.join(PROC, str(pid), "stat"), encoding="utf-8") as f:
+            # "PID (comm) STATE PPID ...": comm may contain spaces and parentheses.
+            parent = int(f.read().rpartition(")")[2].split()[1])
+        with open(os.path.join(PROC, str(parent), "cmdline"), "rb") as f:
+            args = f.read().split(b"\0")
+    except (OSError, ValueError, IndexError):
+        return None
+    return parent if any(command in args for command in SUPERVISORS) else None
+
+
+def restart_waybar(pid):
+    """Have waybar pid's supervisor start it again (RESTART_SIGNAL). Only a
+    waybar without a supervisor that catches it (one started before
+    flickos-layouts 1.75, until the next login) gets waybar's own reload,
+    which empties the clock's calendar (RESTART_ON_SCREENS)."""
+    parent = supervisor_of(pid)
+    if parent is not None and catches_signal(parent, RESTART_SIGNAL):
+        os.kill(parent, RESTART_SIGNAL)
+    else:
+        os.kill(pid, signal.SIGUSR2)
+
+
 def watch_screens(env, changed, desktops=None):
     """Run a ScreenWatch for env's compositor in a daemon thread (with
     desktops, it also follows the desktops); nothing when there is none to
@@ -4112,8 +4933,9 @@ def supervise(command, env, stream=None):
     Restart it, waiting longer each time, and give up after RESTART_LIMIT
     failures in a row. A program that ended on purpose is left alone: one that
     exited cleanly (how `set` stops the old panel), one that was killed, and
-    any of them once the session is over."""
-    state = {"child": None, "stopping": False}
+    any of them once the session is over. RESTART_SIGNAL starts it again
+    at once, as a change of screens does for waybar (RESTART_ON_SCREENS)."""
+    state = {"child": None, "stopping": False, "restart": False}
 
     def stop_child(signum, frame):
         state["stopping"] = True
@@ -4122,15 +4944,26 @@ def supervise(command, env, stream=None):
                 state["child"].terminate()
 
     name = os.path.basename(command[0])
+
+    def restart_child(why):
+        # One still starting reads the new files anyway.
+        child = state["child"]
+        if child is not None and child.poll() is None and not state["stopping"]:
+            log_line(f"{why}: restarting {name}")
+            state["restart"] = True
+            with contextlib.suppress(OSError):
+                child.terminate()
+
     handlers = [(sig, signal.signal(sig, stop_child))
                 for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)]
-    if name in RELOAD_ON_SCREENS:
+    handlers.append((RESTART_SIGNAL, signal.signal(RESTART_SIGNAL,
+                                                   lambda signum, frame: restart_child("its files changed"))))
+    if name in RESTART_ON_SCREENS:
         def screens_changed():
-            child = state["child"]
-            if child is not None and child.poll() is None:
-                log_line(f"the screens changed: reloading {name}")
-                with contextlib.suppress(OSError):
-                    child.send_signal(RELOAD_ON_SCREENS[name])
+            # The hooks' `screens` (docs/design/flickos-hooks.md): only the
+            # panel's supervisor watches, so it fires once per change.
+            fire("screens")
+            restart_child("the screens changed")
         base = env.get("XDG_RUNTIME_DIR")
         root = os.path.join(base, "flickos") if base and os.path.isabs(base) else None
         count = desktop_buttons(root)
@@ -4164,6 +4997,9 @@ def supervise(command, env, stream=None):
             if state["stopping"]:
                 deliberate = True
                 break
+            if state["restart"]:
+                state["restart"] = False
+                continue
             # waybar, mako and sfwbar exit 0 when they are asked to stop, so a
             # clean exit is a program that was meant to end, like a crash isn't.
             if status == 0 or (status < 0 and -status in (signal.SIGTERM, signal.SIGKILL)):
@@ -4211,6 +5047,14 @@ def sync_menu(on):
     (hide), after which it builds the menu style of the new layout ahead of
     the next show, and builds or drops Quick Settings and the phone popup."""
     pids = managed_menus()
+    if on and pids:
+        # One started before flickos-menu was last installed still runs the
+        # old code, which may not know what this flickos-layout writes (a
+        # new Menu= corner): replace it rather than signal it.
+        stale = [pid for pid in pids if started_before(pid, shutil.which(MENU_PROGRAM))]
+        if stale:
+            stop(stale)
+            pids = [pid for pid in pids if pid not in stale]
     if on and not pids:
         start_supervised(menu_command(), session_environment())
     elif not on and pids:
@@ -4219,6 +5063,22 @@ def sync_menu(on):
         for pid in pids:
             with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGWINCH)
+
+
+def started_before(pid, path):
+    """Did process pid start before the file at path was last installed? Its
+    ctime, not its mtime: dpkg keeps the package's mtimes, so only the ctime
+    says when the file was put in place. False when either is unknown."""
+    try:
+        with open(os.path.join(PROC, str(pid), "stat"), encoding="utf-8") as f:
+            # Field 22, after the command name in parentheses (which may hold spaces).
+            ticks = int(f.read().rsplit(")", 1)[1].split()[19])
+        with open(os.path.join(PROC, "stat"), encoding="utf-8") as f:
+            boot = next(int(line.split()[1]) for line in f if line.startswith("btime "))
+        changed = os.stat(path).st_ctime
+    except (OSError, TypeError, ValueError, IndexError, StopIteration):
+        return False
+    return boot + ticks / os.sysconf("SC_CLK_TCK") < changed
 
 
 def restart_panel(layout, style, command, dock=None):
@@ -4495,12 +5355,12 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
     frame.add(listbox)
     box.pack_start(frame, False, False, 0)
 
-    def describe(name, comment, badge_text):
+    def describe(name, comment, badge_text, width=30):
         """Name, description and a hidden "current" badge; returns (box, badge)."""
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, valign=Gtk.Align.CENTER)
         title = Gtk.Label(xalign=0)
         title.set_markup(f"<b>{GLib.markup_escape_text(name)}</b>")
-        description = Gtk.Label(label=comment, xalign=0, wrap=True, max_width_chars=30)
+        description = Gtk.Label(label=comment, xalign=0, wrap=True, max_width_chars=width)
         description.get_style_context().add_class("dim-label")
         badge = Gtk.Label(label=badge_text, xalign=0, no_show_all=True)
         for widget in (title, description, badge):
@@ -4534,7 +5394,6 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
 
     heading("Style")
     style_box = Gtk.Box(spacing=24, homogeneous=True)
-    box.pack_start(style_box, False, False, 0)
 
     def draw_swatches(area, cr, colors):
         size = SWATCH_SIZE
@@ -4552,17 +5411,51 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
         radio = Gtk.RadioButton.new_from_widget(group)
         group = group or radio
         radio.item_id = style.id
-        line = Gtk.Box(spacing=12)
+        line = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         colors = palette_rgba(palette_chain(style, "waybar"))
         swatches = Gtk.DrawingArea(width_request=SWATCH_SIZE * len(SWATCH_COLORS), height_request=SWATCH_SIZE,
-                                   valign=Gtk.Align.CENTER)
+                                   halign=Gtk.Align.START)
         swatches.connect("draw", draw_swatches, colors)
         line.pack_start(swatches, False, False, 0)
-        text, radio.badge = describe(style.name, item_comment(style), "Current style")
-        line.pack_start(text, True, True, 0)
+        text, radio.badge = describe(style.name, item_comment(style), "Current style", width=20)
+        line.pack_start(text, False, False, 0)
         radio.add(line)
         radios[style.id] = radio
         style_box.pack_start(radio, True, True, 0)
+
+    if len(radios) <= STYLES_SHOWN:
+        box.pack_start(style_box, False, False, 0)
+    else:
+        # STYLES_SHOWN wide at first and more as the window grows (the
+        # window's whole width; STYLES_SHOWN only sets the width it asks
+        # for), scrolled sideways to the rest (scroll bar, Shift+wheel,
+        # touchpad, Tab; the wheel alone scrolls the window), the chosen one
+        # scrolled into view.
+        style_scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_width=True)
+        style_scroll.add(style_box)
+        # Cards at their own width (taller when squeezed, and cut off), on
+        # the left when the window is wider than all of them.
+        style_scroll.get_child().set_hscroll_policy(Gtk.ScrollablePolicy.NATURAL)
+        style_box.set_halign(Gtk.Align.START)
+        style_box.set_focus_hadjustment(style_scroll.get_hadjustment())
+        style_box.set_margin_bottom(12)     # room for the scroll bar below the "current" line
+        box.pack_start(style_scroll, False, False, 0)
+
+        def fit_styles(_widget):
+            # Cards are only their real size once styled in the window.
+            widest = max(radio.get_preferred_width()[1] for radio in radios.values())
+            style_scroll.set_max_content_width(STYLES_SHOWN * widest + (STYLES_SHOWN - 1) * style_box.get_spacing())
+            # After the allocation that size brings, show the chosen style.
+            GLib.idle_add(reveal_style, priority=GLib.PRIORITY_LOW)
+
+        def reveal_style():
+            chosen = [radio for radio in radios.values() if radio.get_active()]
+            if chosen:
+                card = chosen[0].get_allocation()       # in the box
+                style_scroll.get_hadjustment().clamp_page(card.x, card.x + card.width)
+            return False
+
+        style_scroll.connect("map", fit_styles)
 
     heading("Desktop clicks")
     clicks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -4781,6 +5674,8 @@ def labwc_warnings(root):
             and (os.path.isfile(environment) or os.path.isdir(environment + ".d"))):
         found.append(f"{environment} exists: it replaces the system environment file, "
                      "so the keyboard layout chosen in Settings doesn't apply.")
+    if root:
+        found += kept_key_lines(key_report(root))
     if in_session() and merge != merging and why not in ("live", "plain"):
         found.append("Your labwc files changed: labwc "
                      + ("merges them with FlickOS's" if merge else "stops merging them with FlickOS's")
@@ -4855,6 +5750,27 @@ def doctor_warnings():
     with contextlib.redirect_stderr(io.StringIO()):
         current_style = resolve_style(styles())
     found += [message[0].upper() + message[1:] + "." for message in style_fallback_messages(current_style)]
+    if current_style and current_style.color_scheme != "prefer-dark":
+        for path in gtk_prefer_dark_files():
+            found.append(f"{path} sets {GTK_PREFER_DARK}, so windows keep their theme's dark colors in the "
+                         f"{current_style.name} style. To follow styles, delete that line.")
+    return found
+
+
+def gtk_prefer_dark_files():
+    """The user's GTK settings.ini files that ask for the theme's dark variant.
+    GTK on Wayland takes the theme's name from GSettings but this key from the
+    file (nwg-look writes it), so Arc then draws as Arc-Dark."""
+    found = []
+    for name in GTK_SETTINGS_FILES:
+        path = os.path.join(config_home(), name)
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        try:
+            parser.read(path, encoding="utf-8")
+        except (configparser.Error, OSError, UnicodeDecodeError):
+            continue
+        if parser.get("Settings", GTK_PREFER_DARK, fallback="").strip().lower() in ("1", "true"):
+            found.append(path)
     return found
 
 
@@ -5322,7 +6238,8 @@ CSS_URL = re.compile(r"""url\((["']?)(.*?)\1\)""")
 CSS_DECLARATION_COLOR = re.compile(r":[^;{}]*?(#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\))")
 # Signals FlickOS's panel buttons use, by what they refresh.
 PANEL_SIGNALS = {8: "the tiling button", 9: "the phone button", 10: "the recording time",
-                 DESKTOPS_SIGNAL: "the desktop buttons"}
+                 DESKTOPS_SIGNAL: "the desktop buttons", MEDIA_SIGNAL: "the media buttons",
+                 WEATHER_SIGNAL: "the weather button", CLASSROOM_SIGNAL: "the classroom button"}
 RECORDING_MODULE = "custom/recording"
 SHOW_DESKTOP_MODULE = "custom/desktop"
 
@@ -5571,6 +6488,10 @@ def layout_problems(layout_id, folders=None):
         problems.append(Problem(path, None, "error", f"Style={os.path.basename(layout.style)}: no such file"))
     where = {}          # module: [positions of the bars that have it]
     for bar in bars:
+        if bar.get("name") in THEMED_CLASSES:
+            problems.append(Problem(layout.waybar, None, "warning",
+                                    f'"name": "{bar["name"]}" is a class GTK themes style: the bar\'s tray '
+                                    "menus may take on its colors (name the bar after the layout)"))
         defined = set(bar)
         for include in bar.get("include") or []:
             with contextlib.suppress(LayoutError):
@@ -5590,7 +6511,8 @@ def layout_problems(layout_id, folders=None):
         for module, settings in bar.items():
             number = settings.get("signal") if isinstance(settings, dict) else None
             if module.startswith(ADDON_MODULE_PREFIX) and number in PANEL_SIGNALS and \
-                    not (number == DESKTOPS_SIGNAL and module.startswith(DESK_MODULE + "#")):
+                    not (number == DESKTOPS_SIGNAL and module.startswith(DESK_MODULE + "#")) and \
+                    not (number == MEDIA_SIGNAL and module in MEDIA_MODULES):
                 problems.append(Problem(layout.waybar, None, "warning",
                                         f"{module} uses signal {number}, which {PANEL_SIGNALS[number]} use: both "
                                         "refresh whenever either changes"))
@@ -5601,9 +6523,9 @@ def layout_problems(layout_id, folders=None):
     if not launcher and not dock_opens_apps(layout):
         lacks(f"no {LAUNCHER_MODULE}: there is no apps button, and the start menu and Super have no corner to "
               "open from")
-    elif launcher and layout.menu and layout.menu != f"{launcher[0][0]}-left":
+    elif launcher and layout.menu and layout.menu != launcher_corner(*launcher[0]):
         lacks(f"Menu={layout.menu}, but the apps button is in the {launcher[0][0]} bar: the start menu opens away "
-              f"from it (Menu={launcher[0][0]}-left)")
+              f"from it (Menu={launcher_corner(*launcher[0])})")
     if "tray" not in where:
         lacks("no tray: apps' status icons have nowhere to show")
     if RECORDING_MODULE not in where:
@@ -5616,10 +6538,17 @@ def layout_problems(layout_id, folders=None):
         if not all((side, "modules-right") in where.get(module, []) for module in QUICK_MODULES):
             lacks(f"Quick={layout.quick}, but no {side} bar has {' and '.join(QUICK_MODULES)} in modules-right: "
                   "Quick Settings has nothing to open from")
-    if layout.desktops > 1 and DESKTOPS_MODULE not in where:
+    pager = layout.dock is not None and DOCK_PAGER.search(text_of(layout.dock) or "") is not None
+    if layout.desktops > 1 and DESKTOPS_MODULE not in where and not pager:
         lacks(f"Desktops={layout.desktops} without {DESKTOPS_MODULE} in a bar: nothing shows the desktops "
               f"(Super+1 to Super+{layout.desktops} still switch)")
     return problems
+
+
+def launcher_corner(position, modules):
+    """The Menu= corner for an apps button in the bar at position, in modules
+    (modules-left, -center or -right)."""
+    return f"{position}-center" if modules == "modules-center" else f"{position}-left"
 
 
 def dock_opens_apps(layout):
@@ -5705,6 +6634,15 @@ def cmd_clock_current(opts):
     return 0
 
 
+def cmd_buttons_list(opts):
+    return print_items(BUTTON_CHOICES)
+
+
+def cmd_buttons_current(opts):
+    print(resolve_buttons().id)
+    return 0
+
+
 def cmd_quick_list(opts):
     return print_items(available_quick_settings())
 
@@ -5735,7 +6673,9 @@ def state():
             ("launcher", available_launchers(), resolve_launcher()),
             ("menu-style", MENU_STYLE_CHOICES, resolve_menu_style()),
             ("clock", CLOCKS, resolve_clock()),
-            ("quick-settings", available_quick_settings(), resolve_quick_settings())):
+            ("buttons", BUTTON_CHOICES, resolve_buttons()),
+            ("quick-settings", available_quick_settings(), resolve_quick_settings()),
+            ("floating-panel", FLOATING_PANELS, resolve_floating_panel(resolve_layout(installed_layouts)))):
         found[kind] = {"current": current.id,
                        "choices": [{"id": item.id, "name": item.name, "comment": item.comment,
                                     **({"folder": item.folder, "user": item.user, "parent": item.parent}
@@ -5743,11 +6683,13 @@ def state():
                                     **({"folder": item.folder, "user": item.user} if kind == "layout" else {})}
                                    for item in items.values()]}
     # The defaults without the user's choice (Settings' Back to FlickOS's Look).
+    found["floating-panel"]["offered"] = resolve_layout(installed_layouts).floating is not None
     found["layout"]["default"] = default_choice(installed_layouts, "Layout", DEFAULT_LAYOUT)
     found["style"]["default"] = default_choice(installed_styles, "Style", DEFAULT_STYLE)
     found["plain"] = plain_session()
     found["trying"] = found["style"]["current"] if tried_style_id() == found["style"]["current"] else None
     found["tweaks"] = tweaks_css() is not None
+    found["pinned"] = pinned_state(resolve_layout(installed_layouts))
     found["warnings"] = doctor_warnings()
     return found
 
@@ -5782,13 +6724,15 @@ def labwc_themes(available_styles):
 
 
 def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None, menu_style_id=None,
-                 clock_id=None, quick_id=None):
-    """Save a layout, style, clicks, apps button, start menu style, clock
-    and/or Quick Settings choice, regenerate the
+                 clock_id=None, quick_id=None, floating_id=None, buttons_id=None, defaults=False):
+    """Save a layout, style, clicks, apps button, start menu style, clock,
+    window buttons, Quick Settings and/or floating panel choice, regenerate the
     overlay and, inside the session, apply it: labwc, panel, notifications,
     the start menu's daemon, and the wallpaper for a new layout or style. GTK settings
     follow a new style even outside the session, and so do the window buttons
-    of windows that draw their own title bar after a new layout."""
+    of windows that draw their own title bar after a new layout or buttons choice.
+    With defaults, nothing is saved: the defaults changed (the site's files,
+    flickos-fleet), and what the account never chose is applied the same way."""
     if plain_session():
         warn("the plain session doesn't change your choices; log in normally to change them")
         return 1
@@ -5803,18 +6747,22 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
     for kind, item_id, items in (("layout", layout_id, available), ("style", style_id, available_styles),
                                  ("clicks", clicks_id, CLICKS), ("launcher", launcher_id, launchers),
                                  ("menu style", menu_style_id, MENU_STYLE_CHOICES), ("clock", clock_id, CLOCKS),
-                                 ("Quick Settings choice", quick_id, available_quick_settings())):
+                                 ("Quick Settings choice", quick_id, available_quick_settings()),
+                                 ("floating panel choice", floating_id, FLOATING_PANELS),
+                                 ("window buttons choice", buttons_id, BUTTON_CHOICES)):
         if item_id is not None and item_id != DEFAULT_CHOICE and item_id not in items:
             warn(f"unknown {kind} '{item_id}'. Available: {', '.join(items) or 'none'}, {DEFAULT_CHOICE}")
             return 1
     chosen = {kind: item_id for kind, item_id in (("layout", layout_id), ("style", style_id),
                                                   ("clicks", clicks_id), ("launcher", launcher_id),
                                                   ("menu-style", menu_style_id), ("clock", clock_id),
-                                                  ("quick-settings", quick_id))
+                                                  ("quick-settings", quick_id), ("floating-panel", floating_id),
+                                                  ("buttons", buttons_id))
               if item_id is not None}
     resolvers = {"layout": lambda: resolve_layout(available), "style": lambda: resolve_style(available_styles),
                  "clicks": resolve_clicks, "launcher": resolve_launcher, "menu-style": resolve_menu_style,
-                 "clock": resolve_clock, "quick-settings": resolve_quick_settings}
+                 "clock": resolve_clock, "quick-settings": resolve_quick_settings,
+                 "floating-panel": resolve_floating_panel, "buttons": resolve_buttons}
     if style_id is not None:
         forget_try()            # the choice is saved now: the try is over, its themes stay
     live = in_session()
@@ -5835,13 +6783,18 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
         if style_id is not None:
             warn_style_fallbacks(style)
         launcher, style_choice, quick = resolve_launcher(), resolve_menu_style(), resolve_quick_settings()
+        buttons = resolve_buttons()
         command = dock = None
         # GTK settings first: the overlay's window icons follow gsettings icon-theme.
+        # (The defaults' look is `restyled` only when the account's own look changed.)
+        restyled = style_id is not None
         if style_id is not None:
             style_gsettings(style, available_styles)
-        if layout_id is not None:
-            layout_gsettings(layout, available)
-        if prepare(layout, style, labwc_themes(available_styles), clicks, launcher, style_choice, quick):
+        if layout_id is not None or buttons_id is not None:
+            layout_gsettings(layout, available, buttons)
+        if defaults:
+            restyled = sync_default_look(layout, style, buttons, available, available_styles)
+        if prepare(layout, style, labwc_themes(available_styles), clicks, launcher, style_choice, quick, buttons):
             try:
                 command = waybar_command(layout, style)
             except LayoutError as error:
@@ -5859,19 +6812,24 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
                 status = 1
         if live:
             run_quiet(["labwc", "--reconfigure"])
-            if style_id is not None:
+            if style_id is not None or defaults:
                 run_quiet(["makoctl", "reload"])
             if command:
                 restart_panel(layout, style, command, dock)
             sync_menu(menu_daemon_wanted(runtime_root()))
-            if layout_id is not None or style_id is not None:
+            if layout_id is not None or style_id is not None or restyled:
                 restart_wallpaper(layout, style)
+    if defaults:
+        print("The defaults are applied." if live else "The defaults apply at next login.")
+        return status
     names = []
     for item_id, kind, item in ((layout_id, "layout", layout), (style_id, "style", style),
                                 (clicks_id, "desktop clicks", clicks), (launcher_id, "apps button", launcher),
                                 (menu_style_id, "start menu style", style_choice),
                                 (clock_id, "clock", resolve_clock()),
-                                (quick_id, "Quick Settings", quick)):
+                                (quick_id, "Quick Settings", quick),
+                                (buttons_id, "window buttons", buttons),
+                                (floating_id, "floating panel", resolve_floating_panel())):
         if item_id is not None:
             names.append(f"{kind} '{item.name}'")
     names[0] = names[0][0].upper() + names[0][1:]
@@ -5885,11 +6843,18 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
 
 
 def cmd_set(opts):
-    if all(value is None for value in (opts.id, opts.style, opts.clicks, opts.launcher, opts.menu_style)):
-        warn("set: give a layout, --style, --clicks, --launcher or --menu-style")
+    if all(value is None for value in (opts.id, opts.style, opts.clicks, opts.launcher, opts.menu_style,
+                                       opts.buttons)):
+        warn("set: give a layout, --style, --clicks, --launcher, --menu-style or --buttons")
         return 2
     return apply_choice(layout_id=opts.id, style_id=opts.style, clicks_id=opts.clicks, launcher_id=opts.launcher,
-                        menu_style_id=opts.menu_style)
+                        menu_style_id=opts.menu_style, buttons_id=opts.buttons)
+
+
+def cmd_apply_defaults(opts):
+    """The defaults changed (a site's layouts.conf, flickos-fleet): regenerate
+    and apply them in the running session. Saves no choice of the user's."""
+    return apply_choice(defaults=True)
 
 
 def cmd_style_set(opts):
@@ -5912,8 +6877,152 @@ def cmd_clock_set(opts):
     return apply_choice(clock_id=opts.id)
 
 
+def cmd_buttons_set(opts):
+    return apply_choice(buttons_id=opts.id)
+
+
 def cmd_quick_set(opts):
     return apply_choice(quick_id=opts.id)
+
+
+def cmd_floating_list(opts):
+    return print_items(FLOATING_PANELS)
+
+
+def cmd_floating_current(opts):
+    print(resolve_floating_panel().id)
+    return 0
+
+
+def cmd_floating_set(opts):
+    return apply_choice(floating_id=opts.id)
+
+
+def pins_value(pins):
+    """The history's words for a pinned apps list: DEFAULT_CHOICE for the layout's own."""
+    return DEFAULT_CHOICE if pins is None else ";".join(pins)
+
+
+def pinned_layout(layout_id, available=None):
+    """The layout `pinned` works on: layout_id, else the one in use. Refuses
+    one that shows no pinned apps."""
+    available = layouts() if available is None else available
+    if layout_id is None:
+        layout = resolve_layout(available)
+    elif layout_id in available:
+        layout = available[layout_id]
+    else:
+        raise LayoutError(f"unknown layout '{layout_id}'. Available: {', '.join(available) or 'none'}")
+    if not shows_pinned(layout):
+        raise LayoutError(f"{layout.name} has no pinned apps: neither its dock nor its panel shows them")
+    return layout
+
+
+def pinned_state(layout):
+    """state()'s "pinned": the layout in use's pinned apps for Settings."""
+    pins = layout_pins(layout)
+    return {"layout": layout.id, "name": layout.name, "shown": shows_pinned(layout), "dock": bool(layout.dock),
+            "default": plain_session() or layout.id not in read_user_pins(), "ids": pins,
+            "apps": [{"id": desktop_id, "name": entry.get("Name") or desktop_id.removesuffix(".desktop"),
+                      "icon": entry.get("Icon") or ""}
+                     for desktop_id, _path, entry in installed_apps(pins)]}
+
+
+def change_pins(layout_id, change):
+    """Save change(the pinned apps now) as the layout's: a list, or None for
+    the layout's own. Inside the session, the panel and dock of the layout in
+    use show it at once (regenerated and reloaded)."""
+    if plain_session():
+        warn("the plain session doesn't change your choices; log in normally to change them")
+        return 1
+    with locked():
+        available = layouts()
+        layout = pinned_layout(layout_id, available)
+        saved = read_user_pins().get(layout.id)
+        pins = change(list(layout.pinned if saved is None else saved))
+        write_user_pins(layout.id, pins)
+        record(PINNED_HISTORY + layout.id, pins_value(saved), pins_value(pins))
+        names = [entry.get("Name") or desktop_id for desktop_id, _path, entry
+                 in installed_apps(layout.pinned if pins is None else pins)]
+        print(f"Pinned apps of {layout.name}: {', '.join(names) or 'none'}.")
+        if in_session() and layout.id == resolve_layout(available).id and not user_waybar_config():
+            reload_panel_programs(layout, resolve_style(styles()))
+    return 0
+
+
+def cmd_pinned_list(opts):
+    """The installed pinned apps in order: desktop id, name."""
+    layout = pinned_layout(opts.layout)
+    for desktop_id, _path, entry in installed_apps(layout_pins(layout)):
+        print(f"{desktop_id}\t{entry.get('Name') or desktop_id.removesuffix('.desktop')}")
+    return 0
+
+
+def checked_desktop_id(desktop_id):
+    if not DESKTOP_ID.match(desktop_id):
+        raise LayoutError(f"'{desktop_id}' is not an app's desktop id (like firefox-esr.desktop)")
+    return desktop_id
+
+
+def app_desktop_id(name, pins=()):
+    """The desktop id of name: a desktop id as it is, else a window's app id,
+    which is what the dock's right-click menu sends. An app id names its file
+    without .desktop (firefox-esr), or only up to its case (Thunar), or is the
+    file's StartupWMClass. A pinned app (pins) comes first, so unpinning finds
+    what was pinned."""
+    if DESKTOP_ID.match(name):
+        return name
+    if not APP_ID.match(name):
+        raise LayoutError(f"'{name}' is not an app's desktop id (like firefox-esr.desktop) or app id")
+    for candidate in (name + ".desktop", name.lower() + ".desktop"):
+        if candidate in pins or installed_apps([candidate]):
+            return candidate
+    wanted = name.lower()
+    for directory in data_dirs():
+        folder = os.path.join(directory, "applications")
+        try:
+            files = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for file in files:
+            if not DESKTOP_ID.match(file):
+                continue
+            entry = read_desktop_entry(os.path.join(folder, file)) or {}
+            if entry.get("StartupWMClass", "").lower() == wanted and (file in pins or installed_apps([file])):
+                return file
+    raise LayoutError(f"no app {name} is installed (or it is hidden)")
+
+
+def cmd_pinned_set(opts):
+    if opts.value == DEFAULT_CHOICE:
+        return change_pins(opts.layout, lambda _pins: None)
+    pins = [checked_desktop_id(desktop_id) for desktop_id in split_pins(opts.value)]
+    if len(set(pins)) != len(pins):
+        raise LayoutError("an app is in the list twice")
+    return change_pins(opts.layout, lambda _pins: pins)
+
+
+def cmd_pinned_add(opts):
+    desktop_id = app_desktop_id(opts.id)
+    if not installed_apps([desktop_id]):
+        raise LayoutError(f"no app {desktop_id} is installed (or it is hidden)")
+
+    def add(pins):
+        if desktop_id in pins:
+            raise LayoutError(f"{desktop_id} is pinned already")
+        return [desktop_id] + pins if opts.first else pins + [desktop_id]
+
+    return change_pins(opts.layout, add)
+
+
+def cmd_pinned_remove(opts):
+    def drop(pins):
+        desktop_id = app_desktop_id(opts.id, pins)
+        if desktop_id not in pins:
+            raise LayoutError(f"{desktop_id} is not pinned")
+        return [p for p in pins if p != desktop_id]
+
+    return change_pins(opts.layout, drop)
 
 
 def cmd_prepare(opts):
@@ -5923,8 +7032,13 @@ def cmd_prepare(opts):
     with locked():
         style = resolve_style(available_styles)
         warn_style_fallbacks(style)
-        ok = prepare(resolve_layout(layouts()), style, labwc_themes(available_styles),
-                     resolve_clicks(), resolve_launcher(), resolve_menu_style(), resolve_quick_settings())
+        layout, buttons = resolve_layout(layouts()), resolve_buttons()
+        if not in_session() and not plain_session():
+            move_retired_gtk_theme(style)   # before prepare, which reads gsettings
+            sync_default_look(layout, style, buttons, layouts(), available_styles)
+        ok = prepare(layout, style, labwc_themes(available_styles),
+                     resolve_clicks(), resolve_launcher(), resolve_menu_style(), resolve_quick_settings(),
+                     buttons)
     return 0 if ok else 1
 
 
@@ -6133,6 +7247,7 @@ def main(argv=None):
     set_parser.add_argument("--clicks", metavar="CLICKS", help="also choose what desktop clicks do")
     set_parser.add_argument("--launcher", metavar="LAUNCHER", help="also choose what the apps button opens")
     set_parser.add_argument("--menu-style", metavar="MENU_STYLE", help="also choose the start menu style")
+    set_parser.add_argument("--buttons", metavar="BUTTONS", help="also choose where the window buttons are")
     set_parser.set_defaults(func=cmd_set)
     style_parser = commands.add_parser("style", help="Dark/Light or your own style: list, current, set ID, "
                                                      "new ID")
@@ -6218,6 +7333,15 @@ def main(argv=None):
     clock_set = clock_commands.add_parser("set", help="choose and apply")
     clock_set.add_argument("id")
     clock_set.set_defaults(func=cmd_clock_set)
+    buttons_parser = commands.add_parser("buttons", help="where the window buttons are (layout, left, right, split): "
+                                                         "list, current, set ID")
+    buttons_commands = buttons_parser.add_subparsers(dest="buttons_command", required=True, metavar="COMMAND")
+    buttons_commands.add_parser("list", help="list choices: id, name, description").set_defaults(
+        func=cmd_buttons_list)
+    buttons_commands.add_parser("current", help="print the choice in use").set_defaults(func=cmd_buttons_current)
+    buttons_set = buttons_commands.add_parser("set", help="choose and apply")
+    buttons_set.add_argument("id")
+    buttons_set.set_defaults(func=cmd_buttons_set)
     quick_parser = commands.add_parser("quick-settings", help="Quick Settings behind the volume and battery icons "
                                                               "and Super+A (off, on): list, current, set ID")
     quick_commands = quick_parser.add_subparsers(dest="quick_command", required=True, metavar="COMMAND")
@@ -6226,9 +7350,38 @@ def main(argv=None):
     quick_set = quick_commands.add_parser("set", help="choose and apply")
     quick_set.add_argument("id")
     quick_set.set_defaults(func=cmd_quick_set)
+    floating_parser = commands.add_parser("floating-panel", help="a short panel that fills the bottom of the screen "
+                                                                 "while a window is maximized, in layouts that "
+                                                                 "have one (off, on): list, current, set ID")
+    floating_commands = floating_parser.add_subparsers(dest="floating_command", required=True, metavar="COMMAND")
+    floating_commands.add_parser("list", help="list choices: id, name, description").set_defaults(
+        func=cmd_floating_list)
+    floating_commands.add_parser("current", help="print the choice in use").set_defaults(func=cmd_floating_current)
+    floating_set = floating_commands.add_parser("set", help="choose and apply")
+    floating_set.add_argument("id")
+    floating_set.set_defaults(func=cmd_floating_set)
+    pinned_parser = commands.add_parser("pinned", help="the apps pinned in a layout's dock or panel: list, set, "
+                                                       "add ID, remove ID")
+    pinned_commands = pinned_parser.add_subparsers(dest="pinned_command", required=True, metavar="COMMAND")
+    pinned_list = pinned_commands.add_parser("list", help="list the installed pinned apps: desktop id, name")
+    pinned_set = pinned_commands.add_parser("set", help="pin these apps, in this order, and apply")
+    pinned_set.add_argument("value", metavar="IDS", help="desktop ids separated by ; (empty: none), or default "
+                                                         "for the layout's own")
+    pinned_add = pinned_commands.add_parser("add", help="pin an app (last) and apply")
+    pinned_add.add_argument("id", metavar="ID", help="its desktop id, like firefox-esr.desktop, or "
+                                                      "a window's app id (the dock's menu sends that)")
+    pinned_add.add_argument("--first", action="store_true", help="pin it first instead")
+    pinned_remove = pinned_commands.add_parser("remove", help="unpin an app and apply")
+    pinned_remove.add_argument("id", metavar="ID", help="its desktop id or a window's app id")
+    for sub, func in ((pinned_list, cmd_pinned_list), (pinned_set, cmd_pinned_set), (pinned_add, cmd_pinned_add),
+                      (pinned_remove, cmd_pinned_remove)):
+        sub.add_argument("--layout", metavar="LAYOUT", help="this layout's (default: the one in use)")
+        sub.set_defaults(func=func)
     commands.add_parser("prepare", help="regenerate the runtime overlay (session start)").set_defaults(func=cmd_prepare)
     commands.add_parser("reload-panel", help="generate the panel again and restart it (flickos-phone)"
                         ).set_defaults(func=cmd_reload_panel)
+    commands.add_parser("apply-defaults", help="apply changed site defaults to the session (flickos-fleet, "
+                        "a variant's package)").set_defaults(func=cmd_apply_defaults)
     commands.add_parser("reconfigure", help="regenerate the runtime overlay and reload labwc (flick-tiler)"
                         ).set_defaults(func=cmd_reconfigure)
     commands.add_parser("panel", help="run mako, waybar, the dock and the start menu for the current layout and "
@@ -6255,6 +7408,8 @@ def main(argv=None):
     except (LayoutError, OSError) as error:
         warn(str(error))
         return 1
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
 
 
 if __name__ == "__main__":

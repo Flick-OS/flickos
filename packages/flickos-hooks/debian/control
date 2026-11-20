@@ -1,0 +1,24 @@
+Source: flickos-hooks
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-hooks
+Architecture: all
+# setsid -f (util-linux, essential): the programs that see an event start the
+# hooks with it and don't wait for them.
+Depends: python3,
+         ${misc:Depends}
+Description: run your own programs when something happens on the FlickOS desktop
+ Put an executable file, in any language, in a folder named for an event under
+ ~/.config/flickos/hooks/, and FlickOS runs it when the event happens: when the
+ screen locks or unlocks, or when the computer wakes up.
+ .
+ Nothing runs and nothing is added to login while you have no hooks. A hook
+ can't hold up the lock screen, runs only as you, and is stopped after thirty
+ seconds. The command flickos-hooks lists the events, tests your hooks and
+ shows what ran.

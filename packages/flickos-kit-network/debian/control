@@ -1,0 +1,52 @@
+Source: flickos-kit-network
+Section: net
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-network
+Architecture: all
+Depends: nmap,
+         ndiff,
+         ncat,
+         netcat-openbsd,
+         socat,
+         wireshark,
+         tshark,
+         tcpdump,
+         arp-scan,
+         bind9-dnsutils,
+         whois,
+         traceroute,
+         mtr-tiny,
+         iperf3,
+         ngrep,
+         tcpflow,
+         smbclient,
+         ldap-utils,
+         nbtscan,
+         snmp,
+         onesixtyone,
+         bettercap,
+         ettercap-graphical,
+         ${misc:Depends}
+Description: FlickOS security kit: network analysis
+ Nmap, Wireshark and tshark, tcpdump, arp-scan, Ettercap and bettercap from
+ Debian, with the everyday tools for networks: ncat, socat, dig, whois,
+ traceroute, mtr, iperf3, ngrep, tcpflow, and the SMB, LDAP, NetBIOS and
+ SNMP clients.
+ .
+ Capturing packets needs administrator rights as Debian installs it:
+ Wireshark lists no interfaces until your account may capture (sudo
+ dpkg-reconfigure wireshark-common, add yourself to the wireshark group and
+ log in again). Raw scans stay sudo nmap.
+ .
+ Use these tools only on computers and networks you own or have permission
+ to test.
+ .
+ A kit is installed from Software's Security Tools and removed there too.
+ Nothing it installs runs until it is used
+ (docs/design/flickos-security.md).

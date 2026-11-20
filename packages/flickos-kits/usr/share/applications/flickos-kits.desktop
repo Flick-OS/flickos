@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Tool Kits
+Comment=Install what you need for the work you do, and set it up
+Exec=flickos-kits window
+Icon=applications-development
+Terminal=false
+Categories=Development;System;
+# Translators: search words, each ended by a semicolon.
+Keywords=developer;programming;python;node;containers;podman;git;compiler;kit;tools;
+StartupNotify=false

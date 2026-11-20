@@ -1,0 +1,3593 @@
+#!/usr/bin/python3
+"""A teacher's view of a classroom of FlickOS computers: a grid of every
+paired student's screen, and from it a class lock with a message, a message,
+or a web page on every screen; one screen seen closely or controlled, and the
+teacher's own screen shown on every student's (a demo). Design:
+docs/design/flickos-classroom-view.md.
+
+Two roles of one program, in two packages: flickos-classroom-view (the
+program, the student's agent) and flickos-classroom-teacher (the teacher's
+window in the menu, and gtk-vnc for one screen).
+
+  student   the agent on a student's computer. Off by default (HIG INT-9):
+            `student run` (from FlickOS's autostart) exits at once while
+            sharing is off, and never runs in the live session. While on it
+            answers mDNS (MDNS_SERVICE) and listens on TCP PORT, and only the
+            paired teacher's certificate gets past the TLS handshake (ADR-005).
+            It knows the verbs in VERBS and nothing else (ADR-006): no
+            command, no file. The panel shows that the computer is open to a
+            teacher, and that a teacher is looking (ADR-004); there is no
+            setting that hides it. A teacher's `view` or `control` is a
+            connection of its own: wayvnc on a Unix socket for as long as it
+            lasts, piped through that TLS connection (ADR-012), with the
+            strip at the top of the screen and its Stop (ADR-015). A demo is
+            the class lock showing the teacher's frames (ADR-014).
+  teacher   the console window: the grid, Add Students (pairing), and the
+            actions. It keeps nothing but the paired students' certificates.
+  lab       a lab computer (ADR-011), set by its administrator: one identity
+            and one paired teacher for the computer in LAB_DIR, sharing on
+            for every account and not theirs to turn off. `lab run` is the
+            root service flickos-classroom-lab.service (enabled only by
+            `lab on`): mDNS, the port, TLS and pairing; it passes a teacher's
+            session to the agent of whoever has the seat (SEAT_FILE), which
+            listens on a socket in its runtime folder (LAB_SOCKET) for root
+            only. The service never reads the screen.
+
+Pairing (ADR-010). The console shows a six-digit code; the student types it
+(`student pair`). Over TLS, both sides prove they know the code without
+sending it, one bit per round as Bluetooth's passkey entry does (PAIR_BITS
+rounds of commit, commit, reveal, reveal), bound to both certificates'
+fingerprints: someone in the middle has one chance in 2**20. Afterwards each
+side keeps the other's certificate, and every connection is mutual TLS.
+
+Settings (the system's file SYSTEM_CONF, then the user's
+~/.config/flickos/classroom; recorded for Settings > History):
+  sharing   on | off       whether the agent runs and answers a teacher
+
+Commands:
+  student get sharing | student on | student off
+  student status             sharing, the teacher connected now, how many are paired
+  student teachers           the paired teachers: fingerprint, name, since, source (TSV)
+  student pair [--code N]    pair with one more teacher (a window; --code: on the command line)
+  student forget [FP]        forget the teacher of fingerprint FP (or its start), or every one
+  student run                the agent (FlickOS's autostart)
+  student panel              (waybar) the panel button's JSON
+  strip --text TEXT [--stop] (the agent's) the strip while a teacher views or controls
+  teacher                    the console window (needs flickos-classroom-teacher)
+  lab status                 whether this is a lab computer, and its teachers
+  lab teachers               its teachers, as student teachers
+  lab on|off                 (root, pkexec) make it a lab computer, or not
+  lab pair CODE              (root, pkexec) pair the computer with one more teacher
+  lab forget [FP]            (root, pkexec) forget one of its teachers, or every one
+  lab run                    (root) the lab service
+
+Exit status: 0 done, 1 failed (the message says why), 2 wrong arguments.
+"""
+
+import argparse
+import configparser
+import contextlib
+import csv
+import datetime
+import fcntl
+import hashlib
+import hmac
+import io
+import json
+import os
+import pwd
+import queue
+import secrets
+import shutil
+import signal
+import socket
+import ssl
+import stat
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+NAME = "flickos-classroom-view"
+# FLICKOS_CLASSROOM_PREFIX: run from a source tree, e.g. packages/flickos-classroom-view.
+PREFIX = os.environ.get("FLICKOS_CLASSROOM_PREFIX", "")
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/classroom.conf"
+# flickos-control's: [History] Enabled=, then the user's ~/.config/flickos/history.
+HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+PROC = "/proc"
+SECTION = "Classroom"
+SETTINGS = {"sharing": ("off", ("on", "off"))}     # key: (default, values)
+
+# The network (ADR-008, Q4: the student listens).
+PORT = 47100                        # TCP, the student's; flickos-control's firewall.classroom opens it
+MDNS_GROUP, MDNS_PORT = "224.0.0.251", 5353
+MDNS_SERVICE = "_flickos-classroom._tcp.local"
+MDNS_TTL = 120
+BROWSE_SECONDS = 5                  # the console asks again this often while its window is open
+MDNS_REFRESH_SECONDS = 60           # the agent looks for new networks (Wi-Fi after login) this often
+SIOCGIFADDR = 0x8915                # ioctl: an interface's IPv4 address
+PROTOCOL = 1
+MAX_LINE = 64 * 1024                # bytes in a message line
+MAX_FRAME = 1 << 20                 # bytes in a thumbnail
+CONNECT_SECONDS = 5
+PING_SECONDS = 10                   # the console's heartbeat
+QUIET_SECONDS = 35                  # nothing from the other side this long: the connection is gone
+RETRY_SECONDS = 5                   # the console tries a student again after this
+
+# Pairing (ADR-010).
+CODE_DIGITS = 6
+PAIR_BITS = 20                      # 10**6 < 2**20
+PAIR_SECONDS = 120                  # a typed code waits this long for the teacher
+PAIR_TRIES = 3                      # failed tries before the code must be typed again
+NONCE_BYTES = 16
+
+# Thumbnails (ADR-003, phase 0 item 2): a full-size capture, reduced by an
+# integer factor (grim's own scaling costs 0.5 s a frame, and it has no JPEG).
+THUMB_WIDTH = 320
+THUMB_QUALITY = 50
+PERIODS = (1, 2)                    # seconds between frames a teacher may ask for
+
+# The class lock (ADR-007): flickos-lock's class mode keeps the screen locked
+# while RELEASE_FILE exists and is fresher than its failsafe (Q8, 2 minutes).
+LOCK = ["flickos-lock", "lock"]
+RELEASE_FILE = "release"
+# flickos-lock's: in its folder while a class lock holds the screen.
+LOCK_CLASS_FILE = os.path.join("lock", "class")   # under $XDG_RUNTIME_DIR/flickos
+LOCK_WATCH_SECONDS = 5              # how often the agent looks whether the class lock ended
+MAX_MESSAGE = 300                   # characters on the lock screen or in a message
+MESSAGE_SECONDS = (5, 120)          # how long a message shows, at least and at most
+MAX_URL = 2000
+URL_SCHEMES = ("http://", "https://")
+
+# The verbs a student knows (ADR-006). Anything else is answered "unknown" and logged.
+VERBS = ("hello", "ping", "thumbnail", "lock", "unlock", "message", "open-url", "view", "control",
+         "demo", "demo-frame")
+# view, control: a connection of their own (ADR-012); wayvnc only while it lasts.
+WAYVNC = "wayvnc"
+VNC_SOCKET = "vnc.sock"             # in the agent's runtime folder: wayvnc listens here, for this agent only
+VNC_CONTROL = "vnc-control.sock"    # wayvnc's own control socket (-S), never the user's default one
+VNC_CONFIG = "vnc.conf"             # empty: a user's ~/.config/wayvnc/config never applies
+VNC_START_SECONDS = 5
+# An upgrade replaces this file: a session's agent starts again on the new
+# one, once no view, control or class lock would be cut. And it ends with its
+# desktop: Debian keeps a user's processes after logout, so an agent left
+# running held the lock and the next login's agent quit (an old version
+# answered across logins).
+PROGRAM = os.path.realpath(__file__)
+PROGRAM_CHECK_SECONDS = 30
+KEEPALIVE = (30, 10, 3)             # TCP keepalive (idle, interval, count): a VNC pipe may be quiet for long
+STRIP = [NAME, "strip"]             # ADR-015: shown all through a session, or no session
+STRIP_SECONDS = 5                   # the strip says "shown" within this, or the session is refused
+STRIP_STOP = 3                      # the strip's exit status when the student pressed Stop
+VNC_END_SECONDS = 10                # a second end_vnc waits this long for the first (two stop_process)
+# A demo (ADR-014): the class lock with the teacher's frames.
+DEMO_FILE = "demo.jpg"              # in the agent's runtime folder, the newest frame
+DEMO_MESSAGE = "Look at your teacher's screen."
+LOCK_GONE_SECONDS = 3               # a plain class lock ends this fast before a demo takes over
+DEMO_SECONDS = 0.5                  # the teacher's screen is looked at this often (at most 2 frames a second)
+DEMO_WIDTH = 1920                   # frames at the teacher's own size, up to this wide (spike item D)
+DEMO_SLOW_WIDTH = 1280              # Q13: while the last frame took over DEMO_SLOW_SECONDS to reach everyone
+DEMO_SLOW_SECONDS = 1.0
+DEMO_QUALITY = 60
+
+# In $XDG_RUNTIME_DIR/flickos/classroom/.
+AGENT_LOCK = "agent.lock"           # flock: one agent per session
+AGENT_SOCKET = "agent.sock"         # `student pair`/`status` talk to the agent here
+PANEL_FILE = "panel.json"           # the panel button's JSON
+LOG_FILE = "agent.log"
+LOG_BYTES = 256 * 1024
+# In $XDG_DATA_HOME/flickos/classroom/.
+STUDENT_DIR = "student"             # key.pem, cert.pem, id, teachers/, noticed
+TEACHER_DIR = "teacher"             # key.pem, cert.pem, students.json, classes.json
+# The paired teachers (ADR-016): FINGERPRINT.pem and .json each, in a
+# student's or a lab computer's folder; one of them connected at a time.
+TEACHERS_DIR = "teachers"
+MAX_CLASS_NAME = 60                 # characters in a class's name (ADR-017)
+MAX_TEACHERS = 16
+TEACHERS_FULL = (f"This computer keeps {MAX_TEACHERS} teachers already: forget one in Settings > "
+                 "Classroom first.")
+
+# A lab computer (ADR-011).
+LAB_DIR = PREFIX + "/etc/flickos/classroom"   # key.pem (root only), cert.pem, id, teachers/
+LAB_MARK = "lab"                    # in LAB_DIR while this is a lab computer
+LAB_RUN = "/run/flickos-classroom"  # the service's runtime folder (systemd RuntimeDirectory): its control socket
+LAB_SOCKET = "lab.sock"             # in a user's classroom runtime folder: the service connects here
+LAB_PEERS = (0,)                    # who may connect to it: root (the service)
+LAB_SERVICE = "flickos-classroom-lab.service"
+SEAT_FILE = "/run/systemd/seats/seat0"      # logind's: ACTIVE (session) and ACTIVE_UID, who has the screen
+SESSIONS_DIR = "/run/systemd/sessions"      # logind's: a session's CLASS (user, or greeter: the login screen)
+USER_RUNTIME = "/run/user/{uid}"
+SYSTEMCTL = "systemctl"
+LAB_REFUSED = "This is a lab computer: sharing is set by its administrator (Settings > Classroom)."
+
+PANEL_SIGNAL = 14                   # flickos-layouts' custom/classroom (PANEL_SIGNALS)
+LAYOUT = "flickos-layout"           # its reload-panel adds or drops the button
+NOTIFY_MS = 10000
+
+# What a student is told when sharing goes on (Q7). The maintainer's words to
+# edit; a school's own text may come later.
+NOTICE = ("A teacher's computer you pair with can now see this screen while "
+          "this computer is on the same network, lock it during a class, show "
+          "you a message or open a web page. The icon in the panel shows when "
+          "your screen can be seen, and turns red while the teacher is looking. "
+          "Nothing is recorded. Turn sharing off in Settings > Classroom at any time.")
+# The same on a lab computer (ADR-011), where the student can't turn it off.
+LAB_NOTICE = ("This is a school lab computer: the teacher's computer it is paired with can see "
+              "this screen and the name of the account logged in while you're logged in, lock it "
+              "during a class, show you a message or "
+              "open a web page. The icon in the panel shows when your screen can be seen, and "
+              "turns red while the teacher is looking. Nothing is recorded. The computer's "
+              "administrator set this up.")
+# Which notice an account was shown, in its `noticed` file: LAB_NOTICE changed
+# on 2026-11-18 (Q15, the account's name), so a lab computer shows it again once.
+LAB_NOTICE_MARK = "lab-2"
+
+
+class ClassroomError(Exception):
+    """An expected failure: its text is the message for the user."""
+
+
+# --- Places and small helpers -------------------------------------------------------
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+def home_dir(variable, *default):
+    return os.environ.get(variable) or os.path.join(os.path.expanduser("~"), *default)
+
+
+def config_home():
+    return home_dir("XDG_CONFIG_HOME", ".config")
+
+
+def state_home():
+    return home_dir("XDG_STATE_HOME", ".local", "state")
+
+
+def data_dir(role):
+    return os.path.join(home_dir("XDG_DATA_HOME", ".local", "share"), "flickos", "classroom", role)
+
+
+def user_conf():
+    return os.path.join(config_home(), "flickos", "classroom")
+
+
+def runtime_dir():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base) or not os.path.isdir(base):
+        raise ClassroomError("XDG_RUNTIME_DIR is not set")
+    return os.path.join(base, "flickos", "classroom")
+
+
+def write_atomic(path, text, mode=0o644):
+    """text (str), or bytes (a demo frame)."""
+    folder = os.path.dirname(path)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with (os.fdopen(fd, "wb") if isinstance(text, bytes) else os.fdopen(fd, "w", encoding="utf-8")) as f:
+            f.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def remove(path):
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)
+
+
+def read_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def live_session():
+    try:
+        with open(os.path.join(PROC, "cmdline"), encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    except OSError:
+        return False
+
+
+def iso_time(seconds):
+    return datetime.datetime.fromtimestamp(seconds).astimezone().isoformat(timespec="seconds")
+
+
+def person_name():
+    """The user's full name from the account, else the login name."""
+    entry = pwd.getpwuid(os.getuid())
+    full = entry.pw_gecos.split(",", 1)[0].strip()
+    return full or entry.pw_name
+
+
+def computer_name():
+    return socket.gethostname().split(".", 1)[0]
+
+
+def clean_text(text, limit):
+    """One string for a screen: no control characters, at most limit characters."""
+    text = "".join(c if c.isprintable() or c == "\n" else " " for c in str(text))
+    return text.strip()[:limit]
+
+
+def log(text, folder=None):
+    """A line in the log in the runtime folder (folder: the agent's own, fixed
+    when it started), started again past LOG_BYTES."""
+    try:
+        path = os.path.join(folder or runtime_dir(), LOG_FILE)
+        if folder is None:
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        if os.path.exists(path) and os.path.getsize(path) > LOG_BYTES:
+            os.replace(path, path + ".old")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {text}\n")
+    except (OSError, ClassroomError):
+        pass
+
+
+# --- Settings -----------------------------------------------------------------------
+
+def lab_mode():
+    """Whether this is a lab computer (ADR-011)."""
+    return os.path.exists(os.path.join(LAB_DIR, LAB_MARK))
+
+
+def lab_teachers():
+    """A lab computer's teachers (every account may read them)."""
+    return load_teachers(LAB_DIR)
+
+
+def load_settings():
+    """{key: value}: the defaults, then the system's file, then the user's. A
+    broken file or value counts as missing. On a lab computer, sharing is on."""
+    values = {key: default for key, (default, _choices) in SETTINGS.items()}
+    if lab_mode():
+        values["sharing"] = "on"
+        return values
+    for path in (SYSTEM_CONF, user_conf()):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+        for key, (_default, choices) in SETTINGS.items():
+            value = ini.get(SECTION, key, fallback="").strip().lower()
+            if value in choices:
+                values[key] = value
+    return values
+
+
+def save_setting(key, value):
+    """The user's choice (None: back to the system's), recorded when it changes."""
+    before = load_settings()[key]
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+        ini.read(user_conf(), encoding="utf-8")
+    if not ini.has_section(SECTION):
+        ini.add_section(SECTION)
+    if value is None:
+        ini.remove_option(SECTION, key)
+    else:
+        ini.set(SECTION, key, value)
+    text = io.StringIO()
+    ini.write(text)
+    write_atomic(user_conf(), text.getvalue())
+    record(key, before, load_settings()[key])
+
+
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007)."""
+    return key in SETTINGS
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
+
+
+# --- History (docs/design/flickos-history.md, the format shared with flickos-control) ----
+
+HISTORY_OWNER = NAME
+HISTORY_FILE = "history.jsonl"      # in $XDG_STATE_HOME/flickos
+HISTORY_LOCK = "history.lock"
+HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
+
+
+def history_enabled():
+    enabled = True
+    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+            value = ini.get("History", "Enabled", fallback=None)
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+        if value is not None:
+            enabled = value.strip().lower() not in ("no", "false", "off", "0")
+    return enabled
+
+
+def record(key, old, new):
+    """Add a change to the history; a history that can't be written is only a warning."""
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
+        return
+    now = time.time_ns()
+    entry = {"v": 1, "id": str(now), "time": iso_time(now / 1e9),
+             "owner": HISTORY_OWNER, "key": key, "old": old, "new": new}
+    folder = os.path.join(state_home(), "flickos")
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        with open(os.path.join(folder, HISTORY_LOCK), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = os.path.join(folder, HISTORY_FILE)
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                size = os.fstat(f.fileno()).st_size
+            if size > HISTORY_BYTES:
+                trim_history(path)
+    except OSError as error:
+        warn(f"the history can't be written: {error}")
+
+
+def trim_history(path):
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    kept, size = [], 0
+    for line in reversed(lines):
+        size += len(line.encode())
+        if size > HISTORY_BYTES // 2:
+            break
+        kept.append(line)
+    write_atomic(path, "".join(reversed(kept)), mode=0o600)
+
+
+# --- Identities: a key and a certificate per role (ADR-005) ----------------------------
+
+class Identity:
+    def __init__(self, folder, ident, cert, key, der):
+        self.folder, self.id, self.cert, self.key, self.der = folder, ident, cert, key, der
+
+    @property
+    def fingerprint(self):
+        return fingerprint(self.der)
+
+    @property
+    def pem(self):
+        return ssl.DER_cert_to_PEM_cert(self.der)
+
+
+def fingerprint(der):
+    return hashlib.sha256(der).hexdigest()
+
+
+# --- The paired teachers (ADR-016) ---------------------------------------------------
+
+def teachers_dir(folder):
+    return os.path.join(folder, TEACHERS_DIR)
+
+
+def read_teacher(pem_path, json_path):
+    """{"fp", "name", "pem", "since", "source"}, or None when unreadable."""
+    try:
+        with open(pem_path, encoding="ascii") as f:
+            pem = f.read()
+        der = ssl.PEM_cert_to_DER_cert(pem)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    info = read_json(json_path, {})
+    info = info if isinstance(info, dict) else {}
+    return {"fp": fingerprint(der), "name": clean_text(info.get("name", ""), 80) or "A teacher", "pem": pem,
+            "since": clean_text(info.get("since", ""), 40),
+            "source": "fleet" if info.get("source") == "fleet" else "paired"}
+
+
+def load_teachers(folder):
+    """The paired teachers in folder, oldest first. The one teacher.pem of
+    1.0~test8 and before counts too, until migrate_teachers moves it."""
+    found = {}
+    tdir = teachers_dir(folder)
+    try:
+        names = sorted(os.listdir(tdir))
+    except OSError:
+        names = []
+    for name in names:
+        if name.endswith(".pem"):
+            teacher = read_teacher(os.path.join(tdir, name), os.path.join(tdir, name[:-4] + ".json"))
+            if teacher and teacher["fp"] == name[:-4]:
+                found[teacher["fp"]] = teacher
+    old = read_teacher(os.path.join(folder, "teacher.pem"), os.path.join(folder, "teacher.json"))
+    if old and old["fp"] not in found:
+        found[old["fp"]] = old
+    return sorted(found.values(), key=lambda t: (t["since"], t["name"].lower()))
+
+
+def save_teacher(folder, name, pem, shared=False, since=None):
+    """Keep a paired teacher; shared: readable by every account (a lab
+    computer's). ClassroomError when MAX_TEACHERS are kept already."""
+    fp = fingerprint(ssl.PEM_cert_to_DER_cert(pem))
+    known = load_teachers(folder)
+    if fp not in {t["fp"] for t in known} and len(known) >= MAX_TEACHERS:
+        raise ClassroomError(TEACHERS_FULL)
+    tdir = teachers_dir(folder)
+    os.makedirs(tdir, mode=0o755 if shared else 0o700, exist_ok=True)
+    mode = 0o644 if shared else 0o600
+    write_atomic(os.path.join(tdir, fp + ".pem"), pem, mode=mode)
+    write_atomic(os.path.join(tdir, fp + ".json"),
+                 json.dumps({"name": name, "since": since or iso_time(time.time()), "source": "paired"}) + "\n",
+                 mode=mode)
+    return fp
+
+
+def forget_teachers(folder, fp=None):
+    """Forget the teacher whose fingerprint is or starts with fp, or every
+    one (fp None); the names forgotten. ClassroomError when fp matches none
+    or several."""
+    teachers = load_teachers(folder)
+    gone = [t for t in teachers if not fp or t["fp"].startswith(fp.lower())]
+    if fp and len(gone) != 1:
+        raise ClassroomError("no paired teacher has that fingerprint" if not gone
+                             else "several teachers' fingerprints start with that: give more of it")
+    for teacher in gone:
+        remove(os.path.join(teachers_dir(folder), teacher["fp"] + ".pem"))
+        remove(os.path.join(teachers_dir(folder), teacher["fp"] + ".json"))
+    old = read_teacher(os.path.join(folder, "teacher.pem"), os.path.join(folder, "teacher.json"))
+    if old and old["fp"] in {t["fp"] for t in gone}:
+        remove(os.path.join(folder, "teacher.pem"))
+        remove(os.path.join(folder, "teacher.json"))
+    return [t["name"] for t in gone]
+
+
+def migrate_teachers(folder, shared=False):
+    """1.0~test8's one teacher.pem moves to teachers/ (once, by its writer)."""
+    old = read_teacher(os.path.join(folder, "teacher.pem"), os.path.join(folder, "teacher.json"))
+    if old:
+        save_teacher(folder, old["name"], old["pem"], shared=shared, since=old["since"] or None)
+        remove(os.path.join(folder, "teacher.pem"))
+        remove(os.path.join(folder, "teacher.json"))
+
+
+def identity(role, folder=None):
+    """This computer's key and certificate for role, made once (EC P-256), in
+    the user's data folder or (a lab computer) folder. A student's
+    certificate names it by a stable ID (subjectAltName DNS), never an
+    address: DHCP changes those, and the phase 2 viewer checks the name."""
+    folder = folder or data_dir(role)
+    os.makedirs(folder, mode=0o700 if folder != LAB_DIR else 0o755, exist_ok=True)
+    key, cert, id_file = (os.path.join(folder, n) for n in ("key.pem", "cert.pem", "id"))
+    try:
+        with open(id_file, encoding="ascii") as f:
+            ident = f.read().strip()
+    except (OSError, UnicodeDecodeError):
+        ident = ""
+    if not ident:
+        ident = f"{role}-{secrets.token_hex(8)}"
+        write_atomic(id_file, ident + "\n", mode=0o600)
+    if not (os.path.isfile(key) and os.path.isfile(cert)):
+        old_umask = os.umask(0o077)
+        try:
+            result = subprocess.run(
+                ["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                 "-noenc", "-keyout", key, "-out", cert, "-sha256", "-days", "3650",
+                 "-subj", f"/O=FlickOS Classroom/CN={ident}", "-addext", f"subjectAltName=DNS:{ident}"],
+                capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise ClassroomError(f"can't make a certificate: {error}") from None
+        finally:
+            os.umask(old_umask)
+        if result.returncode != 0:
+            raise ClassroomError(f"can't make a certificate: {result.stderr.strip()}")
+    try:
+        with open(cert, encoding="ascii") as f:
+            der = ssl.PEM_cert_to_DER_cert(f.read())
+    except (OSError, ValueError) as error:
+        raise ClassroomError(f"this computer's certificate can't be read: {error}") from None
+    return Identity(folder, ident, cert, key, der)
+
+
+# --- Messages on the wire: JSON lines, a thumbnail's bytes after its line -------------
+
+class ProtocolError(Exception):
+    pass
+
+
+class Channel:
+    """A TLS socket carrying JSON lines; a frame's bytes follow its line."""
+
+    def __init__(self, sock):
+        self.sock, self.buffer, self.write_lock = sock, b"", threading.Lock()
+
+    def send(self, message, payload=b""):
+        data = json.dumps(message, separators=(",", ":")).encode() + b"\n" + payload
+        with self.write_lock:
+            self.sock.sendall(data)
+
+    def _fill(self):
+        data = self.sock.recv(65536)
+        if not data:
+            raise ProtocolError("closed")
+        self.buffer += data
+
+    def receive(self):
+        """(message dict, payload bytes)."""
+        while b"\n" not in self.buffer:
+            if len(self.buffer) > MAX_LINE:
+                raise ProtocolError("a line too long")
+            self._fill()
+        line, self.buffer = self.buffer.split(b"\n", 1)
+        try:
+            message = json.loads(line)
+        except ValueError:
+            raise ProtocolError("not JSON") from None
+        if not isinstance(message, dict):
+            raise ProtocolError("not an object")
+        carries = message.get("type") == "frame" or message.get("verb") == "demo-frame"
+        size = message.get("size", 0) if carries else 0
+        if not isinstance(size, int) or not 0 <= size <= MAX_FRAME:
+            raise ProtocolError("a frame too big")
+        while len(self.buffer) < size:
+            self._fill()
+        payload, self.buffer = self.buffer[:size], self.buffer[size:]
+        return message, payload
+
+    def close(self):
+        """Shut down first: a thread waiting on the socket (a session's
+        receive, a relay's select) wakes now; closing alone doesn't wake it."""
+        with contextlib.suppress(OSError):
+            self.sock.shutdown(socket.SHUT_RDWR)
+        with contextlib.suppress(OSError):
+            self.sock.close()
+
+
+# --- Pairing: Bluetooth's passkey entry over TLS (ADR-010) ----------------------------
+
+def new_code():
+    return f"{secrets.randbelow(10 ** CODE_DIGITS):0{CODE_DIGITS}d}"
+
+
+def code_number(code):
+    code = str(code).strip().replace(" ", "")
+    if len(code) != CODE_DIGITS or not code.isdigit():
+        raise ClassroomError(f"the code has {CODE_DIGITS} digits")
+    return int(code)
+
+
+def commitment(nonce, teacher_fp, student_fp, bit):
+    return hmac.new(nonce, f"{teacher_fp}|{student_fp}|{bit}".encode(), hashlib.sha256).hexdigest()
+
+
+def prove_code(channel, code, teacher_fp, student_fp, teacher_side):
+    """Both sides know code; neither sends it. Per bit: the teacher commits,
+    the student commits, the teacher opens, the student checks it and opens,
+    the teacher checks. A side that doesn't know the code is caught at the
+    first wrong bit, having learned at most that bit. True when every bit
+    matched (both sides end at the same round)."""
+    number = code_number(code)
+    for index in range(PAIR_BITS):
+        bit = number >> index & 1
+        nonce = secrets.token_bytes(NONCE_BYTES)
+        mine = commitment(nonce, teacher_fp, student_fp, bit)
+        if teacher_side:
+            channel.send({"commit": mine})
+            theirs = channel.receive()[0].get("commit")
+            channel.send({"nonce": nonce.hex()})
+            opened = channel.receive()[0].get("nonce")
+        else:
+            theirs = channel.receive()[0].get("commit")
+            channel.send({"commit": mine})
+            opened = channel.receive()[0].get("nonce")
+        try:
+            ok = isinstance(theirs, str) and hmac.compare_digest(
+                commitment(bytes.fromhex(opened), teacher_fp, student_fp, bit), theirs)
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            with contextlib.suppress(OSError):
+                channel.send({"type": "wrong-code"})
+            return False
+        if not teacher_side:
+            channel.send({"nonce": nonce.hex()})
+    return True
+
+
+# --- TLS contexts -------------------------------------------------------------------
+
+def student_context(me, teacher_pem):
+    """The student's server side: a client certificate is checked against the
+    paired teacher's only; a connection without one may only pair."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(me.cert, me.key)
+    if teacher_pem:
+        ctx.verify_mode = ssl.CERT_OPTIONAL
+        ctx.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+        ctx.load_verify_locations(cadata=teacher_pem)
+    else:
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def teacher_context(me=None):
+    """The console's client side: its certificate for a session (none to pair);
+    the student's is compared with the paired one after the handshake."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    if me:
+        ctx.load_cert_chain(me.cert, me.key)
+    return ctx
+
+
+# --- mDNS (ADR-008): the student answers, the console asks ------------------------------
+
+def name_bytes(name):
+    return b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\0"
+
+
+def read_name(data, at, depth=0):
+    """(name, offset after it); follows compression pointers."""
+    parts = []
+    while True:
+        n = data[at]
+        if n == 0:
+            return ".".join(parts), at + 1
+        if n & 0xC0 == 0xC0:
+            if depth > 10:
+                raise ValueError("a pointer loop")
+            rest, _ = read_name(data, ((n & 0x3F) << 8) | data[at + 1], depth + 1)
+            return ".".join(p for p in (*parts, rest) if p), at + 2
+        parts.append(data[at + 1:at + 1 + n].decode(errors="replace"))
+        at += 1 + n
+
+
+def mdns_query():
+    return struct.pack("!6H", 0, 0, 1, 0, 0, 0) + name_bytes(MDNS_SERVICE) + struct.pack("!HH", 12, 1)
+
+
+def txt_bytes(fields):
+    out = b""
+    for key, value in fields.items():
+        item = f"{key}={value}".encode()[:255]
+        out += bytes([len(item)]) + item
+    return out
+
+
+def mdns_answer(ident, port, fields):
+    """PTR, SRV and TXT for this student."""
+    instance = f"{ident}.{MDNS_SERVICE}"
+
+    def rr(name, rtype, rdata):
+        return name_bytes(name) + struct.pack("!HHIH", rtype, 1, MDNS_TTL, len(rdata)) + rdata
+    srv = struct.pack("!HHH", 0, 0, port) + name_bytes(f"{ident}.local")
+    return (struct.pack("!6H", 0, 0x8400, 0, 3, 0, 0) + rr(MDNS_SERVICE, 12, name_bytes(instance))
+            + rr(instance, 33, srv) + rr(instance, 16, txt_bytes(fields)))
+
+
+def is_query_for_us(data):
+    try:
+        _id, flags, qd, *_ = struct.unpack_from("!6H", data)
+        if flags & 0x8000 or not qd:
+            return False
+        name, _ = read_name(data, 12)
+    except (IndexError, struct.error, ValueError):
+        return False
+    return name.lower() == MDNS_SERVICE.lower()
+
+
+def parse_answer(data):
+    """{"id", "port", fields...} of a student's answer, or None."""
+    try:
+        _id, flags, qd, an, ns, ar = struct.unpack_from("!6H", data)
+        if not flags & 0x8000:
+            return None
+        at = 12
+        for _ in range(qd):
+            _, at = read_name(data, at)
+            at += 4
+        found = {}
+        for _ in range(an + ns + ar):
+            name, at = read_name(data, at)
+            rtype, _cls, _ttl, length = struct.unpack_from("!HHIH", data, at)
+            at += 10
+            rdata = data[at:at + length]
+            if name.lower().endswith(MDNS_SERVICE.lower()) and name.lower() != MDNS_SERVICE.lower():
+                if rtype == 33:
+                    found["port"] = struct.unpack_from("!H", rdata, 4)[0]
+                    found["id"] = name[:-len(MDNS_SERVICE) - 1]
+                elif rtype == 16:
+                    i = 0
+                    while i < len(rdata):
+                        item = rdata[i + 1:i + 1 + rdata[i]].decode(errors="replace")
+                        i += 1 + rdata[i]
+                        key, _, value = item.partition("=")
+                        if key and key not in ("id", "port"):
+                            found[key] = value
+            at += length
+    except (IndexError, struct.error, ValueError):
+        return None
+    return found if "id" in found and "port" in found else None
+
+
+def ipv4_addresses():
+    """The IPv4 address of every interface that has one, but loopback."""
+    found = []
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        for _index, name in socket.if_nameindex():
+            if name == "lo":
+                continue
+            try:
+                answer = fcntl.ioctl(probe.fileno(), SIOCGIFADDR, struct.pack("256s", name.encode()[:15]))
+            except OSError:
+                continue                    # no IPv4 address (down, or IPv6 only)
+            found.append(socket.inet_ntoa(answer[20:24]))
+    finally:
+        probe.close()
+    return found
+
+
+class Mdns:
+    """Real mDNS, from port 5353 (ufw lets that in by default), on every
+    network: a computer with Wi-Fi and a cable, or a VPN, has several, and
+    joining the group with "any" joins only the one with the default route
+    (found with two VMs: the teacher saw no one)."""
+
+    def __init__(self, addresses=ipv4_addresses):
+        self.addresses, self.joined = addresses, set()
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        self.sock.bind(("", MDNS_PORT))
+        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+        self.refresh()
+
+    def refresh(self):
+        """Join the group on networks that came since (a Wi-Fi after login)."""
+        for address in self.addresses():
+            if address in self.joined:
+                continue
+            try:
+                self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                                     socket.inet_aton(MDNS_GROUP) + socket.inet_aton(address))
+            except OSError:
+                continue                    # already a member on it, or it went away
+            self.joined.add(address)
+
+    def send(self, data):
+        """To the group on every network joined (else the default route's)."""
+        for address in sorted(self.joined) or [None]:
+            with contextlib.suppress(OSError):
+                if address:
+                    self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(address))
+                self.sock.sendto(data, (MDNS_GROUP, MDNS_PORT))
+
+
+# --- The panel button ------------------------------------------------------------------
+
+PANEL_STATES = {
+    # state: (tooltip with {teacher}, CSS class)
+    "on": ("Sharing with a teacher is on", "unpaired"),     # the agent hasn't said more (yet)
+    "unpaired": ("Sharing with a teacher is on, but no teacher is paired", "unpaired"),
+    "open": ("{teacher} can see this screen", "open"),
+    "looking": ("{teacher} is looking at this screen", "looking"),
+    "locked": ("{teacher} locked this screen for the class", "looking"),
+    "demo": ("{teacher} is showing their screen", "looking"),
+    "viewed": ("{teacher} is viewing this screen", "looking"),
+    "controlled": ("{teacher} is controlling this computer", "looking"),
+}
+
+
+def panel_json(state, teacher):
+    tooltip, css = PANEL_STATES[state]
+    # The label is a space: base.css draws the icon (an empty text hides the button).
+    return {"text": " ", "alt": state, "class": css, "tooltip": tooltip.format(teacher=teacher or "A teacher")}
+
+
+def catches_signal(pid, signum):
+    """Whether pid has a handler for signum (SigCgt): a waybar without the
+    button would die of SIGRTMIN+PANEL_SIGNAL."""
+    try:
+        with open(os.path.join(PROC, str(pid), "status"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16) >> (signum - 1) & 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    return False
+
+
+def signal_panel():
+    signum = signal.SIGRTMIN + PANEL_SIGNAL
+    try:
+        entries = os.listdir(PROC)
+    except OSError:
+        return
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            if os.stat(os.path.join(PROC, entry)).st_uid != os.getuid():
+                continue
+            with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
+                if f.read().strip() != "waybar":
+                    continue
+        except OSError:
+            continue
+        if catches_signal(entry, signum):
+            with contextlib.suppress(OSError):
+                os.kill(int(entry), signum)
+
+
+def reload_panel():
+    """The button is in the panel only while sharing is on: have flickos-layout
+    generate the panel again (only inside the session)."""
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return
+    try:
+        subprocess.run([LAYOUT, "reload-panel"], check=False, timeout=30,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def notify(title, body, seconds=NOTIFY_MS / 1000):
+    """A notification, detached (notify-send waits for nothing here)."""
+    with contextlib.suppress(OSError):
+        subprocess.Popen(["notify-send", "--app-name=Classroom", "--icon=video-display",
+                          f"--expire-time={int(seconds * 1000)}", "--", title, body],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+# --- The student's agent -----------------------------------------------------------------
+
+class Agent:
+    """The agent of `student run`: mDNS, the TLS listener, the verbs, the
+    local socket for `pair` and `status`, the panel file. One connection with
+    the paired teacher at a time. mode: "student" (the student's own
+    computer), "lab-user" (a lab computer's session: the verbs, on LAB_SOCKET
+    for the service only) or "lab-service" (root: the network, TLS and
+    pairing; sessions relayed to the seat's lab-user agent)."""
+
+    def __init__(self, me, run_dir, port=PORT, mdns=True, host="", mode="student"):
+        self.me, self.run_dir, self.port, self.mdns, self.host = me, run_dir, port, mdns, host
+        self.mode = mode
+        self.restart = False                # `restart`: start again once stopped (lab on/off)
+        self.lock = threading.RLock()
+        self.teachers = []                  # the paired teachers (ADR-016), see reload_teachers
+        self.context = None
+        self.session = None                 # the connected teacher's Session (its .teacher)
+        self.relays = set()                 # the lab service: (teacher, channel) of each relayed connection
+        self.looking = False
+        self.locked = False
+        self.lock_owner = None              # the teacher whose class lock holds the screen
+        self.demo = False                   # the class lock shows the teacher's frames
+        self.vnc = None                     # a view or control session (ADR-012), see run_vnc
+        self.pairing = None                 # {"code", "until", "tries", "answer": queue}
+        self.stopping = threading.Event()
+        self.server = None
+        self.program = program_stamp()      # this file as it was at the start
+        self.reload_teachers()
+
+    def log(self, text):
+        log(text, self.run_dir)
+
+    def watch_program(self):
+        """A session's agent: end with its desktop, and start again on an
+        upgraded program. The service doesn't need it: the package's postinst
+        restarts it."""
+        desktop = os.environ.get("LABWC_PID", "")
+        while not self.stopping.wait(PROGRAM_CHECK_SECONDS):
+            if not desktop_running(desktop):
+                self.log(f"the desktop ended (labwc {desktop}): stopping")
+                self.stop()
+                return
+            stamp = program_stamp()
+            if stamp is None or stamp == self.program:
+                continue
+            with self.lock:
+                busy = self.vnc is not None or self.locked
+            if busy:
+                continue                    # never cut a view, control or class lock
+            self.log("the program was updated: starting again")
+            self.restart = True
+            self.stop()
+            return
+
+    # The paired teachers (ADR-016).
+
+    def folder(self):
+        return LAB_DIR if self.mode == "lab-user" else self.me.folder
+
+    def reload_teachers(self):
+        """The teachers from their folder; TLS trusts each one's certificate
+        (the session's agent on a lab computer only shows their names)."""
+        teachers = load_teachers(self.folder())
+        with self.lock:
+            self.teachers = teachers
+            if self.mode != "lab-user":
+                self.context = student_context(self.me, "".join(t["pem"] for t in teachers) or None)
+
+    def teacher_for(self, der):
+        """The paired teacher whose certificate the connection used, or None."""
+        fp = fingerprint(der)
+        with self.lock:
+            return next(({"fp": t["fp"], "name": t["name"]} for t in self.teachers if t["fp"] == fp), None)
+
+    def keep_teacher(self, name, pem):
+        save_teacher(self.me.folder, name, pem, shared=self.mode == "lab-service")  # every account shows a lab's
+        self.reload_teachers()
+        self.log(f"paired with {name}")
+        self.update_panel()
+
+    def busy_holder(self, teacher):
+        """(Under self.lock.) Another teacher whose class lock, demo, view or
+        control is on, which a new teacher must not cut (Q14), or None."""
+        holders = [self.vnc["teacher"] if self.vnc else None, self.lock_owner if self.locked else None]
+        return next((h for h in holders if h and h["fp"] != teacher["fp"]), None)
+
+    def teacher_name(self):
+        """For the panel: the teacher doing something now, else the paired one(s)."""
+        with self.lock:
+            for holder in (self.vnc["teacher"] if self.vnc else None, self.lock_owner if self.locked else None,
+                           self.session.teacher if self.session else None):
+                if holder:
+                    return holder["name"]
+            if len(self.teachers) == 1:
+                return self.teachers[0]["name"]
+            return f"{len(self.teachers)} teachers" if self.teachers else None
+
+    # The panel.
+
+    def state(self):
+        with self.lock:
+            if not self.teachers:
+                return "unpaired"
+            if self.vnc:
+                return "controlled" if self.vnc["control"] else "viewed"
+            if self.locked:
+                return "demo" if self.demo else "locked"
+            return "looking" if self.looking else "open"
+
+    def update_panel(self):
+        if self.stopping.is_set() or self.mode == "lab-service":
+            return                          # stopped: stop() told the panel; the service has none
+        teacher = self.teacher_name()
+        with self.lock:
+            text = json.dumps(panel_json(self.state(), teacher))
+        with contextlib.suppress(OSError):
+            write_atomic(os.path.join(self.run_dir, PANEL_FILE), text + "\n")
+        signal_panel()
+
+    # Running.
+
+    def start(self):
+        """Bind and start the threads; returns at once."""
+        if self.mode == "lab-user":
+            path = os.path.join(self.run_dir, LAB_SOCKET)
+            remove(path)
+            self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.server.bind(path)
+            os.chmod(path, 0o600)           # root passes; no one else
+            self.server.listen(2)
+            threading.Thread(target=self.accept_loop, daemon=True).start()
+            threading.Thread(target=self.local_loop, daemon=True).start()
+            threading.Thread(target=self.watch_program, daemon=True).start()
+            self.update_panel()
+            return
+        try:
+            migrate_teachers(self.me.folder, shared=self.mode == "lab-service")
+        except (OSError, ClassroomError) as error:
+            self.log(f"the paired teacher stays where it was: {error}")
+        self.reload_teachers()
+        self.server = socket.create_server((self.host, self.port))
+        self.port = self.server.getsockname()[1]
+        threading.Thread(target=self.accept_loop, daemon=True).start()
+        threading.Thread(target=self.local_loop, daemon=True).start()
+        if self.mode == "student":
+            threading.Thread(target=self.watch_program, daemon=True).start()
+        if self.mdns:
+            try:
+                mdns = Mdns()
+            except OSError as error:
+                self.log(f"no mDNS ({error}): the teacher needs this computer's address")
+            else:
+                threading.Thread(target=self.mdns_loop, args=(mdns,), daemon=True).start()
+        self.update_panel()
+
+    def stop(self):
+        """Sharing went off: let a class lock go at once, and close."""
+        self.stopping.set()
+        self.release_lock()
+        with contextlib.suppress(OSError):
+            self.server.close()
+        with self.lock:
+            session, vnc = self.session, self.vnc
+        if session:
+            session.channel.close()
+        if vnc:
+            self.end_vnc(vnc)
+        if self.mode != "lab-service":
+            remove(os.path.join(self.run_dir, PANEL_FILE))
+            signal_panel()
+
+    def mdns_fields(self):
+        with self.lock:
+            name = computer_name() if self.mode == "lab-service" else person_name()
+            return {"v": PROTOCOL, "name": name[:60], "computer": computer_name()[:60],
+                    "pairing": "1" if self.pairing_open() else "0"}
+
+    def mdns_loop(self, mdns):
+        mdns.sock.settimeout(MDNS_REFRESH_SECONDS)
+        while not self.stopping.is_set():
+            try:
+                data, _sender = mdns.sock.recvfrom(9000)
+            except socket.timeout:
+                mdns.refresh()
+                continue
+            except OSError:
+                return
+            if is_query_for_us(data):
+                mdns.send(mdns_answer(self.me.id, self.port, self.mdns_fields()))
+
+    def accept_loop(self):
+        serve = self.serve_lab if self.mode == "lab-user" else self.serve
+        while not self.stopping.is_set():
+            try:
+                conn, address = self.server.accept()
+            except OSError:
+                return
+            threading.Thread(target=serve, args=(conn, address), daemon=True).start()
+
+    def serve_lab(self, conn, _address):
+        """A lab computer's session agent: the service (root) only, no TLS on
+        this local socket; then the same session as from a teacher."""
+        try:
+            uid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
+        except OSError:
+            uid = -1
+        if uid not in LAB_PEERS:
+            self.log(f"refused a local connection from uid {uid}")
+            conn.close()
+            return
+        channel = Channel(conn)
+        try:
+            # The service says first which teacher it passes on; a service of
+            # 1.0~test8 or before sends the teacher's own line at once.
+            first, _ = channel.receive()
+            if first.get("type") == "teacher":
+                teacher = {"fp": clean_text(first.get("fp", ""), 64),
+                           "name": clean_text(first.get("name", ""), 80) or "A teacher"}
+                first = None
+            else:
+                with self.lock:
+                    known = self.teachers[0] if self.teachers else {"fp": "", "name": "A teacher"}
+                teacher = {"fp": known["fp"], "name": known["name"]}
+            self.run_session(channel, ("the lab service",), teacher, first)
+        except (OSError, ProtocolError, ClassroomError) as error:
+            self.log(f"the lab service: {error}")
+        finally:
+            channel.close()
+
+    def serve(self, conn, address):
+        conn.settimeout(CONNECT_SECONDS)
+        with self.lock:
+            context = self.context
+        try:
+            tls = context.wrap_socket(conn, server_side=True)
+        except (OSError, ssl.SSLError) as error:
+            self.log(f"{address[0]}: refused ({getattr(error, 'reason', None) or error})")
+            conn.close()
+            return
+        channel = Channel(tls)
+        try:
+            peer = tls.getpeercert(binary_form=True)
+            teacher = self.teacher_for(peer) if peer else None
+            if peer is None:
+                self.pair_with(channel, address)
+            elif teacher is None:
+                self.log(f"{address[0]}: a teacher no longer paired")   # forgotten since the handshake
+            elif self.mode == "lab-service":
+                self.relay(channel, address, teacher)
+            else:
+                self.run_session(channel, address, teacher)
+        except (OSError, ProtocolError, ssl.SSLError, ClassroomError) as error:
+            self.log(f"{address[0]}: {error}")
+        finally:
+            channel.close()
+
+    # Pairing, the student's half.
+
+    def pairing_open(self):
+        return bool(self.pairing) and time.monotonic() < self.pairing["until"]
+
+    def pair_with(self, channel, address):
+        hello, _ = channel.receive()
+        with self.lock:
+            pairing = self.pairing if self.pairing_open() else None
+        if hello.get("verb") != "pair" or not pairing:
+            channel.send({"type": "refused", "why": "not pairing"})
+            return
+        pem, name = hello.get("cert"), clean_text(hello.get("name", ""), 80) or "A teacher"
+        try:
+            teacher_fp = fingerprint(ssl.PEM_cert_to_DER_cert(pem))
+        except (TypeError, ValueError):
+            channel.send({"type": "refused", "why": "no certificate"})
+            return
+        me_name = computer_name() if self.mode == "lab-service" else person_name()
+        channel.send({"type": "pairing", "name": me_name[:80], "computer": computer_name()})
+        channel.sock.settimeout(CONNECT_SECONDS * 2)
+        if prove_code(channel, pairing["code"], teacher_fp, self.me.fingerprint, teacher_side=False):
+            try:
+                self.keep_teacher(name, pem)
+            except ClassroomError as error:
+                channel.send({"type": "refused", "why": str(error)})
+                with self.lock:
+                    self.pairing = None
+                pairing["answer"].put(("failed", str(error)))
+                return
+            channel.send({"type": "paired", "id": self.me.id})
+            with self.lock:
+                self.pairing = None
+            pairing["answer"].put(("paired", name))
+            return
+        self.log(f"{address[0]}: a pairing with the wrong code")
+        with self.lock:
+            pairing["tries"] += 1
+            if pairing["tries"] >= PAIR_TRIES:
+                self.pairing = None
+                pairing["answer"].put(("failed", "The code didn't match. Check it and type it again."))
+
+    def start_pairing(self, code):
+        code_number(code)
+        with self.lock:
+            if len(self.teachers) >= MAX_TEACHERS:
+                return ("failed", TEACHERS_FULL)
+        answer = queue.Queue()
+        with self.lock:
+            self.pairing = {"code": code, "until": time.monotonic() + PAIR_SECONDS, "tries": 0, "answer": answer}
+        self.log("waiting for a teacher to pair")
+        try:
+            return answer.get(timeout=PAIR_SECONDS)
+        except queue.Empty:
+            with self.lock:
+                if self.pairing and self.pairing["answer"] is answer:
+                    self.pairing = None
+            return ("failed", "No teacher's computer answered. Is Add Students open on it, on this network?")
+
+    # A session with a paired teacher, one at a time (ADR-016).
+
+    def run_session(self, channel, address, teacher, first=None):
+        hello = first or channel.receive()[0]
+        if hello.get("verb") in ("view", "control"):
+            return self.run_vnc(channel, address, hello["verb"] == "control", teacher)
+        if hello.get("verb") != "hello":
+            raise ProtocolError("no hello")
+        with self.lock:
+            holder = self.busy_holder(teacher)
+            if not holder:
+                old = self.session
+                self.session = session = Session(self, channel, teacher)
+        if holder:
+            # Q14: another teacher's class lock, demo, view or control is on.
+            self.log(f"{address[0]}: {teacher['name']} waits: {holder['name']} is busy here")
+            channel.send({"type": "busy", "teacher": holder["name"]})
+            return
+        if old and old.teacher["fp"] != teacher["fp"]:
+            # Q14: the newer teacher takes over; the other console doesn't come back by itself.
+            self.log(f"{teacher['name']} took over from {old.teacher['name']}")
+            with contextlib.suppress(OSError):
+                old.channel.send({"type": "event", "what": "taken-over", "by": teacher["name"]})
+        if old:
+            old.channel.close()             # the same teacher's computer came back, or another took over
+        self.log(f"{address[0]}: {teacher['name']} connected")
+        channel.send({"type": "hello", "v": PROTOCOL, "name": person_name()[:80], "computer": computer_name(),
+                      "locked": self.locked})
+        self.touch_release()
+        try:
+            session.run()
+        finally:
+            with self.lock:
+                if self.session is session:
+                    self.session = None
+            session.stop_thumbnails()
+            self.update_panel()
+            self.log(f"{address[0]}: {teacher['name']} left")
+
+    def relay(self, channel, address, teacher):
+        """The lab service: pass the paired teacher's session to the agent of
+        whoever has the seat, both ways, until either side closes."""
+        uid = seat_uid()
+        path = os.path.join(USER_RUNTIME.format(uid=uid), "flickos", "classroom", LAB_SOCKET) \
+            if uid is not None else None
+        try:
+            info = os.stat(path) if path else None
+        except OSError:
+            info = None
+        def absent(why):
+            channel.receive()               # the teacher's hello first: closing on it unread resets the line
+            channel.send({"type": "absent", "why": why})
+
+        if uid is None:
+            return absent("nobody")
+        if info is None or not stat.S_ISSOCK(info.st_mode) or info.st_uid != uid:
+            return absent("not running")
+        local = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            local.connect(path)
+        except OSError:
+            local.close()
+            return absent("not running")
+        self.log(f"{address[0]}: {teacher['name']}, passed to uid {uid}")
+        relayed = (teacher["fp"], teacher["name"], channel)
+        with self.lock:
+            self.looking = True             # for `lab status`
+            self.relays.add(relayed)
+        try:
+            Channel(local).send({"type": "teacher", "fp": teacher["fp"], "name": teacher["name"]})
+            # No time limit: a VNC session may be still for long (the seat's
+            # agent ends a silent main session itself); keepalive notices a lost teacher.
+            keepalive(channel.sock)
+            pipe(channel.sock, local, quiet=None)
+        finally:
+            local.close()
+            with self.lock:
+                self.relays.discard(relayed)
+                self.looking = bool(self.relays)
+            self.log(f"{address[0]}: {teacher['name']} left")
+
+    # One screen, seen or controlled (ADR-012, ADR-015).
+
+    def run_vnc(self, channel, address, control, teacher):
+        """A paired teacher's view of this screen (control: with input):
+        wayvnc for this connection only, on a socket in the runtime folder,
+        piped through it; the strip shows all along, or there is no session.
+        Only the teacher connected now, or any while none is (ADR-016)."""
+        if self.mode == "lab-service":
+            raise ProtocolError("the service passes sessions on")
+        if not shutil.which(WAYVNC):
+            channel.send({"type": "refused", "why": "wayvnc isn't installed"})
+            return
+        with self.lock:
+            holder = self.busy_holder(teacher)
+            if not holder and self.session and self.session.teacher["fp"] != teacher["fp"]:
+                holder = self.session.teacher
+            old = self.vnc
+        if holder:
+            channel.send({"type": "refused", "why": f"{holder['name']} is connected to it"})
+            return
+        if old:
+            self.end_vnc(old)               # one at a time: the teacher opened another
+        paths = {name: os.path.join(self.run_dir, name) for name in (VNC_SOCKET, VNC_CONTROL, VNC_CONFIG)}
+        for path in paths.values():
+            remove(path)
+        name = teacher["name"]
+        stoppable = control or self.mode != "lab-user"     # Q10: a lab's student may stop control only
+        vnc = {"channel": channel, "control": control, "stopped": False, "ended": False, "teacher": teacher,
+               "done": threading.Event(), "process": None, "strip": None, "paths": paths}
+        try:
+            vnc["strip"] = start_strip(f"{name} is controlling this computer" if control
+                                       else f"{name} is viewing this screen", stoppable)
+            write_atomic(paths[VNC_CONFIG], "", mode=0o600)
+            options = [] if control else ["-d", "-r"]       # view: no input, the pointer drawn in
+            vnc["process"] = subprocess.Popen(
+                [WAYVNC, "-C", paths[VNC_CONFIG], "-S", paths[VNC_CONTROL], *options, "-u", paths[VNC_SOCKET]],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                preexec_fn=die_with_parent)
+            local = wait_for_socket(paths[VNC_SOCKET], vnc["process"])
+        except (OSError, ClassroomError) as error:
+            self.log(f"{address[0]}: no {'control' if control else 'view'}: {error}")
+            self.end_vnc(vnc, quiet=True)
+            channel.send({"type": "refused", "why": str(error)})
+            return
+        with self.lock:
+            self.vnc = vnc
+        self.update_panel()
+        self.log(f"{address[0]}: the teacher is {'controlling' if control else 'viewing'} this screen")
+        threading.Thread(target=self.watch_strip, args=(vnc,), daemon=True).start()
+        try:
+            channel.send({"type": "vnc", "control": control})
+            if channel.buffer:
+                local.sendall(channel.buffer)
+                channel.buffer = b""
+            keepalive(channel.sock)
+            pipe(channel.sock, local, quiet=None)
+        finally:
+            local.close()
+            self.end_vnc(vnc)
+
+    def watch_strip(self, vnc):
+        """The strip ended: Stop pressed (STRIP_STOP) or anything else; either
+        way the session ends, since a session is never without it."""
+        status = vnc["strip"].wait()
+        if not vnc["ended"]:
+            vnc["stopped"] = status == STRIP_STOP
+            self.log("the student stopped the teacher's view" if vnc["stopped"]
+                     else f"the strip ended ({status}): the teacher's view ends")
+            self.end_vnc(vnc)
+
+    def end_vnc(self, vnc, quiet=False):
+        """Once: stop wayvnc (which ends the pipe) and the strip, tidy up, and
+        tell the teacher's main session when the student pressed Stop. A
+        second caller waits until that is done: the next session reuses the
+        paths, and this one's tidying must not remove its socket."""
+        with self.lock:
+            busy = vnc["ended"]
+            vnc["ended"] = True
+            session = self.session
+        if busy:
+            vnc["done"].wait(VNC_END_SECONDS)
+            return
+        for name in ("process", "strip"):
+            stop_process(vnc[name])
+        for path in vnc["paths"].values():
+            remove(path)
+        with self.lock:
+            if self.vnc is vnc:
+                self.vnc = None         # only now: until here it still holds the paths
+        vnc["done"].set()
+        if quiet:
+            return
+        self.log(f"the teacher's {'control' if vnc['control'] else 'view'} ended"
+                 + (" (the student's Stop)" if vnc["stopped"] else ""))
+        self.update_panel()
+        if vnc["stopped"] and session:
+            with contextlib.suppress(OSError):
+                session.channel.send({"type": "event", "what": "stopped", "control": vnc["control"]})
+
+    def set_looking(self, looking):
+        with self.lock:
+            changed, self.looking = self.looking != looking, looking
+        if changed:
+            self.update_panel()
+
+    # The class lock (ADR-007).
+
+    def release_path(self):
+        return os.path.join(self.run_dir, RELEASE_FILE)
+
+    def touch_release(self):
+        if self.locked:
+            with contextlib.suppress(OSError):
+                os.utime(self.release_path())
+
+    def demo_path(self):
+        return os.path.join(self.run_dir, DEMO_FILE)
+
+    def class_lock(self, message, demo=False, owner=None):
+        """A class lock (ADR-007); demo: showing the teacher's frames (ADR-014).
+        owner: the teacher who set it, whom no other teacher interrupts (Q14)."""
+        if demo and self.locked and not self.demo:
+            # A plain class lock holds the screen: let it go, then lock again with the picture.
+            self.release_lock()
+            class_file = os.path.join(os.path.dirname(self.run_dir), LOCK_CLASS_FILE)
+            deadline = time.monotonic() + LOCK_GONE_SECONDS
+            while os.path.exists(class_file) and time.monotonic() < deadline:
+                time.sleep(0.1)
+        path = self.release_path()
+        write_atomic(path, "the teacher\n", mode=0o600)
+        image = ["--class-image", self.demo_path()] if demo else []
+        try:
+            result = subprocess.run([*LOCK, "--class-message", message, "--release", path, *image],
+                                    capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            remove(path)
+            raise ClassroomError(f"the screen can't be locked: {error}") from None
+        if result.returncode != 0:
+            remove(path)
+            raise ClassroomError(f"the screen can't be locked: {result.stderr.strip() or result.returncode}")
+        with self.lock:
+            started = not self.locked
+            self.locked, self.demo = True, demo or self.demo
+            self.lock_owner = owner or self.lock_owner
+        self.update_panel()
+        if started:
+            threading.Thread(target=self.watch_lock, daemon=True).start()
+
+    def demo_frame(self, data):
+        """The teacher's newest frame, for the class lock to show."""
+        if not (self.locked and self.demo):
+            raise ClassroomError("no demo")
+        if not data.startswith(b"\xff\xd8\xff"):
+            raise ClassroomError("not a JPEG")
+        write_atomic(self.demo_path(), data, mode=0o600)
+
+    def watch_lock(self):
+        """While locked only: the failsafe or the student's own password may
+        end the class lock without the agent; the panel then says so."""
+        class_file = os.path.join(os.path.dirname(self.run_dir), LOCK_CLASS_FILE)
+        while self.locked and not self.stopping.wait(LOCK_WATCH_SECONDS):
+            if not os.path.exists(class_file):
+                self.log("the class lock ended")
+                self.release_lock()
+
+    def release_lock(self):
+        remove(self.release_path())
+        remove(self.demo_path())
+        with self.lock:
+            was, self.locked, self.demo, self.lock_owner = self.locked, False, False, None
+        if was:
+            self.update_panel()
+
+    # The local socket: `student pair`, `student status`, `student off`.
+
+    def local_loop(self):
+        path = os.path.join(self.run_dir, AGENT_SOCKET)
+        remove(path)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        os.chmod(path, 0o600)
+        server.listen(4)
+        while not self.stopping.is_set():
+            try:
+                conn, _ = server.accept()
+            except OSError:
+                return
+            threading.Thread(target=self.local_request, args=(conn,), daemon=True).start()
+
+    def local_request(self, conn):
+        with conn:
+            try:
+                words = conn.makefile("r", encoding="utf-8").readline().split()
+                if words[:1] == ["pair"] and len(words) == 2 and self.mode == "lab-user":
+                    conn.sendall(f"failed\t{LAB_REFUSED}\n".encode())
+                elif words[:1] == ["pair"] and len(words) == 2:
+                    try:
+                        word, text = self.start_pairing(words[1])
+                    except ClassroomError as error:
+                        word, text = "failed", str(error)
+                    conn.sendall(f"{word}\t{text}\n".encode())
+                elif words == ["status"]:
+                    with self.lock:
+                        connected = self.session.teacher["name"] if self.session else None
+                        status = {"state": self.state(), "teacher": connected,
+                                  "teachers": [t["name"] for t in self.teachers],
+                                  "connected": self.session is not None, "port": self.port}
+                    conn.sendall((json.dumps(status) + "\n").encode())
+                elif words == ["stop"]:
+                    conn.sendall(b"stopping\n")
+                    self.stop()
+                elif words == ["restart"]:          # lab on/off: start again in the new mode
+                    conn.sendall(b"restarting\n")
+                    self.restart = True
+                    self.stop()
+                elif words[:1] == ["forget"] and len(words) <= 2 and self.mode == "lab-service":
+                    try:
+                        names = forget_teachers(self.me.folder, words[1] if len(words) == 2 else None)
+                    except ClassroomError as error:
+                        conn.sendall(f"failed\t{error}\n".encode())
+                        return
+                    self.reload_teachers()
+                    with self.lock:
+                        kept = {t["fp"] for t in self.teachers}
+                        cut = [ch for fp, _name, ch in self.relays if fp not in kept]
+                    for relayed in cut:
+                        relayed.close()     # a forgotten teacher's connection ends now
+                    self.log(f"forgot {', '.join(names) or 'no teacher'}")
+                    conn.sendall(("forgot\t" + ", ".join(names) + "\n").encode())
+            except (OSError, IndexError):
+                pass
+
+
+class Session:
+    """One connected teacher: its verbs, the thumbnails, the heartbeat."""
+
+    def __init__(self, agent, channel, teacher):
+        self.agent, self.channel, self.teacher = agent, channel, teacher
+        self.period = 0
+        self.wake = threading.Event()
+        self.thumbnails = None
+
+    def run(self):
+        self.channel.sock.settimeout(QUIET_SECONDS)
+        while True:
+            message, payload = self.channel.receive()
+            self.agent.touch_release()
+            verb = message.get("verb")
+            if verb == "ping":
+                continue
+            try:
+                self.do(verb, message, payload)
+                answer = {"type": "done", "verb": verb, "ok": True}
+            except ClassroomError as error:
+                answer = {"type": "done", "verb": verb, "ok": False, "error": str(error)}
+            self.channel.send(answer)
+
+    def do(self, verb, message, payload=b""):
+        """The verbs (ADR-006); each calls its owner's command."""
+        if verb not in VERBS or verb in ("hello", "ping"):
+            self.agent.log(f"an unknown verb: {str(verb)[:40]!r}")
+            raise ClassroomError("unknown")
+        if verb in ("view", "control"):
+            raise ClassroomError("on a connection of its own")
+        if verb == "demo":
+            if message.get("on"):
+                self.agent.class_lock(DEMO_MESSAGE, demo=True, owner=self.teacher)
+            elif self.agent.demo:
+                self.agent.release_lock()
+            return
+        if verb == "demo-frame":
+            self.agent.demo_frame(payload)
+            return
+        if verb == "thumbnail":
+            period = message.get("period", 0)
+            if period not in (0, *PERIODS):
+                raise ClassroomError("period")
+            self.set_period(period)
+        elif verb == "lock":
+            self.agent.class_lock(clean_text(message.get("message", ""), MAX_MESSAGE) or "Your teacher locked this screen.",
+                                  owner=self.teacher)
+        elif verb == "unlock":
+            self.agent.release_lock()
+        elif verb == "message":
+            text = clean_text(message.get("text", ""), MAX_MESSAGE)
+            if not text:
+                raise ClassroomError("empty")
+            seconds = message.get("seconds", 15)
+            seconds = min(max(int(seconds) if isinstance(seconds, int) else 15, MESSAGE_SECONDS[0]),
+                          MESSAGE_SECONDS[1])
+            notify(f"From {self.teacher['name']}", text, seconds)
+        elif verb == "open-url":
+            url = message.get("url", "")
+            if not isinstance(url, str) or not url_allowed(url):
+                raise ClassroomError("only web pages (http or https)")
+            subprocess.Popen(["xdg-open", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+
+    def set_period(self, period):
+        self.period = period
+        self.agent.set_looking(period > 0)
+        if period and not (self.thumbnails and self.thumbnails.is_alive()):
+            self.thumbnails = threading.Thread(target=self.send_thumbnails, daemon=True)
+            self.thumbnails.start()
+        self.wake.set()
+
+    def stop_thumbnails(self):
+        self.period = 0
+        self.wake.set()
+        if self.agent.session in (None, self):  # a teacher who took over may be looking already
+            self.agent.set_looking(False)
+
+    def send_thumbnails(self):
+        last = None
+        while self.period:
+            self.wake.clear()
+            started = time.monotonic()
+            try:
+                frame = thumbnail()
+            except ClassroomError as error:
+                self.agent.log(f"no thumbnail: {error}")
+                frame = None
+            if frame and frame != last:     # an unchanged screen sends nothing
+                try:
+                    self.channel.send({"type": "frame", "size": len(frame)}, frame)
+                except OSError:
+                    return
+                last = frame
+            self.wake.wait(max(0.1, self.period - (time.monotonic() - started)))
+
+
+def logind_file(path):
+    """{KEY: value} of one of logind's state files, {} when missing."""
+    found = {}
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                key, _, value = line.strip().partition("=")
+                found[key] = value
+    return found
+
+
+def seat_uid():
+    """The user who has the screen (logind's ACTIVE_UID of seat0), or None:
+    no one, or the login screen (its session's CLASS is greeter)."""
+    seat = logind_file(SEAT_FILE)
+    uid, session = seat.get("ACTIVE_UID", ""), seat.get("ACTIVE", "")
+    if not uid.isdigit():
+        return None
+    if session and logind_file(os.path.join(SESSIONS_DIR, os.path.basename(session))).get("CLASS", "user") != "user":
+        return None
+    return int(uid)
+
+
+def pipe(tls, local, quiet=QUIET_SECONDS):
+    """Copy both ways between the teacher's TLS socket and the agent's local
+    one, in one thread (an SSL socket isn't for two threads at once), until
+    one side closes or nothing comes for quiet seconds (None: no limit, for a
+    VNC session that may be still for long; TCP keepalive notices a lost
+    teacher there)."""
+    import select
+    tls.settimeout(quiet)
+    local.settimeout(quiet)
+    while True:
+        # tls may be a plain socket: a lab computer's session comes from the service.
+        pending = getattr(tls, "pending", None)
+        ready = [tls] if pending and pending() else select.select([tls, local], [], [], quiet)[0]
+        if not ready:
+            return
+        for source, target in ((tls, local), (local, tls)):
+            if source in ready:
+                data = source.recv(65536)
+                if not data:
+                    return
+                target.sendall(data)
+
+
+def keepalive(sock):
+    """TCP keepalive on the teacher's socket (KEEPALIVE): a teacher gone
+    without a word is noticed in about a minute. Not on a Unix socket."""
+    idle, interval, count = KEEPALIVE
+    with contextlib.suppress(OSError, AttributeError):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, count)
+
+
+def desktop_running(pid):
+    """Whether the labwc whose LABWC_PID the agent started with still runs;
+    True when it isn't known (started outside labwc)."""
+    if not pid.isdigit():
+        return True
+    try:
+        with open(os.path.join(PROC, pid, "comm"), encoding="utf-8") as f:
+            return f.read().strip() == "labwc"
+    except OSError:
+        return False
+
+
+def program_stamp():
+    """This program file's identity: dpkg puts a new file in place (a new inode)."""
+    try:
+        info = os.stat(PROGRAM)
+    except OSError:
+        return None
+    return info.st_ino, info.st_mtime_ns
+
+
+def die_with_parent():
+    """In a child (preexec_fn): SIGTERM when the agent's thread that started
+    it ends, so no wayvnc or strip outlives a crashed agent."""
+    with contextlib.suppress(OSError, AttributeError):
+        import ctypes
+        ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM)     # PR_SET_PDEATHSIG
+
+
+def stop_process(process):
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def wait_for_socket(path, process, seconds=VNC_START_SECONDS):
+    """A connected Unix socket to wayvnc once it listens at path."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise ClassroomError(f"wayvnc stopped ({process.returncode})")
+        if os.path.exists(path):
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.connect(path)
+                return sock
+            except OSError:
+                sock.close()
+        time.sleep(0.05)
+    raise ClassroomError("wayvnc didn't start")
+
+
+def start_strip(text, stoppable, seconds=STRIP_SECONDS):
+    """The strip (ADR-015) once it says it is on the screen; ClassroomError
+    when it can't be shown: then there is no session either."""
+    import select
+    process = subprocess.Popen([*STRIP, "--text", text, *(["--stop"] if stoppable else [])],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               preexec_fn=die_with_parent)
+    if select.select([process.stdout], [], [], seconds)[0] and process.stdout.readline().strip() == b"shown":
+        return process
+    stop_process(process)
+    raise ClassroomError("the strip that says so can't be shown")
+
+
+def url_allowed(url):
+    return (url.lower().startswith(URL_SCHEMES) and len(url) <= MAX_URL
+            and all(c.isprintable() and not c.isspace() for c in url))
+
+
+def thumbnail(width=THUMB_WIDTH, quality=THUMB_QUALITY):
+    """The whole screen (every output, as laid out) as a JPEG about width
+    pixels wide: grim at full size, Pillow reduces by an integer factor."""
+    try:
+        result = subprocess.run(["grim", "-t", "ppm", "-"], capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ClassroomError(f"grim: {error}") from None
+    if result.returncode != 0:
+        raise ClassroomError(f"grim: {result.stderr.decode(errors='replace').strip()}")
+    from PIL import Image
+    try:
+        image = Image.open(io.BytesIO(result.stdout))
+        factor = max(1, -(-image.width // width))
+        image = image.reduce(factor) if factor > 1 else image
+        out = io.BytesIO()
+        image.convert("RGB").save(out, "JPEG", quality=quality)
+    except (OSError, ValueError) as error:
+        raise ClassroomError(f"the picture: {error}") from None
+    return out.getvalue()
+
+
+def agent_running(run_dir):
+    """Whether an agent holds the lock (flock, not a PID file)."""
+    try:
+        with open(os.path.join(run_dir, AGENT_LOCK), "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def ask_agent(line, timeout=5, path=None):
+    """The agent's answer line, or None when no agent runs."""
+    path = path or os.path.join(runtime_dir(), AGENT_SOCKET)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect(path)
+        sock.sendall(line.encode() + b"\n")
+        return sock.makefile("r", encoding="utf-8").readline().rstrip("\n")
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def start_agent():
+    with contextlib.suppress(OSError):
+        subprocess.Popen([sys.executable, os.path.realpath(__file__), "student", "run"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+def cmd_run(opts):
+    if live_session():
+        return 0                            # never in the live session (INT-7)
+    if load_settings()["sharing"] != "on":
+        return 0                            # off: nothing runs (INT-9)
+    run_dir = runtime_dir()
+    os.makedirs(run_dir, mode=0o700, exist_ok=True)
+    lock = open(os.path.join(run_dir, AGENT_LOCK), "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return 0                            # another agent runs
+    if lab_mode():
+        # A lab computer: the service has the network; this session does the screen.
+        agent = Agent(None, run_dir, mode="lab-user")
+    else:
+        agent = Agent(identity(STUDENT_DIR), run_dir, port=opts.port)
+    try:
+        agent.start()
+    except OSError as error:
+        raise ClassroomError(f"can't listen on port {opts.port}: {error.strerror}") from None
+    log(f"sharing on ({agent.mode}), listening on {agent.port if agent.mode == 'student' else LAB_SOCKET}",
+        run_dir)
+    show_notice(os.path.join(data_dir(STUDENT_DIR), "noticed"), lab_mode())
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, lambda *_a: agent.stopping.set())
+    agent.stopping.wait()
+    agent.stop()
+    log("sharing off", run_dir)
+    lock.close()
+    if agent.restart:
+        start_agent()                       # lab on/off, an upgrade: the new mode or program, if sharing is still on
+    return 0
+
+
+def show_notice(noticed, lab):
+    """The first-run notice (Q7), once per account; a lab computer's again
+    once after its text changed (LAB_NOTICE_MARK, Q15)."""
+    try:
+        with open(noticed, encoding="utf-8") as f:
+            marks = f.read().split()
+    except (OSError, UnicodeDecodeError):
+        marks = None
+    if marks is not None and (not lab or LAB_NOTICE_MARK in marks):
+        return
+    notify("Your screen can be shared with a teacher", LAB_NOTICE if lab else NOTICE, 30)
+    mark = LAB_NOTICE_MARK if lab else "own-1"
+    write_atomic(noticed, " ".join([*(marks or []), mark, iso_time(time.time())]) + "\n", mode=0o600)
+
+
+# --- Student commands -------------------------------------------------------------------
+
+def cmd_get(opts):
+    print(load_settings()[opts.key])
+    return 0
+
+
+def refuse_in_lab():
+    if lab_mode():
+        raise ClassroomError(LAB_REFUSED)
+
+
+def cmd_on(_opts):
+    refuse_in_lab()
+    if live_session():
+        raise ClassroomError("sharing a screen isn't available in the live session")
+    save_setting("sharing", "on")
+    start_agent()
+    reload_panel()
+    return 0
+
+
+def cmd_off(_opts):
+    refuse_in_lab()
+    save_setting("sharing", "off")
+    with contextlib.suppress(ClassroomError):
+        ask_agent("stop")
+    reload_panel()
+    return 0
+
+
+def cmd_status(_opts):
+    settings = load_settings()
+    answer = None
+    with contextlib.suppress(ClassroomError):
+        answer = ask_agent("status")
+    status = read_json_text(answer) if answer else {}
+    teachers = load_teachers(student_folder())
+    teacher = status.get("teacher")         # the one connected now
+    print(f"sharing\t{settings['sharing']}")
+    print(f"teacher\t{teacher or ''}")
+    print(f"teachers\t{len(teachers)}")
+    print(f"state\t{status.get('state', 'off')}")
+    print(f"connected\t{'yes' if status.get('connected') else 'no'}")
+    print(f"lab\t{'yes' if lab_mode() else 'no'}")
+    return 0
+
+
+def student_folder():
+    """Where this account's sharing keeps its teachers: a lab computer's own."""
+    return LAB_DIR if lab_mode() else data_dir(STUDENT_DIR)
+
+
+def print_teachers(folder):
+    """One line a teacher: fingerprint, name, paired since, source (paired or fleet)."""
+    for teacher in load_teachers(folder):
+        print("\t".join((teacher["fp"], teacher["name"], teacher["since"], teacher["source"])))
+    return 0
+
+
+def cmd_teachers(_opts):
+    return print_teachers(student_folder())
+
+
+def read_json_text(text):
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def cmd_pair(opts):
+    refuse_in_lab()
+    if load_settings()["sharing"] != "on":
+        raise ClassroomError("turn on sharing with a teacher first (Settings > Classroom)")
+    if opts.code is None:
+        return pair_window()
+    code_number(opts.code)
+    answer = ask_agent(f"pair {opts.code}", timeout=PAIR_SECONDS + 10)
+    if answer is None:
+        raise ClassroomError("the classroom agent isn't running; turn sharing off and on again")
+    word, _, text = answer.partition("\t")
+    if word != "paired":
+        raise ClassroomError(text or "pairing failed")
+    print(f"paired\t{text}")
+    return 0
+
+
+def cmd_forget(opts):
+    refuse_in_lab()
+    names = forget_teachers(data_dir(STUDENT_DIR), opts.fingerprint)
+    if load_settings()["sharing"] == "on":
+        with contextlib.suppress(ClassroomError):
+            if ask_agent("stop"):
+                for _ in range(20):         # the old agent lets go of the port
+                    if not agent_running(runtime_dir()):
+                        break
+                    time.sleep(0.1)
+        start_agent()                       # trusting the teachers kept only
+    if names:
+        print(f"forgot\t{', '.join(names)}")
+    return 0
+
+
+# --- A lab computer (ADR-011): the administrator's commands and the service ------------------
+
+def require_root():
+    if os.geteuid() != 0:
+        raise ClassroomError("this needs an administrator: pkexec flickos-classroom-view lab …")
+
+
+def restart_agents():
+    """Every logged-in user's agent starts again in the new mode."""
+    base = USER_RUNTIME.format(uid="")
+    try:
+        uids = [name for name in os.listdir(base) if name.isdigit()]
+    except OSError:
+        return
+    for uid in uids:
+        path = os.path.join(base, uid, "flickos", "classroom", AGENT_SOCKET)
+        if os.path.exists(path):
+            with contextlib.suppress(OSError, ClassroomError):
+                ask_agent("restart", timeout=3, path=path)
+
+
+def systemctl(*args):
+    try:
+        result = subprocess.run([SYSTEMCTL, *args], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ClassroomError(f"systemctl: {error}") from None
+    if result.returncode != 0:
+        raise ClassroomError(f"systemctl {' '.join(args)}: {result.stderr.strip()}")
+
+
+def cmd_lab_status(_opts):
+    me = None
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        with open(os.path.join(LAB_DIR, "id"), encoding="ascii") as f:
+            me = f.read().strip()
+    teachers = lab_teachers() if lab_mode() else []
+    print(f"lab\t{'yes' if lab_mode() else 'no'}")
+    print(f"teacher\t{', '.join(t['name'] for t in teachers)}")
+    print(f"teachers\t{len(teachers)}")
+    print(f"id\t{me or ''}")
+    return 0
+
+
+def cmd_lab_on(_opts):
+    require_root()
+    if live_session():
+        raise ClassroomError("a lab computer needs an installed system")
+    identity("lab", LAB_DIR)
+    write_atomic(os.path.join(LAB_DIR, LAB_MARK), iso_time(time.time()) + "\n")
+    systemctl("enable", "--now", LAB_SERVICE)
+    restart_agents()
+    print("This is a lab computer now: every account shares its screen with the teacher paired in "
+          "Settings > Classroom.")
+    return 0
+
+
+def cmd_lab_off(_opts):
+    require_root()
+    remove(os.path.join(LAB_DIR, LAB_MARK))
+    systemctl("disable", "--now", LAB_SERVICE)
+    restart_agents()
+    print("This is no longer a lab computer: each account chooses whether to share.")
+    return 0
+
+
+def ask_service(line, timeout):
+    answer = ask_agent(line, timeout=timeout, path=os.path.join(LAB_RUN, AGENT_SOCKET))
+    if answer is None:
+        raise ClassroomError("the lab service isn't running; turn the lab computer off and on again")
+    return answer
+
+
+def cmd_lab_pair(opts):
+    require_root()
+    if not lab_mode():
+        raise ClassroomError("this isn't a lab computer")
+    code_number(opts.code)
+    word, _, text = ask_service(f"pair {opts.code}", PAIR_SECONDS + 10).partition("\t")
+    if word != "paired":
+        raise ClassroomError(text or "pairing failed")
+    restart_agents()                        # their panels show the teacher's name
+    print(f"paired\t{text}")
+    return 0
+
+
+def cmd_lab_teachers(_opts):
+    return print_teachers(LAB_DIR)
+
+
+def cmd_lab_forget(opts):
+    require_root()
+    if lab_mode():
+        word, _, text = ask_service("forget" + (f" {opts.fingerprint}" if opts.fingerprint else ""),
+                                    10).partition("\t")
+        if word != "forgot":
+            raise ClassroomError(text or "the lab service didn't forget")
+        names = [n for n in text.split(", ") if n]
+    else:
+        names = forget_teachers(LAB_DIR, opts.fingerprint)
+    restart_agents()
+    if names:
+        print(f"forgot\t{', '.join(names)}")
+    return 0
+
+
+def cmd_lab_run(_opts):
+    """The lab service (root, flickos-classroom-lab.service)."""
+    require_root()
+    if live_session() or not lab_mode():
+        return 0
+    os.makedirs(LAB_RUN, mode=0o700, exist_ok=True)
+    agent = Agent(identity("lab", LAB_DIR), LAB_RUN, mode="lab-service")
+    try:
+        agent.start()
+    except OSError as error:
+        raise ClassroomError(f"can't listen on port {PORT}: {error.strerror}") from None
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, lambda *_a: agent.stopping.set())
+    agent.stopping.wait()
+    agent.stop()
+    return 0
+
+
+def cmd_panel(_opts):
+    """waybar: the button's JSON. While sharing is on it is never empty, so
+    never hidden (ADR-004): the agent's state, or plain "on" while the agent
+    hasn't written it (the panel may start first, at login or at `on`) or
+    doesn't run."""
+    with contextlib.suppress(OSError, ClassroomError):
+        with open(os.path.join(runtime_dir(), PANEL_FILE), encoding="utf-8") as f:
+            sys.stdout.write(f.read())
+            return 0
+    if load_settings()["sharing"] == "on":
+        print(json.dumps(panel_json("on", None)))
+    return 0
+
+
+# --- The console's connections (no GTK here) ----------------------------------------------
+
+class Students:
+    """The paired students in $XDG_DATA_HOME/flickos/classroom/teacher/students.json."""
+
+    def __init__(self, folder):
+        self.path = os.path.join(folder, "students.json")
+        data = read_json(self.path, [])
+        self.items = [s for s in data if isinstance(s, dict) and {"id", "name", "pem"} <= s.keys()] \
+            if isinstance(data, list) else []
+
+    def save(self):
+        write_atomic(self.path, json.dumps(self.items, indent=1) + "\n", mode=0o600)
+
+    def add(self, ident, name, pem):
+        self.items = [s for s in self.items if s["id"] != ident]
+        self.items.append({"id": ident, "name": name, "pem": pem})
+        self.items.sort(key=lambda s: s["name"].lower())
+        self.save()
+
+    def forget(self, ident):
+        self.items = [s for s in self.items if s["id"] != ident]
+        self.save()
+
+    def get(self, ident):
+        return next((s for s in self.items if s["id"] == ident), None)
+
+
+class Classes:
+    """The teacher's classes (ADR-017): named sets of paired students, in
+    classes.json beside students.json (an older console reads only that),
+    and the class shown, kept for the next time the window opens."""
+
+    def __init__(self, folder):
+        self.path = os.path.join(folder, "classes.json")
+        data = read_json(self.path, {})
+        data = data if isinstance(data, dict) else {}
+        raw = data.get("classes") if isinstance(data.get("classes"), dict) else {}
+        self.classes = {}
+        for name, ids in raw.items():
+            name = clean_text(name, MAX_CLASS_NAME)
+            if name and isinstance(ids, list):
+                self.classes[name] = sorted({i for i in ids if isinstance(i, str)})
+        self.current = data.get("current") if data.get("current") in self.classes else None
+
+    def save(self):
+        write_atomic(self.path, json.dumps({"classes": self.classes, "current": self.current}, indent=1) + "\n",
+                     mode=0o600)
+
+    def names(self):
+        return sorted(self.classes, key=str.lower)
+
+    def members(self, name):
+        return set(self.classes.get(name, ()))
+
+    def check_name(self, name, old=None):
+        name = clean_text(name, MAX_CLASS_NAME)
+        if not name:
+            raise ClassroomError("A class needs a name.")
+        if name != old and name in self.classes:
+            raise ClassroomError(f"There is a class called {name} already.")
+        return name
+
+    def create(self, name, ids=()):
+        name = self.check_name(name)
+        self.classes[name] = sorted(set(ids))
+        self.save()
+        return name
+
+    def rename(self, old, new):
+        new = self.check_name(new, old)
+        self.classes[new] = self.classes.pop(old)
+        if self.current == old:
+            self.current = new
+        self.save()
+        return new
+
+    def delete(self, name):
+        self.classes.pop(name, None)
+        if self.current == name:
+            self.current = None
+        self.save()
+
+    def put(self, name, ids):
+        self.classes[name] = sorted(set(self.classes.get(name, ())) | set(ids))
+        self.save()
+
+    def take(self, name, ids):
+        self.classes[name] = sorted(set(self.classes.get(name, ())) - set(ids))
+        self.save()
+
+    def forget_student(self, ident):
+        for name in self.classes:
+            self.classes[name] = [i for i in self.classes[name] if i != ident]
+        self.save()
+
+    def choose(self, name):
+        self.current = name if name in self.classes else None
+        self.save()
+
+
+def attendance(class_name, rows, when):
+    """ADR-017: rows of (name, account or "", here) as the text copied and
+    the CSV saved, only when the teacher asks; nothing is kept otherwise."""
+    rows = sorted(rows, key=lambda r: (not r[2], r[0].lower()))
+    here = sum(1 for r in rows if r[2])
+    stamp = time.strftime("%x %H:%M", time.localtime(when))
+    who = lambda r: f"{r[0]} ({r[1]})" if r[1] else r[0]
+    lines = [f"{class_name}, {stamp}: {here} of {len(rows)} here", ""]
+    lines += ["Here:", *([who(r) for r in rows if r[2]] or ["nobody"]), ""]
+    lines += ["Absent:", *([who(r) for r in rows if not r[2]] or ["nobody"])]
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(["Name", "Account", "Status", "Class", "Time"])
+    for r in rows:
+        writer.writerow([r[0], r[1], "here" if r[2] else "absent", class_name, iso_time(when)])
+    return "\n".join(lines) + "\n", out.getvalue()
+
+
+def copy_text(text):
+    """To the clipboard with wl-copy (no input event's serial needed, and the
+    text stays after the window closes); False when it can't."""
+    try:
+        return subprocess.run(["wl-copy"], input=text, text=True, timeout=5,
+                              capture_output=True).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def grouped(fp, groups=16):
+    """A fingerprint to read aloud or compare: its first bytes, in pairs."""
+    return ":".join(fp[i:i + 2].upper() for i in range(0, groups * 2, 2))
+
+
+class Browser:
+    """Asks for students every BROWSE_SECONDS while the console is open:
+    {id: (address, port, fields)} in found, newest answer wins."""
+
+    def __init__(self, on_found):
+        self.found, self.on_found = {}, on_found
+        self.stopping = threading.Event()
+
+    def start(self):
+        try:
+            mdns = Mdns()
+        except OSError as error:
+            log(f"no mDNS ({error})")
+            return
+        mdns.sock.settimeout(0.5)
+        threading.Thread(target=self.loop, args=(mdns,), daemon=True).start()
+
+    def loop(self, mdns):
+        asked, sock = 0, mdns.sock
+        while not self.stopping.is_set():
+            if time.monotonic() - asked > BROWSE_SECONDS:
+                mdns.refresh()
+                mdns.send(mdns_query())
+                asked = time.monotonic()
+            try:
+                data, (address, _) = sock.recvfrom(9000)
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            found = parse_answer(data)
+            if found:
+                self.found[found["id"]] = (address, found["port"], found)
+                self.on_found(found["id"], address, found)
+        sock.close()
+
+
+def pair_student(me, name, code, address, port):
+    """The console's half of pairing with one student: (id, student name, pem)
+    or None when the code didn't match. ClassroomError when it can't."""
+    try:
+        sock = socket.create_connection((address, port), timeout=CONNECT_SECONDS)
+        tls = teacher_context().wrap_socket(sock)
+    except (OSError, ssl.SSLError) as error:
+        raise ClassroomError(f"can't reach {address}: {error}") from None
+    channel = Channel(tls)
+    try:
+        tls.settimeout(CONNECT_SECONDS * 2)
+        der = tls.getpeercert(binary_form=True)
+        channel.send({"verb": "pair", "v": PROTOCOL, "name": name, "cert": me.pem})
+        hello, _ = channel.receive()
+        if hello.get("type") != "pairing":
+            return None
+        if not prove_code(channel, code, me.fingerprint, fingerprint(der), teacher_side=True):
+            return None
+        done, _ = channel.receive()
+        if done.get("type") != "paired" or not isinstance(done.get("id"), str):
+            return None
+        student = clean_text(hello.get("name", ""), 80) or clean_text(hello.get("computer", ""), 80) or "A student"
+        return clean_text(done["id"], 64), student, ssl.DER_cert_to_PEM_cert(der)
+    except (OSError, ProtocolError, ssl.SSLError) as error:
+        raise ClassroomError(f"pairing with {address} stopped: {error}") from None
+    finally:
+        channel.close()
+
+
+def student_tls(me, student, address, port):
+    """Mutual TLS to a paired student, checked against its kept certificate."""
+    sock = socket.create_connection((address, port), timeout=CONNECT_SECONDS)
+    tls = teacher_context(me).wrap_socket(sock)
+    if fingerprint(tls.getpeercert(binary_form=True)) != fingerprint(ssl.PEM_cert_to_DER_cert(student["pem"])):
+        tls.close()
+        raise ClassroomError("another computer answered for this student")
+    return tls
+
+
+def open_screen(me, student, address, port, control):
+    """ADR-012, the console's half: a connection of its own asking to view
+    (or control) the student's screen. (TLS socket, bytes already read past
+    the answer) once the student's wayvnc is there; ClassroomError otherwise."""
+    try:
+        tls = student_tls(me, student, address, port)
+    except (OSError, ssl.SSLError) as error:
+        raise ClassroomError(f"can't reach the computer: {error}") from None
+    channel = Channel(tls)
+    try:
+        tls.settimeout(CONNECT_SECONDS + VNC_START_SECONDS + STRIP_SECONDS)
+        channel.send({"verb": "control" if control else "view", "v": PROTOCOL})
+        answer, _ = channel.receive()
+    except (OSError, ProtocolError, ssl.SSLError) as error:
+        channel.close()
+        raise ClassroomError(f"the computer didn't answer: {error}") from None
+    if answer.get("type") == "vnc":
+        tls.settimeout(None)
+        return tls, channel.buffer
+    channel.close()
+    if answer.get("type") == "absent":
+        raise ClassroomError("nobody is logged in" if answer.get("why") == "nobody" else "it isn't sharing now")
+    raise ClassroomError(clean_text(str(answer.get("why", "it refused")), 200))
+
+
+def demo_jpeg(ppm, slow):
+    """The teacher's screen (grim's PPM) as a demo frame: its own size up to
+    DEMO_WIDTH (reduced by an integer factor when wider, as with two screens),
+    DEMO_SLOW_WIDTH while slow (Q13)."""
+    from PIL import Image
+    image = Image.open(io.BytesIO(ppm))
+    image.load()
+    if slow and image.width > DEMO_SLOW_WIDTH:
+        image = image.resize((DEMO_SLOW_WIDTH, max(1, image.height * DEMO_SLOW_WIDTH // image.width)),
+                             Image.BILINEAR)
+    elif image.width > DEMO_WIDTH:
+        image = image.reduce(-(-image.width // DEMO_WIDTH))
+    out = io.BytesIO()
+    image.convert("RGB").save(out, "JPEG", quality=DEMO_QUALITY)
+    return out.getvalue()
+
+
+def capture_screen():
+    """The whole screen (every output) as grim's PPM."""
+    try:
+        result = subprocess.run(["grim", "-t", "ppm", "-"], capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ClassroomError(f"grim: {error}") from None
+    if result.returncode != 0:
+        raise ClassroomError(f"grim: {result.stderr.decode(errors='replace').strip()}")
+    return result.stdout
+
+
+class Link:
+    """The console's connection to one paired student, kept up by its thread:
+    events go to on_event(id, kind, value) from that thread. A demo frame
+    waits in one slot (offer_frame): the newest replaces it, never a queue,
+    and the student's answer times its way there (event "frame-done"). When
+    another teacher took over the student (Q14) it waits for resume()."""
+
+    def __init__(self, me, student, where, on_event):
+        self.me, self.student, self.where, self.on_event = me, student, where, on_event
+        self.channel = None
+        self.period = PERIODS[0]
+        self.stopping = threading.Event()
+        self.outbox = queue.Queue()
+        self.wake = threading.Event()
+        self.frame_lock = threading.Lock()
+        self.frame = None                   # the newest demo frame not sent yet
+        self.in_flight = None               # when the frame on its way was sent
+        self.resumed = threading.Event()    # cleared while another teacher took over (Q14)
+        self.resumed.set()
+
+    def start(self):
+        threading.Thread(target=self.loop, daemon=True).start()
+
+    def stop(self):
+        self.stopping.set()
+        self.resumed.set()
+        if self.channel:
+            self.channel.close()
+
+    def resume(self):
+        """Connect again after another teacher took over (the teacher asked)."""
+        self.resumed.set()
+
+    @property
+    def paused(self):
+        return not self.resumed.is_set()
+
+    def send(self, message):
+        """From any thread; dropped while not connected."""
+        if self.channel:
+            self.outbox.put(message)
+            self.wake.set()
+            return True
+        return False
+
+    def offer_frame(self, data):
+        """A demo frame, from any thread: sent when the one before it arrived."""
+        if not self.channel:
+            return False
+        with self.frame_lock:
+            self.frame = data
+        self.wake.set()
+        return True
+
+    def loop(self):
+        while not self.stopping.is_set():
+            address = self.where(self.student["id"])
+            if address:
+                try:
+                    self.session(*address)
+                except (OSError, ProtocolError, ssl.SSLError, ClassroomError) as error:
+                    if not self.paused:     # taken over: that event says why
+                        self.on_event(self.student["id"], "offline", str(error))
+                finally:
+                    if self.channel:
+                        self.channel.close()
+                    self.channel = None
+            if self.paused:
+                self.resumed.wait()         # the teacher asked: at once
+            else:
+                self.stopping.wait(RETRY_SECONDS)
+
+    def session(self, address, port):
+        tls = student_tls(self.me, self.student, address, port)
+        channel = Channel(tls)
+        with self.frame_lock:
+            self.frame = self.in_flight = None
+        tls.settimeout(QUIET_SECONDS)
+        channel.send({"verb": "hello", "v": PROTOCOL, "name": person_name()})
+        hello, _ = channel.receive()
+        if hello.get("type") == "absent":          # a lab computer with no one at it (ADR-011)
+            channel.close()
+            self.on_event(self.student["id"], "absent", hello.get("why"))
+            return
+        if hello.get("type") == "busy":            # another teacher's lock, demo, view or control (Q14)
+            channel.close()
+            self.on_event(self.student["id"], "busy", clean_text(hello.get("teacher", ""), 80) or "Another teacher")
+            return
+        if hello.get("type") != "hello":
+            raise ProtocolError("no hello")
+        self.channel = channel
+        self.on_event(self.student["id"], "online", hello)
+        channel.send({"verb": "thumbnail", "period": self.period})
+        threading.Thread(target=self.writer, args=(channel,), daemon=True).start()
+        while not self.stopping.is_set():
+            message, payload = channel.receive()
+            if message.get("type") == "frame":
+                self.on_event(self.student["id"], "frame", payload)
+            elif message.get("type") == "done" and message.get("verb") == "demo-frame":
+                with self.frame_lock:
+                    took = time.monotonic() - self.in_flight if self.in_flight else 0
+                    self.in_flight = None
+                self.wake.set()
+                self.on_event(self.student["id"], "frame-done", {"ok": message.get("ok"), "seconds": took})
+            elif message.get("type") == "done":
+                self.on_event(self.student["id"], "done", message)
+            elif message.get("type") == "event" and message.get("what") == "taken-over":
+                self.resumed.clear()        # no coming back by itself: the consoles would take turns
+                self.on_event(self.student["id"], "taken-over",
+                              clean_text(message.get("by", ""), 80) or "Another teacher")
+            elif message.get("type") == "event":
+                self.on_event(self.student["id"], "event", message)
+
+    def writer(self, channel):
+        """Messages first, then the newest demo frame once the last one
+        arrived, and a ping when nothing else went for PING_SECONDS."""
+        last = time.monotonic()
+        while self.channel is channel:
+            self.wake.wait(max(0.0, PING_SECONDS - (time.monotonic() - last)))
+            self.wake.clear()
+            try:
+                while True:
+                    try:
+                        message = self.outbox.get_nowait()
+                    except queue.Empty:
+                        break
+                    channel.send(message)
+                    last = time.monotonic()
+                with self.frame_lock:
+                    frame = self.frame if self.in_flight is None else None
+                    if frame is not None:
+                        self.frame, self.in_flight = None, time.monotonic()
+                if frame is not None:
+                    channel.send({"verb": "demo-frame", "size": len(frame)}, frame)
+                    last = time.monotonic()
+                if time.monotonic() - last >= PING_SECONDS:
+                    channel.send({"verb": "ping"})
+                    last = time.monotonic()
+            except OSError:
+                return
+
+
+# --- Windows (GTK, loaded only here) --------------------------------------------------------
+
+def load_gtk():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf, GLib, Gtk
+    if not Gtk.init_check(None)[0]:
+        raise ClassroomError("no display to show a window on")
+    return Gtk, GLib, GdkPixbuf
+
+
+def pair_window():
+    """`student pair`: type the teacher's code, wait for the teacher's computer."""
+    Gtk, GLib, _ = load_gtk()
+    win = Gtk.Window(title="Pair With a Teacher")
+    win.set_default_size(420, -1)
+    win.set_resizable(False)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=18)
+    intro = Gtk.Label(label="Type the code your teacher's computer shows under Add Students.",
+                      wrap=True, xalign=0, max_width_chars=44)
+    entry = Gtk.Entry(max_length=CODE_DIGITS, width_chars=CODE_DIGITS + 2, input_purpose=Gtk.InputPurpose.DIGITS,
+                      activates_default=True, halign=Gtk.Align.CENTER)
+    entry.get_accessible().set_name("Code")
+    status = Gtk.Label(wrap=True, xalign=0, max_width_chars=44, selectable=True)
+    spinner = Gtk.Spinner()
+    row = Gtk.Box(spacing=6)
+    row.pack_start(spinner, False, False, 0)
+    row.pack_start(status, True, True, 0)
+    buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+    close = Gtk.Button.new_with_mnemonic("_Close")
+    pair = Gtk.Button.new_with_mnemonic("_Pair")
+    pair.get_style_context().add_class("suggested-action")
+    pair.set_can_default(True)
+    buttons.pack_start(close, False, False, 0)
+    buttons.pack_start(pair, False, False, 0)
+    for part in (intro, entry, row, buttons):
+        box.pack_start(part, False, False, 0)
+    win.add(box)
+    close.connect("clicked", lambda _b: win.destroy())
+    win.connect("destroy", Gtk.main_quit)
+    win.connect("key-press-event", lambda _w, e: e.keyval == 0xff1b and (win.destroy() or True))  # Escape
+
+    def answered(word, text):
+        spinner.stop()
+        pair.set_sensitive(True)
+        entry.set_sensitive(True)
+        status.set_text(f"Paired with {text}." if word == "paired" else text)
+        if word == "paired":
+            pair.hide()
+            close.grab_focus()
+        return False
+
+    def ask(code):
+        try:
+            answer = ask_agent(f"pair {code}", timeout=PAIR_SECONDS + 10)
+        except ClassroomError as error:
+            answer = f"failed\t{error}"
+        if answer is None:
+            answer = "failed\tThe classroom agent isn't running. Turn sharing off and on again."
+        word, _, text = answer.partition("\t")
+        GLib.idle_add(answered, word, text)
+
+    def start(*_args):
+        code = entry.get_text().strip()
+        try:
+            code_number(code)
+        except ClassroomError as error:
+            status.set_text(f"The code has {CODE_DIGITS} digits.")
+            return
+        pair.set_sensitive(False)
+        entry.set_sensitive(False)
+        spinner.start()
+        status.set_text("Waiting for the teacher's computer…")
+        threading.Thread(target=ask, args=(code,), daemon=True).start()
+
+    pair.connect("clicked", start)
+    win.show_all()
+    pair.grab_default()
+    Gtk.main()
+    return 0
+
+
+def cmd_strip(opts):
+    """The strip at the top of the screen while a teacher views or controls it
+    (ADR-015): a layer surface above the windows, which it moves down. Prints
+    "shown" once it is on the screen; exits STRIP_STOP when Stop is pressed."""
+    Gtk, GLib, _ = load_gtk()
+    import gi
+    try:
+        gi.require_version("GtkLayerShell", "0.1")
+        from gi.repository import GtkLayerShell
+    except (ImportError, ValueError) as error:
+        raise ClassroomError(f"no gtk-layer-shell: {error}") from None
+    if not GtkLayerShell.is_supported():
+        raise ClassroomError("the compositor has no layer shell")
+    status = {"code": 0}
+    win = Gtk.Window(title="Classroom")
+    GtkLayerShell.init_for_window(win)
+    GtkLayerShell.set_namespace(win, "flickos-classroom")
+    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+    for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+        GtkLayerShell.set_anchor(win, edge, True)
+    GtkLayerShell.auto_exclusive_zone_enable(win)       # windows move down, nothing is covered
+    css = Gtk.CssProvider()
+    css.load_from_data(b".flickos-classroom-strip { background-color: @theme_bg_color;"
+                       b" border-bottom: 3px solid @error_color; }")
+    Gtk.StyleContext.add_provider_for_screen(win.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    win.get_style_context().add_class("flickos-classroom-strip")
+    box = Gtk.Box(spacing=10, margin_start=12, margin_end=8, margin_top=4, margin_bottom=4)
+    icon = Gtk.Image.new_from_icon_name("video-display-symbolic", Gtk.IconSize.LARGE_TOOLBAR)
+    label = Gtk.Label(xalign=0, ellipsize=3)            # 3: END
+    label.set_markup(f"<b>{GLib.markup_escape_text(opts.text)}</b>")
+    box.pack_start(icon, False, False, 0)
+    box.pack_start(label, True, True, 0)
+    if opts.stop:
+        stop = Gtk.Button.new_with_mnemonic("_Stop")
+        stop.get_style_context().add_class("destructive-action")
+        stop.set_tooltip_text("End it: the teacher's window closes")
+
+        def stopped(_button):
+            status["code"] = STRIP_STOP
+            Gtk.main_quit()
+        stop.connect("clicked", stopped)
+        box.pack_end(stop, False, False, 0)
+    else:
+        note = Gtk.Label(label="Set by the school")
+        note.get_style_context().add_class("dim-label")
+        box.pack_end(note, False, False, 0)
+    win.add(box)
+    win.connect("map-event", lambda *_a: print("shown", flush=True) or False)
+    win.connect("destroy", Gtk.main_quit)
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+    return status["code"]
+
+
+def cmd_teacher(_opts):
+    import gi
+    try:
+        gi.require_version("GtkVnc", "2.0")       # a student's screen: flickos-classroom-teacher's
+    except ValueError:
+        raise ClassroomError("the teacher's window comes with the flickos-classroom-teacher package") from None
+    Gtk, GLib, GdkPixbuf = load_gtk()
+    app = Gtk.Application(application_id="io.github.dvbondoy.flickos.classroom")
+    state = {}
+
+    def activate(application):
+        if state.get("console"):
+            state["console"].window.present()           # WIN-2
+            return
+        state["console"] = Console(application, Gtk, GLib, GdkPixbuf)
+
+    app.connect("activate", activate)
+    return app.run([sys.argv[0]])
+
+
+class ScreenWindow:
+    """One student's screen, seen (view) or controlled (control), through
+    open_screen's connection: gtk-vnc reads one end of a socket pair, pipe()
+    carries the other to the student (ADR-012)."""
+
+    def __init__(self, console, student, where, control):
+        Gtk, GLib = console.Gtk, console.GLib
+        import gi
+        gi.require_version("GtkVnc", "2.0")
+        from gi.repository import GtkVnc
+        self.console, self.student, self.control = console, student, control
+        self.ended, self.stopped, self.sockets = False, False, []
+        name = student["name"]
+        self.window = Gtk.Window(title=f"Controlling {name}" if control else f"{name}'s Screen")
+        self.window.set_default_size(1280, 680)        # WIN-3
+        self.box = box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.status = Gtk.Label(label="Connecting…", margin=8, wrap=True, selectable=True)
+        self.vnc = GtkVnc.Display(can_focus=True)
+        self.vnc.set_scaling(True)
+        self.vnc.set_read_only(not control)
+        self.vnc.set_keyboard_grab(control)
+        # Control: the teacher's own pointer, drawn here at once (wayvnc runs
+        # without -r then and sends no pointer shape, so gtk-vnc showed none).
+        # View: the student's pointer is in the picture (-r), so none here.
+        self.vnc.set_pointer_local(control)
+        self.vnc.connect("vnc-initialized", lambda _d: self.status.hide())
+        self.vnc.connect("vnc-disconnected", lambda _d: self.closed())
+        self.vnc.connect("vnc-error", lambda _d, why: log(f"{name}'s screen: {why}"))
+        box.pack_start(self.status, False, False, 0)
+        box.pack_start(self.vnc, True, True, 0)
+        self.window.add(box)
+        self.window.connect("destroy", lambda _w: self.close())
+        self.window.show_all()
+
+        def connect():
+            try:
+                result = open_screen(console.me, student, *where, control)
+            except ClassroomError as error:
+                GLib.idle_add(self.failed, str(error))
+                return
+            GLib.idle_add(self.attach, *result)
+        threading.Thread(target=connect, daemon=True).start()
+
+    def attach(self, tls, extra):
+        if self.ended:
+            tls.close()
+            return False
+        mine, theirs = socket.socketpair()
+        self.sockets = [tls, mine, theirs]
+        if extra:
+            mine.sendall(extra)             # the student's first bytes, read with its answer
+
+        def carry():
+            with contextlib.suppress(OSError, ssl.SSLError):
+                pipe(tls, mine, quiet=None)
+            with contextlib.suppress(OSError):
+                mine.shutdown(socket.SHUT_RDWR)
+        threading.Thread(target=carry, daemon=True).start()
+        self.vnc.open_fd(theirs.fileno())
+        if self.control:
+            self.vnc.grab_focus()
+        return False
+
+    def failed(self, why):
+        # No screen came: the message fills the window, not an empty black display.
+        self.status.set_text(f"The screen can't be shown: {why}.")
+        self.vnc.hide()
+        self.box.set_child_packing(self.status, True, True, 0, self.console.Gtk.PackType.START)
+        self.status.show()
+        return False
+
+    def closed(self):
+        if self.ended:
+            return
+        self.status.set_text(f"{self.student['name']} stopped it." if self.stopped else "The connection ended.")
+        self.status.show()
+        self.vnc.set_sensitive(False)
+        self.close_sockets()
+
+    def close_sockets(self):
+        for sock in self.sockets:
+            with contextlib.suppress(OSError):
+                sock.close()
+        self.sockets = []
+
+    def close(self):
+        self.ended = True
+        with contextlib.suppress(Exception):
+            self.vnc.close()
+        self.close_sockets()
+        if self.console.screens.get(self.student["id"]) is self:
+            del self.console.screens[self.student["id"]]
+
+
+class Console:
+    """The teacher's window: a grid of tiles, actions on the selected tiles or
+    on all, Add Students; one student's screen seen or controlled
+    (ScreenWindow), and the teacher's own shown on theirs (the demo). The
+    grid shows one class (ADR-017), connected only to its students, here
+    first and absent greyed at the end."""
+
+    TILE = 240                          # pixels wide on screen (thumbnails are 320)
+    ABSENT_OPACITY = 0.55
+
+    def __init__(self, app, Gtk, GLib, GdkPixbuf):
+        self.Gtk, self.GLib, self.GdkPixbuf = Gtk, GLib, GdkPixbuf
+        self.me = identity(TEACHER_DIR)
+        self.students = Students(self.me.folder)
+        self.classes = Classes(self.me.folder)
+        self.tiles, self.links = {}, {}
+        self.screens = {}                   # student id: ScreenWindow
+        self.demo = None                    # {"targets", "stop", "took", "slow"} while showing this screen
+        self.pairing = None                 # {"code", "dialog", "list", "tried"}
+        self.browser = Browser(lambda *a: GLib.idle_add(self.on_found, *a))
+        self.build(app)
+        self.show_class()
+        self.browser.start()
+
+    # Building.
+
+    def build(self, app):
+        Gtk = self.Gtk
+        win = self.window = Gtk.ApplicationWindow(application=app, title="Classroom")
+        win.set_default_size(1100, 640)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        bar = Gtk.Box(spacing=6, margin=8)
+        self.lock_button = self.button("_Lock Screens…", self.on_lock)
+        self.unlock_button = self.button("_Unlock Screens", self.on_unlock)
+        self.message_button = self.button("Send _Message…", self.on_message)
+        self.url_button = self.button("Open _Web Page…", self.on_url)
+        self.view_button = self.button("_View", lambda: self.on_screen(False))
+        self.view_button.set_tooltip_text("See the selected student's screen up close")
+        self.control_button = self.button("_Control", lambda: self.on_screen(True))
+        self.control_button.set_tooltip_text("Use the selected student's computer: they see a strip saying so")
+        self.demo_button = Gtk.ToggleButton.new_with_mnemonic("Show _My Screen")
+        self.demo_button.set_tooltip_text("Show this screen on the students' screens, locked meanwhile. "
+                                          "Slides and steps, not films: send a film's link instead")
+        self.demo_button.connect("toggled", lambda _b: self.on_demo())
+        for b in (self.lock_button, self.unlock_button, self.message_button, self.url_button,
+                  self.view_button, self.control_button, self.demo_button):
+            bar.pack_start(b, False, False, 0)
+        self.forget_button = self.button("_Forget…", self.on_forget)
+        add = self.button("_Add Students…", self.on_add)
+        bar.pack_end(add, False, False, 0)
+        bar.pack_end(self.forget_button, False, False, 0)
+        row = Gtk.Box(spacing=8, margin_start=8, margin_end=8, margin_bottom=4)
+        self.class_combo = Gtk.ComboBoxText()
+        self.class_combo.set_tooltip_text("The class shown: actions apply to its students only")
+        self.class_combo.connect("changed", lambda _c: self.on_class_chosen())
+        self.count = Gtk.Label(xalign=0)
+        self.scope = Gtk.Label(xalign=0, hexpand=True, ellipsize=3)
+        self.scope.get_style_context().add_class("dim-label")
+        menu = Gtk.MenuButton(tooltip_text="Classes, attendance and this computer's certificate")
+        menu.add(Gtk.Image.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.BUTTON))
+        menu.get_accessible().set_name("Classes and Attendance")
+        self.menu = Gtk.Menu()
+        menu.set_popup(self.menu)
+        menu.connect("toggled", lambda b: b.get_active() and self.fill_menu())
+        for part in (self.class_combo, self.count, self.scope):
+            row.pack_start(part, False if part is not self.scope else True, True, 0)
+        row.pack_end(menu, False, False, 0)
+        self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.MULTIPLE, homogeneous=True,
+                                max_children_per_line=8, min_children_per_line=2, row_spacing=8,
+                                column_spacing=8, margin=8, valign=Gtk.Align.START,
+                                activate_on_single_click=False)
+        self.flow.connect("selected-children-changed", lambda *_a: self.update_scope())
+        self.flow.connect("child-activated", lambda _f, child: self.on_activated(child))
+        self.flow.set_sort_func(self.sort_tiles)
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.add(self.flow)
+        self.empty = Gtk.Label(label="No students yet. Use Add Students to pair this computer with "
+                                     "theirs.", wrap=True, vexpand=True, max_width_chars=50)
+        self.empty.get_style_context().add_class("dim-label")
+        self.status = Gtk.Label(xalign=0, margin=8, selectable=True, wrap=True)
+        outer.pack_start(bar, False, False, 0)
+        outer.pack_start(row, False, False, 0)
+        outer.pack_start(scroll, True, True, 0)
+        outer.pack_start(self.empty, True, True, 0)
+        outer.pack_start(self.status, False, False, 0)
+        win.add(outer)
+        win.connect("destroy", self.on_destroy)
+        win.show_all()
+        self.status.hide()
+
+    def button(self, label, handler):
+        b = self.Gtk.Button.new_with_mnemonic(label)
+        b.connect("clicked", lambda _b: handler())
+        return b
+
+    def add_tile(self, student):
+        Gtk = self.Gtk
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        image = Gtk.Image(width_request=self.TILE, height_request=self.TILE * 9 // 16)
+        image.set_from_icon_name("video-display-symbolic", Gtk.IconSize.DIALOG)
+        name = Gtk.Label(label=student["name"], ellipsize=3, max_width_chars=24)   # 3: END
+        state = Gtk.Label(label="Looking for this computer…")
+        state.get_style_context().add_class("dim-label")
+        box.pack_start(image, False, False, 0)
+        box.pack_start(name, False, False, 0)
+        box.pack_start(state, False, False, 0)
+        child = Gtk.FlowBoxChild()
+        child.add(box)
+        child.get_accessible().set_name(student["name"])
+        child.show_all()
+        box.set_opacity(self.ABSENT_OPACITY)    # absent until found (ADR-017)
+        self.flow.add(child)
+        self.tiles[student["id"]] = {"child": child, "box": box, "image": image, "state": state,
+                                     "student": student, "online": False, "person": ""}
+        link = Link(self.me, student, self.where, lambda *a: self.GLib.idle_add(self.on_event, *a))
+        self.links[student["id"]] = link
+        link.start()
+
+    def where(self, ident):
+        found = self.browser.found.get(ident)
+        return found[:2] if found else None
+
+    # Classes (ADR-017).
+
+    def shown_ids(self):
+        current = self.classes.current
+        members = self.classes.members(current)
+        return [s["id"] for s in self.students.items if current is None or s["id"] in members]
+
+    def show_class(self):
+        """The grid of the class chosen: links only to its students, so a
+        teacher with four classes isn't connected to all of them."""
+        for ident in list(self.tiles):
+            self.links.pop(ident).stop()
+            self.flow.remove(self.tiles.pop(ident)["child"])
+        for ident in self.shown_ids():
+            self.add_tile(self.students.get(ident))
+        self.fill_classes()
+        self.update_empty()
+
+    def fill_classes(self):
+        combo = self.class_combo
+        self.quiet_combo = True
+        combo.remove_all()
+        combo.append("", "All Students")
+        for name in self.classes.names():
+            combo.append(name, name)
+        combo.set_active_id(self.classes.current or "")
+        self.quiet_combo = False
+
+    def on_class_chosen(self):
+        if getattr(self, "quiet_combo", False):
+            return
+        name = self.class_combo.get_active_id() or None
+        if name != self.classes.current:
+            self.classes.choose(name)
+            self.show_class()
+
+    def sort_tiles(self, a, b):
+        """Here first, then by name (ADR-017's attendance)."""
+        def key(child):
+            tile = next((t for t in self.tiles.values() if t["child"] is child), None)
+            return (not tile["online"], tile["student"]["name"].lower()) if tile else (True, "")
+        ka, kb = key(a), key(b)
+        return (ka > kb) - (ka < kb)
+
+    def set_here(self, tile, here):
+        if tile["online"] != here:
+            tile["online"] = here
+            tile["box"].set_opacity(1.0 if here else self.ABSENT_OPACITY)
+            self.flow.invalidate_sort()
+        if not here:
+            tile["person"] = ""
+
+    def update_count(self):
+        total = len(self.tiles)
+        here = sum(1 for t in self.tiles.values() if t["online"])
+        self.count.set_text(f"{here} of {total} here" if total else "")
+
+    def on_activated(self, child):
+        """Double-click (or Enter) on a tile another teacher took over: connect again."""
+        for ident, tile in self.tiles.items():
+            if tile["child"] is child and self.links[ident].paused:
+                tile["state"].set_text("Connecting…")
+                self.links[ident].resume()
+
+    def chosen_class_or_say(self):
+        if self.classes.current is None:
+            self.say("Choose a class first.")
+        return self.classes.current
+
+    def selected_ids(self):
+        return [i for i, t in self.tiles.items() if t["child"].is_selected()]
+
+    def fill_menu(self):
+        Gtk = self.Gtk
+        for item in self.menu.get_children():
+            self.menu.remove(item)
+        current, picked = self.classes.current, self.selected_ids()
+
+        def item(label, handler, sensitive=True):
+            entry = Gtk.MenuItem.new_with_mnemonic(label)
+            entry.set_sensitive(sensitive)
+            entry.connect("activate", lambda _i: handler())
+            self.menu.append(entry)
+            return entry
+
+        item("_New Class…", self.on_new_class)
+        item("_Rename Class…", self.on_rename_class, current is not None)
+        item("_Delete Class…", self.on_delete_class, current is not None)
+        put = item("_Put Selected in a Class", lambda: None, bool(picked) and bool(self.classes.names()))
+        sub = Gtk.Menu()
+        for name in self.classes.names():
+            entry = Gtk.MenuItem(label=name)
+            entry.connect("activate", lambda _i, n=name: self.on_put(n))
+            sub.append(entry)
+        put.set_submenu(sub)
+        item("_Take Selected out of This Class", self.on_take, current is not None and bool(picked))
+        self.menu.append(Gtk.SeparatorMenuItem())
+        item("_Copy Attendance", self.on_copy_attendance, bool(self.tiles))
+        item("_Save Attendance…", self.on_save_attendance, bool(self.tiles))
+        self.menu.append(Gtk.SeparatorMenuItem())
+        item("Teacher _Certificate…", self.on_certificate)
+        self.menu.show_all()
+
+    def on_new_class(self):
+        picked = self.selected_ids()
+        label = ("_Name of the class (the selected students go in it):" if picked
+                 else "_Name of the class:")
+        name = self.ask_text("New Class", label, "_Create")
+        if name is None:
+            return
+        try:
+            name = self.classes.create(name, picked)
+        except ClassroomError as error:
+            self.say(str(error))
+            return
+        self.classes.choose(name)
+        self.show_class()
+        self.say("" if picked else f"{name} is empty: use Add Students, or put students in it from All Students.")
+
+    def on_rename_class(self):
+        old = self.classes.current
+        name = self.ask_text("Rename Class", "_New name of the class:", "_Rename", old)
+        if name is None or name == old:
+            return
+        try:
+            self.classes.rename(old, name)
+        except ClassroomError as error:
+            self.say(str(error))
+            return
+        self.fill_classes()
+
+    def on_delete_class(self):
+        Gtk, name = self.Gtk, self.classes.current
+        dialog = Gtk.MessageDialog(transient_for=self.window, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                   text=f"Delete the class {name}?")
+        dialog.format_secondary_text("Its students stay paired, in All Students and their other classes.")
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Delete", Gtk.ResponseType.OK).get_style_context().add_class("destructive-action")
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        answer = dialog.run()
+        dialog.destroy()
+        if answer == Gtk.ResponseType.OK:
+            self.classes.delete(name)
+            self.show_class()
+
+    def on_put(self, name):
+        picked = self.selected_ids()
+        self.classes.put(name, picked)
+        self.say(f"Put {len(picked)} in {name}." if len(picked) != 1
+                 else f"Put {self.tiles[picked[0]]['student']['name']} in {name}.")
+
+    def on_take(self):
+        current, picked = self.classes.current, self.selected_ids()
+        self.classes.take(current, picked)
+        self.show_class()
+
+    def attendance_rows(self):
+        return [(t["student"]["name"], t["person"], t["online"]) for t in self.tiles.values()]
+
+    def on_copy_attendance(self):
+        text, _csv = attendance(self.classes.current or "All Students", self.attendance_rows(), time.time())
+        if copy_text(text):
+            self.say("The attendance is on the clipboard.")
+        else:
+            self.Gtk.Clipboard.get_default(self.window.get_display()).set_text(text, -1)
+            self.say("The attendance is on the clipboard.")
+
+    def on_save_attendance(self):
+        Gtk, GLib = self.Gtk, self.GLib
+        name = self.classes.current or "All Students"
+        when = time.time()
+        _text, table = attendance(name, self.attendance_rows(), when)
+        dialog = Gtk.FileChooserDialog(title="Save Attendance", transient_for=self.window,
+                                       action=Gtk.FileChooserAction.SAVE)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Save", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        dialog.set_do_overwrite_confirmation(True)
+        folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOCUMENTS) or os.path.expanduser("~")
+        dialog.set_current_folder(folder)
+        safe = "".join(c if c.isalnum() or c in " -_" else "-" for c in name).strip() or "Class"
+        dialog.set_current_name(f"Attendance {safe} {time.strftime('%Y-%m-%d', time.localtime(when))}.csv")
+        answer = dialog.run()
+        path = dialog.get_filename()
+        dialog.destroy()
+        if answer != Gtk.ResponseType.OK or not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(table)
+        except OSError as error:
+            self.say(f"The attendance can't be saved there: {error.strerror}.")
+            return
+        self.say(f"Saved the attendance as {path}.")
+
+    def on_certificate(self):
+        """ADR-018: the certificate an organization's administrator pastes on
+        Fleet's dashboard. Public: its key never leaves this computer."""
+        Gtk = self.Gtk
+        dialog = Gtk.Dialog(title="Teacher Certificate", transient_for=self.window, modal=True)
+        dialog.add_button("_Close", Gtk.ResponseType.CLOSE)
+        dialog.add_button("_Copy", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        area = dialog.get_content_area()
+        area.set_spacing(10)
+        area.set_border_width(16)
+        intro = Gtk.Label(label="With FlickOS Manage, your school's administrator pastes this on the "
+                                "Teachers page, and the lab computers trust this computer without a "
+                                "code. It is public: the key that goes with it never leaves this computer.",
+                          wrap=True, max_width_chars=60, xalign=0)
+        print_ = Gtk.Label(xalign=0, selectable=True, wrap=True)
+        print_.set_text(f"Fingerprint: {grouped(self.me.fingerprint)}")
+        view = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.CHAR,
+                            cursor_visible=False, top_margin=6, bottom_margin=6, left_margin=6, right_margin=6)
+        view.get_buffer().set_text(self.me.pem)
+        scroll = Gtk.ScrolledWindow(min_content_height=180, min_content_width=480)
+        scroll.add(view)
+        for part in (intro, print_, scroll):
+            area.pack_start(part, part is scroll, part is scroll, 0)
+        dialog.show_all()
+        while dialog.run() == Gtk.ResponseType.OK:
+            if not copy_text(self.me.pem):
+                Gtk.Clipboard.get_default(dialog.get_display()).set_text(self.me.pem, -1)
+            print_.set_text(f"Fingerprint: {grouped(self.me.fingerprint)}. Copied.")
+        dialog.destroy()
+
+    def update_empty(self):
+        has = bool(self.tiles)
+        if self.classes.current is None:
+            self.empty.set_text("No students yet. Use Add Students to pair this computer with theirs.")
+        else:
+            self.empty.set_text(f"No students in {self.classes.current} yet. Use Add Students, or choose "
+                                "All Students, select some and put them in this class with the menu.")
+        self.empty.set_visible(not has)
+        self.flow.get_parent().get_parent().set_visible(has)
+        for b in (self.lock_button, self.unlock_button, self.message_button, self.url_button,
+                  self.demo_button):
+            b.set_sensitive(has)
+        self.update_scope()
+        self.update_count()
+
+    def chosen(self):
+        """The selected students' ids, else every student's."""
+        picked = [i for i, t in self.tiles.items() if t["child"].is_selected()]
+        return picked or list(self.tiles)
+
+    def update_scope(self):
+        selected = [t for t in self.tiles.values() if t["child"].is_selected()]
+        picked = len(selected)
+        total = len(self.tiles)
+        self.forget_button.set_sensitive(picked > 0)
+        one = picked == 1 and selected[0].get("online", False)
+        self.view_button.set_sensitive(one)
+        self.control_button.set_sensitive(one)
+        if not total:
+            self.scope.set_text("")
+        elif picked:
+            self.scope.set_text(f"Actions apply to the {picked} selected" if picked > 1
+                                else "Actions apply to the selected student")
+        elif self.classes.current:
+            self.scope.set_text("Actions apply to the whole class. Select some to choose.")
+        else:
+            self.scope.set_text("Actions apply to every student. Select some to choose.")
+
+    def say(self, text):
+        self.status.set_text(text)
+        self.status.set_visible(bool(text))
+
+    # Events from the links (main loop).
+
+    def on_found(self, ident, address, fields):
+        if self.pairing and fields.get("pairing") == "1" and ident not in self.pairing["tried"] \
+                and not self.students.get(ident):
+            self.pairing["tried"].add(ident)
+            threading.Thread(target=self.pair_one, args=(ident, address, int(fields["port"]),
+                                                         self.pairing["code"]), daemon=True).start()
+        return False
+
+    def on_event(self, ident, kind, value):
+        tile = self.tiles.get(ident)
+        if not tile:
+            return False
+        if kind == "frame":
+            try:
+                loader = self.GdkPixbuf.PixbufLoader.new_with_type("jpeg")
+                loader.write(value)
+                loader.close()
+                pixbuf = loader.get_pixbuf()
+            except self.GLib.Error:
+                return False
+            height = max(1, pixbuf.get_height() * self.TILE // pixbuf.get_width())
+            tile["image"].set_from_pixbuf(pixbuf.scale_simple(self.TILE, height, self.GdkPixbuf.InterpType.BILINEAR))
+        elif kind == "online":
+            self.set_here(tile, True)
+            tile["locked"] = bool(value.get("locked"))
+            who = clean_text(value.get("name", ""), 40)
+            # On a lab computer the account logged in (Q15), for the attendance.
+            tile["person"] = who if who and who != tile["student"]["name"] else ""
+            if tile["locked"]:
+                tile["state"].set_text("Locked")
+            else:
+                tile["state"].set_text(f"Connected: {who}" if who and who != tile["student"]["name"] else "Connected")
+        elif kind == "absent":
+            self.set_here(tile, False)
+            tile["image"].set_from_icon_name("video-display-symbolic", self.Gtk.IconSize.DIALOG)
+            tile["state"].set_text("Nobody logged in" if value == "nobody" else "Not sharing")
+        elif kind == "offline":
+            self.set_here(tile, False)
+            tile["image"].set_from_icon_name("video-display-symbolic", self.Gtk.IconSize.DIALOG)
+            tile["state"].set_text("Not sharing or offline")
+        elif kind == "busy":                # Q14: another teacher's lock, demo, view or control
+            self.set_here(tile, False)
+            tile["state"].set_text(f"With {value}")
+        elif kind == "taken-over":          # Q14: until this teacher asks again
+            self.set_here(tile, False)
+            tile["image"].set_from_icon_name("video-display-symbolic", self.Gtk.IconSize.DIALOG)
+            tile["state"].set_text(f"With {value}. Double-click to take it back.")
+        elif kind == "done":
+            verb = value.get("verb")
+            if value.get("ok") and verb in ("lock", "unlock"):
+                tile["locked"] = verb == "lock"
+                tile["state"].set_text("Locked" if tile["locked"] else "Connected")
+            elif not value.get("ok"):
+                self.say(f"{tile['student']['name']}: {verb} didn't work ({value.get('error', '')}).")
+        elif kind == "event" and value.get("what") == "stopped":
+            screen = self.screens.get(ident)
+            if screen:
+                screen.stopped = True
+            what = "control" if value.get("control") else "view"
+            self.say(f"{tile['student']['name']} stopped your {what}.")
+        elif kind == "frame-done" and self.demo and ident in self.demo["targets"]:
+            self.demo_took(ident, value.get("seconds", 0))
+        self.update_scope()
+        self.update_count()
+        return False
+
+    # Actions.
+
+    def send_all(self, message):
+        reached = sum(1 for i in self.chosen() if self.links[i].send(dict(message)))
+        missed = len(self.chosen()) - reached
+        self.say(f"{missed} of them aren't connected now." if missed else "")
+
+    def ask_text(self, title, label, verb, default=""):
+        """A dialog with one line of text: the text, or None when cancelled."""
+        Gtk = self.Gtk
+        dialog = Gtk.Dialog(title=title, transient_for=self.window, modal=True)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button(verb, Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        area = dialog.get_content_area()
+        area.set_spacing(8)
+        area.set_border_width(12)
+        text_label = Gtk.Label(label=label, xalign=0, use_underline=True)
+        entry = Gtk.Entry(text=default, activates_default=True, width_chars=40, max_length=MAX_URL)
+        text_label.set_mnemonic_widget(entry)
+        area.pack_start(text_label, False, False, 0)
+        area.pack_start(entry, False, False, 0)
+        dialog.show_all()
+        answer = dialog.run()
+        text = entry.get_text().strip()
+        dialog.destroy()
+        return text if answer == Gtk.ResponseType.OK else None
+
+    def on_screen(self, control):
+        """View or Control: the one selected student's screen in a window."""
+        picked = [i for i, t in self.tiles.items() if t["child"].is_selected()]
+        if len(picked) != 1:
+            return
+        ident = picked[0]
+        where = self.where(ident)
+        if not where:
+            self.say("That computer isn't connected now.")
+            return
+        old = self.screens.get(ident)
+        if old:
+            old.window.destroy()            # one window a student: View after Control replaces it
+        try:
+            self.screens[ident] = ScreenWindow(self, self.tiles[ident]["student"], where, control)
+        except (ImportError, ValueError):
+            self.say("Seeing a screen needs gtk-vnc (gir1.2-gtk-vnc-2.0).")
+
+    # The demo (ADR-014): this screen on theirs.
+
+    def on_demo(self):
+        if self.demo_button.get_active() and not self.demo:
+            targets = self.chosen()
+            self.demo = {"targets": set(targets), "stop": threading.Event(), "took": {}, "slow": False}
+            for ident in targets:
+                self.links[ident].send({"verb": "demo", "on": True})
+            threading.Thread(target=self.demo_loop, args=(self.demo,), daemon=True).start()
+            count = len(targets)
+            self.say(f"Showing your screen to {count} student{'s' if count != 1 else ''}, their screens "
+                     "locked. Press Show My Screen again to stop.")
+        elif not self.demo_button.get_active() and self.demo:
+            self.end_demo()
+            self.say("")
+
+    def end_demo(self, now=False):
+        demo, self.demo = self.demo, None
+        demo["stop"].set()
+        for ident in demo["targets"]:
+            link = self.links.get(ident)
+            if link and now and link.channel:
+                with contextlib.suppress(OSError):
+                    link.channel.send({"verb": "demo", "on": False})       # the window is closing
+            elif link:
+                link.send({"verb": "demo", "on": False})
+
+    def demo_loop(self, demo):
+        """Every DEMO_SECONDS: this screen, encoded once when it changed (or
+        the size changed, Q13), offered to every student's link."""
+        last = None
+        while not demo["stop"].wait(DEMO_SECONDS):
+            try:
+                ppm = capture_screen()
+            except ClassroomError as error:
+                log(f"demo: {error}")
+                continue
+            slow = demo["slow"]
+            key = (hashlib.blake2b(ppm, digest_size=16).digest(), slow)
+            if key == last:
+                continue
+            try:
+                frame = demo_jpeg(ppm, slow)
+            except (OSError, ValueError) as error:
+                log(f"demo: {error}")
+                continue
+            last = key
+            for ident in demo["targets"]:
+                link = self.links.get(ident)
+                if link:
+                    link.offer_frame(frame)
+
+    def demo_took(self, ident, seconds):
+        """Q13: slow while the last frame took over DEMO_SLOW_SECONDS to reach
+        a student; fast again only under half that (no flapping)."""
+        took = self.demo["took"]
+        took[ident] = seconds
+        worst = max(took.values())
+        self.demo["slow"] = worst > DEMO_SLOW_SECONDS / (2 if self.demo["slow"] else 1)
+
+    def on_lock(self):
+        text = self.ask_text("Lock Screens", "_Message on the locked screens:", "_Lock",
+                             "Eyes on the teacher, please.")
+        if text is not None:
+            self.send_all({"verb": "lock", "message": text[:MAX_MESSAGE]})
+
+    def on_unlock(self):
+        self.send_all({"verb": "unlock"})
+
+    def on_message(self):
+        text = self.ask_text("Send Message", "_Message:", "_Send")
+        if text:
+            self.send_all({"verb": "message", "text": text[:MAX_MESSAGE], "seconds": 30})
+
+    def on_url(self):
+        url = self.ask_text("Open Web Page", "_Address of the page:", "_Open", "https://")
+        if url is None:
+            return
+        if "://" not in url:
+            url = "https://" + url
+        if not url_allowed(url):
+            self.say("Only web pages can be opened (an address starting with http or https).")
+            return
+        self.send_all({"verb": "open-url", "url": url})
+
+    def on_forget(self):
+        Gtk = self.Gtk
+        picked = [i for i, t in self.tiles.items() if t["child"].is_selected()]
+        if not picked:
+            return
+        names = ", ".join(self.tiles[i]["student"]["name"] for i in picked)
+        dialog = Gtk.MessageDialog(transient_for=self.window, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                   text=f"Forget {names}?")
+        dialog.format_secondary_text("Their screens won't show here until they pair again.")
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Forget", Gtk.ResponseType.OK).get_style_context().add_class("destructive-action")
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        answer = dialog.run()
+        dialog.destroy()
+        if answer != Gtk.ResponseType.OK:
+            return
+        for ident in picked:
+            self.links.pop(ident).stop()
+            self.flow.remove(self.tiles.pop(ident)["child"])
+            self.students.forget(ident)
+            self.classes.forget_student(ident)
+        self.update_empty()
+
+    # Pairing, the console's half.
+
+    def on_add(self):
+        Gtk = self.Gtk
+        code = new_code()
+        dialog = Gtk.Dialog(title="Add Students", transient_for=self.window, modal=True)
+        dialog.add_button("_Done", Gtk.ResponseType.CLOSE)
+        area = dialog.get_content_area()
+        area.set_spacing(10)
+        area.set_border_width(16)
+        intro = Gtk.Label(label="On each student's computer: Settings > Classroom, turn on sharing, "
+                                "then Pair With a Teacher and type this code. On a lab computer, its "
+                                "administrator uses Pair This Computer With a Teacher.", wrap=True,
+                          max_width_chars=48)
+        big = Gtk.Label()
+        big.set_markup(f"<span size='xx-large' weight='bold'>{code[:3]} {code[3:]}</span>")
+        big.set_selectable(True)
+        added = Gtk.Label(label="Waiting for students…", wrap=True, max_width_chars=48, selectable=True)
+        for part in (intro, big, added):
+            area.pack_start(part, False, False, 0)
+        self.pairing = {"code": code, "dialog": dialog, "list": added, "names": [], "tried": set()}
+        for ident, (address, _port, fields) in list(self.browser.found.items()):
+            self.on_found(ident, address, fields)
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+        self.pairing = None
+
+    def pair_one(self, ident, address, port, code):
+        try:
+            result = pair_student(self.me, person_name(), code, address, port)
+        except ClassroomError as error:
+            log(str(error))
+            result = None
+        self.GLib.idle_add(self.paired, ident, result)
+
+    def paired(self, ident, result):
+        pairing = self.pairing
+        if pairing:
+            pairing["tried"].discard(ident)     # a student may type the code again
+        if not result:
+            return False
+        sid, name, pem = result
+        self.students.add(sid, name, pem)
+        if self.classes.current:
+            self.classes.put(self.classes.current, [sid])  # Add Students adds to the class shown
+        if sid in self.tiles:
+            self.links.pop(sid).stop()
+            self.flow.remove(self.tiles.pop(sid)["child"])
+        self.add_tile(self.students.get(sid))
+        self.update_empty()
+        if pairing:
+            pairing["names"].append(name)
+            pairing["list"].set_text("Added: " + ", ".join(pairing["names"]))
+        return False
+
+    def on_destroy(self, _win):
+        self.browser.stopping.set()
+        if self.demo:
+            self.end_demo(now=True)
+        for screen in list(self.screens.values()):
+            screen.window.destroy()
+        for link in self.links.values():
+            link.stop()
+
+
+# --- main ---------------------------------------------------------------------------------
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="See and guide a classroom of FlickOS computers.")
+    roles = parser.add_subparsers(dest="role", metavar="ROLE")
+    student = roles.add_parser("student", help="this computer as a student's")
+    verbs = student.add_subparsers(dest="command", metavar="COMMAND")
+    get = verbs.add_parser("get", help="print a setting")
+    get.add_argument("key", choices=sorted(SETTINGS))
+    get.set_defaults(func=cmd_get)
+    verbs.add_parser("on", help="share this screen with a paired teacher").set_defaults(func=cmd_on)
+    verbs.add_parser("off", help="stop sharing").set_defaults(func=cmd_off)
+    verbs.add_parser("status", help="sharing, the teacher, connected").set_defaults(func=cmd_status)
+    pair = verbs.add_parser("pair", help="pair with a teacher's computer")
+    pair.add_argument("--code", help="the code the teacher's computer shows (without a window)")
+    pair.set_defaults(func=cmd_pair)
+    verbs.add_parser("teachers", help="the paired teachers: fingerprint, name, since, source").set_defaults(
+        func=cmd_teachers)
+    forget = verbs.add_parser("forget", help="forget a paired teacher, or every one")
+    forget.add_argument("fingerprint", nargs="?", help="the teacher's (or its start); none: every teacher")
+    forget.set_defaults(func=cmd_forget)
+    run = verbs.add_parser("run", help="the agent (FlickOS's autostart)")
+    run.add_argument("--port", type=int, default=PORT, help=argparse.SUPPRESS)
+    run.set_defaults(func=cmd_run)
+    verbs.add_parser("panel", help="(waybar) the panel button").set_defaults(func=cmd_panel)
+    strip = roles.add_parser("strip", help=argparse.SUPPRESS)        # the agent's, during a session
+    strip.add_argument("--text", required=True)
+    strip.add_argument("--stop", action="store_true")
+    strip.set_defaults(func=cmd_strip)
+    roles.add_parser("teacher", help="the teacher's console").set_defaults(func=cmd_teacher)
+    lab = roles.add_parser("lab", help="this computer as a school's lab computer (administrator)")
+    lab_verbs = lab.add_subparsers(dest="command", metavar="COMMAND")
+    lab_verbs.add_parser("status", help="whether it is one, and its teacher").set_defaults(func=cmd_lab_status)
+    lab_verbs.add_parser("on", help="make it a lab computer (root)").set_defaults(func=cmd_lab_on)
+    lab_verbs.add_parser("off", help="each account chooses again (root)").set_defaults(func=cmd_lab_off)
+    lab_pair = lab_verbs.add_parser("pair", help="pair it with a teacher's computer (root)")
+    lab_pair.add_argument("code", help="the code the teacher's computer shows")
+    lab_pair.set_defaults(func=cmd_lab_pair)
+    lab_verbs.add_parser("teachers", help="its teachers: fingerprint, name, since, source").set_defaults(
+        func=cmd_lab_teachers)
+    lab_forget = lab_verbs.add_parser("forget", help="forget a teacher, or every one (root)")
+    lab_forget.add_argument("fingerprint", nargs="?", help="the teacher's (or its start); none: every teacher")
+    lab_forget.set_defaults(func=cmd_lab_forget)
+    lab_verbs.add_parser("run", help="the lab service (root, systemd)").set_defaults(func=cmd_lab_run)
+    opts = parser.parse_args(argv)
+    if not getattr(opts, "func", None):
+        parser.print_usage(sys.stderr)
+        return 2
+    try:
+        return opts.func(opts)
+    except ClassroomError as error:
+        warn(str(error))
+        return 1
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

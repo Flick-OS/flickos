@@ -1,0 +1,2 @@
+usr/bin/flickos-fleet                     usr/bin/
+usr/share/polkit-1/actions/*            usr/share/polkit-1/actions/

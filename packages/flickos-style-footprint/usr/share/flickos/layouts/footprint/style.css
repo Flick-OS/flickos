@@ -5,6 +5,8 @@
 
 window#waybar.footprint {
     background: @wm_bg;
+    /* A line under the bar, so it doesn't run into a dark window below it. */
+    border-bottom: 1px solid alpha(@fg_color, 0.18);
 }
 
 window#waybar.footprint * {

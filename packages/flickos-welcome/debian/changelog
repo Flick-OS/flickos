@@ -1,3 +1,59 @@
+flickos-welcome (1.10) trixie; urgency=medium
+
+  * Release of 1.10~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:43:13 +0800
+
+flickos-welcome (1.10~test1) trixie; urgency=medium
+
+  * Site defaults: welcome.conf is read from /etc/xdg/flickos-
+    site/flickos/ over FlickOS's, key by key (flickos-fleet phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:19:37 +0800
+
+flickos-welcome (1.9) trixie; urgency=medium
+
+  * Release of 1.9~test1: the Tools for your work card.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 20:33:06 +0800
+
+flickos-welcome (1.9~test1) trixie; urgency=medium
+
+  * A Tools for your work card, which opens flickos-kits and is left out
+    when it isn't installed.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 12:39:51 +0800
+
+flickos-welcome (1.8) trixie; urgency=medium
+
+  * Release of 1.8~test1: the Bring Files from Windows card.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 11:43:29 +0800
+
+flickos-welcome (1.8~test1) trixie; urgency=medium
+
+  * A card for Bring Files from Windows, shown only when flickos-switch
+    finds a Windows disk (checked after the window is shown).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 21:07:48 +0800
+
+flickos-welcome (1.7) trixie; urgency=medium
+
+  * Translatable: the window's text and the desktop file's name, comment
+    and keywords use gettext (po/, docs/12-translating.md); no
+    translations yet. tools/update-po.sh flickos-welcome refreshes the
+    template.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 27 Oct 2026 15:36:38 +0800
+
+flickos-welcome (1.6) trixie; urgency=medium
+
+  * The Project, Docs and Issues cards open github.com/Flick-OS/flickos.
+  * Docs and Donate cards open flickos.org, the new domain.
+  * debian/copyright: Source is the public repository.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 11:59:24 +0800
+
 flickos-welcome (1.5) trixie; urgency=medium
 
   * The Install software card opens Software (flickos-software), which

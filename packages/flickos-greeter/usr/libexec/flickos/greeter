@@ -1,6 +1,14 @@
 #!/bin/sh
-# The FlickOS login screen: gtkgreet in the cage kiosk compositor, run by
-# greetd as the user _greetd. A successful login starts flickos-session.
+# The FlickOS login screen, run by greetd as the user _greetd: the cage kiosk
+# compositor with greeter-window (users, password, sessions). If that window
+# ends in any way but a login (exit 0), gtkgreet comes up instead, so a broken
+# login screen is never a black screen (docs/design/flickos-greeter.md,
+# ADR-010). A successful login starts the chosen session, flickos-session by
+# default.
+#
+# greetd gives the greeter tty7 as its output: systemd-cat sends cage's,
+# greeter-window's and gtkgreet's to the journal instead
+# (journalctl -b -t flickos-greeter).
 
 # cage ignores the system keyboard layout; pass it on explicitly.
 # /etc/default/keyboard is written by the installer.
@@ -9,12 +17,28 @@ if [ -r /etc/default/keyboard ]; then
     XKB_DEFAULT_LAYOUT="$(. /etc/default/keyboard; echo "${XKBLAYOUT:-}")"
     XKB_DEFAULT_VARIANT="$(. /etc/default/keyboard; echo "${XKBVARIANT:-}")"
     XKB_DEFAULT_OPTIONS="$(. /etc/default/keyboard; echo "${XKBOPTIONS:-}")"
+    # Only an XKB option changes the layout in cage, and someone with two
+    # layouts may need the other one for their password (ADR-009).
+    case "$XKB_DEFAULT_LAYOUT" in
+        *,*)
+            case "$XKB_DEFAULT_OPTIONS" in
+                *grp:*) ;;
+                *) XKB_DEFAULT_OPTIONS="${XKB_DEFAULT_OPTIONS:+$XKB_DEFAULT_OPTIONS,}grp:alt_shift_toggle" ;;
+            esac
+            ;;
+    esac
     export XKB_DEFAULT_MODEL XKB_DEFAULT_LAYOUT XKB_DEFAULT_VARIANT XKB_DEFAULT_OPTIONS
 fi
 
-export GTK_THEME=Arc-Dark
+export GTK_THEME=FlickOS-Arc-Dark
+# cage reads these, and the session's aren't set here.
+export XCURSOR_THEME=FlickOS-Bibata XCURSOR_SIZE=24
+# No accessibility bus for _greetd (no screen reader yet): without this GTK
+# warns at every start.
+export NO_AT_BRIDGE=1
 
 # -d: no client-side decorations, -s: allow switching VTs (Ctrl+Alt+F1).
-exec cage -d -s -- gtkgreet \
-    --command flickos-session \
-    --style /usr/share/flickos/greeter/gtkgreet.css
+exec systemd-cat --identifier=flickos-greeter \
+    cage -d -s -- sh -c '"$0" || exec gtkgreet --command flickos-session \
+        --style /usr/share/flickos/greeter/gtkgreet.css' \
+    /usr/libexec/flickos/greeter-window

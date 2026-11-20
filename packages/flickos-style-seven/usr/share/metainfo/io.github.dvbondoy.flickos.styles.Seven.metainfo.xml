@@ -1,26 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- A FlickOS style is an AppStream add-on of the layout chooser
-     (docs/design/flickos-ricing.md, ADR-006 and ADR-013): Software lists
-     add-ons that extend flickos-layout.desktop under Styles, and
-     FlickOS::style names the style's folder in /usr/share/flickos/styles. -->
+     (docs/design/flickos-ricing.md, ADR-006, ADR-013 and ADR-014): Software
+     lists add-ons that extend flickos-layout.desktop under Styles,
+     FlickOS::style names the style's folder in /usr/share/flickos/styles,
+     and FlickOS::layout the layout Use sets with it. -->
 <component type="addon">
   <id>io.github.dvbondoy.flickos.styles.Seven</id>
   <extends>flickos-layout.desktop</extends>
   <name>Seven</name>
-  <summary>Light windows, see-through blue title bars and panel</summary>
+  <summary>Light windows, see-through blue title bars, a glass panel</summary>
   <description>
     <p>
       A light style for the FlickOS desktop: windows in the Arc theme, sky blue
       title bars you can see through, a see-through dark blue panel, a black
-      terminal and a sky wallpaper. It suits the Redmond layout best.
+      terminal and a sky wallpaper.
     </p>
     <p>
-      After installing it, try it until you log out, or use it. It is listed
-      with Dark and Light in Desktop Layout &amp; Style.
+      It comes with a layout of the same name: one see-through panel at the
+      bottom with a round glossy start button, large window icons in glass
+      boxes, the status and a two-line clock. Use sets both; you can still
+      pick another layout in Settings, and try the style alone until you log
+      out.
     </p>
   </description>
+  <screenshots>
+    <!-- Taken by tools/make-style-shots.sh, published by repo/upload.sh from
+         repo/screenshots/. -->
+    <screenshot type="default">
+      <caption>Files and a terminal in the Seven style and layout</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/seven/1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The start menu</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/seven/2.png</image>
+    </screenshot>
+  </screenshots>
   <icon type="stock">preferences-desktop-theme</icon>
-  <url type="homepage">https://github.com/dvbondoy/FlickOS</url>
+  <url type="homepage">https://flickos.org/</url>
   <developer id="io.github.dvbondoy">
     <name>FlickOS</name>
   </developer>
@@ -28,5 +44,6 @@
   <project_license>GPL-3.0-or-later</project_license>
   <custom>
     <value key="FlickOS::style">seven</value>
+    <value key="FlickOS::layout">seven</value>
   </custom>
 </component>

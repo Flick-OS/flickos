@@ -6,7 +6,9 @@
 # the image has contrib and non-free packages; no backports (--backports false).
 
 CHROOT=$(mount | grep proc | grep calamares | awk '{print $3}' | sed -e "s#/proc##g")
-RELEASE="trixie"
+# The live system's Debian release is the installed one's.
+RELEASE="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+[ -n "$RELEASE" ] || { echo "No VERSION_CODENAME in /etc/os-release" >&2; exit 1; }
 COMPONENTS="main contrib non-free non-free-firmware"
 
 cat << EOF > $CHROOT/etc/apt/sources.list

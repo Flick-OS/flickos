@@ -1,0 +1,8 @@
+// Apps bought from the FlickOS store (docs/design/flickos-store.md, ADR-004):
+// after every apt update, while a key is on this computer, the helper keeps
+// the store's apps that key can't download at their installed version, so a
+// refund never stops the automatic updates. It asks the store at most once a
+// day. Shipped by flickos-control; nothing runs without a key.
+APT::Update::Post-Invoke {
+        "if [ -e /etc/apt/auth.conf.d/flickos-store.conf ] && [ -x /usr/libexec/flickos/control-helper ]; then /usr/libexec/flickos/control-helper purchases-check || true; fi";
+};

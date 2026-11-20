@@ -152,9 +152,10 @@ its exception type and message rather than loading forever (`Ui.background()`).
 
 ## Translation-ready
 
-FlickOS is English-only today and doesn't use gettext yet. These rules keep
-the text ready for it, so translating later means marking strings, not
-rewriting code.
+FlickOS's programs are made translatable with gettext one package at a time,
+flickos-welcome first ([12 – Translating](../12-translating.md)). These rules
+keep the text of the others ready for it, so translating later means marking
+strings, not rewriting code.
 
 ### TXT-8 Must: Whole sentences in one string
 
@@ -164,7 +165,8 @@ rewriting code.
 - Put the whole value in a placeholder, never part of a word or a plural
   ending.
 - Plurals: pick between two complete strings (`"1 minute"` / `f"{n} minutes"`),
-  never add an "s".
+  never add an "s". In a translated program that's `ngettext`, since other
+  languages have more than two forms.
 - Don't reuse one string in two places that only happen to look the same in
   English (the verb *Remove* and the heading *Remove*).
 
@@ -176,3 +178,20 @@ rewriting code.
   Assume a translation is up to 50% longer.
 - Dates, times and numbers are formatted by the locale (`time.strftime` with
   `%x`, `%X`, or the user's 12/24-hour choice), not by hand-built patterns.
+
+### TXT-10 Should: Mark text for translation
+
+- Text people read in a window, a notification or a desktop file goes through
+  gettext: `_("…")`, or `N_("…")` in a table that `_()` translates where it's
+  shown. The package has a `po/` folder, and its build installs the
+  translations ([12 – Translating](../12-translating.md#making-a-package-translatable-for-developers)).
+- Values, ids, JSON and anything else another program reads stay as they are,
+  and so do stderr messages and `--help` for now, except a message a window
+  shows as well (an error, a note after a change) when no program reads it.
+- Placeholders have names and are filled in after translation
+  (`_("Version {version}.").format(version=v)`, never an f-string), and a
+  `# Translators:` comment explains what isn't obvious.
+- When English text changes, `tools/update-po.sh NAME` updates the template
+  in the same commit. The package's tests fail until it does.
+
+A Should until FlickOS's main windows are done; then a Must for new text.

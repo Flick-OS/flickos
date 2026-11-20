@@ -6,6 +6,7 @@ import importlib.util
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -35,16 +36,17 @@ def nothing(_name):
 def setUpModule():
     # Not the build host's /etc/xdg/flickos/welcome.conf (Enabled=no there
     # would change what first-run does); tests pass their own path.
-    patcher = mock.patch.object(fw, "SYSTEM_CONF", "/nonexistent/welcome.conf")
-    patcher.start()
-    unittest.addModuleCleanup(patcher.stop)
+    for name in ("SYSTEM_CONF", "SITE_CONF"):
+        patcher = mock.patch.object(fw, name, "/nonexistent/welcome.conf")
+        patcher.start()
+        unittest.addModuleCleanup(patcher.stop)
 
 
 class ConfTest(unittest.TestCase):
     def test_shipped_conf_is_read(self):
         enabled, links = fw.read_conf(SHIPPED_CONF)
         self.assertTrue(enabled)
-        self.assertEqual(links["project"], "https://github.com/dvbondoy/FlickOS")
+        self.assertEqual(links["project"], "https://github.com/Flick-OS/flickos")
 
     def test_shipped_addresses_are_real(self):
         """A card only ever opens an address from the conffile, and a placeholder
@@ -93,6 +95,30 @@ class ConfTest(unittest.TestCase):
         self.assertTrue(enabled)
         self.assertEqual(links, fw.DEFAULT_LINKS)
 
+    def write_conf(self, text):
+        with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False) as f:
+            f.write(text)
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def test_site_file_goes_over_the_system_one_key_by_key(self):
+        system = self.write_conf("[Welcome]\nEnabled=yes\n[Links]\ndonate=https://example.org/a\ndocs=https://example.org/h\n")
+        site = self.write_conf("[Welcome]\nEnabled=no\n[Links]\ndonate=\n")
+        with mock.patch.object(fw, "SYSTEM_CONF", system), mock.patch.object(fw, "SITE_CONF", site):
+            enabled, links = fw.read_conf()
+        self.assertFalse(enabled)
+        self.assertEqual(links["donate"], "")
+        self.assertEqual(links["docs"], "https://example.org/h")
+
+    def test_broken_site_file_leaves_the_system_one(self):
+        system = self.write_conf("[Welcome]\nEnabled=no\n")
+        site = self.write_conf("this is not ini\n[[[\n")
+        with mock.patch.object(fw, "SYSTEM_CONF", system), mock.patch.object(fw, "SITE_CONF", site), \
+             mock.patch.object(fw, "warn") as warn:
+            enabled, _links = fw.read_conf()
+        self.assertFalse(enabled)
+        warn.assert_called()
+
 
 class CardsTest(unittest.TestCase):
     def test_every_card_id_is_unique(self):
@@ -101,8 +127,30 @@ class CardsTest(unittest.TestCase):
 
     def test_all_shown_when_everything_is_installed(self):
         links = dict(fw.DEFAULT_LINKS, donate="https://example.invalid/give")
-        shown = [card[0] for card in fw.cards(links, which=everything)]
+        shown = [card[0] for card in fw.cards(links, which=everything, found=set(fw.WHEN))]
         self.assertEqual(shown, [card[0] for card in fw.CARDS])
+
+    def test_when_cards_wait_for_their_check(self):
+        shown = [card[0] for card in fw.cards(fw.DEFAULT_LINKS, which=everything)]
+        self.assertNotIn("windows", shown)
+        shown = [card[0] for card in fw.cards(fw.DEFAULT_LINKS, which=everything, found={"windows"})]
+        self.assertEqual(shown[0], "windows")
+
+    def test_check_needs_a_non_empty_list(self):
+        def answer(code, out):
+            return lambda *_a, **_k: subprocess.CompletedProcess([], code, out, "")
+        self.assertTrue(fw.check("windows", run=answer(0, '[{"device": "/dev/sda3"}]')))
+        self.assertFalse(fw.check("windows", run=answer(0, "[]")))
+        self.assertFalse(fw.check("windows", run=answer(1, '[{"device": "/dev/sda3"}]')))
+        self.assertFalse(fw.check("windows", run=answer(0, "not json")))
+
+        def missing(*_a, **_k):
+            raise FileNotFoundError("flickos-switch")
+        self.assertFalse(fw.check("windows", run=missing))
+
+    def test_pending_only_with_the_program(self):
+        self.assertEqual(fw.pending(which=everything), ["windows"])
+        self.assertEqual(fw.pending(which=nothing), [])
 
     def test_card_without_its_program_is_left_out(self):
         def only_xdg(name):
@@ -238,6 +286,74 @@ class SingleInstanceTest(unittest.TestCase):
             window.assert_not_called()
             self.assertEqual(fw.cmd_show(None), 0)
             window.assert_called_once()
+
+
+PO = os.path.join(PACKAGE, "po")
+
+
+def po_list(name):
+    """The file names in po/POTFILES or po/LINGUAS, comments left out."""
+    with open(os.path.join(PO, name), encoding="utf-8") as f:
+        return [line.split("#", 1)[0].strip() for line in f if line.split("#", 1)[0].strip()]
+
+
+@unittest.skipUnless(shutil.which("xgettext") and shutil.which("msgfmt"), "gettext is not installed")
+class TranslationTest(unittest.TestCase):
+    def test_template_is_current(self):
+        """po/flickos-welcome.pot has every marked string and no others. Same
+        xgettext options as tools/update-po.sh, which fixes this."""
+        files = po_list("POTFILES")
+        with tempfile.TemporaryDirectory() as folder:
+            new = os.path.join(folder, "new.pot")
+            python = [f for f in files if not f.endswith(".desktop")]
+            desktop = [f for f in files if f.endswith(".desktop")]
+            subprocess.run(["xgettext", "--language=Python", "--from-code=UTF-8", "--keyword=N_",
+                            "--output=" + new, *python], cwd=PACKAGE, check=True)
+            subprocess.run(["xgettext", "--language=Desktop", "--join-existing",
+                            "--output=" + new, *desktop], cwd=PACKAGE, check=True)
+            shipped = os.path.join(PO, "flickos-welcome.pot")
+            for definitions, reference in ((shipped, new), (new, shipped)):
+                result = subprocess.run(["msgcmp", "--use-untranslated", definitions, reference],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0,
+                                 f"run tools/update-po.sh flickos-welcome\n{result.stderr}")
+
+    def test_every_language_has_a_file_that_compiles(self):
+        languages = po_list("LINGUAS")
+        files = sorted(name[:-3] for name in os.listdir(PO) if name.endswith(".po"))
+        self.assertEqual(sorted(languages), files, "po/LINGUAS and the po/*.po files differ")
+        for lang in languages:
+            with self.subTest(lang=lang):
+                subprocess.run(["msgfmt", "--check", "--output-file=/dev/null",
+                                os.path.join(PO, lang + ".po")], check=True)
+
+    def test_translation_is_shown_and_ids_stay(self):
+        """A translation installed under the prefix replaces the window's text;
+        what other programs read (card ids, startup on/off) stays."""
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        po = os.path.join(root, "xx.po")
+        with open(po, "w", encoding="utf-8") as f:
+            f.write('msgid ""\nmsgstr "Content-Type: text/plain; charset=UTF-8\\n"\n\n'
+                    'msgid "Welcome to FlickOS"\nmsgstr "Wëlcome"\n\n'
+                    'msgid "Connect to Wi-Fi"\nmsgstr "Wï-Fi"\n')
+        mo = os.path.join(root, "usr/share/locale/xx/LC_MESSAGES/flickos-welcome.mo")
+        os.makedirs(os.path.dirname(mo))
+        subprocess.run(["msgfmt", "--output-file=" + mo, po], check=True)
+
+        environment = {"FLICKOS_WELCOME_PREFIX": root, "LANGUAGE": "xx", "XDG_CONFIG_HOME": root}
+        with mock.patch.dict(os.environ, environment):
+            loader = importlib.machinery.SourceFileLoader(
+                "flickos_welcome_xx", os.path.join(PACKAGE, "usr/bin/flickos-welcome"))
+            translated = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+            loader.exec_module(translated)
+            self.assertEqual(translated._(translated.TITLE), "Wëlcome")
+            shown = {card[0]: card[1] for card in translated.cards(translated.DEFAULT_LINKS, which=everything)}
+            self.assertEqual(shown["network"], "Wï-Fi")
+            self.assertEqual(shown["docs"], "Read the documentation", "untranslated text stays English")
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                self.assertEqual(translated.main(["startup", "current"]), 0)
+            self.assertEqual(out.getvalue(), "off\n")
 
 
 class ShippedFilesTest(unittest.TestCase):

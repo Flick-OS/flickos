@@ -3,6 +3,9 @@
 #
 # Arc-Dark palette (from arc-theme's compiled GTK stylesheet):
 #   title bars #2f343f   background #383c4a   content #404552   borders #2b2e39
+#   unfocused window border #4b5162 (a FlickOS addition: borders #2b2e39
+#   vanishes on dark pages), focused window border = accent at 50 %: the
+#   shadow shows which window is in front
 #   text #d3dae3   title text #cfdae7   accent #5294e2   error #fc4138
 # Colors are "#rrggbb" or "#rrggbbaa" (alpha in hex: cc = 80 %, 80 = 50 %,
 # 4c = 30 %). Not "#rrggbb 80": labwc 0.8.3 logs that as deprecated.
@@ -10,15 +13,21 @@
 
 # Window frame
 border.width: 1
-window.active.border.color: #2b2e39
-window.inactive.border.color: #2b2e39
+window.active.border.color: #5294e280
+window.inactive.border.color: #4b5162
 window.active.indicator.toggled-keybind.color: #fc4138
+
+# Shadows (<dropShadows> in rc.xml; black is the palette's alpha-only color)
+window.active.shadow.size: 40
+window.inactive.shadow.size: 20
+window.active.shadow.color: #00000060
+window.inactive.shadow.color: #00000030
 
 # Title bar
 window.titlebar.padding.width: 4
 window.titlebar.padding.height: 0
 window.active.title.bg.color: #2f343f
-window.inactive.title.bg.color: #2f343f
+window.inactive.title.bg.color: #323843
 window.active.label.text.color: #cfdae7cc
 window.inactive.label.text.color: #cfdae780
 window.label.text.justify: center

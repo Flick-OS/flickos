@@ -1,0 +1,3 @@
+usr/bin/flickos-switch          usr/bin/
+usr/share/applications/*        usr/share/applications/
+usr/share/flickos/switch/*      usr/share/flickos/switch/

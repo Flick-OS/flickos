@@ -1,0 +1,24 @@
+Source: flickos-kit-classroom
+Section: education
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-classroom
+Architecture: all
+Depends: gcompris-qt,
+         kalzium,
+         kgeography,
+         kturtle,
+         kmplot,
+         ${misc:Depends}
+Description: FlickOS kit: Young Learners, apps for children
+ Learning apps for school and home from Debian: GCompris (activities for
+ ages 2 to 10), Kalzium (the periodic table), KGeography, KTurtle
+ (programming for children) and KMPlot (graphs of functions).
+ .
+ A kit is installed from Software and removed there too. Nothing it
+ installs runs until it is used (docs/design/flickos-dev.md, Q15).

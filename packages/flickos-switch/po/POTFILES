@@ -1,0 +1,6 @@
+# Files with text to translate, relative to the package folder.
+# tools/update-po.sh flickos-switch reads them into flickos-switch.pot.
+usr/bin/flickos-switch
+usr/share/flickos/switch/programs.py
+usr/share/applications/flickos-switch-files.desktop
+usr/share/applications/flickos-switch-open.desktop

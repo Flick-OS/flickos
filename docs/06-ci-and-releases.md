@@ -7,7 +7,7 @@
 | ISO downloads | SourceForge Files: https://sourceforge.net/projects/flickos/files/ (one folder per release, e.g. `v2.0/`) |
 | Apt repository | GitHub Pages (`dvbondoy/flickos-apt`): https://dvbondoy.github.io/flickos-apt/ ([05](05-apt-repository.md)) |
 | Source code, CI, issues | GitHub: https://github.com/dvbondoy/FlickOS |
-| Website | https://flickos.net |
+| Website | https://flickos.org (Vercel, from the `flickos-site` repository; DNS at Namecheap) |
 
 **Release history:** FlickOS 1.0 and 1.1 (`FlickOS-64bit-v1.1.iso`, May 2023)
 were based on Ubuntu 20.04 and LXLE. FlickOS **2.0** is a rebuild on Debian 13.
@@ -234,6 +234,46 @@ They're independent:
 - **FlickOS release** (`FLICKOS_VERSION`, tag `v2.0`, ISO name): the ISO snapshot as a whole.
 - **Package versions** (`flickos-settings 1.3`): bumped whenever that package
   changes. Many package updates can ship between two ISO releases, through the apt repo.
+
+### Package versions on branches
+
+A version names one set of files, for good: apt never replaces an installed
+package with another of the same version, and reprepro refuses a second file
+under a published version. So two branches must never give the same package
+the same number for different changes. It happened once: main published
+flickos-layouts 1.73 while a logo branch had used 1.73 for its own changes,
+and installing the branch's build would have undone main's fix (apt called it
+a downgrade).
+
+- **On main, and on a branch merged within the day:** the next number,
+  `dch -i -D trixie "…"`, as always.
+- **On a branch that waits** (for a release, a test, a decision): a test
+  version of the next number, `dch -v 1.74~test1 -D trixie "…"`, then
+  `~test2` for the next change. `~` sorts before everything, so `1.74~test1`
+  is newer than `1.73` and older than `1.74`: it can't clash with any number
+  main publishes, a build installed for trying it is replaced by the next
+  real release, and `repo/publish.sh` never puts it in `trixie` (only
+  `--testing` puts it in `trixie-testing`, [05](05-apt-repository.md#testing-packages-trixie-testing)).
+- **When the branch is merged:** look in `repo/public/pool/` for the newest
+  published version and give the package the next one with `dch -i` (its
+  `~test` entries stay in the changelog). A package that depends on it with
+  `>=` gets the real number too.
+- **Merge main into a branch that waits** now and then, so that what it builds
+  for trying has main's fixes too.
+
+`packages/build.sh` warns when a package it built has a version that is
+already in `repo/public/pool/` with other files: a change without a version
+bump, or a branch that took a number main published meanwhile. Only a
+warning, because a compiled package (sfwbar) can differ between two builds
+of the same source; on CI, where there is no pool, it checks nothing.
+
+## Moving to a new Debian release
+
+`FLICKOS_DEBIAN` in `packages/flickos-branding/usr/lib/flickos-release`
+(`trixie`) is the Debian release FlickOS is built on and the name of its apt
+suites; `tools/build-iso.sh` stops when the build host, `repo/conf/distributions`,
+`flickos.sources` or the workflows' containers name another. The whole move,
+in phases: [11 – Moving to a new Debian release](11-new-debian-release.md).
 
 ## Ideas for later
 

@@ -3,7 +3,7 @@
 # Styles (flickos-layouts) include this file, then their own colors
 # (/usr/share/flickos/styles/ID/mako.conf): a *-color key added here must be
 # added there too (tools/check-palette.py checks it).
-font=DejaVu Sans 10
+font=Inter Variable 10
 width=360
 padding=10
 margin=10

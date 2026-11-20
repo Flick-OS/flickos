@@ -1,15 +1,38 @@
 /* The FlickOS start menu (flickos-menu). Only the GTK theme's named colors,
    so the Dark and Light styles (Arc-Dark, Arc) recolor it. */
 
+/* Pop-ups have round corners, 8 px, and what's in them 6 px: the window is
+ * see-through so that the corners show. The grid fills the screen. */
+window.flickos-menu:not(.style-grid),
+window.flickos-quick,
+window.flickos-phone {
+    background-color: transparent;
+}
+
 .flickos-menu .menu {
     background-color: @theme_bg_color;
     border: 1px solid @borders;
+    border-radius: 8px;
+}
+
+/* The theme's `.menu` has a margin of its own, on top of POPUP_GAP. */
+.flickos-menu:not(.style-grid) .menu {
+    margin: 0;
+}
+
+/* The theme's separator is 10 % black, which hardly shows on Arc-Dark's
+   grey: the pop-ups draw theirs in the border's color. */
+.flickos-menu separator,
+.flickos-quick separator,
+.flickos-phone separator {
+    background-color: alpha(@borders, 0.6);
 }
 
 /* Left column: pinned apps, All apps, search. */
 .flickos-menu .left {
     background-color: @theme_base_color;
     padding: 6px;
+    border-radius: 8px 0 0 8px;
 }
 
 .flickos-menu list {
@@ -18,7 +41,7 @@
 
 .flickos-menu .app {
     padding: 4px 8px;
-    border-radius: 3px;
+    border-radius: 6px;
 }
 
 .flickos-menu .pinned .app {
@@ -99,7 +122,7 @@
 
 .flickos-menu .category {
     padding: 4px 8px;
-    border-radius: 3px;
+    border-radius: 6px;
 }
 
 .flickos-menu .category:hover {
@@ -128,6 +151,7 @@ window.flickos-menu.style-grid {
 .flickos-menu.style-grid .menu {
     background-color: transparent;
     border: none;
+    border-radius: 0;
     padding: 40px 32px 16px 32px;
 }
 
@@ -150,10 +174,233 @@ window.flickos-menu.style-grid {
     color: @theme_selected_fg_color;
 }
 
+/* prompt (ADR-022): a search line with the logo's ›, the pins on a band, the
+   A–Z | Categories switch, a grid of tiles, folder chips, the bottom row. */
+.flickos-menu.style-prompt .menu {
+    padding: 8px;
+}
+
+/* The logo's ›: a mark, not text to read, so the accent may draw it. Inside
+   the field, before the text (ADR-022's design). */
+.flickos-menu .prompt-symbol {
+    color: @theme_selected_bg_color;
+    font-weight: bold;
+    font-size: 1.6em;
+    padding: 0 2px 2px 10px;
+}
+
+/* The search line is one field: this box is drawn as the entry, and the
+   entry inside it has no frame. The ring follows the entry's focus
+   (PromptView.mark_focus). */
+.flickos-menu.style-prompt .prompt-field {
+    background-color: @theme_base_color;
+    border: 1px solid @borders;
+    border-radius: 6px;
+}
+
+.flickos-menu.style-prompt .prompt-field.focused {
+    border-color: @theme_selected_bg_color;
+    box-shadow: inset 0 0 0 1px @theme_selected_bg_color;
+}
+
+.flickos-menu.style-prompt .prompt-field entry,
+.flickos-menu.style-prompt .prompt-field entry:focus {
+    background-color: transparent;
+    background-image: none;
+    border-color: transparent;
+    box-shadow: none;
+    outline: none;
+    min-height: 34px;
+    padding-left: 4px;
+}
+
+/* The pins' band. Its color alone hardly shows (1.15:1 on Arc-Dark), so the
+   switch below it is what sets the pins apart. */
+.flickos-menu.style-prompt .pinned {
+    background-color: @theme_base_color;
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.flickos-menu .no-pins {
+    padding: 8px;
+}
+
+.flickos-menu.style-prompt .apps,
+.flickos-menu.style-prompt .pinned {
+    background-image: none;
+}
+
+.flickos-menu.style-prompt .apps {
+    background-color: transparent;
+}
+
+.flickos-menu.style-prompt flowboxchild.app {
+    padding: 8px 2px 4px 2px;
+    border-radius: 6px;
+}
+
+.flickos-menu.style-prompt flowboxchild.app:hover {
+    background-color: alpha(@theme_selected_bg_color, 0.25);
+}
+
+.flickos-menu.style-prompt flowboxchild.app:selected,
+.flickos-menu.style-prompt flowboxchild.app:selected:hover {
+    background-color: @theme_selected_bg_color;
+    color: @theme_selected_fg_color;
+}
+
+/* The digit of a pin's Ctrl shortcut: shown only while Ctrl is held
+   (PromptView.show_numbers), small, in the text color (the dim color is
+   below 4.5:1 on the band). Faded, so the tiles never move. */
+.flickos-menu.style-prompt .number {
+    font-size: smaller;
+    font-weight: bold;
+    opacity: 0;
+}
+
+.flickos-menu.style-prompt .show-numbers .number {
+    opacity: 1;
+}
+
+/* A short bar under an app with an open window: a shape, not a color only. */
+.flickos-menu.style-prompt .running {
+    min-width: 14px;
+    min-height: 3px;
+    border-radius: 2px;
+}
+
+.flickos-menu.style-prompt flowboxchild.open .running {
+    background-color: @theme_selected_bg_color;
+}
+
+.flickos-menu.style-prompt flowboxchild.open:selected .running {
+    background-color: @theme_selected_fg_color;
+}
+
+/* Choosing a pin to replace (Q10): the pins outlined, the line above them. */
+.flickos-menu.style-prompt .replacing flowboxchild.app {
+    box-shadow: inset 0 0 0 1px @theme_selected_bg_color;
+}
+
+.flickos-menu .replace-hint {
+    padding: 4px 6px 0 6px;
+}
+
+/* Where a dragged app goes: a bar before or after a pin, or the pin it
+   replaces outlined. */
+.flickos-menu.style-prompt flowboxchild.drop-before {
+    box-shadow: inset 3px 0 @theme_selected_bg_color;
+}
+
+.flickos-menu.style-prompt flowboxchild.drop-after {
+    box-shadow: inset -3px 0 @theme_selected_bg_color;
+}
+
+.flickos-menu.style-prompt flowboxchild.drop-on {
+    box-shadow: inset 0 0 0 2px @theme_selected_bg_color;
+}
+
+/* An app's actions: a list of flat rows, each with its shortcut on the right. */
+.flickos-menu button.action {
+    padding: 4px 8px;
+}
+
+/* The grey text after the cursor (the rest of the first result's name) and
+   the hint while the line is empty: a hint, so the theme's dimmed color. */
+.flickos-menu .ghost {
+    color: @insensitive_fg_color;
+}
+
+.flickos-menu .nothing {
+    padding: 8px 4px;
+}
+
+/* Results that aren't apps (ADR-017 to ADR-020): a task, a sum's answer, a
+   file, `>`'s command. The second line is smaller, not dimmer (A11Y-6). */
+.flickos-menu.style-prompt .results {
+    background-color: transparent;
+}
+
+.flickos-menu.style-prompt .results row {
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.flickos-menu.style-prompt .results row:selected {
+    background-color: @theme_selected_bg_color;
+    color: @theme_selected_fg_color;
+}
+
+.flickos-menu .row-detail {
+    font-size: smaller;
+}
+
+/* A task that ends the session, after the first Enter: the row asks for a
+   second, in words, on the theme's error color (as the power buttons do). */
+.flickos-menu.style-prompt .results row.armed,
+.flickos-menu.style-prompt .results row.armed:selected {
+    background-color: @error_color;
+    color: @theme_selected_fg_color;
+}
+
+/* A drive that couldn't be ejected: the text in its normal color (the error
+   color is below 4.5:1 for text on Arc-Dark), the warning icon says what it is. */
+.flickos-menu.style-prompt .eject-error {
+    padding: 0 6px;
+}
+
+.flickos-menu.style-prompt .eject-error image {
+    color: @warning_color;
+}
+
+/* An app installed since the menu last looked (Q12). */
+.flickos-menu .new-badge {
+    font-size: smaller;
+    font-weight: bold;
+    padding: 0 5px;
+    margin: 2px 4px 0 0;
+    border-radius: 4px;
+    background-color: @theme_selected_bg_color;
+    color: @theme_selected_fg_color;
+}
+
+.flickos-menu flowboxchild:selected .new-badge {
+    background-color: @theme_selected_fg_color;
+    color: @theme_selected_bg_color;
+}
+
+/* Restart while a new kernel waits for it: a dot in the theme's warning color
+   at the button's top right (its tooltip says why). */
+.flickos-menu .power button.pending {
+    background-image: radial-gradient(circle at 80% 22%, @warning_color 3px, transparent 4px);
+}
+
+/* What › and F1 list: what to type or press, then what it does. */
+.flickos-menu .prompt-help .help-key {
+    font-weight: bold;
+}
+
+.flickos-menu.style-prompt .chip {
+    background-image: none;
+    background-color: @theme_base_color;
+    border-radius: 6px;
+    padding: 4px 10px;
+}
+
+.flickos-menu.style-prompt .chip:hover {
+    background-color: alpha(@theme_selected_bg_color, 0.25);
+}
+
+.flickos-menu.style-prompt .bar .user {
+    padding: 0;
+}
+
 /* Quick Settings: switches as tiles, lit in the accent color while on. */
 .flickos-quick .quick {
     background-color: @theme_bg_color;
     border: 1px solid @borders;
+    border-radius: 8px;
     padding: 12px;
 }
 
@@ -186,6 +433,7 @@ window.flickos-menu.style-grid {
 .flickos-phone .phone {
     background-color: @theme_bg_color;
     border: 1px solid @borders;
+    border-radius: 8px;
     padding: 12px;
 }
 

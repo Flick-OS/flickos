@@ -1,0 +1,9 @@
+/* Redmond's floating panel while a window fills the screen: what style.css
+ * has, over floating.css. flick-tiler turns this file on and off. */
+
+window#waybar > box {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: @wm_bg;
+}

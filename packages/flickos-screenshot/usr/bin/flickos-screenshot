@@ -689,6 +689,51 @@ def settings_state():
             for key in SETTING_KEYS}
 
 
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007)."""
+    return key in INI_KEYS
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
+
+
 # --- History ------------------------------------------------------------------------
 # One JSON line per change, appended. The format is shared with flickos-control,
 # flickos-layout, flick-tiler and flickos-phone.
@@ -716,7 +761,10 @@ def history_enabled():
 def record(key, old, new):
     """Add a change to the history. It never stops the change itself: a
     history that can't be written is only a warning."""
-    if old == new or not history_enabled():
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
         return
     now = time.time_ns()
     entry = {"v": 1, "id": str(now),
@@ -1124,6 +1172,7 @@ def finish(shot, copy_only=False, folder=None):
         return 1
     remove(shot)
     print(path)
+    fire("screenshot", file=path)       # the hooks' (docs/design/flickos-hooks.md)
     notify("saved" if copied else "not-copied", path, folder=shown_folder(folder))
     return 0
 
@@ -2911,6 +2960,15 @@ def overlap(a, b):
     return left, top, right - left, bottom - top
 
 
+def even_crop(pixels):
+    """The crop (left, top, right, bottom) that leaves a whole screen of
+    pixels an even size, as H.264 in I420 needs (x264 refuses a VM window's
+    1920x989), or None. With several screens the portal asks which, so an
+    odd-sized one is still refused; real screens are even."""
+    width, height = pixels
+    return (0, 0, width % 2, height % 2) if width % 2 or height % 2 else None
+
+
 def recording_crop(rect, found):
     """The screen that holds most of rect (layout coordinates), the part of
     rect on it, and the crop (left, top, right, bottom) of its stream, None
@@ -3127,9 +3185,18 @@ class Portal:
             loop.quit()
             return False
 
+        def stopped():
+            # `stop` while the portal's chooser asks: as if it was told no, so
+            # the reserved file is deleted (the Recorder's own handlers come later).
+            answer.setdefault("code", 1)
+            loop.quit()
+            return True
+
         watch = self.bus.signal_subscribe(None, "org.freedesktop.portal.Request", "Response", path,
                                           None, self.gi.Gio.DBusSignalFlags.NONE, response)
         timer = GLib.timeout_add_seconds(PORTAL_SECONDS, timeout)
+        signals = [GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, number, stopped)
+                   for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)]
         try:
             self.bus.call_sync(PORTAL, PORTAL_PATH, SCREENCAST, method,
                                GLib.Variant(signature, (*args, dict(options, handle_token=GLib.Variant("s", token)))),
@@ -3141,6 +3208,8 @@ class Portal:
             self.bus.signal_unsubscribe(watch)
             if "code" not in answer or answer["code"] is not None:
                 GLib.source_remove(timer)
+            for source in signals:
+                GLib.source_remove(source)
         if answer["code"] == 1:
             raise Cancelled()
         if answer["code"] is None:
@@ -3226,7 +3295,8 @@ class Recorder:
         self.space_checked = None   # clock() of the last look at the free space
         self.eos_timer = None
         self.pending = "stopped"   # the result once the end of stream is back
-        self.gates = []             # the gates' src pads
+        self.gates = []             # the gates' src pads, the video's first
+        self.pictures = 0           # video buffers let through the gate
 
     # Called from GStreamer's streaming threads: only counters and comparisons.
 
@@ -3237,13 +3307,15 @@ class Recorder:
         self.frames += 1
         return self.gi.Gst.PadProbeReturn.OK
 
-    def gate_probe(self, _pad, info):
+    def gate_probe(self, pad, info):
         gate = self.gate
         if gate is None:
             return self.gi.Gst.PadProbeReturn.DROP
         pts = info.get_buffer().pts
         if pts != self.gi.Gst.CLOCK_TIME_NONE and pts < gate:
             return self.gi.Gst.PadProbeReturn.DROP
+        if pad == self.gates[0]:
+            self.pictures += 1
         return self.gi.Gst.PadProbeReturn.OK
 
     # The main loop.
@@ -3425,6 +3497,7 @@ def run_recording(mode, sound, countdown, runtime):
             outline = part
     elif len(found) == 1:
         output = found[0]["name"]           # with several, the portal asks which
+        crop = even_crop(found[0]["pixels"])
     gi = load_gst()
     folder = videos_dir()
     try:
@@ -3458,17 +3531,22 @@ def run_recording(mode, sound, countdown, runtime):
         portal.close()
         write_panel(runtime, None)
     size = os.path.getsize(path) if os.path.exists(path) else 0
-    if not recorder.started or size == 0:
+    if not recorder.started or size == 0 or not recorder.pictures:
         remove(path)
         if result == "cancelled":
             warn("cancelled")
             return 1
-        raise result if isinstance(result, ShotError) else ShotError("Nothing was recorded.")
+        if isinstance(result, ShotError):
+            raise result
+        # The portal sends a picture only when the screen changes.
+        raise ShotError("Nothing was recorded: nothing on the screen changed." if recorder.started
+                        else "Nothing was recorded.")
     print(path)
     where = shown_folder(folder)
     if isinstance(result, ShotError):
         notify("record-broken", path, icon="video-x-generic", error=str(result), folder=where)
         return 1
+    fire("recording", file=path)        # the hooks' (docs/design/flickos-hooks.md)
     notify("recorded-full" if result == "full" else "recorded", path, icon="video-x-generic", folder=where)
     return 0
 
@@ -3588,7 +3666,9 @@ def cmd_bar(opts):
                     except OSError as error:
                         warn(f"the sound couldn't be saved ({error})")
                 # The recorder loads no GTK: it replaces this process (and the
-                # lock goes with it; the file is opened close-on-exec).
+                # lock goes with it; the file is opened close-on-exec), so
+                # main() can't fire the sound's change: it is saved, fire now.
+                fire_changed()
                 argv = record_argv(choice["mode"], choice["delay"] or COUNTDOWN, choice["sound"])
                 os.execv(argv[0], argv)
             time.sleep(HIDE_SECONDS)
@@ -3840,7 +3920,10 @@ def main(argv=None):
     opts = parser.parse_args(argv)
     if not getattr(opts, "func", None):
         opts.func = cmd_bar
-    return opts.func(opts)
+    try:
+        return opts.func(opts)
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
 
 
 if __name__ == "__main__":

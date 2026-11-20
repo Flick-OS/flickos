@@ -329,6 +329,19 @@ static gboolean taskbar_popup_action_exec ( GtkWidget *self, gint slot,
   g_return_val_if_fail(IS_TASKBAR_POPUP(self),FALSE);
   priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
 
+  /* FlickOS: a right click always runs the taskbar's RightClick action (the
+   * dock's pin menu), also on a pin without a window and on a group of
+   * several windows, which upstream ignores. The action finds its app with
+   * WindowInfo("appid"). */
+  if(slot==3 && (action = base_widget_get_action(priv->shell, slot,
+          base_widget_get_modifiers(self))))
+  {
+    win = flow_grid_get_sole_source(priv->tgroup);
+    vm_run_action(action, self, (GdkEvent *)ev, (win && !win->pin)? win : NULL,
+        NULL, base_widget_get_store(priv->shell), NULL);
+    return TRUE;
+  }
+
   if(slot==2 && (win = wintree_pin_get(priv->appid)) )
     exec_launch(win->pin);
   else if((win = flow_grid_get_sole_source(priv->tgroup)))

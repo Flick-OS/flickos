@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS kit is an AppStream add-on of the Tool Kits window
+     (docs/design/flickos-dev.md, ADR-001 and ADR-002): Software lists add-ons
+     that extend flickos-kits.desktop, and FlickOS::kit names the kit. The
+     category is a custom value because appstreamcli ignores an X-FlickOS-*
+     category. This kit's is "security" (docs/design/flickos-security.md,
+     ADR-S01): Software shows it under Security Tools, with the permission
+     sentence (ADR-S05) above the description, so the sentence isn't here. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.kits.wireless</id>
+  <extends>flickos-kits.desktop</extends>
+  <name>Wireless Testing</name>
+  <summary>Aircrack-ng and the tools for testing Wi-Fi networks</summary>
+  <description>
+    <p>
+      Aircrack-ng, Reaver, Wifite, hcxdumptool and hcxtools, iw and
+      macchanger from Debian. They need administrator rights and an
+      adapter that can do monitor mode.
+    </p>
+    <p>
+      Use a second, USB adapter and start it with airmon-ng start
+      alone. airmon-ng check kill stops this computer's own network;
+      if you ran it, sudo systemctl start NetworkManager brings it
+      back.
+    </p>
+  </description>
+  <icon type="stock">security-high</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::kit">wireless</value>
+    <value key="FlickOS::kit-category">security</value>
+  </custom>
+</component>

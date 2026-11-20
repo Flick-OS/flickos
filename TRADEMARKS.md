@@ -45,8 +45,8 @@ changed sources. Give it its own name, and:
 
 - replace the logo everywhere it appears: the boot menu and splash, the
   login screen, the installer, the system's name in `/etc/os-release`, the
-  apps button on the panel, the Dark and Light wallpapers (they show the halo
-  drawn large) and fastfetch's logo. The list of files is in
+  apps button on the panel, the two halo wallpapers in the Wallpaper app (they
+  show the halo drawn large) and fastfetch's logo. The list of files is in
   [docs/10-custom-builds.md, Layer 3](docs/10-custom-builds.md#layer-3-a-rebranded-iso);
 - don't say or suggest that FlickOS made, checked or supports it.
 

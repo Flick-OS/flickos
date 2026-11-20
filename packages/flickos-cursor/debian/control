@@ -1,0 +1,16 @@
+Source: flickos-cursor
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-cursor
+Architecture: all
+Depends: ${misc:Depends}
+Description: FlickOS's mouse cursors
+ Bibata Modern Classic in the sizes FlickOS shows, under its own name. Debian's
+ bibata-cursor-theme is 178 MB of six themes in 14 sizes; this is one theme of
+ 5.5 MB, and both can be installed together.

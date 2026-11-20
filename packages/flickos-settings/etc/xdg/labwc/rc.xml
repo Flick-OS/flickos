@@ -12,7 +12,16 @@
          The Light style (flickos-layout style set light) selects FlickOS-Arc
          through a generated copy of this file in $XDG_RUNTIME_DIR/flickos. -->
     <name>FlickOS-Arc-Dark</name>
-    <cornerRadius>6</cornerRadius>
+    <cornerRadius>8</cornerRadius>
+    <!-- Sizes and colors are the window theme's. Settings' Window shadows
+         (flickos-control set windows.shadows) turns them off. -->
+    <dropShadows>yes</dropShadows>
+    <!-- Title bars, labwc's menus and the window switcher: the font of GTK's
+         font-name (the GSettings override). -->
+    <font>
+      <name>Inter Variable</name>
+      <size>10</size>
+    </font>
     <!-- Window icons in the title bar. Unset, labwc looks for an icon theme
          named like the window theme, finds none and shows only hicolor's
          icons, so FlickOS's own windows got labwc's. flickos-layout puts
@@ -95,23 +104,34 @@
     <keybind key="W-KP_Subtract"><action name="ZoomOut" /><action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action></keybind>
     <keybind key="W-0"><action name="ToggleMagnify" /><action name="Execute"><command>sh -c "pkill -WINCH -U $(id -u) -f '[f]lickos-shortcuts daemon$'"</command></action></keybind>
 
-    <!-- Volume through PipeWire (labwc's defaults use amixer, which is not installed) -->
-    <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+</command></action></keybind>
-    <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-</command></action></keybind>
-    <keybind key="XF86AudioMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle</command></action></keybind>
-    <keybind key="XF86AudioMicMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle</command></action></keybind>
+    <!-- Volume through PipeWire (labwc's defaults use amixer, which is not installed).
+         The level script changes it, then shows the level in flickos-menu's ring.
+         These and the media keys work while locked (flickos-lock's ADR-020). -->
+    <keybind key="XF86AudioRaiseVolume" allowWhenLocked="yes"><action name="Execute"><command>/usr/libexec/flickos/level volume up</command></action></keybind>
+    <keybind key="XF86AudioLowerVolume" allowWhenLocked="yes"><action name="Execute"><command>/usr/libexec/flickos/level volume down</command></action></keybind>
+    <keybind key="XF86AudioMute" allowWhenLocked="yes"><action name="Execute"><command>/usr/libexec/flickos/level volume mute</command></action></keybind>
+    <keybind key="XF86AudioMicMute" allowWhenLocked="yes"><action name="Execute"><command>/usr/libexec/flickos/level mic mute</command></action></keybind>
 
     <!-- Media players (any app supporting MPRIS: VLC, Firefox, ...) -->
-    <keybind key="XF86AudioPlay"><action name="Execute"><command>playerctl play-pause</command></action></keybind>
-    <keybind key="XF86AudioPause"><action name="Execute"><command>playerctl pause</command></action></keybind>
-    <keybind key="XF86AudioStop"><action name="Execute"><command>playerctl stop</command></action></keybind>
-    <keybind key="XF86AudioNext"><action name="Execute"><command>playerctl next</command></action></keybind>
-    <keybind key="XF86AudioPrev"><action name="Execute"><command>playerctl previous</command></action></keybind>
+    <keybind key="XF86AudioPlay" allowWhenLocked="yes"><action name="Execute"><command>playerctl play-pause</command></action></keybind>
+    <keybind key="XF86AudioPause" allowWhenLocked="yes"><action name="Execute"><command>playerctl pause</command></action></keybind>
+    <keybind key="XF86AudioStop" allowWhenLocked="yes"><action name="Execute"><command>playerctl stop</command></action></keybind>
+    <keybind key="XF86AudioNext" allowWhenLocked="yes"><action name="Execute"><command>playerctl next</command></action></keybind>
+    <keybind key="XF86AudioPrev" allowWhenLocked="yes"><action name="Execute"><command>playerctl previous</command></action></keybind>
 
-    <!-- Brightness (same as labwc's defaults; explicit so they are easy to change) -->
-    <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>brightnessctl set 5%+</command></action></keybind>
-    <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>brightnessctl set 5%-</command></action></keybind>
+    <!-- Brightness (brightnessctl, as labwc's defaults), then the ring -->
+    <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>/usr/libexec/flickos/level brightness up</command></action></keybind>
+    <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>/usr/libexec/flickos/level brightness down</command></action></keybind>
   </keyboard>
+
+  <windowRules>
+    <!-- wdisplays (Settings' Displays) opens too narrow to show its screen
+         map beside the settings. 900 x 500 stays on a 1366x768 screen
+         (labwc places a window by its size before this rule). -->
+    <windowRule identifier="wdisplays">
+      <action name="ResizeTo" width="900" height="500" />
+    </windowRule>
+  </windowRules>
 
   <mouse>
     <!-- labwc's built-in bindings: window title bars, borders, buttons, Alt+drag. -->

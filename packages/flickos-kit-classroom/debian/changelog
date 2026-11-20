@@ -1,0 +1,25 @@
+flickos-kit-classroom (1.1) trixie; urgency=medium
+
+  * Release of 1.1~test1: named Young Learners.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:16:41 +0800
+
+flickos-kit-classroom (1.1~test1) trixie; urgency=medium
+
+  * Named Young Learners (docs/design/flickos-dev.md, Q16); no word
+    about Veyon.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 21:00:28 +0800
+
+flickos-kit-classroom (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 22:35:14 +0800
+
+flickos-kit-classroom (1.0~test1) trixie; urgency=medium
+
+  * A kit, opt-in: apps for learning and teaching (docs/design/flickos-
+    dev.md, Q15).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 21:36:30 +0800

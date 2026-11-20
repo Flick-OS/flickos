@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Software
+Comment=Install Debian and Flatpak files
+Exec=flickos-software open %F
+Icon=system-software-install
+Terminal=false
+NoDisplay=true
+Categories=System;PackageManager;
+MimeType=application/vnd.debian.binary-package;application/vnd.flatpak;application/vnd.flatpak.ref;application/vnd.flatpak.repo;
+StartupNotify=false

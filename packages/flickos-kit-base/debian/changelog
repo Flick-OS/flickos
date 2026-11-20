@@ -1,0 +1,12 @@
+flickos-kit-base (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 20:33:06 +0800
+
+flickos-kit-base (1.0~test1) trixie; urgency=medium
+
+  * A developer kit, opt-in: Git, a C compiler and the everyday command-
+    line tools (docs/design/flickos-dev.md, phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 12:21:39 +0800

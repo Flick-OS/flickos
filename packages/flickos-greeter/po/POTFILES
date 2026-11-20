@@ -1,0 +1,3 @@
+# Files with text to translate, relative to the package folder.
+# tools/update-po.sh flickos-greeter reads them into flickos-greeter.pot.
+usr/libexec/flickos/greeter-window

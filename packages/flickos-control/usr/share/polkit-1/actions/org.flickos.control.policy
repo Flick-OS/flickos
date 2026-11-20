@@ -5,7 +5,7 @@
      pkexec /usr/libexec/flickos/control-helper VERB ...: one action per verb. -->
 <policyconfig>
   <vendor>FlickOS</vendor>
-  <vendor_url>https://github.com/dvbondoy/FlickOS</vendor_url>
+  <vendor_url>https://github.com/Flick-OS/flickos</vendor_url>
 
   <action id="org.flickos.control.keyboard">
     <description>Change the keyboard layout of the system</description>
@@ -44,6 +44,32 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">autologin-off</annotate>
+  </action>
+
+  <action id="org.flickos.control.login-background">
+    <description>Change the login screen's background</description>
+    <message>Authentication is required to change the login screen's background.</message>
+    <icon_name>preferences-desktop-wallpaper</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">login-background</annotate>
+  </action>
+
+  <action id="org.flickos.control.login-position">
+    <description>Move the login box</description>
+    <message>Authentication is required to change where the login box sits on the login screen.</message>
+    <icon_name>preferences-desktop-wallpaper</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">login-position</annotate>
   </action>
 
   <action id="org.flickos.control.user-add">
@@ -137,6 +163,32 @@
     <annotate key="org.freedesktop.policykit.exec.argv1">power</annotate>
   </action>
 
+  <action id="org.flickos.control.i386-on">
+    <description>Let 32-bit programs be installed</description>
+    <message>Authentication is required to let 32-bit programs, such as Wine's, be installed.</message>
+    <icon_name>system-software-install</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">i386-on</annotate>
+  </action>
+
+  <action id="org.flickos.control.i386-off">
+    <description>Stop 32-bit programs from being installed</description>
+    <message>Authentication is required to stop 32-bit programs from being installed.</message>
+    <icon_name>system-software-install</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">i386-off</annotate>
+  </action>
+
   <action id="org.flickos.control.locale-add">
     <description>Add a language</description>
     <message>Authentication is required to add a language to the system.</message>
@@ -148,6 +200,19 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">locale-add</annotate>
+  </action>
+
+  <action id="org.flickos.control.locale">
+    <description>Change the language of the system</description>
+    <message>Authentication is required to change the language of the login screen and new accounts.</message>
+    <icon_name>preferences-desktop-locale</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">locale</annotate>
   </action>
 
   <action id="org.flickos.control.updates">
@@ -176,6 +241,84 @@
     <annotate key="org.freedesktop.policykit.exec.argv1">firewall-phones</annotate>
   </action>
 
+  <action id="org.flickos.control.firewall-classroom">
+    <description>Let a teacher's computer through the firewall</description>
+    <message>Authentication is required to let a teacher's computer on school and home networks reach this computer.</message>
+    <icon_name>video-display</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">firewall-classroom</annotate>
+  </action>
+
+  <action id="org.flickos.control.firewall-local-ports">
+    <description>Let devices on this network reach servers you run</description>
+    <message>Authentication is required to let devices on home and office networks reach ports on this computer through the firewall.</message>
+    <icon_name>network-wired</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">firewall-local-ports</annotate>
+  </action>
+
+  <action id="org.flickos.control.containers-dhcp">
+    <description>Let containers get addresses by DHCP</description>
+    <message>Authentication is required to let podman's DHCP helper run for containers.</message>
+    <icon_name>utilities-terminal</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">containers-dhcp</annotate>
+  </action>
+
+  <action id="org.flickos.control.packet-capture">
+    <description>Let your account capture packets</description>
+    <message>Authentication is required to let your account capture network packets without administrator rights.</message>
+    <icon_name>network-wired</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">packet-capture</annotate>
+  </action>
+
+  <action id="org.flickos.control.wireless-test-adapter">
+    <description>Choose a wireless adapter for testing</description>
+    <message>Authentication is required to make NetworkManager leave a wireless adapter alone.</message>
+    <icon_name>network-wireless</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">wireless-test-adapter</annotate>
+  </action>
+
+  <action id="org.flickos.control.upstream">
+    <description>Add or remove a maker's software repository</description>
+    <message>Authentication is required to add or remove a maker's software repository and the program installed from it.</message>
+    <icon_name>system-software-install</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">upstream</annotate>
+  </action>
+
   <action id="org.flickos.control.firefox-memory">
     <description>Change how much memory Firefox uses</description>
     <message>Authentication is required to change how much memory Firefox uses for everyone on this computer.</message>
@@ -200,5 +343,30 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">packages-undo</annotate>
+  </action>
+  <action id="org.flickos.control.purchases-add">
+    <description>Add the key of apps bought from the FlickOS store</description>
+    <message>Authentication is required to let this computer install and update the apps you bought.</message>
+    <icon_name>system-software-install</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">purchases-add</annotate>
+  </action>
+
+  <action id="org.flickos.control.purchases-remove">
+    <description>Remove the key of apps bought from the FlickOS store</description>
+    <message>Authentication is required to remove the key of the apps you bought from this computer.</message>
+    <icon_name>system-software-install</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">purchases-remove</annotate>
   </action>
 </policyconfig>

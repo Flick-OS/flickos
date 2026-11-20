@@ -30,7 +30,9 @@ it (`dpkg -S`, `apt-file search`). FlickOS's own places:
 
 To change a file Debian owns, use FlickOS's own config directories (the session
 puts them first in `XDG_CONFIG_DIRS`) or, as a last resort, `dpkg-divert` in
-maintainer scripts. Only `flickos-branding` does that today.
+maintainer scripts. `flickos-branding` does that for `base-files`' os-release
+and issue files, `flickos-settings` for Thunar's wallpaper plugin, which does
+nothing on labwc.
 
 ## Versions
 
@@ -41,6 +43,12 @@ maintainer scripts. Only `flickos-branding` does that today.
 - apt only upgrades to a higher version, and reprepro refuses a changed file
   at a version it already has. Before reusing a version (`dch -a`), check it
   isn't already in `repo/public/pool`.
+- On a branch that isn't merged the same day, `dch -v NEXT~test1 -D trixie`
+  instead, and the next free plain number only when it is merged: two
+  branches must never give one version to different files
+  ([06](../06-ci-and-releases.md#package-versions-on-branches)).
+  `packages/build.sh` warns when a built version is already in the pool with
+  other files.
 - When a change needs a newer version of another FlickOS package, bump that
   one too and make the dependency versioned (`flickos-layouts (>= 1.19)`).
 - When a file or a behavior moves from one package to another, add
@@ -84,11 +92,20 @@ commit.
 - `Architecture: all` unless the package compiles code (only `sfwbar` does).
 - Prefer debhelper's declarative files (`install`, `links`, `sysusers`,
   `lintian-overrides`) to maintainer scripts. A hand-written `postinst` needs a
-  reason no declarative file covers. Today `flickos-branding` has one, and
+  reason no declarative file covers. Today `flickos-branding` has one,
+  `flickos-settings` a `preinst`/`postrm` pair for its diversion, and
   `flickos-control` has one that updates the phones' firewall profile, which
   the helper wrote at run time.
 - System defaults under `/etc` are conffiles, so dpkg keeps an
   administrator's changes.
+- A unit that must keep running across upgrades (a timer, a service) is
+  never given `dh_installsystemd --no-start`: with it the preinst stops the
+  unit at every upgrade and nothing starts it again until the next boot.
+  Give `--no-start` only to the units it is for, by name (a oneshot the
+  install must not run), and use `--no-enable` for "nothing until the user
+  turns it on": an upgrade then restarts only units that are enabled.
+  `tools/check-all.py` fails on `--no-start` without unit names or on a
+  timer.
 - `lintian` shows no errors. An override has a comment saying why.
 
 ### PKG-7 Should: The description is for users

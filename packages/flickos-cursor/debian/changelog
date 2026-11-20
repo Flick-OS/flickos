@@ -1,0 +1,11 @@
+flickos-cursor (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1: Bibata Modern Classic as FlickOS-Bibata.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:37 +0800
+
+flickos-cursor (1.0~test1) trixie; urgency=medium
+
+  * Bibata Modern Classic in the sizes FlickOS shows, as FlickOS-Bibata.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:13:27 +0800

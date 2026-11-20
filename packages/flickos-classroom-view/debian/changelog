@@ -1,0 +1,102 @@
+flickos-classroom-view (1.0~test10) trixie; urgency=medium
+
+  * Hooks: sharing turned on or off fires changed, History on or off
+    (docs/design/flickos-hooks.md, ADR-007).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:58 +0800
+
+flickos-classroom-view (1.0~test9) trixie; urgency=medium
+
+  * Phase 3a. Several teachers on a computer, up to 16, one connected at
+    a time: a second takes over unless the first has a class lock, demo,
+    view or control on, and a console taken over waits for its teacher
+    (ADR-016, Q14); student/lab teachers and forget FINGERPRINT. The
+    teacher's window shows one class at a time, here first and absent
+    greyed, with Copy Attendance and Save Attendance… only when pressed,
+    and Teacher Certificate… (ADR-017, Q16, Q17). The lab notice names
+    the account logged in and shows once more (Q15). PRIVACY.md says
+    what a teacher can see. Sockets shut down on close, so a taken-over
+    session ends at once.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:19:58 +0800
+
+flickos-classroom-view (1.0~test8) trixie; urgency=medium
+
+  * Split in two: flickos-classroom-view is the student's half (the
+    program, the agent, the strip, a lab computer's service) and the new
+    flickos-classroom-teacher adds the teacher's Classroom window to the
+    menu, with gtk-vnc. A student's computer has no Classroom in its
+    menu.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 11:39:22 +0800
+
+flickos-classroom-view (1.0~test7) trixie; urgency=medium
+
+  * Control shows the teacher's pointer over the student's screen; there
+    was none.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 11:29:10 +0800
+
+flickos-classroom-view (1.0~test6) trixie; urgency=medium
+
+  * A session's agent ends with its desktop: it outlived a logout, held
+    the lock, and the next login's agent quit, so an old version
+    answered the teacher across logins. Tests clear LABWC_PID.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 11:18:09 +0800
+
+flickos-classroom-view (1.0~test5) trixie; urgency=medium
+
+  * After an upgrade, a session's agent starts again on the new program
+    once no view, control or class lock is on; it kept the old one until
+    the next login, and a teacher's View was closed.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 11:02:51 +0800
+
+flickos-classroom-view (1.0~test4) trixie; urgency=medium
+
+  * A lab computer's service comes back after an upgrade: it was stopped
+    before every upgrade and started again only at the next restart.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 10:50:48 +0800
+
+flickos-classroom-view (1.0~test3) trixie; urgency=medium
+
+  * Phase 2: View and Control one student's screen through wayvnc on a
+    Unix socket, piped through the agent's own TLS connection (ADR-012),
+    with a strip at the top of the student's screen and its Stop (ADR-
+    015; on a lab computer only for control, Q10); Show My Screen, the
+    teacher's screen in the students' class lock (ADR-014), at most 2
+    frames a second, 1280 wide while the network is slow (Q13). Depends
+    on wayvnc, FlickOS's libneatvnc0 without H.264, gtk-vnc and gtk-
+    layer-shell.
+  * The screen window opens at 1280x680 (HIG WIN-3) and, when the screen
+    can't be shown, the message fills it instead of an empty black
+    display.
+  * A view or control session counts as ended only once wayvnc and the
+    strip are stopped and their files removed, so a new one started at
+    that moment keeps its socket.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 23:18:21 +0800
+
+flickos-classroom-view (1.0~test2) trixie; urgency=medium
+
+  * Depends on flickos-control (>= 1.75~test1): main's 1.74, which sorts
+    after 1.74~test1, has no Classroom page.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 19:43:47 +0800
+
+flickos-classroom-view (1.0~test1) trixie; urgency=medium
+
+  * First version: the student agent (mDNS, TLS on port 47100, pairing
+    by a six-digit code, thumbnails, class lock, message, web page) and
+    the teacher's console (docs/design/flickos-classroom-view.md phase
+    1).
+  * Lab computers (ADR-011): lab on|off|pair|forget for the
+    administrator, the root service flickos-classroom-lab.service that
+    passes a teacher's session to the agent of whoever has the seat;
+    every account shares and can't turn it off.
+  * The first-run notice on a lab computer says the administrator set it
+    up, not that the student can turn it off.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 13:39:12 +0800

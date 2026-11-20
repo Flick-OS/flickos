@@ -28,6 +28,11 @@ exception is the logo on the panel's start button, through the styles'
 A new color is a design decision: add it to the checker deliberately, with the
 arc-theme role it comes from, in the same commit.
 
+Colors outside the palette only where the user turns them on, never by
+default: flickos-media's rainbow spectrum (`spectrum-colors rainbow`, its
+hues worked out in code; `docs/design/flickos-media.md` ADR-012). Its
+default, `style`, follows [VIS-2](#vis-2-must-follow-the-style-that-is-in-use).
+
 ### VIS-2 Must: Follow the style that is in use
 
 The user picks Dark or Light in *Settings → Desktop Layout & Style*, and every
@@ -79,11 +84,44 @@ When CSS is needed (a layer-shell surface has no window frame to inherit):
 
 ### VIS-5 Should: Keep it flat and still
 
-FlickOS draws translucency without blur (panel, terminal) and no shadows.
-Its pop-ups (start menu, Quick Settings, phone popup, shortcut sheet) may
+FlickOS draws translucency without blur (panel, terminal). Windows have a
+soft shadow, which shows which one is in front: it's labwc's, about 1 ms more
+CPU per window move without a GPU, and Settings' *Window shadows* turns
+it off. Nothing inside a window or the panel has one.
+
+Corners come in two sizes: 8 px on surfaces (windows, pop-ups, notifications,
+the launcher, the floating panel) and 6 px on what's in them (buttons, rows,
+tiles). The cards of the lock and login screens (12 px) and the dock, which are
+large and stand alone, are the exceptions. labwc rounds only a window's top
+corners.
+
+| Value | Size | Where |
+|---|---|---|
+| Corner, flush | 0 | what touches a screen edge or fills its frame |
+| Corner, inside | 6 px | buttons, rows, tiles, keycaps |
+| Corner, surface | 8 px | windows, pop-ups, menus, notifications, the launcher, the floating panel |
+| Corner, card | 12 px | the lock and login cards, the dock |
+| Window shadow | size 40 / 20, `#00000060` / `#00000030` | labwc, active / inactive window |
+| Shadow in a window | none | only `inset` (a focus ring or an underline) |
+
+`tools/check-look.py` reads the CSS and labwc themes of the default desktop and
+fails on any other radius or shadow. A real exception goes into its
+`EXCEPTIONS` with the reason (the 2 px bar under a running app, the 'new'
+badge, the hover square of a title bar button); the opt-in styles have looks
+of their own and are not checked.
+
+A pop-up has no arrow to what opened it: being in the same corner says that
+already. The start menu's in Redmond and Traditional, a layout's choice
+(`MenuArrow=`), is the exception, and only a button that never moves can have
+one.
+
+FlickOS's pop-ups (start menu, Quick Settings, phone popup, shortcut sheet) may
 fade in and out, at most 100 ms, never full screen, and only while
-GSettings' `enable-animations` is on; nothing else animates beyond GTK's own
-transitions. Input never waits for a fade. Stack transitions are `NONE`,
+GSettings' `enable-animations` is on; the opt-in floating panel may slide
+between its two shapes, at most 200 ms, under the same switch
+([design/flickos-floating-panel.md](../design/flickos-floating-panel.md)).
+Nothing else animates beyond GTK's own transitions. Input never waits for a
+fade. Stack transitions are `NONE`,
 except a crossfade of at most 100 ms between a pop-up's pages (the classic
 start menu's Home and All Apps).
 
@@ -191,11 +229,11 @@ These are frozen:
 | What | Names |
 |---|---|
 | Shared files | `/usr/share/flickos/layouts/common/modules.jsonc`, `/usr/share/flickos/layouts/common/base.css` |
-| Modules in `modules.jsonc` | `custom/launcher`, `custom/desktop`, `custom/tiler`, `custom/phone`, `custom/recording`, `wlr/taskbar`, `clock`, `wireplumber`, `battery`, `tray` |
-| Placeholders flickos-layout fills in | `flickos/pinned` (`custom/pin#CLASS`), `flickos/desktops` (`custom/desk#N`) |
-| Signals (`SIGRTMIN+N`) | 8 `custom/tiler`, 9 `custom/phone`, 10 `custom/recording`, 11 the desktop buttons |
+| Modules in `modules.jsonc` | `custom/launcher`, `custom/desktop`, `custom/tiler`, `custom/phone`, `custom/recording`, `custom/media-previous`, `custom/media-play`, `custom/media-next`, `custom/media-title`, `custom/media-spectrum`, `custom/weather`, `wlr/taskbar`, `clock`, `wireplumber`, `battery`, `tray` |
+| Placeholders flickos-layout fills in | `flickos/pinned` (`custom/pin#CLASS`), `flickos/desktops` (`custom/desk#N`), `flickos/weather` (`custom/weather` while the weather is on, nothing while off) |
+| Signals (`SIGRTMIN+N`) | 8 `custom/tiler`, 9 `custom/phone`, 10 `custom/recording`, 11 the desktop buttons, 12 the media buttons, 13 `custom/weather`, 14 `custom/classroom` |
 | Groups | `group/quick` (`#quick` in CSS) |
-| Classes FlickOS's buttons set | `custom/tiler`: `on`, `off` and the arrangement's id; `custom/phone`: `waiting`; `custom/recording`: `recording`; desktop buttons: `active` |
+| Classes FlickOS's buttons set | `custom/tiler`: `on`, `off` and the arrangement's id; `custom/phone`: `waiting`; `custom/recording`: `recording`; desktop buttons: `active`; media buttons and title: `playing`, `paused`, `stopped`; `custom/media-title`: `scrolling`; `custom/media-spectrum`: `on`, `off` and `behind`, `top`; `custom/weather`: the sky (`clear`, `clear-night`, `few-clouds`, `few-clouds-night`, `overcast`, `fog`, `showers-scattered`, `showers`, `snow`, `storm`), `stale`, `unset` |
 
 - **Add** freely: a new module, class or signal reaches users' layouts that
   ask for it. A new signal takes the next free number.

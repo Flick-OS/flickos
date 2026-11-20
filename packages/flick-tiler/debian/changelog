@@ -1,3 +1,86 @@
+flick-tiler (1.14) trixie; urgency=medium
+
+  * Release of 1.14~test1: changed once the daemon has applied a
+    setting.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:23 +0800
+
+flick-tiler (1.14~test1) trixie; urgency=medium
+
+  * Hooks: a setting that changed fires changed once the daemon has
+    applied it, History on or off (docs/design/flickos-hooks.md, ADR-
+    007).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:57 +0800
+
+flick-tiler (1.13) trixie; urgency=medium
+
+  * Release of 1.13~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:43:13 +0800
+
+flick-tiler (1.13~test1) trixie; urgency=medium
+
+  * Site defaults: tiler.conf and history.conf are read from
+    /etc/xdg/flickos-site/flickos/ first, key by key over FlickOS's own
+    (flickos-fleet phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:19:36 +0800
+
+flick-tiler (1.12) trixie; urgency=medium
+
+  * Release of 1.12~test2: tiling the open windows is opt-in, tried on a
+    real login.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 20:03:59 +0800
+
+flick-tiler (1.12~test2) trixie; urgency=medium
+
+  * Windows already open stay as they are when tiling is turned on,
+    unless the user turns on TileOpen= (flick-tiler tile-open
+    on|off|default, Settings > Tiling); status gives it as tile_open,
+    and changes are recorded for History.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 18:59:55 +0800
+
+flick-tiler (1.12~test1) trixie; urgency=medium
+
+  * open-apps: the app ids of the open main windows, for the start
+    menu's prompt style.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 10 Nov 2026 14:30:24 +0800
+
+flick-tiler (1.11) trixie; urgency=medium
+
+  * Branch floating-panel merged: keeps flickos-layouts' panel state
+    file up to date while the floating panel is on.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 15:05:18 +0800
+
+flick-tiler (1.11~test2) trixie; urgency=medium
+
+  * Floating panel: the full look is the layout's, imported from panel-
+    full.css.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 14:40:51 +0800
+
+flick-tiler (1.11~test1) trixie; urgency=medium
+
+  * Tells the floating panel when a window is maximized, fullscreen or
+    tiled, while flickos-layouts keeps the panel state file.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 14:33:43 +0800
+
+flick-tiler (1.10) trixie; urgency=medium
+
+  * Turning tiling on tiles the windows already open (not minimized or
+    fullscreen): each gets a region and, for that moment, a key of its
+    own, which the daemon presses with wtype after focusing the window.
+    A window whose key didn't run stays floating, and the notification
+    says how many. Depends on wtype.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 31 Oct 2026 19:49:36 +0800
+
 flick-tiler (1.9) trixie; urgency=medium
 
   * New command focus-app APP-ID...: brings forward the window of an app

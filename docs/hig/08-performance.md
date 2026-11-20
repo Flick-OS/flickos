@@ -63,6 +63,13 @@ Wayland event, a signal, a D-Bus message, a file change. No polling loops and
 no timers that fire while nothing is on screen. A clock that ticks only while
 its page is visible is fine. A loop that checks a file every second is not.
 
+One exception: a panel button whose information changes on a schedule rather
+than on an event may have waybar run its program on an `interval`, because
+the panel is always on screen. The program must answer from a cache, ask the
+network no more often than the information changes, and run nothing while
+the feature is off. Only the weather (flickos-weather: every 15 minutes, at
+most one request an hour, docs/design/flickos-weather.md ADR-003).
+
 ### PERF-6 Must: A daemon has to earn its memory
 
 A GTK 3 Python process holds about 19 MB of private memory before it shows

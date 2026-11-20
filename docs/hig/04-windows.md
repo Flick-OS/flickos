@@ -19,8 +19,15 @@ laid out, and how they react to what the user does. The Settings window
 Windows use server-side decorations: a plain `Gtk.Window` with a title, no
 `Gtk.HeaderBar`, no `set_titlebar()`. labwc draws the title bar in the
 FlickOS theme and puts the buttons where the layout wants them (on the left
-in Cupertino). Client-side title bars look different from every other window
-and ignore the layout's button order.
+in Cupertino). Client-side title bars look different from every other window.
+
+**Exception: Thunar.** It isn't FlickOS's code, and its own header bar (the
+`misc-use-csd` default in flickos-settings' `thunar.xml`) puts its toolbar and
+the title bar in one row. `flickos-layout` gives it the layout's button order
+through GTK's `button-layout`, and the same frame colors through flickos-theme's
+frame rules (`FlickOS-Arc-Dark` and `FlickOS-Arc`), since labwc's theme doesn't
+reach a window that draws its own frame. FlickOS's own programs never use a
+header bar.
 
 ### WIN-2 Must: One window per program and session
 

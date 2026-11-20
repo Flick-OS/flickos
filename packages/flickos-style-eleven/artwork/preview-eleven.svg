@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="150" viewBox="0 0 1920 1200">
+  <!-- The eleven layout's preview (tools/make-eleven.py). -->
+  <defs>
+    <radialGradient id="depth" cx="0.45" cy="0.75" r="0.85">
+      <stop offset="0" stop-color="#0c3580"/>
+      <stop offset="0.55" stop-color="#071d4f"/>
+      <stop offset="1" stop-color="#030b24"/>
+    </radialGradient>
+    <filter id="glow" filterUnits="userSpaceOnUse" x="-300" y="-300" width="2520" height="1800">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+    <filter id="soft" filterUnits="userSpaceOnUse" x="-300" y="-300" width="2520" height="1800">
+      <feGaussianBlur stdDeviation="2"/>
+    </filter>
+    <linearGradient id="fold0" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0a2f7a"/>
+      <stop offset="0.55" stop-color="#1f6fd6"/>
+      <stop offset="1" stop-color="#0b3a8f"/>
+    </linearGradient>
+    <linearGradient id="fold1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0d3f9e"/>
+      <stop offset="0.55" stop-color="#3a93ec"/>
+      <stop offset="1" stop-color="#1352b5"/>
+    </linearGradient>
+    <linearGradient id="fold2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1453b8"/>
+      <stop offset="0.55" stop-color="#63b6f6"/>
+      <stop offset="1" stop-color="#1d68cc"/>
+    </linearGradient>
+    <linearGradient id="fold3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2a75d8"/>
+      <stop offset="0.55" stop-color="#a6dcff"/>
+      <stop offset="1" stop-color="#3a8be4"/>
+    </linearGradient>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1200" fill="url(#depth)"/>
+  <g transform="translate(0 120)">
+    <path d="M-100 980C400 720 900 1040 2020 620L2020 860C1000 1180 420 900 -100 1140Z" fill="#1f6fd6" opacity="0.38" filter="url(#glow)"/>
+    <path d="M-100 980C400 720 900 1040 2020 620L2020 860C1000 1180 420 900 -100 1140Z" fill="url(#fold0)" opacity="0.75"/>
+    <path d="M-100 980C400 720 900 1040 2020 620" fill="none" stroke="#d6efff" stroke-opacity="0.55" stroke-width="3" filter="url(#soft)"/>
+    <path d="M-100 860C520 600 1060 980 2020 520L2020 700C1080 1060 500 760 -100 980Z" fill="#3a93ec" opacity="0.35" filter="url(#glow)"/>
+    <path d="M-100 860C520 600 1060 980 2020 520L2020 700C1080 1060 500 760 -100 980Z" fill="url(#fold1)" opacity="0.7"/>
+    <path d="M-100 860C520 600 1060 980 2020 520" fill="none" stroke="#d6efff" stroke-opacity="0.55" stroke-width="3" filter="url(#soft)"/>
+    <path d="M-100 800C600 560 1200 900 2020 440L2020 560C1200 960 620 660 -100 880Z" fill="#63b6f6" opacity="0.30" filter="url(#glow)"/>
+    <path d="M-100 800C600 560 1200 900 2020 440L2020 560C1200 960 620 660 -100 880Z" fill="url(#fold2)" opacity="0.6"/>
+    <path d="M-100 800C600 560 1200 900 2020 440" fill="none" stroke="#d6efff" stroke-opacity="0.55" stroke-width="3" filter="url(#soft)"/>
+    <path d="M-100 760C700 540 1260 820 2020 400L2020 470C1300 860 720 600 -100 810Z" fill="#a6dcff" opacity="0.25" filter="url(#glow)"/>
+    <path d="M-100 760C700 540 1260 820 2020 400L2020 470C1300 860 720 600 -100 810Z" fill="url(#fold3)" opacity="0.5"/>
+    <path d="M-100 760C700 540 1260 820 2020 400" fill="none" stroke="#d6efff" stroke-opacity="0.55" stroke-width="3" filter="url(#soft)"/>
+  </g>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+  <rect x="300" y="170" width="1180" height="720" rx="16" fill="#242424" stroke="#4a4a4a" stroke-width="4"/>
+  <path d="M300 250V186A16 16 0 0 1 316 170H1464A16 16 0 0 1 1480 186V250Z" fill="#202020"/>
+  <rect x="350" y="196" width="280" height="28" rx="6" fill="#ffffff"/>
+  <path d="M1180 210h36" stroke="#ffffff" stroke-width="5"/><rect x="1298" y="192" width="36" height="36" rx="5" fill="none" stroke="#ffffff" stroke-width="5"/><path d="M1416 192l-36 36m0 -36l36 36" stroke="#ffffff" stroke-width="5"/>
+  <rect x="350" y="300" width="1080" height="540" rx="10" fill="#303030"/>
+  <rect y="1104" width="1920" height="96" fill="#202020" fill-opacity="0.9"/>
+  <rect y="1104" width="1920" height="3" fill="#ffffff" fill-opacity="0.1"/>
+  <circle cx="760" cy="1152" r="24" fill="none" stroke="#ffb13d" stroke-width="8"/><rect x="816" y="1112" width="88" height="80" rx="10" fill="#ffffff" fill-opacity="0.08"/><rect x="836" y="1128" width="48" height="48" rx="10" fill="#3a93ec"/><rect x="840" y="1188" width="40" height="6" rx="3" fill="#4cc2ff"/><rect x="936" y="1128" width="48" height="48" rx="10" fill="#f0b429"/><rect x="952" y="1188" width="16" height="6" rx="3" fill="#9a9a9a"/><rect x="1036" y="1128" width="48" height="48" rx="10" fill="#e05a47"/><rect x="1052" y="1188" width="16" height="6" rx="3" fill="#9a9a9a"/><rect x="1136" y="1128" width="48" height="48" rx="10" fill="#4fb35a"/><rect x="1152" y="1188" width="16" height="6" rx="3" fill="#9a9a9a"/>
+  <circle cx="1560" cy="1152" r="14" fill="#ffffff"/><circle cx="1616" cy="1152" r="14" fill="#ffffff"/><circle cx="1672" cy="1152" r="14" fill="#ffffff"/>
+  <rect x="1745" y="1126" width="110" height="22" rx="5" fill="#ffffff"/>
+  <rect x="1725" y="1158" width="130" height="22" rx="5" fill="#ffffff"/>
+</svg>

@@ -10,6 +10,10 @@ export PYTHONDONTWRITEBYTECODE = 1
 override_dh_auto_test:
 	python3 -m unittest discover -s tests -v
 
-# Enabled, started at none: it only acts at the start after putting back.
+# Enabled, started at none: they act only while the computer starts (starting
+# `start begin` from an install would count a start that didn't happen), so
+# --no-start is right here, and the preinst's stop at an upgrade is harmless
+# (good-watch ends seconds after the login screen shows).
 override_dh_installsystemd:
-	dh_installsystemd --no-start
+	dh_installsystemd --no-start flickos-recovery-start.service flickos-recovery-good.service \
+		flickos-recovery-settle.service

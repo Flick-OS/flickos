@@ -1,0 +1,34 @@
+Source: flickos-kit-reversing
+Section: devel
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-reversing
+Architecture: all
+Depends: gdb,
+         binutils,
+         ltrace,
+         strace,
+         edb-debugger,
+         apktool,
+         ghex,
+         hexedit,
+         ${misc:Depends}
+Description: FlickOS security kit: reverse engineering
+ gdb and edb, ltrace and strace, objdump and readelf, apktool for Android
+ apps, and the GHex and hexedit hex editors from Debian. apktool brings a
+ Java runtime.
+ .
+ Ghidra, radare2 and rizin aren't in Debian 13, so they aren't part of the
+ kit.
+ .
+ Use these tools only on computers and networks you own or have permission
+ to test.
+ .
+ A kit is installed from Software's Security Tools and removed there too.
+ Nothing it installs runs until it is used
+ (docs/design/flickos-security.md).

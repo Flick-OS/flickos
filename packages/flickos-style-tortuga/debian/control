@@ -1,0 +1,34 @@
+Source: flickos-style-tortuga
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-style-tortuga
+Architecture: all
+# flickos-layouts 1.83~test3: FloatingDefault=, the islands without a setting;
+# flick-tiler 1.11: joins them into one panel under a full window; sfwbar
+# +flickos7, as Footprint's dock; arc-theme and numix-icon-theme-circle: the
+# GTK theme and the icons Tortuga names, already in FlickOS.
+Depends: flickos-layouts (>= 1.83~test3),
+         flick-tiler (>= 1.11~),
+         sfwbar (>= 1.0~beta17+git20260910+flickos7),
+         arc-theme,
+         numix-icon-theme-circle,
+         ${misc:Depends}
+Description: Tortuga style and layout for the FlickOS desktop
+ A dark style for FlickOS: slate title bars with thin buttons that get a
+ round face under the pointer, a lantern copper accent, a deep slate
+ terminal, and an island harbour at dusk on the wallpaper, with lanterns
+ along the quay and their light in the water.
+ .
+ Its layout has three floating islands at the top with the apps button, the
+ clock and the status, and a dock at the bottom with the desktops as a
+ two-by-two grid beside it. While a window fills the screen the islands join
+ into one panel and the dock hides.
+ .
+ Installing it adds Tortuga to Desktop Layout & Style; Software's Use sets
+ the style and the layout together.

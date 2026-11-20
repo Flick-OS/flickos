@@ -2,27 +2,51 @@ Source: flickos-greeter
 Section: misc
 Priority: optional
 Maintainer: Jon <dvbondoy@gmail.com>
-Build-Depends: debhelper-compat (= 13), dh-sequence-installsysusers
+# gettext: the translations (msgfmt) and the test that the template is current.
+Build-Depends: debhelper-compat (= 13), dh-sequence-installsysusers,
+               gettext,
+               python3
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 
 Package: flickos-greeter
 Architecture: all
-# flickos-session and the default wallpaper are in flickos-settings 1.12;
-# flickos-session-plain, which /etc/greetd/environments offers below it (every
-# line of that file is a session in gtkgreet's list, so it has no comments),
-# in 1.42, and the plain session's folder comes from flickos-layouts 1.47.
+# flickos-session is in flickos-settings 1.12; flickos-session-plain, which
+# the login screen offers below it, in 1.42, and the plain session's folder
+# comes from flickos-layouts 1.47, which also has the Dark style's wallpaper.
+# python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0: greeter-window (GTK 3
+# for the Arc theme; gi-cairo for the wallpaper and the round pictures). All
+# are in the image already (flickos-lock's).
+# gtkgreet: the fallback when greeter-window can't start (ADR-010), and
+# /etc/greetd/environments its session list, until one release after 2.0.
+# systemd: systemd-cat, which sends the login screen's output to the journal,
+# and logind, which shuts down and restarts.
+# xkb-data: the keyboard layouts' names (cage needs it too).
 Depends: greetd,
          gtkgreet,
          cage,
          arc-theme,
+         flickos-theme (>= 1.0~test1),
+         python3,
+         python3-gi,
+         python3-gi-cairo,
+         gir1.2-gtk-3.0,
+         systemd,
+         xkb-data,
          flickos-settings (>= 1.42),
          flickos-layouts (>= 1.47),
          ${misc:Depends}
+# flickos-recovery counts a start as one that worked once the login screen is
+# up; before 1.6 it knew only gtkgreet, so every start that ended at this
+# login screen looked failed and GRUB started a restore point by itself.
+Breaks: flickos-recovery (<< 1.6~)
 Description: FlickOS graphical login screen
- Sets up greetd with gtkgreet (in the cage kiosk compositor) as the login
- screen of installed FlickOS systems, in the Arc-Dark colors and with the
- system keyboard layout. It starts the FlickOS session (flickos-session).
+ Sets up greetd with FlickOS's own login screen (in the cage kiosk
+ compositor) on installed FlickOS systems: the computer's users with their
+ pictures, a password box, the sessions by name, Shut Down and Restart, in
+ the Arc-Dark colors and with the system keyboard layout. It starts the
+ FlickOS session (flickos-session) unless another one is picked. When it
+ can't start, gtkgreet comes up instead.
  .
  Members of the group "autologin" are logged in automatically (the first
  one, if there are several). The installer adds the user to it when

@@ -20,7 +20,16 @@
       "id": "styles",
       "name": "Styles for your desktop",
       "apps": ["io.github.dvbondoy.flickos.styles.Seven", "io.github.dvbondoy.flickos.styles.Aye3",
-               "io.github.dvbondoy.flickos.styles.Footprint", "io.github.dvbondoy.flickos.styles.Elemental"]
+               "io.github.dvbondoy.flickos.styles.Footprint", "io.github.dvbondoy.flickos.styles.Elemental",
+               "io.github.dvbondoy.flickos.styles.Experience", "io.github.dvbondoy.flickos.styles.Eleven",
+               "io.github.dvbondoy.flickos.styles.Tortuga"]
+    },
+    {
+      "id": "kits",
+      "name": "Tools for developers",
+      "apps": ["io.github.dvbondoy.flickos.kits.base", "io.github.dvbondoy.flickos.kits.python",
+               "io.github.dvbondoy.flickos.kits.web", "io.github.dvbondoy.flickos.kits.c",
+               "io.github.dvbondoy.flickos.kits.containers"]
     }
   ]
 }

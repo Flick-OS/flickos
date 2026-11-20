@@ -1,0 +1,58 @@
+/* flickos-greeter: the login screen's window (docs/design/flickos-greeter.md,
+ * ADR-007). flickos-lock's card, so the two screens look alike: theme colors
+ * only (the greeter script sets GTK_THEME=FlickOS-Arc-Dark), every selector under
+ * .flickos-greeter, sizes relative to the system font. The card's alpha is
+ * greeter-window's CARD_ALPHA (a test compares them). */
+
+.flickos-greeter .card {
+    background-color: alpha(@theme_bg_color, 0.9);
+    border-radius: 12px;
+    padding: 32px 48px;
+}
+
+.flickos-greeter .card label {
+    color: @theme_fg_color;
+}
+
+.flickos-greeter .clock {
+    font-size: 400%;
+    font-weight: 300;
+}
+
+.flickos-greeter .date {
+    font-size: 130%;
+    margin-bottom: 18px;
+}
+
+.flickos-greeter .name {
+    font-size: 150%;
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+
+.flickos-greeter .card entry,
+.flickos-greeter .card button {
+    font-size: 110%;
+}
+
+.flickos-greeter .users,
+.flickos-greeter .users row {
+    background-color: transparent;
+}
+
+.flickos-greeter .users row {
+    border-radius: 6px;
+}
+
+.flickos-greeter .users row:selected {
+    background-color: alpha(@theme_selected_bg_color, 0.35);
+}
+
+.flickos-greeter .bottom button {
+    background-color: alpha(@theme_bg_color, 0.9);
+}
+
+.flickos-greeter .bottom button:hover,
+.flickos-greeter .bottom button:checked {
+    background-color: @theme_selected_bg_color;
+}

@@ -2,7 +2,9 @@ Source: flickos-welcome
 Section: x11
 Priority: optional
 Maintainer: Jon <dvbondoy@gmail.com>
+# gettext: the translations (msgfmt) and the test that the template is current.
 Build-Depends: debhelper-compat (= 13),
+               gettext,
                python3
 Standards-Version: 4.7.0
 Rules-Requires-Root: no

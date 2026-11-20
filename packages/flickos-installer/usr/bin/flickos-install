@@ -1,6 +1,16 @@
 #!/bin/sh
 # Start the Calamares installer from the FlickOS live session.
 
+# Windows on this computer (flickos-switch, docs/design/flickos-switch.md):
+# a dialog offers to copy its files to a USB drive first, since Erase disk
+# deletes them. Only "continue" goes on; "copy" has opened Bring Files from
+# Windows and "cancel" closed the dialog, so the installer isn't started. If
+# flickos-switch is missing or fails, install as before: it never blocks.
+if command -v flickos-switch >/dev/null 2>&1; then
+    choice="$(flickos-switch before-install 2>/dev/null)" || choice=continue
+    [ "$choice" = copy ] || [ "$choice" = cancel ] && exit 0
+fi
+
 # live-build leaves a stale /etc/fstab that confuses Calamares' partitioning
 # (same workaround as Debian's calamares-install-debian).
 sudo mv /etc/fstab /etc/fstab.orig.calamares 2>/dev/null

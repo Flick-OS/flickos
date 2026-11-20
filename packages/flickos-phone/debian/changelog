@@ -1,3 +1,34 @@
+flickos-phone (1.32) trixie; urgency=medium
+
+  * Release of 1.32~test1: phone-connected, phone-disconnected and
+    changed.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:23 +0800
+
+flickos-phone (1.32~test1) trixie; urgency=medium
+
+  * Hooks: the daemon fires phone-connected and phone-disconnected for a
+    paired phone; a setting, pairing or forgetting fires changed
+    (docs/design/flickos-hooks.md).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:58 +0800
+
+flickos-phone (1.31) trixie; urgency=medium
+
+  * Add Phone in Settings no longer hangs when the phone asks to pair at
+    once: `pair` kept only the first of two events that came together.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 10:46:25 +0800
+
+flickos-phone (1.30) trixie; urgency=medium
+
+  * Pairing with a KDE Connect desktop works: kdeconnect-kde sends the
+    pair request's timestamp as text, which was refused. A computer's
+    clipboard is ignored, since kdeconnect-kde sends it whenever it
+    changes; text shared from a computer still arrives.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 12:45:45 +0800
+
 flickos-phone (1.29) trixie; urgency=medium
 
   * Sending files to the phone: a file counts as sent only once the

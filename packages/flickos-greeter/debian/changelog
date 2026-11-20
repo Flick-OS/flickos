@@ -1,3 +1,85 @@
+flickos-greeter (2.4) trixie; urgency=medium
+
+  * Release of 2.4~test1: the login screen's background picture and box
+    position, tried on a real login.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 19:45:58 +0800
+
+flickos-greeter (2.4~test1) trixie; urgency=medium
+
+  * The login screen shows the background picture and puts the login box
+    (left, middle or right) that Settings > Login Screen chose:
+    Background= and Position= in /etc/flickos/greeter over the new
+    conffile /etc/xdg/flickos/greeter.conf. A picture that is missing or
+    isn't a PNG or JPEG means the Dark wallpaper. --check prints both
+    (design ADR-014, ADR-015).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 19:10:15 +0800
+
+flickos-greeter (2.3) trixie; urgency=medium
+
+  * Release of 2.3~test1: the login screen uses flickos-theme (seamless
+    2.x).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 20:32:15 +0800
+
+flickos-greeter (2.3~test1) trixie; urgency=medium
+
+  * The login screen uses FlickOS-Arc-Dark, from flickos-theme (a new
+    Depends).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 08:30:23 +0800
+
+flickos-greeter (2.2) trixie; urgency=medium
+
+  * Release of 2.2~test1: the desktop's cursor on the login screen.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:37 +0800
+
+flickos-greeter (2.2~test1) trixie; urgency=medium
+
+  * The login screen has the desktop's cursor.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:14:05 +0800
+
+flickos-greeter (2.1) trixie; urgency=medium
+
+  * The login screen shows the Dark style's wallpaper instead of the
+    fallback photo.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 08:32:02 +0800
+
+flickos-greeter (2.0) trixie; urgency=medium
+
+  * Released: FlickOS's own login screen (2.0~test1, 2.0~test2).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 10:43:16 +0800
+
+flickos-greeter (2.0~test2) trixie; urgency=medium
+
+  * Phase 2 of the login screen: Shut Down and Restart with a second
+    click, through logind (a block inhibitor is named on the card), the
+    keyboard layout while there is more than one (cage changes it; two
+    layouts always get a switch key), and zoom with Super+=, Super+-,
+    Super+0 and Super+scroll, remembered at login. The text is ready for
+    translation (po/).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 10:11:45 +0800
+
+flickos-greeter (2.0~test1) trixie; urgency=medium
+
+  * FlickOS's own login screen (greeter-window, docs/design/flickos-
+    greeter.md phase 1): the users with their pictures or initials, the
+    last one picked, a password box that can show the password, and the
+    sessions by name (FlickOS, FlickOS (Plain Session), other Wayland
+    sessions but bare labwc), each user's last one picked again.
+    gtkgreet comes up when it can't start. The login screen's output
+    goes to the journal (journalctl -b -t flickos-greeter). Breaks
+    flickos-recovery before 1.6, which didn't count this login screen as
+    a start that worked.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 21:43:39 +0800
+
 flickos-greeter (1.2) trixie; urgency=medium
 
   * The login screen offers flickos-session-plain below flickos-session

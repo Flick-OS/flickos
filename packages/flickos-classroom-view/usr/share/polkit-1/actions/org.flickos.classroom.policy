@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- flickos-classroom-view: a school's lab computer (ADR-011). The verbs
+     `lab on|off|pair|forget` check that they run as root; this action lets
+     an administrator run them through pkexec from Settings > Classroom. -->
+<policyconfig>
+  <vendor>FlickOS</vendor>
+  <vendor_url>https://github.com/Flick-OS/flickos</vendor_url>
+
+  <action id="org.flickos.classroom.lab">
+    <description>Set up this computer as a lab computer</description>
+    <message>Authentication is required to set up this lab computer: whether every account shares its screen, and with which teacher.</message>
+    <icon_name>video-display</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/flickos-classroom-view</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">lab</annotate>
+  </action>
+</policyconfig>

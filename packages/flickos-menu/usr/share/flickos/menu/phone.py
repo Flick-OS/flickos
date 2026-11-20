@@ -33,6 +33,7 @@ import urllib.parse
 
 NAMESPACE = "flickos-menu"      # the layer-shell namespace, the start menu's
 PHONE_WIDTH = 360               # Quick Settings' width: the same corner
+POPUP_GAP = 8                   # flickos-menu's
 TILE_COLUMNS = 2                # Quick Settings' tiles, two to a line
 # The popup's other parts (the phone's line, the buttons, the panel) take
 # about this much of the screen's height; the rest is for what scrolls.
@@ -62,6 +63,12 @@ def warn(message):
     print(f"flickos-menu: {message}", file=sys.stderr)
 
 
+def _(text):
+    """text in the user's language: load_phone replaces this with the
+    menu's translation. Loaded on its own (the tests), English."""
+    return text
+
+
 def battery_suffix(battery):
     """The phone line's battery, as the Phone window writes it."""
     if not isinstance(battery, (list, tuple)) or len(battery) < 2:
@@ -70,17 +77,18 @@ def battery_suffix(battery):
         charge = int(battery[0])
     except (TypeError, ValueError):
         return ""
-    return f" · {charge} %" + (", charging" if battery[1] else "")
+    # Translators: the phone's battery charge, written as the Phone window writes it.
+    return " · " + (_("{charge} %, charging") if battery[1] else _("{charge} %")).format(charge=charge)
 
 
 def phone_line(phone):
     """(name, status) for the phone's line. phone is a state entry, or None."""
     if not phone:
-        return "No phone paired", "Add one in Phone Settings"
-    name = phone.get("name") or "Phone"
+        return _("No phone paired"), _("Add one in Phone Settings")
+    name = phone.get("name") or _("Phone")
     if phone.get("connected"):
-        return name, "Connected" + battery_suffix(phone.get("battery"))
-    return name, "Not connected"
+        return name, _("Connected") + battery_suffix(phone.get("battery"))
+    return name, _("Not connected")
 
 
 def short_address(url, limit=60):
@@ -89,7 +97,7 @@ def short_address(url, limit=60):
     text = parts.netloc + parts.path
     text = text[4:] if text.startswith("www.") else text
     if not text:
-        return url or "Page"
+        return url or _("Page")
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
@@ -105,7 +113,8 @@ def when_text(seconds):
     if moment.date() == today:
         return moment.strftime("%H:%M")
     if (today - moment.date()).days == 1:
-        return "Yesterday " + moment.strftime("%H:%M")
+        # Translators: {time} is a time of day, such as 14:02.
+        return _("Yesterday {time}").format(time=moment.strftime("%H:%M"))
     return moment.strftime("%a %d %b")
 
 
@@ -144,7 +153,7 @@ def action_tiles(rows):
         if (not isinstance(command, list) or not command or command[0] not in ACTION_PROGRAMS
                 or not all(isinstance(arg, str) for arg in command)):
             continue
-        label = row.get("short") or row.get("label") or "Phone"
+        label = row.get("short") or row.get("label") or _("Phone")
         tiles.append({"id": str(row.get("id") or ""), "label": str(label),
                       "icon": str(row.get("icon") or "phone"), "command": list(command)})
     return tiles
@@ -167,7 +176,7 @@ def ringing_rows(state):
     found = []
     for row in rows:
         if isinstance(row, dict) and row.get("id"):
-            found.append({"id": str(row["id"]), "name": str(row.get("name") or "Phone"),
+            found.append({"id": str(row["id"]), "name": str(row.get("name") or _("Phone")),
                           "caller": str(row.get("caller") or "")})
     return found
 
@@ -225,35 +234,36 @@ def received_entry(item):
     kind, value = item.get("kind"), item.get("value") or ""
     button, command, gone = None, None, False
     if kind == "page":
-        title, button, command = short_address(value), "Open", ["xdg-open", value]
+        title, button, command = short_address(value), _("Open"), ["xdg-open", value]
     elif kind == "file":
-        title = os.path.basename(value) or "File"
+        title = os.path.basename(value) or _("File")
         if item.get("exists") is False:
             gone = True
         elif item.get("openable"):
-            button, command = "Open", ["xdg-open", value]
+            button, command = _("Open"), ["xdg-open", value]
         else:
-            button, command = "Show in Folder", ["xdg-open", os.path.dirname(value) or "."]
+            button, command = _("Show in Folder"), ["xdg-open", os.path.dirname(value) or "."]
     elif item.get("app"):
         # An address an app registered with flickos-phone (its "app", the
         # app's name): opened in that app, as the window's first action.
-        title, button, command = f"For {item['app']}", "Open", ["xdg-open", value.strip()]
+        # Translators: {app} is the name of the app the address opens in.
+        title, button, command = _("For {app}").format(app=item["app"]), _("Open"), ["xdg-open", value.strip()]
     else:
         lines = value.strip().splitlines()
-        title = (lines[0] if lines else "") or "Text"
+        title = (lines[0] if lines else "") or _("Text")
         title = title if len(title) <= 60 else title[:59] + "…"
         if value.strip():
-            button, command = "Copy", ["wl-copy", "--", value]
+            button, command = _("Copy"), ["wl-copy", "--", value]
     parts = []
     if kind == "clipboard":
-        parts.append("Clipboard")
+        parts.append(_("Clipboard"))
     if item.get("device"):
         parts.append(str(item["device"]))
     when = when_text(item.get("time"))
     if when:
         parts.append(when)
     if gone:
-        parts.append("no longer there")
+        parts.append(_("no longer there"))
     return title, " · ".join(parts), button, command, received_icons(item)
 
 
@@ -281,7 +291,7 @@ def apply_event(state, event):
         if not device_id:
             return state
         found = next((item for item in phones if item.get("id") == device_id), None)
-        row = {"id": device_id, "name": phone.get("name") or (found or {}).get("name") or "Phone",
+        row = {"id": device_id, "name": phone.get("name") or (found or {}).get("name") or _("Phone"),
                "connected": True, "battery": phone.get("battery")}
         if found:
             found.update(row)
@@ -312,7 +322,8 @@ def apply_event(state, event):
         device_id = event.get("id")
         ringing = [row for row in (state.get("ringing") or []) if row.get("id") != device_id]
         if event.get("state") == "ringing" and device_id:
-            name = next((phone.get("name") or "Phone" for phone in phones if phone.get("id") == device_id), "Phone")
+            name = next((phone.get("name") or _("Phone") for phone in phones if phone.get("id") == device_id),
+                        _("Phone"))
             ringing.append({"id": device_id, "name": name, "caller": event.get("caller") or ""})
         state["ringing"] = ringing
     elif kind == "playing":
@@ -395,18 +406,27 @@ def watch_events(path, stop):
                 yield event
 
 
+def failed_text(failed, detail):
+    """What failed ("Could not copy"), then the command's own words, in English."""
+    if detail:
+        # Translators: {failed} is what didn't work ("Could not copy"); {error} is the reason, in English.
+        return _("{failed}: {error}").format(failed=failed, error=detail)
+    # Translators: {failed} is what didn't work ("Could not copy"), as a sentence.
+    return _("{failed}.").format(failed=failed)
+
+
 def closed_text(state):
     """Why the popup has nothing to show, or "" when the connection is on."""
     if not isinstance(state, dict):
-        return "The phone connection didn't answer."
+        return _("The phone connection didn't answer.")
     if state.get("live"):
-        return "Not available in the live session."
+        return _("Not available in the live session.")
     if not state.get("enabled"):
-        return "The phone connection is off. Turn it on in Phone Settings."
+        return _("The phone connection is off. Turn it on in Phone Settings.")
     if state.get("blocked"):
-        return "KDE Connect is already running on this computer. Use it, or quit it to use this."
+        return _("KDE Connect is already running on this computer. Use it, or quit it to use this.")
     if not state.get("running"):
-        return "The phone connection isn't running. Turn it off and on again in Phone Settings."
+        return _("The phone connection isn't running. Turn it off and on again in Phone Settings.")
     return ""
 
 
@@ -433,7 +453,7 @@ class PhonePopup:
         self.watch_gen = 0
         self.watch_write = None
         self.shown_at = None
-        window = self.window = Gtk.Window(title="Phone")
+        window = self.window = Gtk.Window(title=_("Phone"))
         self.fader = menu.fader(window)
         window.get_style_context().add_class("flickos-phone")
         GtkLayerShell.init_for_window(window)
@@ -451,13 +471,13 @@ class PhonePopup:
         window.add(frame)
 
         self.phone_name = Gtk.Label(xalign=0, wrap=True, max_width_chars=28)
-        self.phone_name.set_markup("<b>Phone</b>")
+        self.phone_name.set_markup("<b>{}</b>".format(self.GLib.markup_escape_text(_("Phone"))))
         self.phone_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=36)
         self.phone_status.get_style_context().add_class("dim-label")
         self.phone_status.get_style_context().add_class("subtitle")
         self.chooser = Gtk.ComboBoxText()
         self.chooser.set_no_show_all(True)
-        self.chooser.get_accessible().set_name("Phone")
+        self.chooser.get_accessible().set_name(_("Phone"))
         self.chooser.connect("changed", self.on_phone)
         self.chooser.connect("notify::popup-shown", self.on_combo)
         # Name and status as one line of two, as in the Phone window.
@@ -470,7 +490,7 @@ class PhonePopup:
         self.loading = Gtk.Box(spacing=8)
         self.loading.set_no_show_all(True)
         self.loading.pack_start(Gtk.Spinner(active=True), False, False, 0)
-        self.loading.pack_start(Gtk.Label(label="Loading…"), False, False, 0)
+        self.loading.pack_start(Gtk.Label(label=_("Loading…")), False, False, 0)
         for child in self.loading.get_children():
             child.show()        # frame.show_all() skips a no_show_all box's children
         frame.pack_start(self.loading, False, False, 0)
@@ -499,7 +519,7 @@ class PhonePopup:
         body.pack_start(self.media, False, False, 0)
 
         heading = Gtk.Label(xalign=0)
-        heading.set_markup("<b>Received</b>")
+        heading.set_markup("<b>{}</b>".format(self.GLib.markup_escape_text(_("Received"))))
         body.pack_start(heading, False, False, 0)
         self.received = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.received.set_header_func(lambda row, before: row.set_header(Gtk.Separator() if before else None))
@@ -517,9 +537,10 @@ class PhonePopup:
         bottom = Gtk.Box(spacing=8)
         bottom.get_style_context().add_class("bottom")
         # O, not P: Play and Pause (Later item 15) take P, and the two must not share it.
-        open_phone = Gtk.Button.new_with_mnemonic("_Open Phone")
+        # Translators: the letter after the underscore is the Alt key shortcut, here and below.
+        open_phone = Gtk.Button.new_with_mnemonic(_("_Open Phone"))
         open_phone.connect("clicked", lambda _b: self.menu.run(["flickos-phone", "window"]))
-        settings = Gtk.Button.new_with_mnemonic("Phone _Settings")
+        settings = Gtk.Button.new_with_mnemonic(_("Phone _Settings"))
         settings.connect("clicked", lambda _b: self.menu.run(["flickos-control", "--page", "phone"]))
         bottom.pack_start(open_phone, True, True, 0)
         bottom.pack_start(settings, True, True, 0)
@@ -547,6 +568,8 @@ class PhonePopup:
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.BOTTOM, vertical == "bottom")
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.RIGHT, True)
         GtkLayerShell.set_anchor(self.window, GtkLayerShell.Edge.LEFT, False)
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_margin(self.window, edge, POPUP_GAP)
 
     def show(self, corner):
         if corner != self.corner:
@@ -660,7 +683,7 @@ class PhonePopup:
                 result, error = None, str(failure)
             except Exception:
                 traceback.print_exc()
-                result, error = None, "Something went wrong reading the phone. Try again."
+                result, error = None, _("Something went wrong reading the phone. Try again.")
             self.GLib.idle_add(answer, number, result, error)
 
         threading.Thread(target=thread, daemon=True).start()
@@ -694,7 +717,7 @@ class PhonePopup:
     def sentence(self, text):
         text = (text or "").strip()
         if not text:
-            return "Something went wrong."
+            return _("Something went wrong.")
         if text[-1] not in ".!?":
             text += "."
         return text[0].upper() + text[1:]
@@ -738,13 +761,13 @@ class PhonePopup:
         if tiles:
             self.tiles_empty.hide()
         elif self.state and not self.state.get("phones"):
-            self.tiles_empty.set_text("No phone is paired. Add one in Phone Settings.")
+            self.tiles_empty.set_text(_("No phone is paired. Add one in Phone Settings."))
             self.tiles_empty.show()
         elif self.state and not (chosen_phone(self.state, self.chosen) or {}).get("connected"):
-            self.tiles_empty.set_text("This phone isn't connected.")
+            self.tiles_empty.set_text(_("This phone isn't connected."))
             self.tiles_empty.show()
         else:
-            self.tiles_empty.set_text("Nothing to send from here right now.")
+            self.tiles_empty.set_text(_("Nothing to send from here right now."))
             self.tiles_empty.show()
 
     def fill_phones(self):
@@ -756,7 +779,7 @@ class PhonePopup:
         self.chooser.remove_all()
         if len(phones) > 1:
             for item in phones:
-                self.chooser.append(item.get("id") or "", item.get("name") or "Phone")
+                self.chooser.append(item.get("id") or "", item.get("name") or _("Phone"))
             if self.chosen:
                 self.chooser.set_active_id(self.chosen)
             self.chooser.show()
@@ -786,7 +809,7 @@ class PhonePopup:
         for row in rows:
             line = self.Gtk.Box(spacing=8)
             text = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, valign=self.Gtk.Align.CENTER)
-            title = self.Gtk.Label(label="Incoming call", xalign=0)
+            title = self.Gtk.Label(label=_("Incoming call"), xalign=0)
             caller = self.Gtk.Label(label=row["caller"] or row["name"], xalign=0, wrap=True, max_width_chars=28)
             caller.get_style_context().add_class("dim-label")
             caller.get_style_context().add_class("subtitle")
@@ -795,11 +818,12 @@ class PhonePopup:
             # One Mute can take the mnemonic. A second phone ringing keeps
             # the word, so the two underlines don't land on the same letter.
             if len(rows) == 1:
-                button = self.Gtk.Button.new_with_mnemonic("_Mute")
+                button = self.Gtk.Button.new_with_mnemonic(_("_Mute"))
             else:
-                button = self.Gtk.Button(label="Mute")
-            button.set_tooltip_text("Mute the ringer")
-            button.get_accessible().set_name(f"Mute {row['name']}")
+                button = self.Gtk.Button(label=_("Mute"))
+            button.set_tooltip_text(_("Mute the ringer"))
+            # Translators: {phone} is the phone's name.
+            button.get_accessible().set_name(_("Mute {phone}").format(phone=row["name"]))
             button.connect("clicked", lambda _b, device=row["id"]: self.mute(device))
             line.pack_start(text, True, True, 0)
             line.pack_start(button, False, False, 0)
@@ -825,12 +849,12 @@ class PhonePopup:
             artist.get_style_context().add_class("subtitle")
             text.pack_start(artist, False, False, 0)
         action = "pause" if row["playing"] else "play"
-        verb = "Pause" if row["playing"] else "Play"
-        play = self.Gtk.Button.new_with_mnemonic("_Pause" if row["playing"] else "_Play")
+        verb = _("Pause") if row["playing"] else _("Play")
+        play = self.Gtk.Button.new_with_mnemonic(_("_Pause") if row["playing"] else _("_Play"))
         play.get_accessible().set_name(verb)
         play.connect("clicked", lambda _b, action=action, device=row["id"]: self.player(action, device))
-        nxt = self.Gtk.Button.new_with_mnemonic("_Next")
-        nxt.get_accessible().set_name("Next")
+        nxt = self.Gtk.Button.new_with_mnemonic(_("_Next"))
+        nxt.get_accessible().set_name(_("Next"))
         nxt.connect("clicked", lambda _b, device=row["id"]: self.player("next", device))
         self.media.pack_start(text, True, True, 0)
         self.media.pack_start(play, False, False, 0)
@@ -845,7 +869,7 @@ class PhonePopup:
             self.received.remove(child)
         rows = popup_received((self.state or {}).get("received"))
         if not rows:
-            self.received.add(self.row("Nothing yet", "What a phone sends shows here for a week", None, None))
+            self.received.add(self.row(_("Nothing yet"), _("What a phone sends shows here for a week"), None, None))
         for title, subtitle, action, command, icons in rows:
             self.received.add(self.row(title, subtitle, action, command, icons))
         self.received.show_all()
@@ -869,7 +893,8 @@ class PhonePopup:
         row.command = command
         if action and command:
             row.set_tooltip_text(action)
-            row.get_accessible().set_description(f"{action} {title}")
+            # Translators: what a click on a received item does, then the item: "Open example.org".
+            row.get_accessible().set_description(_("{action} {item}").format(action=action, item=title))
         row.add(line)
         return row
 
@@ -878,15 +903,15 @@ class PhonePopup:
         if not command:
             return
         if command[0] == "wl-copy":
-            self.run_keep(command, "Could not copy")
+            self.run_keep(command, _("Could not copy"))
             return
         self.menu.run(command)
 
     def mute(self, device_id):
-        self.run_keep(mute_command(device_id), "Could not mute the ringer")
+        self.run_keep(mute_command(device_id), _("Could not mute the ringer"))
 
     def player(self, action, device_id):
-        self.run_keep(player_command(action, device_id), "Could not change what's playing")
+        self.run_keep(player_command(action, device_id), _("Could not change what's playing"))
 
     def run_keep(self, command, failed):
         """Run command without closing. Say so, with the command's own words,
@@ -896,7 +921,7 @@ class PhonePopup:
             process = Gio.Subprocess.new(list(command), Gio.SubprocessFlags.STDOUT_SILENCE
                                          | Gio.SubprocessFlags.STDERR_PIPE)
         except GLib.Error as error:
-            self.say(f"{failed}: {error.message}")
+            self.say(failed_text(failed, error.message))
             return
 
         def finished(process, result):
@@ -907,7 +932,7 @@ class PhonePopup:
                 stderr, ok = error.message, False
             if not ok:
                 detail = error_line(stderr or "")
-                self.say(f"{failed}: {detail}" if detail else failed + ".")
+                self.say(failed_text(failed, detail))
 
         process.communicate_utf8_async(None, None, finished)
 

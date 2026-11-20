@@ -1,0 +1,32 @@
+// Eleven: one 48 px see-through dark panel at the bottom (style.css): at the
+// left end the weather while it is on (flickos-weather; the placeholder is
+// dropped while off), the temperature over the sky in words; in the
+// middle the apps button as the FlickOS halo and the window list with large
+// icons, a short line under each and a longer blue one under the focused
+// window; at the right the tray, status, recording, a two-line clock and
+// Show Desktop. Installed next to flickos-layouts' layouts, so ../common is
+// FlickOS's shared modules; the settings here win over them.
+//
+// The window list shows icons only, as Redmond's does: waybar 0.12 doesn't
+// shorten window titles, so buttons with titles would push the status and
+// clock off the bar once enough windows are open
+// (docs/07-troubleshooting.md). The title is in the tooltip. No pinned apps:
+// in waybar they are buttons of their own next to the window list, so an
+// open pinned app would show twice.
+{
+    "name": "eleven",
+    "layer": "top",
+    "position": "bottom",
+    "height": 48,
+    "spacing": 0,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["flickos/weather"],
+    "modules-center": ["custom/launcher", "wlr/taskbar"],
+    "modules-right": ["tray", "custom/tiler", "wireplumber", "battery", "custom/recording", "clock", "custom/desktop"],
+
+    "wlr/taskbar": { "icon-size": 24 },
+    "custom/weather": { "format": "{alt}", "justify": "left" },
+    // The date in the locale's short form, as the time is.
+    "clock": { "format": "{:%H:%M\n%x}", "justify": "right" }
+}

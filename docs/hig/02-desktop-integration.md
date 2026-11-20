@@ -57,7 +57,12 @@ A key added to labwc (in `flickos-settings`' `rc.xml` or in a program's own
 labwc fragment) gets a description in `flickos-shortcuts`' `COMMANDS` or
 `ACTIONS`, so holding Super lists it. Before taking a key, check the sheet
 (`flickos-shortcuts list`) and the keys of the desktop the layout copies. Use
-Super for desktop actions. Leave Ctrl and Alt combinations to apps.
+Super for desktop actions. Leave Ctrl and Alt combinations to apps. Bind a key
+by its US symbol: on a keyboard that lacks it without Shift or AltGr,
+flickos-layout moves the keybind to the key in the same place
+([keys](../design/flickos-keys.md)). Prefer letters, digits and arrows, and
+for a new symbol key check with `moved_keys` that it can move on Nordic and
+German keyboards without landing on a key FlickOS already binds.
 
 ## Every layout, every style, every session
 
@@ -160,6 +165,11 @@ It costs one `cat` of a missing file when the panel starts. Screen zoom is
 the second case: labwc's own magnifier, so no program at all, with
 Super+=, Super+-, Super+0 and Super+scroll bound for everyone
 ([design](../design/flickos-zoom.md#adr-002-on-by-default-keys-named-here)).
+The level ring is the third: the volume, microphone and brightness keys,
+bound already, run flickos-settings' `level` script, and a ring shows the
+new level for 1.5 s; the menu daemon draws it (0.8 MB after the first
+press, no wake-ups), or a pop-up that exits 30 s after the last press
+([design](../design/flickos-osd.md#adr-002-on-by-default-as-a-tool-that-runs-only-when-asked)).
 
 ### INT-10 Must: Login programs start from FlickOS's autostart and stay single
 

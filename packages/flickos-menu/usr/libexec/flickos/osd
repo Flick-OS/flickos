@@ -1,0 +1,239 @@
+#!/usr/bin/python3
+"""Show a level in flickos-menu's ring (volume, microphone or brightness), or
+the desktop card.
+
+    osd volume|mic|brightness [PERCENT [muted]]
+    osd desktop NUMBER COUNT
+
+flickos-settings' /usr/libexec/flickos/level runs this after a volume,
+microphone or brightness key changed the level. Without PERCENT it reads the
+level (wpctl, brightnessctl). Nothing is shown while the switch in Settings >
+Notifications is off (flickos-control's osd.enabled, read here from its
+files at every press: [Osd] Enabled= in ~/.config/flickos/osd, then
+/etc/xdg/flickos/osd.conf), or while flickos-lock holds the screens: the
+volume keys work then, but the ring would be under the lock, unable to finish
+fading, and show for a moment after the unlock.
+
+The desktop card (Super+Ctrl+Left/Right, Super+number) is flickos-layouts'
+/usr/libexec/flickos/desktop show running `osd desktop NUMBER COUNT`: one
+circle per desktop, the NUMBERth lit. It answers the same switch.
+
+The ring is drawn by whoever listens on $XDG_RUNTIME_DIR/flickos/menu/osd:
+flickos-menu's daemon while it runs (it has GTK loaded: the ring shows in
+about 80 ms), else a pop-up this starts (`flickos-menu osd-popup`), which
+stays hidden for a while after the ring fades and then exits. The message is
+one line, "KIND PERCENT [muted]", answered with "ok". When nobody answers,
+this binds the socket itself and hands it to the pop-up already listening,
+so two presses at once can't start two.
+
+Stdlib only, and no GTK: it runs at every key press.
+Exit codes: 0 shown or nothing to show, 1 error, 2 usage error.
+"""
+
+import fcntl
+import os
+import socket
+import subprocess
+import sys
+
+# FLICKOS_MENU_PREFIX: run from a source tree (the tests).
+PREFIX = os.environ.get("FLICKOS_MENU_PREFIX", "")
+MENU = PREFIX + "/usr/bin/flickos-menu"
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/osd.conf"
+SOCKET = os.path.join("menu", "osd")        # under $XDG_RUNTIME_DIR/flickos
+LOCK_FILE = os.path.join("lock", "lock.lock")   # same; flickos-lock's guard holds it while locked
+KINDS = ("volume", "mic", "brightness")
+DESKTOP_MAX = 9      # flickos-layouts' MAX_DESKTOPS
+TARGETS = {"volume": "@DEFAULT_AUDIO_SINK@", "mic": "@DEFAULT_AUDIO_SOURCE@"}
+ANSWER_SECONDS = 1.0     # the daemon answers from its main loop
+TRUE, FALSE = ("yes", "true", "on", "1"), ("no", "false", "off", "0")   # flickos-control's
+
+
+def warn(message):
+    print(f"osd: {message}", file=sys.stderr)
+
+
+def runtime_root():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base):
+        return None
+    return os.path.join(base, "flickos")
+
+
+def user_conf():
+    home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(home, "flickos", "osd")
+
+
+def read_enabled(path):
+    """[Osd] Enabled= of an INI file: True, False or None (not set). Read by
+    hand: configparser costs every key press a few ms."""
+    section, value = None, None
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("[") and line.endswith("]"):
+                    section = line[1:-1].strip()
+                elif section == "Osd" and "=" in line and not line.startswith(("#", ";")):
+                    key, _sep, text = line.partition("=")
+                    if key.strip().lower() == "enabled":
+                        text = text.strip().lower()
+                        value = True if text in TRUE else False if text in FALSE else value
+    except (OSError, UnicodeDecodeError):
+        return None
+    return value
+
+
+def enabled():
+    """flickos-control's osd.enabled: the user's, then the system's, else on."""
+    for path in (user_conf(), SYSTEM_CONF):
+        value = read_enabled(path)
+        if value is not None:
+            return value
+    return True
+
+
+def locked(root):
+    """True while flickos-lock's guard holds its flock. Not its `locked` file:
+    a killed guard leaves that behind, and no ring would show until the next lock."""
+    try:
+        with open(os.path.join(root, LOCK_FILE), encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        pass    # never locked in this session, or no flickos-lock
+    return False
+
+
+def run(argv):
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=2, check=False).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def parse_wpctl(text):
+    """'Volume: 0.41 [MUTED]' → (41, True); None without a level."""
+    words = text.split()
+    if len(words) < 2 or words[0] != "Volume:":
+        return None
+    try:
+        percent = round(float(words[1]) * 100)
+    except ValueError:
+        return None
+    return percent, "[MUTED]" in words[2:]
+
+
+def parse_brightnessctl(text):
+    """brightnessctl -m: 'intel_backlight,backlight,647,69%,937' → (69, False)."""
+    for line in text.splitlines():
+        fields = line.split(",")
+        if len(fields) == 5 and fields[2].isdigit() and fields[4].isdigit() and int(fields[4]) > 0:
+            return round(int(fields[2]) * 100 / int(fields[4])), False
+    return None
+
+
+def read_level(kind):
+    """(percent, muted) now, or None (no PipeWire, no backlight)."""
+    if kind == "brightness":
+        return parse_brightnessctl(run(["brightnessctl", "-m"]))
+    return parse_wpctl(run(["wpctl", "get-volume", TARGETS[kind]]))
+
+
+def message(kind, percent, muted):
+    return f"{kind} {max(0, min(100, percent))}{' muted' if muted else ''}"
+
+
+def deliver(root, text):
+    """Give text to the ring, starting the pop-up when nobody answers."""
+    path = os.path.join(root, SOCKET)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    for _try in range(3):
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(ANSWER_SECONDS)
+        try:
+            client.connect(path)
+            client.sendall(text.encode() + b"\n")
+            if client.recv(2) == b"ok":
+                return True
+        except OSError:
+            pass    # nobody, a stale file, or a pop-up that is just exiting
+        finally:
+            client.close()
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            server.bind(path)
+        except OSError:
+            server.close()
+            probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:    # still there: a pop-up that died (refused), or one busy (try again)
+                probe.connect(path)
+            except ConnectionRefusedError:
+                os.unlink(path)
+            except OSError:
+                pass
+            finally:
+                probe.close()
+            continue
+        with server:
+            server.listen(8)
+            if not os.access(MENU, os.X_OK):
+                os.unlink(path)
+                return False
+            fd = server.fileno()
+            os.set_inheritable(fd, True)
+            # Its own session, so it outlives this; nothing waits for it.
+            os.posix_spawn(MENU, [MENU, "osd-popup", str(fd), text], os.environ, setsid=True,
+                           file_actions=[(os.POSIX_SPAWN_OPEN, 0, os.devnull, os.O_RDONLY, 0)])
+        return True
+    return False
+
+
+def usage():
+    print("usage: osd volume|mic|brightness [PERCENT [muted]] | osd desktop NUMBER COUNT", file=sys.stderr)
+    return 2
+
+
+def main(argv):
+    if argv[:1] == ["desktop"]:
+        if len(argv) != 3 or not all(word.isdigit() for word in argv[1:]):
+            return usage()
+        text = " ".join(argv)
+        if not 1 <= int(argv[1]) <= int(argv[2]) <= DESKTOP_MAX or int(argv[2]) < 2:
+            return usage()
+        kind = None
+    elif not argv or argv[0] not in KINDS or len(argv) > 3:
+        return usage()
+    else:
+        kind = argv[0]
+    if not enabled():
+        return 0
+    root = runtime_root()
+    if root is None:
+        warn("XDG_RUNTIME_DIR is not set")
+        return 1
+    if locked(root):
+        return 0
+    if kind is None:
+        pass
+    elif len(argv) > 1:
+        try:
+            level = int(argv[1]), argv[2:] == ["muted"]
+        except ValueError:
+            return usage()
+    else:
+        level = read_level(kind)
+        if level is None:
+            return 0
+    try:
+        deliver(root, text if kind is None else message(kind, *level))
+    except OSError as error:
+        warn(str(error))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

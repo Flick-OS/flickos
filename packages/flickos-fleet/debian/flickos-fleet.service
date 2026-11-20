@@ -1,0 +1,18 @@
+[Unit]
+Description=FlickOS organization check-in (flickos-fleet)
+Documentation=file:/usr/share/doc/flickos-fleet/PRIVACY.md
+# Nothing before `flickos-fleet join` writes it, and nothing after `leave`.
+ConditionPathExists=/etc/flickos/fleet
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flickos-fleet run
+StateDirectory=flickos-fleet
+StateDirectoryMode=0755
+# Only a hung run gets here: apt waits for its lock (600 s) and a large
+# install can take long. Stopping apt mid-unpack needs a repair, which the
+# next run does (dpkg --audit).
+TimeoutStartSec=2h
+Nice=10

@@ -1,3 +1,26 @@
+flickos-countme (1.5) trixie; urgency=medium
+
+  * Release of 1.5~test1: the timer starts again after an upgrade.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:56:07 +0800
+
+flickos-countme (1.5~test1) trixie; urgency=medium
+
+  * The weekly count's timer starts again after an upgrade: --no-start
+    stopped it at every upgrade until the next boot. The package still
+    never runs the count itself.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:50:03 +0800
+
+flickos-countme (1.4) trixie; urgency=medium
+
+  * The service's Documentation= and the password prompt's vendor link
+    point at github.com/Flick-OS/flickos.
+  * debian/copyright: Source is the public repository, github.com/Flick-
+    OS/flickos.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 12:47:24 +0800
+
 flickos-countme (1.3) trixie; urgency=medium
 
   * run outside the timer's service says to use systemctl start (or

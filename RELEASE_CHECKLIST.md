@@ -83,6 +83,8 @@ step 1's version bump is correct.
 - [ ] On GitHub → **Releases** → `vX.Y`: paste the release notes (the release
       itself is auto-created with just `SHA256SUMS` — the ISO is too big to attach).
 - [ ] Download the ISO from SourceForge and verify: `sha256sum -c SHA256SUMS`.
+- [ ] Update `src/pages/roadmap.astro` in flickos-site: take out what shipped,
+      change the date at its top.
 - [ ] Announce on r/flickos.
 
 ## If a release turns out broken

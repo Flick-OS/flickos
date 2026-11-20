@@ -16,6 +16,10 @@ Layout of this folder (installed as is by debian/install, nothing is built):
 Changes to upstream:
   - waypaper/config.py: Config.read() reads SYSTEM_CONFIG_FILE
     (/etc/xdg/waypaper/config.ini) before the user's config.ini.
+  - waypaper/common.py: get_image_paths() leaves out names that aren't
+    files, such as a link to nothing. app.py's caching loop calls
+    os.path.getsize() on each one without a try, so one broken link ended
+    the loop and the grid showed only the pictures before it by name.
   - waypaper.desktop: without the "#!/usr/bin/env xdg-open" first line
     (lintian).
 

@@ -1,0 +1,2045 @@
+#!/usr/bin/python3
+"""Coming from Windows (docs/design/flickos-switch.md): bring files over from
+a Windows disk (phase 1), and answer a double-click on a Windows program
+(phase 2a: identify, open and lookup, whose code is in
+/usr/share/flickos/switch/programs.py, loaded only for them).
+
+It finds Windows partitions through udisks2, mounts them read only, and
+copies an account's Desktop, Documents, Downloads, Music, Pictures and
+Videos (and the same folders in OneDrive) into the matching folders at
+home, or to a USB drive in the live session. Nothing on the Windows disk is
+ever changed. It owns no settings and runs nothing in the background.
+
+What it copies and skips (the rules of the design's phase 1):
+- A folder with NTFS's reparse bit (a junction such as "My Music") is never
+  opened: the kernel's ntfs3 can spin on one.
+- Hidden-and-system files (desktop.ini, Thumbs.db) and shortcuts (.lnk,
+  .url) are skipped and counted.
+- A file only in OneDrive (reparse bit and Windows' recall-on-access or
+  offline attribute, or no data on disk: over 4 KiB, or smaller and all
+  zeros, since NTFS keeps small files in its file table) is skipped,
+  counted and listed: under ntfs3 it reads as zeros. A OneDrive file kept
+  on the computer is copied.
+- Nothing is overwritten: the same file (size, and date within 2 s) is
+  skipped, a different one is copied as "NAME (from Windows).EXT".
+- The free space is checked first; on FAT32, files over 4 GiB are refused.
+- With --bookmarks, Chrome's, Edge's and Brave's bookmarks become
+  "Bookmarks from Windows.html" in Documents.
+
+Mounts and unlocks it makes are recorded under
+$XDG_RUNTIME_DIR/flickos/switch/ and undone by `release` (the window does
+that when it closes); a disk the user mounted is used as it is and left so.
+
+Text people read in the window is translated with gettext (domain
+flickos-switch). Output for scripts (--json, the tab-separated lines) and
+messages on stderr are not.
+
+Commands:
+  find [--json]          Windows partitions udisks2 knows, without mounting:
+                         device, size, where, state (locked, mounted, ready)
+  scan DEVICE [--json]   mount read only if needed, check it is Windows, and
+                         list each account's folders: files, bytes, files
+                         only in OneDrive, whether Windows was left hibernated
+  unlock DEVICE          unlock BitLocker with the recovery key from stdin;
+                         prints the unlocked device
+  copy DEVICE ACCOUNT FOLDER... [--to DIR] [--bookmarks] [--json]
+                         copy; --to copies into DIR/Files from Windows/ACCOUNT
+                         (the live session's only choice). --json prints a
+                         line per event (plan, file, failed, done)
+  release [DEVICE]       unmount and lock what flickos-switch mounted or
+                         unlocked (all of it without DEVICE)
+  files                  the Bring Files from Windows window
+  before-install         run by flickos-installer's Install FlickOS: prints
+                         continue when no Windows partition is found; else
+                         asks, and prints copy (the window is opened),
+                         continue, or cancel (closed)
+  identify FILE... [--json]
+                         what a .exe, .msi, .msix or .lnk says it is, read
+                         without running it, and the Windows apps list's
+                         entry it matches: kind, bits, product, maker,
+                         description, original name (a shortcut's target),
+                         signed, entry, file
+  open FILE              the window a double-click on a Windows program opens
+  lookup WORDS... [--json]
+                         the list's entries whose name, a product or one of
+                         the words is WORDS, by name first: id, name, its
+                         Linux version (SOURCE:ID), its web address; --json
+                         for Software
+  webapp list [--json] [--known]
+                         Firefox's web apps (Taskbar Tabs, phase 3), read
+                         from its profiles: id, name, start page; --json
+                         adds hosts, icon, launcher (desktop file ID or
+                         null) and profile; --known adds the Windows apps
+                         list's web versions Firefox has none for (id -, or
+                         null), and to each entry (the list's id), windows
+                         and made (for Software)
+  webapp add URL [--name NAME]
+                         open URL in Firefox and say, in a notification,
+                         which button keeps it as a web app (only Firefox
+                         makes one well); a web app Firefox already has for
+                         the host is opened instead, and its id printed
+  webapp remove ID       open the web app and say which button removes it
+                         (only Firefox can)
+
+Exit codes: 0 ok (also a copy stopped or with some files failed: the
+summary says so), 1 error, 2 usage error.
+"""
+
+import argparse
+import contextlib
+import errno
+import fcntl
+import gettext
+import html
+import json
+import os
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+NAME = "flickos-switch"
+APP_ID = "flickos-switch-files"     # Wayland app id: flickos-switch-files.desktop
+ICON = "drive-harddisk"
+# Testing hook (unit tests): a root to read /proc below.
+PREFIX = os.environ.get("FLICKOS_SWITCH_PREFIX", "")
+PROC = PREFIX + "/proc"
+LOCALE_DIR = PREFIX + "/usr/share/locale"
+PROGRAMS_CODE = PREFIX + "/usr/share/flickos/switch/programs.py"
+
+_translation = gettext.translation(NAME, LOCALE_DIR, fallback=True)
+_ = _translation.gettext
+ngettext = _translation.ngettext
+
+
+def N_(text):
+    """Marks text for the translation template; _() translates it where shown."""
+    return text
+
+
+UDISKS = "org.freedesktop.UDisks2"
+UDISKS_PATH = "/org/freedesktop/UDisks2"
+BLOCK = UDISKS + ".Block"
+FILESYSTEM = UDISKS + ".Filesystem"
+ENCRYPTED = UDISKS + ".Encrypted"
+PARTITION = UDISKS + ".Partition"
+DRIVE = UDISKS + ".Drive"
+# Partition types that are never the Windows system: the recovery partition
+# (GPT, and MBR's 0x27). Everything else NTFS is a candidate until scanned.
+RECOVERY_TYPES = {"de94bba4-06d1-4d40-a16a-bfd50179d6ac", "0x27"}
+# udisks2 calls: seconds, and longer when polkit may ask for a password.
+DBUS_TIMEOUT = 25
+DBUS_INTERACTIVE_TIMEOUT = 300
+
+# The folders copied: (folder in the Windows profile, xdg-user-dir name,
+# fallback under home). The same names are looked for under OneDrive*.
+FOLDERS = [
+    ("Desktop", "DESKTOP", "Desktop"),
+    ("Documents", "DOCUMENTS", "Documents"),
+    ("Downloads", "DOWNLOAD", "Downloads"),
+    ("Music", "MUSIC", "Music"),
+    ("Pictures", "PICTURES", "Pictures"),
+    ("Videos", "VIDEOS", "Videos"),
+]
+FOLDER_NAMES = [name for name, _xdg, _fallback in FOLDERS]
+# Folders in Users\ that are no one's account.
+NOT_ACCOUNTS = {"public", "default", "default user", "all users", "defaultuser0",
+                "defaultapppool", "wdagutilityaccount"}
+# Skipped by name everywhere (lower case), and shortcuts by extension.
+SKIP_NAMES = {"desktop.ini", "thumbs.db", "ehthumbs.db", "ehthumbs_vista.db", ".ds_store"}
+SHORTCUTS = (".lnk", ".url")
+
+# NTFS file attributes, read through ntfs3's system.ntfs_attrib.
+HIDDEN = 0x2
+SYSTEM = 0x4
+OFFLINE = 0x1000
+REPARSE_POINT = 0x400
+RECALL_ON_OPEN = 0x40000
+RECALL_ON_DATA_ACCESS = 0x400000
+ATTRIBUTE_XATTR = "system.ntfs_attrib"
+# The largest file NTFS keeps inside its file table (a 4 KiB record), with
+# no blocks of its own on disk.
+RESIDENT_LIMIT = 4096
+
+SAME_TIME = 2                      # seconds: "the same date" for a file already there
+FAT_LIMIT = 4 * 1024 ** 3 - 1      # the largest file FAT32 holds
+FAT_TYPES = {"vfat", "msdos", "fat"}
+CHUNK = 1024 * 1024
+COPIED_AS = N_("{name} (from Windows){ext}")
+COPIED_AS_N = N_("{name} (from Windows {number}){ext}")
+LIVE_FOLDER = "Files from Windows"
+BOOKMARKS_FILE = "Bookmarks from Windows.html"
+# Bookmarks files under an account's AppData\Local: (label, folder holding
+# "User Data"). Each browser profile (Default, Profile 1, …) is one source.
+BROWSERS = [
+    ("Chrome", ("Google", "Chrome")),
+    ("Edge", ("Microsoft", "Edge")),
+    ("Brave", ("BraveSoftware", "Brave-Browser")),
+]
+CHROME_EPOCH_OFFSET = 11644473600  # Chrome's microseconds start in 1601
+STATE_FOLDER = "switch"            # in $XDG_RUNTIME_DIR/flickos
+LOCK = "switch.lock"
+ONEDRIVE_HELP = "https://onedrive.live.com/"
+
+# Web apps are Firefox's Taskbar Tabs (ADR-005): Firefox makes and removes
+# them with its address bar's button, FlickOS only reads its list.
+FIREFOX = "firefox-esr"
+FIREFOX_FOLDERS = ("~/.mozilla/firefox", "mozilla/firefox")   # the second under XDG_CONFIG_HOME
+TASKBAR_TABS = os.path.join("taskbartabs", "taskbartabs.json")
+TASKBAR_TABS_VERSION = 1           # the list's version this reads
+TASKBAR_TABS_LIMIT = 1024 * 1024
+WEB_SCHEMES = ("http", "https")
+NOTIFY_MS = 30000                  # long enough to read and find the button
+WEBAPP_ICON = "web-browser"
+APPS_LIST = PREFIX + "/usr/share/flickos/switch/apps.json"   # the Windows apps list (programs.py's too)
+
+
+class SwitchError(Exception):
+    """An expected failure: its text is the message to show."""
+
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+# --- Reading the Windows disk ------------------------------------------------
+
+def read_attributes(path):
+    """The NTFS attributes of path (not following links), or None where the
+    filesystem has none (not NTFS, or no ntfs3)."""
+    try:
+        value = os.getxattr(path, ATTRIBUTE_XATTR, follow_symlinks=False)
+    except OSError:
+        return None
+    return int.from_bytes(value[:4], "little") if len(value) >= 4 else None
+
+
+def child(folder, name):
+    """folder/name, matching the name without regard to case as Windows
+    does, or None."""
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                if entry.name.lower() == name.lower():
+                    return entry.path
+    except OSError:
+        pass
+    return None
+
+
+def is_junction(path):
+    """A link or a folder with the reparse bit: never opened."""
+    if os.path.islink(path):
+        return True
+    attributes = read_attributes(path)
+    return bool(attributes and attributes & REPARSE_POINT)
+
+
+def cloud_only(path, attributes, st):
+    """A file whose contents are only in OneDrive: the reparse bit and
+    Windows' recall or offline attribute, or no data on disk. A small file
+    has no blocks of its own either (NTFS keeps it in the file table), so
+    under RESIDENT_LIMIT it counts as cloud-only only when it reads as
+    zeros."""
+    if not attributes or not attributes & REPARSE_POINT:
+        return False
+    if attributes & (RECALL_ON_DATA_ACCESS | RECALL_ON_OPEN | OFFLINE):
+        return True
+    if st.st_size == 0 or st.st_blocks > 0:
+        return False
+    if st.st_size > RESIDENT_LIMIT:
+        return True
+    try:
+        with open(path, "rb") as f:
+            return not f.read(RESIDENT_LIMIT).strip(b"\0")
+    except OSError:
+        return False
+
+
+def classify(entry):
+    """What to do with a file: "copy", "system", "shortcut" or "cloud"."""
+    name = entry.name.lower()
+    attributes = read_attributes(entry.path)
+    if name in SKIP_NAMES:
+        return "system"
+    if attributes and attributes & HIDDEN and attributes & SYSTEM:
+        return "system"
+    if name.endswith(SHORTCUTS):
+        return "shortcut"
+    if cloud_only(entry.path, attributes, entry.stat(follow_symlinks=False)):
+        return "cloud"
+    return "copy"
+
+
+def walk(top):
+    """(path, size, kind) of every file under top, never opening a junction.
+    Unreadable folders are yielded as ("path", 0, "unreadable")."""
+    todo = [top]
+    while todo:
+        folder = todo.pop()
+        try:
+            with os.scandir(folder) as entries:
+                listed = sorted(entries, key=lambda e: e.name)
+        except OSError as error:
+            yield folder, 0, f"unreadable:{error.strerror}"
+            continue
+        for entry in listed:
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    if not is_junction(entry.path):
+                        todo.append(entry.path)
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                kind = classify(entry)
+                yield entry.path, entry.stat(follow_symlinks=False).st_size, kind
+            except OSError as error:
+                yield entry.path, 0, f"unreadable:{error.strerror}"
+
+
+def is_windows(root):
+    system32 = child(root, "Windows") and child(child(root, "Windows"), "System32")
+    return bool(system32 and child(root, "Users"))
+
+
+def hibernated(root):
+    """Windows was left hibernated (Fast Startup or Hibernate)."""
+    path = child(root, "hiberfil.sys")
+    if not path:
+        return False
+    try:
+        with open(path, "rb") as f:
+            return f.read(4).lower() == b"hibr"
+    except OSError:
+        return False
+
+
+def accounts(root):
+    """The account folders under Users, by name."""
+    users = child(root, "Users")
+    found = {}
+    if not users:
+        return found
+    try:
+        with os.scandir(users) as entries:
+            for entry in sorted(entries, key=lambda e: e.name.lower()):
+                if entry.name.lower() in NOT_ACCOUNTS or not entry.is_dir(follow_symlinks=False):
+                    continue
+                if is_junction(entry.path):
+                    continue
+                attributes = read_attributes(entry.path)
+                if attributes and attributes & HIDDEN and attributes & SYSTEM:
+                    continue
+                if child(entry.path, "NTUSER.DAT") or any(child(entry.path, f) for f in FOLDER_NAMES):
+                    found[entry.name] = entry.path
+    except OSError:
+        pass
+    return found
+
+
+def onedrive_folders(profile):
+    """OneDrive folders of a profile: "OneDrive" and "OneDrive - COMPANY"."""
+    found = []
+    try:
+        with os.scandir(profile) as entries:
+            for entry in sorted(entries, key=lambda e: e.name):
+                name = entry.name.lower()
+                if (name == "onedrive" or name.startswith("onedrive - ")) \
+                        and entry.is_dir(follow_symlinks=False) and not is_junction(entry.path):
+                    found.append(entry.path)
+    except OSError:
+        pass
+    return found
+
+
+def sources(profile, folder):
+    """The folders that go into one destination folder: the profile's own and
+    OneDrive's, those that exist and aren't junctions."""
+    found = []
+    own = child(profile, folder)
+    if own and os.path.isdir(own) and not is_junction(own):
+        found.append(own)
+    for onedrive in onedrive_folders(profile):
+        inner = child(onedrive, folder)
+        if inner and os.path.isdir(inner) and not is_junction(inner):
+            found.append(inner)
+    return found
+
+
+def summarize(profile, folder):
+    """Counts for one folder: files and bytes to copy, cloud-only files and
+    bytes, skipped system files and shortcuts, unreadable entries."""
+    counts = {"files": 0, "bytes": 0, "cloud": 0, "cloud_bytes": 0, "system": 0,
+              "shortcut": 0, "unreadable": 0}
+    for top in sources(profile, folder):
+        for _path, size, kind in walk(top):
+            if kind == "copy":
+                counts["files"] += 1
+                counts["bytes"] += size
+            elif kind == "cloud":
+                counts["cloud"] += 1
+                counts["cloud_bytes"] += size
+            elif kind.startswith("unreadable"):
+                counts["unreadable"] += 1
+            else:
+                counts[kind] += 1
+    return counts
+
+
+def bookmark_files(profile):
+    """[(label, path)] of the account's browser Bookmarks files."""
+    found = []
+    appdata = child(profile, "AppData")
+    local = appdata and child(appdata, "Local")
+    if not local:
+        return found
+    for label, (maker, browser) in BROWSERS:
+        folder = child(local, maker)
+        folder = folder and child(folder, browser)
+        data = folder and child(folder, "User Data")
+        if not data:
+            continue
+        try:
+            names = sorted(os.listdir(data))
+        except OSError:
+            continue
+        for name in names:
+            if name != "Default" and not name.startswith("Profile "):
+                continue
+            path = child(os.path.join(data, name), "Bookmarks")
+            if path and os.path.isfile(path):
+                found.append((label if name == "Default" else f"{label} ({name})", path))
+    return found
+
+
+def scan_root(root):
+    """What `scan` prints, for a mounted Windows root."""
+    if not is_windows(root):
+        raise SwitchError(_("This disk doesn't have Windows on it."))
+    result = {"root": root, "hibernated": hibernated(root), "accounts": []}
+    for account, profile in accounts(root).items():
+        folders = [dict(summarize(profile, folder), folder=folder) for folder in FOLDER_NAMES]
+        result["accounts"].append({"account": account, "folders": folders,
+                                   "bookmarks": len(bookmark_files(profile))})
+    return result
+
+
+# --- Bookmarks --------------------------------------------------------------
+
+def _bookmark_time(node):
+    try:
+        value = int(node.get("date_added", "0"))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, value // 1_000_000 - CHROME_EPOCH_OFFSET) if value else 0
+
+
+def _bookmark_node(node, out, depth):
+    pad = "    " * depth
+    added = _bookmark_time(node)
+    date = f' ADD_DATE="{added}"' if added else ""
+    if node.get("type") == "folder":
+        out.append(f"{pad}<DT><H3{date}>{html.escape(str(node.get('name', '')))}</H3>")
+        out.append(f"{pad}<DL><p>")
+        for item in node.get("children", []):
+            _bookmark_node(item, out, depth + 1)
+        out.append(f"{pad}</DL><p>")
+    elif node.get("type") == "url" and str(node.get("url", "")).startswith(("http:", "https:", "ftp:", "file:")):
+        out.append(f'{pad}<DT><A HREF="{html.escape(node["url"], quote=True)}"{date}>'
+                   f"{html.escape(str(node.get('name', '')))}</A>")
+
+
+def bookmarks_html(sources_):
+    """[(label, parsed Bookmarks JSON)] as a Netscape bookmark file, one folder
+    per source holding its bar, other and mobile bookmarks."""
+    roots_names = [("bookmark_bar", "Bookmarks bar"), ("other", "Other bookmarks"),
+                   ("synced", "Mobile bookmarks")]
+    out = ["<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+           '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+           "<TITLE>Bookmarks</TITLE>", "<H1>Bookmarks</H1>", "<DL><p>"]
+    for label, data in sources_:
+        roots = data.get("roots", {}) if isinstance(data, dict) else {}
+        folders = [{"type": "folder", "name": name, "children": roots[key].get("children", [])}
+                   for key, name in roots_names
+                   if isinstance(roots.get(key), dict) and roots[key].get("children")]
+        _bookmark_node({"type": "folder", "name": label, "children": folders}, out, 1)
+    out.append("</DL><p>")
+    return "\n".join(out) + "\n"
+
+
+# --- Copying ----------------------------------------------------------------
+
+def user_dir(xdg_name, fallback):
+    """The user's XDG folder, as xdg-user-dir says (it answers $HOME for one
+    that isn't set, which is never where files should go)."""
+    home = os.path.expanduser("~")
+    try:
+        out = subprocess.run(["xdg-user-dir", xdg_name], capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    if not out or os.path.normpath(out) == os.path.normpath(home):
+        out = os.path.join(home, fallback)
+    return out
+
+
+def destinations(to, account):
+    """{Windows folder name: destination folder}."""
+    if to:
+        base = os.path.join(to, LIVE_FOLDER, account)
+        return {name: os.path.join(base, name) for name in FOLDER_NAMES}
+    return {name: user_dir(xdg, fallback) for name, xdg, fallback in FOLDERS}
+
+
+def filesystem_type(path):
+    """The type of the filesystem holding path, from /proc/self/mountinfo."""
+    path = os.path.realpath(path)
+    best, kind = "", None
+    try:
+        with open(os.path.join(PROC, "self/mountinfo"), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                fields = line.split()
+                if " - " not in line or len(fields) < 5:
+                    continue
+                point = fields[4].replace("\\040", " ")
+                after = line.split(" - ", 1)[1].split()
+                inside = path == point or path.startswith(point.rstrip("/") + "/")
+                if inside and len(point) >= len(best):
+                    best, kind = point, after[0]
+    except OSError:
+        pass
+    return kind
+
+
+def existing_folder(path):
+    """The nearest folder of path that exists (for free space before it's made)."""
+    while not os.path.isdir(path):
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+    return path
+
+
+def same_file(path, st):
+    try:
+        there = os.stat(path)
+    except OSError:
+        return False
+    return there.st_size == st.st_size and abs(there.st_mtime - st.st_mtime) <= SAME_TIME
+
+
+def target_for(destination, st):
+    """Where a file goes: (path, "same") when the same file is already there,
+    else (a free path, "new"), never an existing file."""
+    if not os.path.lexists(destination):
+        return destination, "new"
+    if same_file(destination, st):
+        return destination, "same"
+    folder, base = os.path.split(destination)
+    name, ext = os.path.splitext(base)
+    number = 1
+    while True:
+        if number == 1:
+            candidate = _(COPIED_AS).format(name=name, ext=ext)
+        else:
+            candidate = _(COPIED_AS_N).format(name=name, number=number, ext=ext)
+        path = os.path.join(folder, candidate)
+        if not os.path.lexists(path):
+            return path, "new"
+        if same_file(path, st):
+            return path, "same"
+        number += 1
+
+
+def copy_file(source, target, st, stopping):
+    """Copy through target.part then rename; keeps the dates. Returns False
+    when stopped half way (the part file is removed)."""
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    part = target + ".part"
+    try:
+        with open(source, "rb") as src, open(part, "xb") as dst:
+            while chunk := src.read(CHUNK):
+                if stopping():
+                    raise InterruptedError
+                dst.write(chunk)
+        os.utime(part, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(part, target)
+        return True
+    except InterruptedError:
+        return False
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(part)
+
+
+class Copier:
+    """Plans and runs one copy; report(event dict) sees every step."""
+
+    def __init__(self, root, account, folders, to=None, bookmarks=False, report=None):
+        self.root = root
+        self.account = account
+        self.folders = folders
+        self.to = to
+        self.bookmarks = bookmarks
+        self.report = report or (lambda event: None)
+        self.stop = False
+        self.profile = accounts(root).get(account)
+        if not self.profile:
+            raise SwitchError(_("There is no account {account} on this disk.").format(account=account))
+        unknown = [f for f in folders if f not in FOLDER_NAMES]
+        if unknown:
+            raise SwitchError(f"unknown folder: {', '.join(unknown)} (one of {', '.join(FOLDER_NAMES)})")
+
+    def plan(self):
+        """([(source, destination, stat)], totals)."""
+        targets = destinations(self.to, self.account)
+        files = []
+        totals = {"files": 0, "bytes": 0, "cloud": 0, "system": 0, "shortcut": 0,
+                  "unreadable": 0, "too_big": [], "cloud_files": [], "unreadable_files": []}
+        fat = bool(self.to) and filesystem_type(existing_folder(self.to)) in FAT_TYPES
+        for folder in self.folders:
+            for top in sources(self.profile, folder):
+                for path, _size, kind in walk(top):
+                    rel = os.path.relpath(path, top)
+                    if kind == "cloud":
+                        totals["cloud"] += 1
+                        totals["cloud_files"].append(os.path.join(folder, rel))
+                        continue
+                    if kind.startswith("unreadable"):
+                        totals["unreadable"] += 1
+                        totals["unreadable_files"].append([os.path.relpath(path, self.profile),
+                                                           kind.split(":", 1)[1]])
+                        continue
+                    if kind != "copy":
+                        totals[kind] += 1
+                        continue
+                    st = os.stat(path, follow_symlinks=False)
+                    if fat and st.st_size > FAT_LIMIT:
+                        totals["too_big"].append(os.path.join(folder, rel))
+                        continue
+                    files.append((path, os.path.join(targets[folder], rel), st))
+                    totals["files"] += 1
+                    totals["bytes"] += st.st_size
+        return files, totals
+
+    def free_space(self, needed):
+        """Raises SwitchError when needed bytes don't fit where they go."""
+        places = {existing_folder(d) for d in destinations(self.to, self.account).values()}
+        for place in places:
+            st = os.statvfs(place)
+            free = st.f_bavail * st.f_frsize
+            if needed > free:
+                raise SwitchError(_("There isn't enough free space: {needed} are needed and "
+                                    "{free} are free. Copy fewer folders, or free some space.")
+                                  .format(needed=format_size(needed), free=format_size(free)))
+
+    def write_bookmarks(self):
+        found = []
+        for label, path in bookmark_files(self.profile):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    found.append((label, json.load(f)))
+            except (OSError, ValueError):
+                continue
+        if not found:
+            return None
+        folder = destinations(self.to, self.account)["Documents"]
+        os.makedirs(folder, exist_ok=True)
+        text = bookmarks_html(found).encode("utf-8")
+        target = os.path.join(folder, BOOKMARKS_FILE)
+        if os.path.lexists(target):
+            with contextlib.suppress(OSError), open(target, "rb") as f:
+                if f.read() == text:
+                    return target
+            target, _state = target_for(target, _Stat(len(text)))
+        with open(target + ".part", "wb") as f:
+            f.write(text)
+        os.replace(target + ".part", target)
+        return target
+
+    def run(self):
+        """Copy everything planned. Returns the summary dict."""
+        files, totals = self.plan()
+        self.report({"event": "plan", "files": totals["files"], "bytes": totals["bytes"]})
+        self.free_space(totals["bytes"])
+        done = {"copied": 0, "copied_bytes": 0, "same": 0, "failed": [], "stopped": False}
+        progress = 0
+        for source, destination, st in files:
+            if self.stop:
+                done["stopped"] = True
+                break
+            try:
+                target, state = target_for(destination, st)
+                if state == "same":
+                    done["same"] += 1
+                elif copy_file(source, target, st, lambda: self.stop):
+                    done["copied"] += 1
+                    done["copied_bytes"] += st.st_size
+                else:
+                    done["stopped"] = True
+                    break
+            except OSError as error:
+                reason = error.strerror or str(error)
+                done["failed"].append([os.path.relpath(source, self.profile), reason])
+                self.report({"event": "failed", "path": os.path.relpath(source, self.profile),
+                             "reason": reason})
+            progress += st.st_size
+            self.report({"event": "file", "path": os.path.relpath(source, self.profile),
+                         "done": progress, "bytes": totals["bytes"]})
+        bookmarks = None
+        if self.bookmarks and not done["stopped"]:
+            try:
+                bookmarks = self.write_bookmarks()
+            except OSError as error:
+                done["failed"].append([BOOKMARKS_FILE, error.strerror or str(error)])
+        summary = {
+            "event": "done", "copied": done["copied"], "copied_bytes": done["copied_bytes"],
+            "same": done["same"], "shortcuts": totals["shortcut"], "system": totals["system"],
+            "cloud": totals["cloud"], "cloud_files": totals["cloud_files"],
+            "too_big": totals["too_big"],
+            "failed": done["failed"] + totals["unreadable_files"],
+            "stopped": done["stopped"], "bookmarks": bookmarks,
+            "destination": os.path.join(self.to, LIVE_FOLDER, self.account) if self.to
+            else os.path.expanduser("~"),
+        }
+        self.report(summary)
+        return summary
+
+
+class _Stat:
+    """Enough of a stat result for target_for() on a file not written yet."""
+
+    def __init__(self, size):
+        self.st_size = size
+        self.st_mtime = time.time()
+
+
+def format_size(count):
+    try:
+        from gi.repository import GLib
+        return GLib.format_size(count)
+    except ImportError:
+        for unit in ("bytes", "kB", "MB", "GB", "TB"):
+            if count < 1000 or unit == "TB":
+                return f"{count:.1f} {unit}" if unit != "bytes" else f"{count} bytes"
+            count /= 1000
+    return str(count)
+
+
+# --- udisks2 ----------------------------------------------------------------
+
+def _text(value):
+    """udisks2's byte strings (lists of numbers ending in 0) as text."""
+    if isinstance(value, (list, tuple)):
+        value = bytes(value)
+    if isinstance(value, bytes):
+        return value.rstrip(b"\0").decode("utf-8", "replace")
+    return value or ""
+
+
+def windows_partitions(objects):
+    """Candidate Windows partitions from udisks2's managed objects: NTFS
+    (not a recovery partition) and BitLocker, each a dict."""
+    found = []
+    for path, interfaces in sorted(objects.items()):
+        block = interfaces.get(BLOCK)
+        if not block or block.get("HintIgnore"):
+            continue
+        kind = block.get("IdType", "")
+        partition = interfaces.get(PARTITION, {})
+        if kind == "ntfs" and FILESYSTEM in interfaces:
+            if str(partition.get("Type", "")).lower() in RECOVERY_TYPES:
+                continue
+            if _text(block.get("CryptoBackingDevice", "/")) not in ("", "/"):
+                continue   # an unlocked BitLocker volume: listed as its locked self
+            mounts = [_text(m) for m in interfaces[FILESYSTEM].get("MountPoints", [])]
+            state = "mounted" if mounts else "ready"
+            entry = {"object": path, "device": _text(block.get("Device")), "size": block.get("Size", 0),
+                     "state": state, "mount": mounts[0] if mounts else "", "bitlocker": False}
+        elif kind == "BitLocker" and ENCRYPTED in interfaces:
+            clear = interfaces[ENCRYPTED].get("CleartextDevice", "/")
+            mounts = []
+            if clear not in ("", "/") and clear in objects:
+                mounts = [_text(m) for m in objects[clear].get(FILESYSTEM, {}).get("MountPoints", [])]
+            state = "locked" if clear in ("", "/") else ("mounted" if mounts else "ready")
+            entry = {"object": path, "device": _text(block.get("Device")), "size": block.get("Size", 0),
+                     "state": state, "mount": mounts[0] if mounts else "", "bitlocker": True,
+                     "cleartext": "" if clear in ("", "/") else clear}
+        else:
+            continue
+        drive = objects.get(block.get("Drive", "/"), {}).get(DRIVE, {})
+        entry["drive"] = " ".join(p for p in (drive.get("Vendor", ""), drive.get("Model", "")) if p).strip()
+        entry["removable"] = bool(drive.get("Removable"))
+        entry["label"] = block.get("IdLabel", "")
+        found.append(entry)
+    return found
+
+
+class UDisks:
+    """The few udisks2 calls flickos-switch makes, synchronously (the
+    command line; the window runs the command line)."""
+
+    def __init__(self):
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import Gio, GLib
+        except (ImportError, ValueError) as error:
+            raise SwitchError(f"python3-gi is needed ({error})") from error
+        self.Gio, self.GLib = Gio, GLib
+        try:
+            self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        except GLib.Error as error:
+            raise SwitchError(_("The disk service isn't running.")) from error
+
+    def call(self, path, interface, method, args, reply, interactive=False):
+        Gio, GLib = self.Gio, self.GLib
+        flags = Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION if interactive else Gio.DBusCallFlags.NONE
+        timeout = (DBUS_INTERACTIVE_TIMEOUT if interactive else DBUS_TIMEOUT) * 1000
+        try:
+            result = self.bus.call_sync(UDISKS, path, interface, method, args,
+                                        GLib.VariantType(reply) if reply else None, flags, timeout)
+        except GLib.Error as error:
+            raise SwitchError(dbus_message(error)) from error
+        return result.unpack() if result else ()
+
+    def objects(self):
+        return self.call(UDISKS_PATH, "org.freedesktop.DBus.ObjectManager", "GetManagedObjects",
+                         None, "(a{oa{sa{sv}}})")[0]
+
+    def mount(self, path):
+        GLib = self.GLib
+        options = GLib.Variant("(a{sv})", ({"options": GLib.Variant("s", "ro")},))
+        return self.call(path, FILESYSTEM, "Mount", options, "(s)", interactive=True)[0]
+
+    def unmount(self, path):
+        self.call(path, FILESYSTEM, "Unmount", self.GLib.Variant("(a{sv})", ({},)), None)
+
+    def unlock(self, path, key):
+        GLib = self.GLib
+        args = GLib.Variant("(sa{sv})", (key, {"read-only": GLib.Variant("b", True)}))
+        return self.call(path, ENCRYPTED, "Unlock", args, "(o)", interactive=True)[0]
+
+    def lock(self, path):
+        self.call(path, ENCRYPTED, "Lock", self.GLib.Variant("(a{sv})", ({},)), None)
+
+
+def dbus_message(error):
+    """A udisks2 or polkit error as words for the user."""
+    text = getattr(error, "message", str(error))
+    if "NotAuthorized" in text or "Error.Cancelled" in text:
+        return _("Permission to use the disk was refused or cancelled.")
+    if "UDisks2.Error.Failed" in text and ("passphrase" in text.lower() or "key" in text.lower()):
+        return _("That recovery key didn't unlock the disk. Check it and try again.")
+    if "wrong fs type" in text or "bad superblock" in text:
+        return _("The disk couldn't be opened. Start Windows once and shut it down "
+                 "with Shift held on Shut Down, then try again.")
+    if "ServiceUnknown" in text or "NameHasNoOwner" in text:
+        return _("The disk service isn't running.")
+    return re.sub(r"^GDBus\.Error:[\w.]+:\s*", "", text).strip() or str(error)
+
+
+def state_folder():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        return None
+    return os.path.join(base, "flickos", STATE_FOLDER)
+
+
+def remember(kind, path):
+    """Record that flickos-switch mounted or unlocked path."""
+    folder = state_folder()
+    if not folder:
+        return
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, f"{kind}-{os.path.basename(path)}"), "w", encoding="utf-8") as f:
+        f.write(path + "\n")
+
+
+def remembered(kind):
+    folder = state_folder()
+    found = {}
+    if not folder or not os.path.isdir(folder):
+        return found
+    for name in os.listdir(folder):
+        if name.startswith(kind + "-"):
+            path = os.path.join(folder, name)
+            with contextlib.suppress(OSError), open(path, encoding="utf-8") as f:
+                found[f.read().strip()] = path
+    return found
+
+
+def resolve(objects, device):
+    """The object path of DEVICE (/dev/... or an object path) among the candidates."""
+    for entry in windows_partitions(objects):
+        if device in (entry["device"], entry["object"]) or \
+                (device.startswith("/dev/") and os.path.realpath(device) == entry["device"]):
+            return entry
+    raise SwitchError(_("{device} isn't a Windows disk FlickOS can see.").format(device=device))
+
+
+def mounted_root(udisks, device):
+    """Mount DEVICE read only if needed; returns its folder."""
+    objects = udisks.objects()
+    entry = resolve(objects, device)
+    if entry["state"] == "locked":
+        raise SwitchError(_("This disk is locked with BitLocker. Unlock it first."))
+    if entry["mount"]:
+        return entry["mount"]
+    target = entry["cleartext"] if entry["bitlocker"] else entry["object"]
+    root = udisks.mount(target)
+    remember("mounted", target)
+    return root
+
+
+# --- Commands ---------------------------------------------------------------
+
+def print_json(value):
+    print(json.dumps(value, ensure_ascii=False), flush=True)
+
+
+def cmd_find(opts):
+    found = windows_partitions(UDisks().objects())
+    if opts.json:
+        print_json(found)
+        return 0
+    if not found:
+        print(_("No Windows disk found."), file=sys.stderr)
+    for entry in found:
+        print("\t".join([entry["device"], str(entry["size"]), entry["drive"], entry["state"]]))
+    return 0
+
+
+def cmd_scan(opts):
+    udisks = UDisks()
+    root = mounted_root(udisks, opts.device)
+    result = scan_root(root)
+    if opts.json:
+        print_json(result)
+        return 0
+    if result["hibernated"]:
+        print(_("Windows was left hibernated (Fast Startup): its files can still be copied."),
+              file=sys.stderr)
+    for account in result["accounts"]:
+        for folder in account["folders"]:
+            print("\t".join(str(x) for x in (account["account"], folder["folder"], folder["files"],
+                                             folder["bytes"], folder["cloud"])))
+    return 0
+
+
+def cmd_unlock(opts):
+    key = sys.stdin.readline().strip()
+    if not key:
+        raise SwitchError(_("Type the recovery key."))
+    udisks = UDisks()
+    entry = resolve(udisks.objects(), opts.device)
+    if not entry["bitlocker"]:
+        raise SwitchError(_("This disk isn't locked."))
+    if entry["state"] != "locked":
+        print(entry["cleartext"])
+        return 0
+    clear = udisks.unlock(entry["object"], key)
+    remember("unlocked", entry["object"])
+    print(clear)
+    return 0
+
+
+def cmd_copy(opts):
+    udisks = UDisks()
+    root = mounted_root(udisks, opts.device)
+    if opts.to and not os.path.isdir(opts.to):
+        raise SwitchError(_("{folder} isn't a folder.").format(folder=opts.to))
+    report = print_json if opts.json else (lambda event: None)
+    copier = Copier(root, opts.account, opts.folders, to=opts.to, bookmarks=opts.bookmarks, report=report)
+
+    def stop(_signum, _frame):
+        copier.stop = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    summary = copier.run()
+    if not opts.json:
+        print("\t".join(str(summary[k]) for k in ("copied", "same", "cloud", "shortcuts")))
+        for path, reason in summary["failed"]:
+            warn(f"{path}: {reason}")
+        for path in summary["too_big"]:
+            warn(f"{path}: over 4 GiB, which the drive's FAT32 can't hold")
+    return 0
+
+
+def release(udisks, device=None):
+    """Unmount and lock what was recorded, or only DEVICE's. Returns the errors."""
+    errors = []
+    wanted = None
+    if device:
+        entry = resolve(udisks.objects(), device)
+        wanted = {entry["object"], entry.get("cleartext", "")}
+    for kind, undo in (("mounted", udisks.unmount), ("unlocked", udisks.lock)):
+        for path, marker in remembered(kind).items():
+            if wanted is not None and path not in wanted:
+                continue
+            try:
+                undo(path)
+            except SwitchError as error:
+                if "NotMounted" not in str(error) and "not mounted" not in str(error).lower() \
+                        and "not unlocked" not in str(error).lower():
+                    errors.append(f"{path}: {error}")
+                    continue
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(marker)
+    return errors
+
+
+def cmd_release(opts):
+    errors = release(UDisks(), opts.device)
+    for error in errors:
+        warn(error)
+    return 1 if errors else 0
+
+
+def live_system():
+    try:
+        with open(os.path.join(PROC, "cmdline"), encoding="utf-8", errors="replace") as f:
+            return "boot=live" in f.read().split()
+    except OSError:
+        return False
+
+
+@contextlib.contextmanager
+def single_instance():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        yield True
+        return
+    folder = os.path.join(base, "flickos")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, LOCK), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+def cmd_files(_opts):
+    with single_instance() as first:
+        if not first:
+            print(_("Bring Files from Windows is already open."))
+            return 0
+        return Window.run()
+
+
+def before_install(found, ask):
+    """What Install FlickOS should do: "continue" when no Windows partition
+    was found, else what ask() answers ("copy", "continue" or "cancel")."""
+    return ask() if found else "continue"
+
+
+def ask_before_install():
+    """The dialog before the installer. Escape or closing it cancels: the
+    installer isn't started, and Install FlickOS can be chosen again."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import GLib
+        GLib.set_prgname(APP_ID)
+        from gi.repository import Gtk
+    except (ImportError, ValueError):
+        return "continue"
+    ok, _argv = Gtk.init_check(sys.argv)
+    if not ok:
+        return "continue"
+    dialog = Gtk.Dialog(title=_("Windows Is on This Computer"), icon_name=ICON)
+    dialog.set_default_size(460, -1)
+    dialog.add_button(_("C_ontinue"), Gtk.ResponseType.ACCEPT)
+    copy = dialog.add_button(_("_Copy Files First"), Gtk.ResponseType.OK)
+    copy.get_style_context().add_class("suggested-action")
+    dialog.set_default_response(Gtk.ResponseType.OK)
+    area = dialog.get_content_area()
+    area.set_spacing(12)
+    area.set_border_width(18)
+    text = Gtk.Label(label=_("Erase disk in the installer deletes Windows and every file on it. To keep "
+                             "your files, copy them to a USB drive first. Install alongside keeps "
+                             "Windows and its files."))
+    text.set_line_wrap(True)
+    text.set_max_width_chars(52)
+    text.set_xalign(0)
+    area.pack_start(text, False, False, 0)
+    dialog.show_all()
+    response = dialog.run()
+    dialog.destroy()
+    return {Gtk.ResponseType.OK: "copy", Gtk.ResponseType.ACCEPT: "continue"}.get(response, "cancel")
+
+
+def cmd_before_install(_opts):
+    try:
+        found = windows_partitions(UDisks().objects())
+    except SwitchError:
+        found = []
+    answer = before_install(found, ask_before_install)
+    if answer == "copy":
+        with contextlib.suppress(OSError):
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), "files"],
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+    print(answer)
+    return 0
+
+
+# --- The window -------------------------------------------------------------
+
+class Builders:
+    """Small builders for the windows (the look of Settings' rows, HIG
+    WIN-6); self.Gtk is GTK, self.stack the window's pages."""
+
+    def label(self, text, dim=False, wrap=True, markup=False, selectable=False):
+        Gtk = self.Gtk
+        widget = Gtk.Label()
+        if markup:
+            widget.set_markup(text)
+        else:
+            widget.set_text(text)
+        widget.set_xalign(0)
+        widget.set_line_wrap(wrap)
+        widget.set_selectable(selectable)
+        if dim:
+            widget.get_style_context().add_class("dim-label")
+        return widget
+
+    def heading(self, text, size="large"):
+        return self.label(f"<span size='{size}' weight='bold'>{html.escape(text)}</span>", markup=True)
+
+    def page(self, name):
+        """A page: its content scrolls, its buttons (buttons()) stay below."""
+        Gtk = self.Gtk
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_border_width(24)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.add(box)
+        outer.pack_start(scroller, True, True, 0)
+        box.footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.footer.set_border_width(12)
+        box.footer.set_margin_start(12)
+        box.footer.set_margin_end(12)
+        outer.pack_end(box.footer, False, False, 0)
+        old = self.stack.get_child_by_name(name)
+        if old:
+            self.stack.remove(old)
+        self.stack.add_named(outer, name)
+        return box
+
+    def framed_list(self):
+        Gtk = self.Gtk
+        frame = Gtk.Frame()
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        frame.add(listbox)
+        return frame, listbox
+
+    def row(self, listbox, title, subtitle=None, widget=None):
+        Gtk = self.Gtk
+        row = Gtk.ListBoxRow(activatable=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.set_border_width(10)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text.pack_start(self.label(title), False, False, 0)
+        sub = None
+        if subtitle:
+            sub = self.label(subtitle, dim=True)
+            text.pack_start(sub, False, False, 0)
+        box.pack_start(text, True, True, 0)
+        if widget:
+            widget.set_valign(Gtk.Align.CENTER)
+            box.pack_end(widget, False, False, 0)
+            widget.get_accessible().set_name(title)
+        row.add(box)
+        listbox.add(row)
+        return row, sub
+
+    def buttons(self, box, *buttons):
+        """The page's buttons, right to left, in its footer."""
+        for button in buttons:
+            box.footer.pack_end(button, False, False, 0)
+
+    def button(self, mnemonic, action, suggested=False):
+        widget = self.Gtk.Button.new_with_mnemonic(mnemonic)
+        widget.connect("clicked", lambda _b: action())
+        if suggested:
+            widget.get_style_context().add_class("suggested-action")
+        return widget
+
+
+class Window(Builders):
+    """Bring Files from Windows: disks, what to copy, copying, done."""
+
+    @classmethod
+    def run(cls):
+        try:
+            import gi
+            gi.require_version("Gtk", "3.0")
+            gi.require_version("Gdk", "3.0")
+            from gi.repository import GLib
+            GLib.set_prgname(APP_ID)
+            from gi.repository import Gdk, Gio, Gtk, Pango
+        except (ImportError, ValueError) as error:
+            warn(f"can't open the window ({error}); python3-gi and gir1.2-gtk-3.0 are needed")
+            return 1
+        ok, _argv = Gtk.init_check(sys.argv)
+        if not ok:
+            warn("can't open the window: no display")
+            return 1
+        import locale
+        with contextlib.suppress(locale.Error):
+            locale.setlocale(locale.LC_ALL, "")
+        window = cls(Gtk, Gdk, Gio, GLib)
+        window.Pango = Pango
+        window.show()
+        Gtk.main()
+        return 0
+
+    def __init__(self, Gtk, Gdk, Gio, GLib):
+        self.Gtk, self.Gdk, self.Gio, self.GLib = Gtk, Gdk, Gio, GLib
+        self.live = live_system()
+        self.disk = None          # the find entry being copied from
+        self.scan = None          # scan's result
+        self.child = None         # the running copy
+        self.destination = None
+        self.signal_ids = []
+        self.bus = None
+        self.skipped = False      # the one-disk page was skipped once already
+        self.win = Gtk.Window(title=_("Bring Files from Windows"), icon_name=ICON)
+        self.win.set_default_size(720, 560)
+        self.win.connect("delete-event", self.on_close)
+        self.win.connect("key-press-event", self.on_key)
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.win.add(self.stack)
+
+    def show(self):
+        self.show_disks_loading()
+        self.win.show_all()
+        for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            self.GLib.unix_signal_add(self.GLib.PRIORITY_DEFAULT, number, self.on_signal)
+        self.watch_disks()
+        self.refresh_disks()
+
+    def on_key(self, _win, event):
+        if event.keyval == self.Gdk.KEY_Escape and not self.child:
+            self.close()
+            return True
+        return False
+
+    def on_signal(self):
+        """Quit as Close does: the copy stopped and the disk released."""
+        self.close()
+        return False
+
+    def on_close(self, *_args):
+        self.close()
+        return True
+
+    def close(self):
+        if self.child:
+            self.child.send_signal(signal.SIGTERM)
+            with contextlib.suppress(Exception):
+                self.child.wait()
+        if self.bus:
+            for ident in self.signal_ids:
+                self.bus.signal_unsubscribe(ident)
+        with contextlib.suppress(SwitchError):
+            release(UDisks())
+        self.win.destroy()
+        self.Gtk.main_quit()
+
+    def run_command(self, args, done, stdin=None):
+        """Run flickos-switch ARGS without blocking; done(ok, stdout, stderr)."""
+        Gio = self.Gio
+        flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        if stdin is not None:
+            flags |= Gio.SubprocessFlags.STDIN_PIPE
+        try:
+            proc = Gio.Subprocess.new([sys.executable, os.path.abspath(__file__), *args], flags)
+        except self.GLib.Error as error:
+            done(False, "", error.message)
+            return
+
+        def finished(p, result):
+            try:
+                _ok, out, err = p.communicate_utf8_finish(result)
+            except self.GLib.Error as error:
+                done(False, "", error.message)
+                return
+            done(p.get_successful(), out or "", err or "")
+
+        proc.communicate_utf8_async(stdin, None, finished)
+
+    # Page 1: the disks.
+    def watch_disks(self):
+        """Look again when a disk comes or goes (udisks2's signals)."""
+        Gio = self.Gio
+        try:
+            self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        except self.GLib.Error:
+            return
+        for member in ("InterfacesAdded", "InterfacesRemoved"):
+            self.signal_ids.append(self.bus.signal_subscribe(
+                UDISKS, "org.freedesktop.DBus.ObjectManager", member, UDISKS_PATH, None,
+                Gio.DBusSignalFlags.NONE, lambda *_a: self.refresh_disks_later()))
+
+    def refresh_disks_later(self):
+        if self.stack.get_visible_child_name() == "disks":
+            self.GLib.timeout_add(500, lambda: self.refresh_disks() and False)
+
+    def show_disks_loading(self):
+        Gtk = self.Gtk
+        box = self.page("disks")
+        box.pack_start(self.heading(_("Bring Files from Windows"), "x-large"), False, False, 0)
+        spinner = Gtk.Spinner(active=True)
+        box.pack_start(spinner, False, False, 12)
+        box.pack_start(self.label(_("Looking for Windows disks…"), dim=True), False, False, 0)
+        self.stack.set_visible_child_name("disks")
+
+    def refresh_disks(self):
+        self.run_command(["find", "--json"], self.show_disks)
+        return False
+
+    def show_disks(self, ok, out, err):
+        Gtk = self.Gtk
+        if self.stack.get_visible_child_name() not in (None, "disks"):
+            return
+        box = self.page("disks")
+        box.pack_start(self.heading(_("Bring Files from Windows"), "x-large"), False, False, 0)
+        box.pack_start(self.label(_("Copy your documents, pictures and other files from a Windows "
+                                    "disk. Nothing on the Windows disk is changed.")), False, False, 0)
+        disks = json.loads(out) if ok and out.strip() else []
+        if not ok:
+            box.pack_start(self.label(err.strip() or _("The disks couldn't be listed."),
+                                      selectable=True), False, False, 0)
+        elif not disks:
+            box.pack_start(self.heading(_("No Windows disk found")), False, False, 12)
+            box.pack_start(self.label(_("If Windows is on another computer, take its disk out and "
+                                        "connect it with a USB adapter or case. This list updates "
+                                        "by itself when a disk is connected.")), False, False, 0)
+        else:
+            frame, listbox = self.framed_list()
+            for disk in disks:
+                title = _("Windows disk, {size}").format(size=format_size(disk["size"]))
+                where = disk["drive"] or disk["device"]
+                if disk["state"] == "locked":
+                    subtitle = _("On {drive}. Locked with BitLocker.").format(drive=where)
+                    button = Gtk.Button.new_with_mnemonic(_("_Unlock…"))
+                    button.connect("clicked", lambda _b, d=disk: self.ask_key(d))
+                else:
+                    subtitle = _("On {drive}.").format(drive=where)
+                    button = Gtk.Button.new_with_mnemonic(_("_Open"))
+                    button.connect("clicked", lambda _b, d=disk: self.open_disk(d))
+                self.row(listbox, title, subtitle, button)
+            box.pack_start(frame, False, False, 0)
+        self.buttons(box, self.button(_("_Close"), self.close))
+        self.win.show_all()
+        self.stack.set_visible_child_name("disks")
+        if ok and len(disks) == 1 and disks[0]["state"] != "locked" and not self.skipped:
+            self.skipped = True
+            self.open_disk(disks[0])
+
+    def ask_key(self, disk):
+        Gtk = self.Gtk
+        dialog = Gtk.Dialog(title=_("Unlock Windows Disk"), transient_for=self.win, modal=True)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        unlock = dialog.add_button(_("_Unlock"), Gtk.ResponseType.OK)
+        unlock.get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        area = dialog.get_content_area()
+        area.set_spacing(12)
+        area.set_border_width(18)
+        area.pack_start(self.label(_("This disk is locked with BitLocker. Type its 48-digit recovery "
+                                     "key. You find it in your Microsoft account, at "
+                                     "account.microsoft.com/devices/recoverykey, or where you saved "
+                                     "or printed it."), selectable=True), False, False, 0)
+        entry = Gtk.Entry(activates_default=True, width_chars=56)
+        entry.get_accessible().set_name(_("Recovery key"))
+        area.pack_start(entry, False, False, 0)
+        error = self.label("", selectable=True)
+        area.pack_start(error, False, False, 0)
+        dialog.show_all()
+
+        def response(dlg, answer):
+            if answer != Gtk.ResponseType.OK:
+                dlg.destroy()
+                return
+            unlock.set_sensitive(False)
+            error.set_text(_("Unlocking…"))
+
+            def done(ok, _out, err):
+                unlock.set_sensitive(True)
+                if ok:
+                    dlg.destroy()
+                    self.refresh_disks()
+                else:
+                    error.set_text(err.strip().split(": ", 1)[-1])
+
+            self.run_command(["unlock", disk["device"]], done, stdin=entry.get_text() + "\n")
+
+        dialog.connect("response", response)
+
+    # Page 2: what to copy.
+    def open_disk(self, disk):
+        Gtk = self.Gtk
+        self.disk = disk
+        box = self.page("scan")
+        box.pack_start(self.heading(_("Reading the Windows disk…")), False, False, 0)
+        box.pack_start(Gtk.Spinner(active=True), False, False, 12)
+        box.pack_start(self.label(_("Counting the files in each folder. On a large disk this "
+                                    "takes a minute."), dim=True), False, False, 0)
+        self.win.show_all()
+        self.stack.set_visible_child_name("scan")
+        self.run_command(["scan", "--json", disk["device"]], self.show_choices)
+
+    def show_choices(self, ok, out, err):
+        Gtk = self.Gtk
+        box = self.page("choose")
+        if not ok:
+            box.pack_start(self.heading(_("The Windows disk couldn't be read")), False, False, 0)
+            box.pack_start(self.label(err.strip().split(": ", 1)[-1], selectable=True), False, False, 0)
+            self.buttons(box, self.button(_("_Back"), self.back_to_disks))
+            self.win.show_all()
+            self.stack.set_visible_child_name("choose")
+            return
+        self.scan = json.loads(out)
+        names = [a["account"] for a in self.scan["accounts"]]
+        box.pack_start(self.heading(_("Choose What to Copy")), False, False, 0)
+        if self.scan["hibernated"]:
+            box.pack_start(self.label(_("Windows wasn't fully shut down (Fast Startup). Your files "
+                                        "can still be copied."), dim=True), False, False, 0)
+        if not names:
+            box.pack_start(self.label(_("No accounts with files were found on this disk.")),
+                           False, False, 0)
+            self.buttons(box, self.button(_("_Back"), self.back_to_disks))
+            self.win.show_all()
+            self.stack.set_visible_child_name("choose")
+            return
+        self.choice_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        if len(names) > 1:
+            frame, listbox = self.framed_list()
+            combo = Gtk.ComboBoxText()
+            for name in names:
+                combo.append(name, name)
+            combo.set_active(0)
+            combo.connect("changed", lambda c: self.fill_choices(c.get_active_id()))
+            self.row(listbox, _("Windows account"), _("Whose files to copy"), combo)
+            box.pack_start(frame, False, False, 0)
+        box.pack_start(self.choice_box, False, False, 0)
+        self.copy_button = self.button(_("_Copy"), self.start_copy, suggested=True)
+        self.buttons(box, self.copy_button, self.button(_("_Back"), self.back_to_disks))
+        self.fill_choices(names[0])
+        self.win.show_all()
+        self.stack.set_visible_child_name("choose")
+
+    def back_to_disks(self):
+        self.skipped = True
+        self.show_disks_loading()
+        self.win.show_all()
+        self.refresh_disks()
+
+    def fill_choices(self, account_name):
+        Gtk = self.Gtk
+        for widget in self.choice_box.get_children():
+            self.choice_box.remove(widget)
+        account = next(a for a in self.scan["accounts"] if a["account"] == account_name)
+        self.account = account
+        self.switches = {}
+        frame, listbox = self.framed_list()
+        titles = {"Desktop": _("Desktop"), "Documents": _("Documents"), "Downloads": _("Downloads"),
+                  "Music": _("Music"), "Pictures": _("Pictures"), "Videos": _("Videos")}
+        for folder in account["folders"]:
+            files, cloud = folder["files"], folder["cloud"]
+            if not files and not cloud:
+                continue
+            subtitle = ngettext("{count} file, {size}", "{count} files, {size}", files).format(
+                count=f"{files:n}", size=format_size(folder["bytes"]))
+            if cloud:
+                subtitle += " " + ngettext("({count} more only in OneDrive)",
+                                           "({count} more only in OneDrive)", cloud).format(count=f"{cloud:n}")
+            switch = Gtk.Switch(active=files > 0, sensitive=files > 0)
+            switch.connect("notify::active", lambda *_a: self.update_space())
+            self.switches[folder["folder"]] = (switch, folder["bytes"])
+            self.row(listbox, titles.get(folder["folder"], folder["folder"]), subtitle, switch)
+        if account["bookmarks"]:
+            switch = Gtk.Switch(active=True)
+            self.bookmarks_switch = switch
+            self.row(listbox, _("Bookmarks from Chrome and Edge"),
+                     _("Saved as a file in Documents that Firefox can import"), switch)
+        else:
+            self.bookmarks_switch = None
+        if not self.switches:
+            self.choice_box.pack_start(self.label(_("This account has no files in its folders.")),
+                                       False, False, 0)
+        else:
+            self.choice_box.pack_start(self.heading(_("Folders"), "medium"), False, False, 0)
+            self.choice_box.pack_start(frame, False, False, 0)
+        self.choice_box.pack_start(self.heading(_("Copy To"), "medium"), False, False, 0)
+        frame, listbox = self.framed_list()
+        if self.live:
+            self.drive_combo = Gtk.ComboBoxText()
+            for path, title in removable_folders():
+                self.drive_combo.append(path, title)
+            self.drive_combo.set_active(0)
+            self.drive_combo.connect("changed", lambda *_a: self.update_space())
+            _row, self.space_label = self.row(
+                listbox, _("USB drive"), " ", self.drive_combo)
+            note = _("The live session forgets everything when it shuts down, so the files go to "
+                     "a USB drive, in a folder named “Files from Windows”.")
+            self.choice_box.pack_start(frame, False, False, 0)
+            self.choice_box.pack_start(self.label(note, dim=True), False, False, 0)
+        else:
+            self.drive_combo = None
+            _row, self.space_label = self.row(listbox, _("Your home folder"), " ")
+            self.choice_box.pack_start(frame, False, False, 0)
+        self.choice_box.show_all()
+        self.update_space()
+
+    def target(self):
+        if self.live:
+            return self.drive_combo.get_active_id() if self.drive_combo else None
+        return os.path.expanduser("~")
+
+    def update_space(self):
+        target = self.target()
+        needed = sum(size for switch, size in self.switches.values() if switch.get_active())
+        if not target:
+            self.space_label.set_text(_("Connect a USB drive to copy to."))
+            self.copy_button.set_sensitive(False)
+            return
+        st = os.statvfs(existing_folder(target))
+        free = st.f_bavail * st.f_frsize
+        self.space_label.set_text(_("{needed} to copy, {free} free").format(
+            needed=format_size(needed), free=format_size(free)))
+        chosen = any(s.get_active() for s, _size in self.switches.values()) or \
+            (self.bookmarks_switch and self.bookmarks_switch.get_active())
+        self.copy_button.set_sensitive(bool(chosen) and needed <= free)
+
+    # Page 3: copying.
+    def start_copy(self):
+        Gtk, Gio = self.Gtk, self.Gio
+        folders = [f for f, (switch, _size) in self.switches.items() if switch.get_active()]
+        args = ["copy", "--json", self.disk["device"], self.account["account"], *folders]
+        if self.bookmarks_switch and self.bookmarks_switch.get_active():
+            args.append("--bookmarks")
+        if self.live:
+            args += ["--to", self.target()]
+        box = self.page("copying")
+        box.pack_start(self.heading(_("Copying…")), False, False, 0)
+        self.bar = Gtk.ProgressBar(show_text=True)
+        box.pack_start(self.bar, False, False, 0)
+        self.file_label = self.label("", dim=True, wrap=False)
+        self.file_label.set_ellipsize(self.Pango.EllipsizeMode.END)
+        box.pack_start(self.file_label, False, False, 0)
+        self.stop_button = self.button(_("_Stop"), self.stop_copy)
+        self.buttons(box, self.stop_button)
+        self.win.show_all()
+        self.stack.set_visible_child_name("copying")
+        self.started = time.monotonic()
+        self.failures = []
+        self.summary = None
+        self.error_text = ""
+        self.child = Gio.Subprocess.new([sys.executable, os.path.abspath(__file__), *args],
+                                        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+        self.lines = Gio.DataInputStream.new(self.child.get_stdout_pipe())
+        self.lines.read_line_async(self.GLib.PRIORITY_DEFAULT, None, self.on_line)
+        self.child.wait_async(None, self.on_copy_exit)
+
+    def on_line(self, stream, result):
+        try:
+            line, _length = stream.read_line_finish_utf8(result)
+        except self.GLib.Error:
+            line = None
+        if line is None:
+            return
+        with contextlib.suppress(ValueError):
+            self.copy_event(json.loads(line))
+        stream.read_line_async(self.GLib.PRIORITY_DEFAULT, None, self.on_line)
+
+    def copy_event(self, event):
+        kind = event.get("event")
+        if kind == "file" and event.get("bytes"):
+            fraction = min(1.0, event["done"] / event["bytes"])
+            self.bar.set_fraction(fraction)
+            elapsed = time.monotonic() - self.started
+            if fraction > 0.02 and elapsed > 3:
+                left = int(elapsed / fraction - elapsed)
+                minutes = max(1, round(left / 60))
+                self.bar.set_text(ngettext("About {count} minute left", "About {count} minutes left",
+                                           minutes).format(count=minutes))
+            self.file_label.set_text(event["path"])
+        elif kind == "plan" and not event.get("files"):
+            self.bar.set_fraction(1.0)
+        elif kind == "done":
+            self.summary = event
+
+    def stop_copy(self):
+        if self.child:
+            self.stop_button.set_sensitive(False)
+            self.file_label.set_text(_("Stopping after this file…"))
+            self.child.send_signal(signal.SIGTERM)
+
+    def on_copy_exit(self, proc, result):
+        with contextlib.suppress(self.GLib.Error):
+            proc.wait_finish(result)
+        stderr = proc.get_stderr_pipe()
+        text = ""
+        with contextlib.suppress(self.GLib.Error):
+            data = stderr.read_bytes(65536, None).get_data()
+            text = data.decode("utf-8", "replace") if data else ""
+        self.child = None
+        self.show_done(text)
+
+    # Page 4: done.
+    def show_done(self, errors):
+        Gtk = self.Gtk
+        box = self.page("done")
+        summary = self.summary
+        if not summary:
+            box.pack_start(self.heading(_("The files couldn't be copied")), False, False, 0)
+            box.pack_start(self.label(errors.strip().split(": ", 1)[-1] or _("Something went wrong."),
+                                      selectable=True), False, False, 0)
+            self.buttons(box, self.button(_("_Close"), self.close),
+                         self.button(_("_Back"), lambda: self.show_choices(True, json.dumps(self.scan), "")))
+            self.win.show_all()
+            self.stack.set_visible_child_name("done")
+            return
+        if summary["stopped"]:
+            title = _("Copying Stopped")
+        else:
+            title = _("Your Files Are Copied")
+        box.pack_start(self.heading(title), False, False, 0)
+        lines = [ngettext("{count} file copied ({size}).", "{count} files copied ({size}).",
+                          summary["copied"]).format(count=f"{summary['copied']:n}",
+                                                    size=format_size(summary["copied_bytes"]))]
+        if summary["same"]:
+            lines.append(ngettext("{count} file was already there.", "{count} files were already there.",
+                                  summary["same"]).format(count=f"{summary['same']:n}"))
+        if summary["shortcuts"]:
+            lines.append(ngettext("{count} Windows shortcut was left out.",
+                                  "{count} Windows shortcuts were left out.",
+                                  summary["shortcuts"]).format(count=f"{summary['shortcuts']:n}"))
+        if summary["bookmarks"]:
+            lines.append(_("Bookmarks were saved as “{name}”. In Firefox, choose Bookmarks, Manage "
+                           "Bookmarks, Import and Backup, Import Bookmarks from HTML.")
+                         .format(name=os.path.basename(summary["bookmarks"])))
+        for line in lines:
+            box.pack_start(self.label(line), False, False, 0)
+        if summary["cloud"]:
+            box.pack_start(self.heading(ngettext("{count} File Only in OneDrive",
+                                                 "{count} Files Only in OneDrive", summary["cloud"])
+                                        .format(count=f"{summary['cloud']:n}"), "medium"), False, False, 6)
+            box.pack_start(self.label(_("These weren't on the Windows disk, only in OneDrive. Download "
+                                        "them from {site} after signing in.").format(site=ONEDRIVE_HELP),
+                                      selectable=True), False, False, 0)
+            box.pack_start(self.text_view("\n".join(summary["cloud_files"])), False, False, 0)
+        problems = [f"{path}: {reason}" for path, reason in summary["failed"]]
+        problems += [f"{path}: " + _("over 4 GB, too large for this USB drive") for path in summary["too_big"]]
+        if problems:
+            box.pack_start(self.heading(ngettext("{count} File Not Copied", "{count} Files Not Copied",
+                                                 len(problems)).format(count=f"{len(problems):n}"),
+                                        "medium"), False, False, 6)
+            box.pack_start(self.text_view("\n".join(problems)), False, False, 0)
+        destination = summary["destination"]
+        self.buttons(box, self.button(_("_Close"), self.close, suggested=True),
+                     self.button(_("_Open Folder"), lambda: self.open_folder(destination)))
+        self.win.show_all()
+        self.stack.set_visible_child_name("done")
+
+    def text_view(self, text):
+        Gtk = self.Gtk
+        view = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        view.get_buffer().set_text(text)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_min_content_height(90)
+        scroller.set_max_content_height(180)
+        scroller.set_propagate_natural_height(True)
+        scroller.set_shadow_type(Gtk.ShadowType.IN)
+        scroller.add(view)
+        return scroller
+
+    def open_folder(self, folder):
+        if not self.live and folder == os.path.expanduser("~"):
+            folder = user_dir("DOCUMENTS", "Documents") if os.path.isdir(user_dir("DOCUMENTS", "Documents")) \
+                else folder
+        with contextlib.suppress(OSError):
+            subprocess.Popen(["xdg-open", folder], stdin=subprocess.DEVNULL, start_new_session=True)
+
+
+def load_programs():
+    """Phase 2a's code (PROGRAMS_CODE): only identify, open and lookup
+    compile it, not the files window (this script has no .pyc)."""
+    import importlib.machinery
+    import importlib.util
+    sys.dont_write_bytecode = True      # never a __pycache__ next to it
+    loader = importlib.machinery.SourceFileLoader("flickos_switch_programs", PROGRAMS_CODE)
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    module._ = _                    # the program's translation, before the file
+    module.Builders = Builders      # runs: its classes are built on them
+    loader.exec_module(module)
+    return module
+
+
+def cmd_identify(opts):
+    return load_programs().cmd_identify(opts)
+
+
+def cmd_open(opts):
+    return load_programs().cmd_open(opts)
+
+
+def cmd_lookup(opts):
+    return load_programs().cmd_lookup(opts)
+
+
+def removable_folders():
+    """[(mount folder, title)] of writable removable drives (the live session's
+    destinations), from udisks2."""
+    try:
+        objects = UDisks().objects()
+    except SwitchError:
+        return []
+    found = []
+    for path, interfaces in sorted(objects.items()):
+        block, filesystem = interfaces.get(BLOCK), interfaces.get(FILESYSTEM)
+        if not block or not filesystem or block.get("HintSystem", True) or block.get("ReadOnly"):
+            continue
+        if block.get("IdType") in ("iso9660", "udf"):
+            continue
+        for mount in filesystem.get("MountPoints", []):
+            folder = _text(mount)
+            if folder and os.access(folder, os.W_OK):
+                drive = objects.get(block.get("Drive", "/"), {}).get(DRIVE, {})
+                name = block.get("IdLabel") or " ".join(
+                    p for p in (drive.get("Vendor", ""), drive.get("Model", "")) if p) or folder
+                found.append((folder, name))
+    return found
+
+
+# --- Web apps (phase 3) --------------------------------------------------------
+
+def firefox_folders(home=None, config=None):
+    """Folders holding Firefox's profiles.ini: ~/.mozilla/firefox, and the
+    XDG one newer Firefox uses for new profiles."""
+    home = home or os.path.expanduser("~")
+    config = config or os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    legacy, xdg = FIREFOX_FOLDERS
+    folders = [os.path.join(home, legacy[2:]), os.path.join(config, xdg)]
+    return [f for f in folders if os.path.isfile(os.path.join(f, "profiles.ini"))]
+
+
+def firefox_profiles(folder):
+    """The profiles Firefox's installs start with (profiles.ini's Install…
+    sections), else its Default=1 profile: absolute paths that exist."""
+    import configparser
+    ini = configparser.ConfigParser(interpolation=None, strict=False)
+    ini.optionxform = str
+    try:
+        ini.read(os.path.join(folder, "profiles.ini"), encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError, OSError) as error:
+        warn(f"{folder}/profiles.ini: {error}")
+        return []
+    relative = {}           # Path as written -> IsRelative, for Install sections' Default
+    defaults = []
+    for name in ini.sections():
+        section = ini[name]
+        if name.startswith("Profile") and section.get("Path"):
+            relative[section["Path"]] = section.get("IsRelative", "1") == "1"
+            if section.get("Default") == "1":
+                defaults.append(section["Path"])
+    installs = [ini[name]["Default"] for name in ini.sections()
+                if name.startswith("Install") and ini[name].get("Default")]
+    found = []
+    for path in installs or defaults:
+        full = os.path.join(folder, path) if relative.get(path, not os.path.isabs(path)) else path
+        full = os.path.normpath(full)
+        if os.path.isdir(full) and full not in found:
+            found.append(full)
+    return found
+
+
+def read_webapps(profile, data_home=None):
+    """The web apps in a profile's Taskbar Tabs list, read only: [{id, name,
+    start, hosts, icon, launcher, profile, container}]. A list missing, too
+    big, broken or of a newer version gives none."""
+    path = os.path.join(profile, TASKBAR_TABS)
+    try:
+        if os.path.getsize(path) > TASKBAR_TABS_LIMIT:
+            raise ValueError("too big")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as error:
+        warn(f"{path}: {error}")
+        return []
+    if not isinstance(data, dict) or not isinstance(data.get("taskbarTabs"), list):
+        warn(f"{path}: not a list of web apps")
+        return []
+    if not isinstance(data.get("version"), int) or data["version"] > TASKBAR_TABS_VERSION:
+        warn(f"{path}: version {data.get('version')!r} is newer than this reads")
+        return []
+    data_home = data_home or os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    apps = []
+    for tab in data["taskbarTabs"]:
+        if not isinstance(tab, dict) or not all(isinstance(tab.get(k), str) and tab.get(k)
+                                                for k in ("id", "startUrl")):
+            continue
+        if not re.fullmatch(r"[0-9a-fA-F-]{1,64}", tab["id"]):
+            continue
+        hosts = [s["hostname"] for s in tab.get("scopes") or []
+                 if isinstance(s, dict) and isinstance(s.get("hostname"), str)]
+        icon = os.path.join(profile, "taskbartabs", "icons", tab["id"] + ".png")
+        launcher = tab.get("shortcutRelativePath")
+        if not (isinstance(launcher, str) and launcher.endswith(".desktop") and "/" not in launcher
+                and os.path.isfile(os.path.join(data_home, "applications", launcher))):
+            launcher = None
+        container = tab.get("userContextId")
+        apps.append({"id": tab["id"], "name": tab.get("name") if isinstance(tab.get("name"), str)
+                     else (hosts[0] if hosts else tab["id"]),
+                     "start": tab["startUrl"], "hosts": hosts,
+                     "icon": icon if os.path.isfile(icon) else None, "launcher": launcher,
+                     "profile": profile, "container": container if isinstance(container, int) else 0})
+    return apps
+
+
+def webapps(home=None, config=None, data_home=None):
+    """Every web app in the profiles Firefox's installs use."""
+    found, seen = [], set()
+    for folder in firefox_folders(home, config):
+        for profile in firefox_profiles(folder):
+            for app in read_webapps(profile, data_home):
+                if app["id"] not in seen:
+                    seen.add(app["id"])
+                    found.append(app)
+    return found
+
+
+def web_address(text):
+    """URL, checked: http or https, with a host. SwitchError otherwise."""
+    import urllib.parse
+    try:
+        parts = urllib.parse.urlsplit(text)
+    except ValueError:
+        parts = None
+    if (not parts or parts.scheme.lower() not in WEB_SCHEMES or not parts.hostname
+            or text.startswith("-") or any(c.isspace() for c in text)):
+        raise SwitchError(f"{text}: not a web address (http:// or https://)")
+    return text
+
+
+def webapp_for(url, apps):
+    """The web app Firefox would move a tab of URL into: one whose scopes
+    name URL's host."""
+    import urllib.parse
+    parts = urllib.parse.urlsplit(url)
+    for app in apps:
+        if parts.hostname in [h.lower() for h in app["hosts"]]:
+            return app
+    return None
+
+
+def web_versions(path=None):
+    """The Windows apps list's web versions, https:// only: [{entry, name,
+    windows, start, host}], name translated. Read without programs.py (no
+    compiling it for Software's webapp list --known)."""
+    import urllib.parse
+    try:
+        with open(path or APPS_LIST, encoding="utf-8") as f:
+            entries = json.load(f)
+    except (OSError, ValueError):
+        return []
+    found = []
+    for entry in entries if isinstance(entries, list) else []:
+        web = entry.get("web") if isinstance(entry, dict) else None
+        if not (isinstance(web, dict) and isinstance(web.get("url"), str)
+                and isinstance(entry.get("id"), str) and isinstance(entry.get("name"), str)):
+            continue
+        try:
+            parts = urllib.parse.urlsplit(web["url"])
+        except ValueError:
+            continue
+        if parts.scheme != "https" or not parts.hostname:
+            continue
+        name = _(entry["name"]) if entry.get("group") else entry["name"]
+        found.append({"entry": entry["id"], "name": _(web["name"]) if isinstance(web.get("name"), str) else name,
+                      "windows": name, "start": web["url"], "host": parts.hostname})
+    return found
+
+
+def known_webapps(apps, versions):
+    """Firefox's web apps, then the list's web versions it has none for:
+    each version is matched to the web app Firefox has for its host (as add
+    opens it). Every object also has entry (the list's ID or None), windows
+    (the Windows program's name or None) and made."""
+    known = [dict(app, entry=None, windows=None, made=True) for app in apps]
+    for version in versions:
+        app = webapp_for(version["start"], known)
+        if app is None:
+            known.append({"id": None, "name": version["name"], "start": version["start"],
+                          "hosts": [version["host"]], "icon": None, "launcher": None, "profile": None,
+                          "container": 0, "entry": version["entry"], "windows": version["windows"],
+                          "made": False})
+        elif app["entry"] is None:
+            app.update(entry=version["entry"], windows=version["windows"])
+    return known
+
+
+def webapp_command(app):
+    """The command Firefox's own launcher for the web app runs."""
+    return [FIREFOX, "-taskbar-tab", app["id"], "-new-window", app["start"],
+            "-profile", app["profile"], "-container", str(app["container"])]
+
+
+def need_firefox():
+    if not shutil.which(FIREFOX):
+        raise SwitchError(f"{FIREFOX} is not installed: web apps are Firefox's")
+
+
+def start_detached(args):
+    try:
+        subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as error:
+        raise SwitchError(f"{args[0]}: {error.strerror or error}") from None
+
+
+def notify(title, body):
+    """A notification (INT-12: the user is looking at Firefox); nothing when
+    notify-send is missing. Returns whether one was sent."""
+    if not shutil.which("notify-send"):
+        return False
+    try:
+        subprocess.run(["notify-send", f"--app-name={_('Web Apps')}", f"--icon={WEBAPP_ICON}",
+                        f"--expire-time={NOTIFY_MS}", "--", title, body],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return True
+
+
+def cmd_webapp_list(opts):
+    apps = webapps()
+    if opts.known:
+        apps = known_webapps(apps, web_versions())
+    if opts.json:
+        print_json(apps)
+    else:
+        for app in apps:
+            print("\t".join([app["id"] or "-", app["name"], app["start"]]))
+    return 0
+
+
+def cmd_webapp_add(opts):
+    url = web_address(opts.url)
+    need_firefox()
+    existing = webapp_for(url, webapps())
+    if existing:
+        start_detached(webapp_command(existing))
+        print("\t".join([existing["id"], existing["name"]]))
+        return 0
+    import urllib.parse
+    name = opts.name or urllib.parse.urlsplit(url).hostname
+    start_detached([FIREFOX, "-new-window", url])
+    title = _("Keep {name} as a web app").format(name=name)
+    body = _("Press the button at the right of Firefox's address bar, next to the star. "
+             "{name} then opens in its own window, from the start menu.").format(name=name)
+    if not notify(title, body):
+        print(f"{title}: {body}")
+    return 0
+
+
+def cmd_webapp_remove(opts):
+    need_firefox()
+    app = next((a for a in webapps() if a["id"] == opts.id), None)
+    if app is None:
+        raise SwitchError(f"no web app {opts.id} in Firefox's profiles")
+    start_detached(webapp_command(app))
+    title = _("Remove {name}").format(name=app["name"])
+    body = _("Press the button at the right of its address bar. "
+             "The page goes back to being a tab in Firefox, and {name} leaves the start menu.").format(
+        name=app["name"])
+    if not notify(title, body):
+        print(f"{title}: {body}")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="Bring files over from a Windows disk.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
+    find = commands.add_parser("find", help="list Windows partitions without mounting")
+    find.add_argument("--json", action="store_true")
+    find.set_defaults(func=cmd_find)
+    scan = commands.add_parser("scan", help="mount read only and list the accounts' folders")
+    scan.add_argument("device")
+    scan.add_argument("--json", action="store_true")
+    scan.set_defaults(func=cmd_scan)
+    unlock = commands.add_parser("unlock", help="unlock BitLocker (the recovery key on stdin)")
+    unlock.add_argument("device")
+    unlock.set_defaults(func=cmd_unlock)
+    copy = commands.add_parser("copy", help="copy an account's folders")
+    copy.add_argument("device")
+    copy.add_argument("account")
+    copy.add_argument("folders", nargs="*", metavar="FOLDER", help=", ".join(FOLDER_NAMES))
+    copy.add_argument("--to", metavar="DIR", help="copy into DIR/Files from Windows/ACCOUNT")
+    copy.add_argument("--bookmarks", action="store_true", help="also the browsers' bookmarks")
+    copy.add_argument("--json", action="store_true", help="a line per event")
+    copy.set_defaults(func=cmd_copy)
+    rel = commands.add_parser("release", help="unmount and lock what flickos-switch opened")
+    rel.add_argument("device", nargs="?")
+    rel.set_defaults(func=cmd_release)
+    commands.add_parser("files", help="open the window").set_defaults(func=cmd_files)
+    commands.add_parser("before-install", help="before the installer: ask to copy files first "
+                        "when Windows is found").set_defaults(func=cmd_before_install)
+    identify = commands.add_parser("identify", help="what a Windows program says it is, without running it")
+    identify.add_argument("files", nargs="+", metavar="FILE")
+    identify.add_argument("--json", action="store_true")
+    identify.set_defaults(func=cmd_identify)
+    opener = commands.add_parser("open", help="the window for a Windows program")
+    opener.add_argument("file", metavar="FILE")
+    opener.set_defaults(func=cmd_open)
+    look = commands.add_parser("lookup", help="the Windows apps list's entries matching words")
+    look.add_argument("words", nargs="+", metavar="WORD")
+    look.add_argument("--json", action="store_true")
+    look.set_defaults(func=cmd_lookup)
+    webapp = commands.add_parser("webapp", help="Firefox's web apps").add_subparsers(
+        dest="webapp", metavar="list|add|remove", required=True)
+    web_list = webapp.add_parser("list", help="the web apps in Firefox's profiles")
+    web_list.add_argument("--json", action="store_true")
+    web_list.add_argument("--known", action="store_true",
+                          help="also the Windows apps list's web versions Firefox has no web app for")
+    web_list.set_defaults(func=cmd_webapp_list)
+    web_add = webapp.add_parser("add", help="open an address in Firefox to keep as a web app")
+    web_add.add_argument("url", metavar="URL")
+    web_add.add_argument("--name", help="what the notification calls it")
+    web_add.set_defaults(func=cmd_webapp_add)
+    web_remove = webapp.add_parser("remove", help="open a web app to remove it with Firefox's button")
+    web_remove.add_argument("id", metavar="ID")
+    web_remove.set_defaults(func=cmd_webapp_remove)
+    opts = parser.parse_args(argv)
+    if opts.command == "copy" and not opts.folders and not opts.bookmarks:
+        parser.error("copy needs a FOLDER or --bookmarks")
+    try:
+        return opts.func(opts)
+    except SwitchError as error:
+        warn(str(error))
+        return 1
+    except OSError as error:
+        if error.errno == errno.EPIPE:
+            return 0
+        warn(f"{getattr(error, 'filename', '') or ''}: {error.strerror or error}".lstrip(": "))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

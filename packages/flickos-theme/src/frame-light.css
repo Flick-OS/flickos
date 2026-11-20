@@ -1,0 +1,36 @@
+/* FlickOS window frame, light variant. Added after the theme's own CSS, for windows that
+   draw their own title bar (Thunar's header bar, Evince): labwc's theme can't
+   reach those. Same colors as the labwc theme (usr/share/themes/FlickOS-Arc/labwc/themerc):
+   #5294e2 at 50 % focused, #dcdfe3 unfocused. GTK 3 reads see-through colors only as rgba().
+
+   These rules come after the theme's, so a rule of equal weight wins over
+   theirs. That is why the maximized, tiled, pop-up and solid rules are
+   repeated, in arc-theme's order: without them an unfocused maximized window
+   gets a frame. tools/check-look.py compares the colors with labwc's border colors. */
+
+decoration {
+  box-shadow: 0 0 0 1px rgba(82, 148, 226, 0.5), 0 8px 8px 0 rgba(0, 0, 0, 0.2);
+}
+
+decoration:backdrop {
+  box-shadow: 0 0 0 1px #dcdfe3, 0 8px 8px 0 transparent, 0 5px 5px 0 rgba(0, 0, 0, 0.2);
+}
+
+.maximized decoration, .fullscreen decoration {
+  box-shadow: none;
+}
+
+.tiled decoration, .tiled-top decoration, .tiled-right decoration,
+.tiled-bottom decoration, .tiled-left decoration {
+  box-shadow: 0 0 0 1px rgba(82, 148, 226, 0.5), 0 0 0 20px transparent;
+}
+
+.tiled decoration:backdrop, .tiled-top decoration:backdrop,
+.tiled-right decoration:backdrop, .tiled-bottom decoration:backdrop,
+.tiled-left decoration:backdrop {
+  box-shadow: 0 0 0 1px #dcdfe3, 0 0 0 20px transparent;
+}
+
+.popup decoration, .solid-csd decoration {
+  box-shadow: none;
+}

@@ -10,16 +10,18 @@ Rules-Requires-Root: no
 Package: flickos-style-footprint
 Architecture: all
 # flickos-layouts 1.61: the dock's Exec("flickos/launcher") (Show Apps), and
-# 1.62: check --layout takes it as the apps button (the bar has none);
-# sfwbar +flickos7: a full-length dock below the top bar fits the screen;
+# 1.62: check --layout takes it as the apps button (the bar has none), and
+# 1.86: pinned add/remove take an app id (the right-click Pin/Unpin menu);
+# sfwbar +flickos7: a full-length dock below the top bar fits the screen, and
+# +flickos9: a right click on any app and WindowInfo pinned/appid (the menu);
 # gnome-themes-extra-data, adwaita-icon-theme and fonts-cantarell: the GTK
 # theme (Adwaita-dark), the icons and the font Footprint names;
 # adwaita-icon-theme-legacy: Adwaita's full-color icons for apps that name an
 # older icon (Settings, Software, ...), which otherwise fall back to a dark
 # grey symbolic one that vanishes on the dark apps grid (Adwaita only
 # recommends it, and FlickOS installs no recommends).
-Depends: flickos-layouts (>= 1.62),
-         sfwbar (>= 1.0~beta17+git20260910+flickos7),
+Depends: flickos-layouts (>= 1.86),
+         sfwbar (>= 1.0~beta17+git20260910+flickos9),
          gnome-themes-extra-data,
          adwaita-icon-theme,
          adwaita-icon-theme-legacy,

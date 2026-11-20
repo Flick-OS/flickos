@@ -1,0 +1,31 @@
+neatvnc for FlickOS
+===================
+
+Upstream: https://github.com/any1/neatvnc (ISC). This folder is Debian
+trixie's source package neatvnc 0.9.1+dfsg-1 (`apt-get source neatvnc`): the
+orig tarball with its debian/ folder, which has no patches. FlickOS builds it
+natively, like sfwbar.
+
+Why (docs/design/flickos-classroom-view.md, ADR-013): Debian's libneatvnc0
+is built with H.264, so it depends on libavcodec, libavfilter and libavutil,
+and Debian's wayvnc then adds 53 MB to a FlickOS install (libflite1 alone is
+27.6 MB). flickos-classroom-view starts wayvnc on a student's computer to
+show its screen to the teacher, which never uses H.264. Built without it,
+wayvnc adds 1.2 MB. Debian's own wayvnc runs on this library unchanged.
+
+Changes to Debian's packaging:
+  - debian/rules: meson -Dh264=disabled; no -dbgsym package (as sfwbar);
+    GIT_DIR pointed nowhere, or meson.build would put the FlickOS repo's
+    commit and branch into the version string; installs into debian/tmp,
+    and debian/not-installed lists the -dev files left there.
+  - debian/control: libavcodec-dev, libavfilter-dev and libavutil-dev left
+    out of Build-Depends; only libneatvnc0 is built (no libneatvnc-dev).
+  - debian/source/format: 3.0 (native); debian/watch removed.
+  - Version 0.9.1+dfsg+flickos1 and on: above Debian's 0.9.1+dfsg-1, so apt
+    takes this one; flickos-classroom-view depends on it by version.
+
+No change to upstream's code.
+
+To move to a new upstream or Debian release: `apt-get source neatvnc` in an
+empty folder, replace everything here but debian/changelog and this file,
+and make the changes above again.

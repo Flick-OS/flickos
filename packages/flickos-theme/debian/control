@@ -1,0 +1,23 @@
+Source: flickos-theme
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               libglib2.0-dev-bin,
+               libglib2.0-bin,
+               python3,
+               python3-gi,
+               sassc
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-theme
+Architecture: all
+Depends: ${misc:Depends}
+Description: FlickOS's GTK themes
+ FlickOS-Arc-Dark and FlickOS-Arc: arc-theme's GTK 3 and GTK 4 themes with
+ FlickOS's corners (6 px on controls, 8 px on pop-ups, dialogs and the window),
+ a header bar whose height is set in one place, and a sidebar in the window's
+ own colors in the light theme. The colors are Arc's. Built from arc-theme
+ 20221218's Sass (src/, debian/README.source), so it does not need arc-theme
+ installed, and both can be installed together.

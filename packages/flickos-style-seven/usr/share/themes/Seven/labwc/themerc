@@ -6,6 +6,13 @@ border.width: 4
 window.active.border.color: #8cbdf0bf
 window.inactive.border.color: #bcd7f3bf
 window.active.indicator.toggled-keybind.color: #fc4138
+
+# Shadows (<dropShadows> in rc.xml; Settings can turn them off)
+window.active.shadow.size: 40
+window.inactive.shadow.size: 20
+window.active.shadow.color: #00000060
+window.inactive.shadow.color: #00000030
+
 window.titlebar.padding.width: 6
 window.titlebar.padding.height: 0
 window.active.title.bg.color: #8cbdf0bf

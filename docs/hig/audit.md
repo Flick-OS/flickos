@@ -20,6 +20,7 @@ decision first.
 | flickos-control | [WIN-2](04-windows.md#win-2-must-one-window-per-program-and-session) | check | A second start prints "Settings is already open." and exits, but the open window doesn't come forward, so from the menu nothing seems to happen. flickos-welcome, the chooser and Software do the same | Find out whether labwc 0.8.3 lets the second process activate the first window (an xdg-activation token passed to it over a socket). If it can't, record the limit in `docs/design/flickos-control.md` |
 | flickos-control, flickos-phone, flickos-software | [CODE-1](10-code.md#code-1-must-one-program-one-python-file-standard-library), [PERF-1](08-performance.md#perf-1-must-meet-the-time-budgets) | decide | A script in `/usr/bin` gets no `.pyc`, so Python compiles it at every start: flickos-control's 7,200 lines take about 170 ms of its 0.88 s to the first frame (and of every `get`, which Quick Settings runs at each show), flickos-phone's 4,000 lines run again at every `status --panel`, flickos-software's 2,600 lines take about 160 ms of its `list` (about 300 ms in all, against PERF-1's 200 ms) and of the `plan` child each app page starts | An exception to CODE-1: the program stays one file, moved to a module (`/usr/share/flickos/NAME/NAME.py`, byte-compiled by `dh_python3` or `py3compile` in the package), with a two-line launcher in `/usr/bin`. Or accept the cost and write it into PERF-1 |
 | flickos-control | [PERF-3](08-performance.md#perf-3-must-build-first-read-later) | | Constructors still read: every settings page reads all 18 settings files (`load_values`), *Keyboard* the XKB rules (40 ms), *More Settings* asks the icon theme (110 ms, its first load). Since 1.32 they run after the first frame, one page per idle call, but each still holds the main loop that long | Read in `shown()`: the settings pages already read again there (`reload`), so the constructor can set the controls from the defaults; *Keyboard* fills its lists when shown |
+| Every FlickOS program but flickos-welcome, flickos-menu, flickos-greeter, flickos-switch and flickos-control | [TXT-10](05-writing.md#txt-10-should-mark-text-for-translation) | | Text isn't marked for translation, so the program shows English in every language | One package at a time, as in [docs/12](../12-translating.md#making-a-package-translatable-for-developers); first what everyone sees: flickos-lock, flickos-software, flickos-layout's chooser, then the menus (labwc's `menu.xml` needs a menu per language), the installer's slideshow and metainfo |
 | All GTK windows | [A11Y-7](07-accessibility.md#a11y-7-must-layouts-survive-larger-text-and-scaling) | check | Tried at text scale 1.5 in the headless harness (Settings, Welcome, the chooser, the classic and categories menus), all usable. Screen scale 2 and the grid menu aren't tried yet | Try screen scale 2 on a large output, and the Cupertino grid menu at text scale 1.5 |
 
 ## Fixed on 2026-09-26
@@ -85,7 +86,8 @@ its own session with no input (CODE-7); new dependencies are commented
 
 What the first audit looked at and found in line:
 
-- **WIN-1:** no program uses a header bar or client-side title bar.
+- **WIN-1:** no FlickOS program uses a header bar or client-side title bar
+  (Thunar's is WIN-1's exception).
 - **WIN-3:** Settings (900×660), Welcome (760×560), the chooser (620×680) and
   Settings' dialogs fit 1366×768.
 - **WIN-13, WIN-14:** removing a user asks with a named object, a *Remove*

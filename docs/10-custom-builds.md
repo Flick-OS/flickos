@@ -63,6 +63,15 @@ see" for the rest of the engagement.
 
 No new packages. Everything here is a supported override point.
 
+**The site folder.** `/etc/xdg/flickos-site/flickos/NAME.conf` goes over each
+file in the table below, key by key, and under the user's own choice. Nothing
+of FlickOS's is installed there, so a variant package (or flickos-fleet) can
+ship files in it without a conflict. `flickos-layout apply-defaults` applies a
+change to a running session. It needs flickos-settings 1.59, flickos-layouts
+1.87, flickos-control 1.72, flick-tiler 1.13 and flickos-welcome 1.10 (merged
+to main 2026-11-17, not yet published; until they are, the next paragraph
+still holds).
+
 **Conffiles.** Each is shipped by the package that owns the setting, and dpkg
 keeps local edits across upgrades — but see the warning below before planning
 to ship them in a variant package:
@@ -93,7 +102,8 @@ deleted file.
 without owning user files; a variant that writes into `$HOME` breaks every
 later layout change and `flickos-layout doctor` will report it as damage.
 
-**A variant package cannot ship those conffiles.** Those paths belong to
+**A variant package cannot ship those conffiles** (it ships site files
+instead, above). Those paths belong to
 FlickOS packages, and two packages cannot own one file: dpkg fails the install
 with *trying to overwrite ... which is also in package flickos-layouts*. Worse,
 `layouts.conf`, `tiler.conf`, `input.conf`, `keyboard.conf`, `idle.conf` and `zoom.conf` are
@@ -156,7 +166,7 @@ Everything that carries the name:
 | Root menu | `flickos-settings` `menu.xml` and `flickos-installer`'s live copy |
 | The logo: the panel's apps button, menus, Welcome | `flickos-branding` (`flickos.svg`, `flickos-symbolic.svg` in `/usr/share/icons/hicolor/`) |
 | Installed system's boot menu | `flickos-branding` (`/usr/share/flickos/grub/`) |
-| Dark and Light wallpapers (the halo drawn large) | `flickos-layouts` (`artwork/wallpaper-*.svg` → `styles/*/wallpaper.png`) |
+| The two halo wallpapers, choices in the Wallpaper app (the halo drawn large) | `flickos-layouts` (`artwork/wallpaper-dark.svg`, `-light.svg` → `/usr/share/backgrounds/flickos/flickos-dark.png`, `-light.png`) |
 | fastfetch's logo | `flickos-branding` (`/usr/share/flickos/fastfetch/flickos.txt`) |
 
 A changed system someone else hands out must replace every row
@@ -286,7 +296,10 @@ Found the hard way, all still true:
 Three small upstream changes would turn "fork the build repo" into
 "drop in three files". Worth doing before the second client, not the first:
 
-1. **A site config directory, and readers that look in it.** This one is a
+1. **A site config directory, and readers that look in it. Built on main
+   (2026-11-17, not yet published), see [Layer 1](#layer-1-site-defaults):
+   the readers use the fixed path `/etc/xdg/flickos-site/flickos/NAME.conf`
+   over their own file, not a search of `XDG_CONFIG_DIRS`.** This one is a
    prerequisite, not a nicety: without it a variant cannot set a single desktop
    default (see [Layer 1](#layer-1-site-defaults)). Two parts. `flickos-session`
    already prepends `/etc/xdg/flickos-live` to `XDG_CONFIG_DIRS` when it exists;

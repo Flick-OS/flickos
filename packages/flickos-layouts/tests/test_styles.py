@@ -6,6 +6,7 @@ tools/check-palette.py, because packages build separately.
 
 import configparser
 import contextlib
+import dataclasses
 import io
 import os
 import re
@@ -152,6 +153,14 @@ class GSettingsTest(EngineTest):
         self.assertEqual(self.gsettings, {"gtk-theme": "Arc-Dark", "icon-theme": "Numix-Circle",
                                           "color-scheme": "prefer-dark"})
 
+    def test_retired_themes_are_replaced_by_the_styles(self):
+        # The 2.x defaults (Arc-Dark, Arc) are not any installed style's theme
+        # now, but a style set still replaces them.
+        for old in sorted(fl.RETIRED_GTK_THEMES):
+            self.gsettings["gtk-theme"] = old
+            self.assertEqual(fl.style_gsettings(self.style("light"), fl.styles()), [])
+            self.assertEqual(self.gsettings["gtk-theme"], "Arc")
+
     def test_custom_theme_is_kept(self):
         self.gsettings["gtk-theme"] = "Adwaita"
         kept = fl.style_gsettings(self.style("light"), fl.styles())
@@ -164,6 +173,16 @@ class GSettingsTest(EngineTest):
         self.gsettings["icon-theme"] = "Papirus"
         [warning] = fl.doctor_warnings()
         self.assertIn("'Papirus'", warning)
+
+    def test_doctor_reports_prefer_dark_in_a_light_style(self):
+        self.write("home/.config/gtk-3.0/settings.ini",
+                   "[Settings]\ngtk-theme-name=Arc-Dark\ngtk-application-prefer-dark-theme=1\n")
+        self.write("home/.config/gtk-4.0/settings.ini", "[Settings]\ngtk-application-prefer-dark-theme=false\n")
+        self.assertEqual(fl.doctor_warnings(), [])     # Dark: the dark variant is what it wants anyway
+        with mock.patch.object(fl, "resolve_style", return_value=self.style("light")):
+            [warning] = fl.doctor_warnings()
+        self.assertTrue(warning.startswith(self.path("home/.config/gtk-3.0/settings.ini")), warning)
+        self.assertIn("Light style", warning)
 
     def test_real_gsettings_quoting(self):
         with mock.patch.object(fl.subprocess, "run") as run:
@@ -358,25 +377,49 @@ class ShippedStylesTest(unittest.TestCase):
     def test_themes(self):
         dark, light = self.styles["dark"], self.styles["light"]
         self.assertEqual((dark.gtk_theme, dark.icon_theme, dark.labwc_theme, dark.color_scheme),
-                         ("Arc-Dark", "Numix-Circle", "FlickOS-Arc-Dark", "prefer-dark"))
+                         ("FlickOS-Arc-Dark", "Numix-Circle", "FlickOS-Arc-Dark", "prefer-dark"))
         self.assertEqual((light.gtk_theme, light.icon_theme, light.labwc_theme, light.color_scheme),
-                         ("Arc", "Numix-Circle-Light", "FlickOS-Arc", "default"))
+                         ("FlickOS-Arc", "Numix-Circle-Light", "FlickOS-Arc", "default"))
 
     def test_palette_files_exist(self):
         for style in self.styles.values():
             for path in (style.waybar, style.foot, style.fuzzel, style.mako):
                 self.assertTrue(os.path.isabs(path) and os.path.isfile(path), path)
 
-    def test_every_style_has_a_linked_wallpaper(self):
+    def test_every_style_shows_the_linked_wallpaper(self):
+        """Dark and Light show one picture, in waypaper as flickos-shore.png."""
         with open(os.path.join(PACKAGE, "debian/links"), encoding="utf-8") as f:
             links = dict(line.split() for line in f if line.strip())
+        self.assertEqual(links, {"usr/share/flickos/styles/dark/wallpaper.png":
+                                 "usr/share/backgrounds/flickos/flickos-shore.png"})
+        with open(os.path.join(PACKAGE, next(iter(links))), "rb") as f:
+            linked = f.read()
         for style in self.styles.values():
             self.assertTrue(style.wallpaper and os.path.isfile(style.wallpaper), style.id)
+            self.assertFalse(os.path.islink(style.wallpaper), f"{style.id}: check refuses a link out of its folder")
             with open(style.wallpaper, "rb") as f:
-                self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n", f"{style.wallpaper}: not a PNG")
-            installed = os.path.relpath(style.wallpaper, PACKAGE)
-            self.assertEqual(links.get(installed), f"usr/share/backgrounds/flickos/flickos-{style.id}.png")
-        self.assertEqual(len(links), len(self.styles))
+                picture = f.read()
+            self.assertEqual(picture[:8], b"\x89PNG\r\n\x1a\n", f"{style.wallpaper}: not a PNG")
+            self.assertEqual(picture, linked, style.id)
+
+    def test_shipped_styles_have_no_errors_in_check(self):
+        """`style set` refuses a style with errors, so it couldn't be chosen."""
+        empty = tempfile.mkdtemp(prefix="flickos-layout-test-")
+        self.addCleanup(os.rmdir, empty)
+        with mock.patch.object(fl, "STYLES_DIR", STYLES), mock.patch.object(fl, "theme_installed", lambda k, n: True), \
+                mock.patch.dict(os.environ, {"XDG_DATA_HOME": empty, "XDG_DATA_DIRS": empty}), \
+                contextlib.redirect_stderr(io.StringIO()):
+            for style_id in self.styles:
+                errors = [p.message for p in fl.style_problems(style_id) if p.level == "error"]
+                self.assertEqual(errors, [], style_id)
+
+    def test_the_old_wallpapers_stay_where_waypaper_saved_them(self):
+        """Real files, not links to a style's: a user who picked one keeps it."""
+        for name in ("flickos-dark.png", "flickos-light.png", "flickos-home.png"):
+            path = os.path.join(PACKAGE, "usr/share/backgrounds/flickos", name)
+            self.assertFalse(os.path.islink(path), name)
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n", f"{name}: not a PNG")
 
     def test_same_keys_in_every_style(self):
         dark, light = self.styles["dark"], self.styles["light"]
@@ -395,3 +438,155 @@ class ShippedStylesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefaultLookTest(EngineTest):
+    """A default style or layout that isn't FlickOS's own (the site's layouts.conf,
+    flickos-fleet) reaches GTK too, for what the account never chose."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_light_style()
+        self.make_layout("flickos", order=10)
+        self.make_layout("mac", order=20, titlebar="close,iconify,max:")
+        self.gsettings.update({"gtk-theme": "Arc-Dark", "icon-theme": "Numix-Circle", "color-scheme": "prefer-dark"})
+        self.marker = os.path.join(fl.state_home(), "flickos", fl.DEFAULT_LOOK)
+        self.gsettings_defaults["button-layout"] = "appmenu:close"
+        self.gsettings["button-layout"] = "appmenu:close"
+
+    def main(self, *args):
+        with self.quiet(), contextlib.redirect_stdout(io.StringIO()) as out:
+            status = fl.main(list(args))
+        return status, out.getvalue()
+
+    def sync(self):
+        return fl.sync_default_look(fl.resolve_layout(fl.layouts()), fl.resolve_style(fl.styles()),
+                                    fl.resolve_buttons(), fl.layouts(), fl.styles())
+
+    def site_default(self, **values):
+        self.write("site/flickos/layouts.conf",
+                   "[Defaults]\n" + "".join(f"{key}={value}\n" for key, value in values.items()))
+
+    def test_the_default_style_reaches_gtk_once(self):
+        self.site_default(Style="light")
+        self.assertTrue(self.sync())
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc")
+        self.assertEqual(self.gsettings["icon-theme"], "Numix-Circle-Light")
+        self.assertEqual(self.gsettings["color-scheme"], "default")
+        self.gsettings["gtk-theme"] = "Arc-Dark"            # chosen again in Appearance
+        self.assertFalse(self.sync())
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
+
+    def test_a_changed_default_applies_again(self):
+        self.site_default(Style="light")
+        self.sync()
+        self.site_default(Style="dark")
+        self.assertTrue(self.sync())
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
+
+    def test_the_default_layout_sets_the_window_buttons(self):
+        self.site_default(Layout="mac")
+        self.assertTrue(self.sync())
+        self.assertEqual(self.gsettings["button-layout"], "close,minimize,maximize:")
+
+    def test_the_users_own_choice_is_left_alone(self):
+        self.site_default(Style="light", Layout="mac")
+        self.write("home/.config/flickos/style", "dark\n")
+        self.write("home/.config/flickos/layout", "flickos\n")
+        self.sync()
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
+        self.assertEqual(self.gsettings["button-layout"], "appmenu:close")
+
+    def test_a_theme_the_user_chose_elsewhere_is_kept(self):
+        self.site_default(Style="light")
+        self.gsettings["gtk-theme"] = "Adwaita"
+        self.sync()
+        self.assertEqual(self.gsettings["gtk-theme"], "Adwaita")
+
+    def test_without_gsettings_it_waits_for_the_next_login(self):
+        self.site_default(Style="light")
+        self.gsettings.clear()
+        self.assertFalse(self.sync())
+        self.assertFalse(os.path.exists(self.marker))
+
+    def test_login_applies_it(self):
+        self.site_default(Style="light")
+        self.assertEqual(self.main("prepare")[0], 0)
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc")
+        self.assertTrue(os.path.exists(self.marker))
+
+    def test_login_in_the_plain_session_changes_nothing(self):
+        self.site_default(Style="light")
+        os.environ["FLICKOS_PLAIN"] = "1"
+        self.main("prepare")
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
+        self.assertFalse(os.path.exists(self.marker))
+
+    def test_apply_defaults_in_the_session(self):
+        os.environ.update(WAYLAND_DISPLAY="wayland-0", LABWC_PID="1")
+        self.site_default(Style="light")
+        with mock.patch.object(fl.subprocess, "run") as run, mock.patch.object(fl, "restart_panel") as panel, \
+             mock.patch.object(fl, "restart_wallpaper") as wallpaper:
+            status, out = self.main("apply-defaults")
+        self.assertEqual((status, out), (0, "The defaults are applied.\n"))
+        self.assertEqual([c.args[0] for c in run.call_args_list], [["labwc", "--reconfigure"], ["makoctl", "reload"]])
+        panel.assert_called_once()
+        wallpaper.assert_called_once()
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc")
+        self.assertFalse(os.path.exists(self.path("home/.config/flickos/style")))     # no choice saved
+        self.assertTrue(os.path.exists(os.path.join(self.root, "xdg/foot/foot.ini")))   # the overlay follows
+        # Nothing about the look changed: the wallpaper isn't swapped again.
+        with mock.patch.object(fl.subprocess, "run"), mock.patch.object(fl, "restart_panel"), \
+             mock.patch.object(fl, "restart_wallpaper") as wallpaper:
+            self.main("apply-defaults")
+        wallpaper.assert_not_called()
+
+    def test_apply_defaults_outside_the_session(self):
+        self.site_default(Style="light")
+        status, out = self.main("apply-defaults")
+        self.assertEqual((status, out), (0, "The defaults apply at next login.\n"))
+        self.assertTrue(os.path.exists(os.path.join(self.root, "xdg/foot/foot.ini")))
+
+    def test_apply_defaults_in_the_plain_session_is_refused(self):
+        os.environ["FLICKOS_PLAIN"] = "1"
+        self.assertEqual(self.main("apply-defaults")[0], 1)
+
+
+class RetiredGtkThemeTest(EngineTest):
+    """move_retired_gtk_theme: once per account, the 2.x GTK theme names become
+    flickos-theme's."""
+
+    def setUp(self):
+        super().setUp()
+        self.marker = os.path.join(fl.state_home(), "flickos", fl.GTK_MOVED)
+        patcher = mock.patch.object(fl, "theme_installed", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.new = dataclasses.replace(self.style("dark"), gtk_theme="FlickOS-Arc-Dark")
+
+    def test_moves_once(self):
+        self.gsettings["gtk-theme"] = "Arc-Dark"
+        fl.move_retired_gtk_theme(self.new)
+        self.assertEqual(self.gsettings["gtk-theme"], "FlickOS-Arc-Dark")
+        self.assertTrue(os.path.exists(self.marker))
+        self.gsettings["gtk-theme"] = "Arc-Dark"      # chosen again in Appearance
+        fl.move_retired_gtk_theme(self.new)
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
+
+    def test_a_chosen_theme_is_kept(self):
+        self.gsettings["gtk-theme"] = "Adwaita"
+        fl.move_retired_gtk_theme(self.new)
+        self.assertEqual(self.gsettings["gtk-theme"], "Adwaita")
+        self.assertTrue(os.path.exists(self.marker))
+
+    def test_waits_while_the_new_theme_is_not_installed(self):
+        self.gsettings["gtk-theme"] = "Arc-Dark"
+        with mock.patch.object(fl, "theme_installed", return_value=False):
+            fl.move_retired_gtk_theme(self.new)
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
+        self.assertFalse(os.path.exists(self.marker))
+
+    def test_without_gsettings_it_waits(self):
+        self.gsettings.pop("gtk-theme", None)
+        fl.move_retired_gtk_theme(self.new)
+        self.assertFalse(os.path.exists(self.marker))

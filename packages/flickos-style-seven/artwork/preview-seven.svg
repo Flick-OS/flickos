@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="150" viewBox="0 0 1920 1200">
+  <!-- The seven layout's preview (tools/make-seven.py). -->
+  <svg width="1920" height="1200" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <!-- Seven's wallpaper (tools/make-seven.py): FlickOS's halo, as on Dark's
+       and Light's, over a sky. Rendered to the style's wallpaper.png. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1080" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b3f86"/>
+      <stop offset="0.55" stop-color="#1f73c9"/>
+      <stop offset="1" stop-color="#7ab8ee"/>
+    </linearGradient>
+    <radialGradient id="light" cx="1300" cy="560" r="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ray" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1300" cy="560" r="760" fill="url(#light)"/>
+  <g transform="rotate(-24 960 540)">
+    <rect x="-200" y="430" width="2400" height="70" fill="url(#ray)"/>
+    <rect x="-200" y="560" width="2400" height="26" fill="url(#ray)"/>
+    <rect x="-200" y="640" width="2400" height="140" fill="url(#ray)" opacity="0.6"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="1.5">
+    <circle cx="1300" cy="560" r="470" stroke-opacity="0.16"/>
+    <circle cx="1300" cy="560" r="640" stroke-opacity="0.11"/>
+    <circle cx="1300" cy="560" r="860" stroke-opacity="0.07"/>
+  </g>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+</svg>
+  <rect x="280" y="160" width="1080" height="760" rx="12" fill="#8cbdf0" fill-opacity="0.75"/>
+  <rect x="320" y="178" width="260" height="28" rx="6" fill="#000000" fill-opacity="0.7"/>
+  <rect x="1136" y="168" width="64" height="44" rx="8" fill="#e3eefa" stroke="#5f7fa3" stroke-width="3"/><rect x="1204" y="168" width="64" height="44" rx="8" fill="#e3eefa" stroke="#5f7fa3" stroke-width="3"/><rect x="1272" y="168" width="64" height="44" rx="8" fill="#d9584a" stroke="#5f7fa3" stroke-width="3"/>
+  <rect x="296" y="228" width="1048" height="676" fill="#f5f8fc"/>
+  <rect x="340" y="280" width="960" height="560" fill="#ffffff" stroke="#d5e1ee" stroke-width="3"/>
+  <rect y="1104" width="1920" height="96" fill="#0e2a4c" fill-opacity="0.7"/>
+  <rect y="1104" width="1920" height="3" fill="#ffffff" fill-opacity="0.3"/>
+  <circle cx="70" cy="1152" r="40" fill="#2f7fd1" stroke="#0b2440" stroke-width="3"/>
+  <ellipse cx="70" cy="1134" rx="28" ry="16" fill="#ffffff" fill-opacity="0.35"/>
+  <circle cx="70" cy="1152" r="18" fill="none" stroke="#ffb13d" stroke-width="6"/>
+  <rect x="150" y="1112" width="118" height="80" rx="8" fill="#ffffff" fill-opacity="0.3" stroke="#ffffff" stroke-opacity="0.4" stroke-width="3"/><rect x="185" y="1128" width="48" height="48" rx="8" fill="#2f7fd1"/><rect x="280" y="1112" width="118" height="80" rx="8" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.4" stroke-width="3"/><rect x="315" y="1128" width="48" height="48" rx="8" fill="#f27835"/><rect x="410" y="1112" width="118" height="80" rx="8" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.4" stroke-width="3"/><rect x="445" y="1128" width="48" height="48" rx="8" fill="#5fa83a"/>
+  <circle cx="1560" cy="1152" r="13" fill="#ffffff"/><circle cx="1616" cy="1152" r="13" fill="#ffffff"/><circle cx="1672" cy="1152" r="13" fill="#ffffff"/>
+  <rect x="1740" y="1126" width="110" height="22" rx="5" fill="#ffffff"/>
+  <rect x="1730" y="1158" width="130" height="20" rx="5" fill="#ffffff" fill-opacity="0.8"/>
+  <rect x="1886" y="1104" width="34" height="96" fill="#ffffff" fill-opacity="0.08"/>
+</svg>

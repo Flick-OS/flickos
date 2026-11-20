@@ -1,0 +1,3 @@
+usr/bin/flickos-lock            usr/bin/
+usr/share/flickos/lock/*        usr/share/flickos/lock/
+etc/pam.d/flickos-lock          etc/pam.d/

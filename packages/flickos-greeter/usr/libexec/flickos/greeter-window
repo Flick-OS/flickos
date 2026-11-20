@@ -1,0 +1,1565 @@
+#!/usr/bin/python3
+"""The FlickOS login screen's window (docs/design/flickos-greeter.md).
+
+greetd runs /usr/libexec/flickos/greeter as the user _greetd, which starts the
+cage kiosk compositor with this window. It lists the computer's users, asks
+for a password and has greetd start the chosen session. It never sees PAM:
+greetd does the checking (greetd-ipc(7) over $GREETD_SOCK).
+
+What it shows:
+- The users with a UID from UID_MIN to UID_MAX (/etc/login.defs) and a real
+  shell, by full name, with accountsservice's picture or their initial;
+  *Someone Else…* for a name typed by hand. The last user to log in is
+  picked when the window opens, straight into the password box (ADR-005).
+- The sessions: FlickOS, FlickOS (Plain Session), then the other Wayland
+  sessions except bare labwc (ADR-006). Each user's last one is picked again.
+- One card (clock, date, picture, name, password box) on one screen: the
+  built-in one, found by its EDID size, else the first (ADR-003, ADR-007).
+- Shut Down and Restart through logind, each with a second click, and the
+  keyboard layout while the system has more than one (ADR-009). cage's
+  XKB_DEFAULT_* say which: the layout can only be shown here, cage changes it.
+- Its own zoom, Super+=, Super+-, Super+0 and Super+scroll (ADR-007).
+- The background: the Dark wallpaper, or the picture Settings > Login Screen
+  chose (Background=), and the card on the left, in the middle or on the
+  right of its screen (Position=), from CONF_FILES (ADR-014, ADR-015).
+
+What it remembers: STATE (owned by _greetd), the last user, each user's last
+session and the zoom, written only after greetd accepted the session.
+
+It exits 0 only after greetd accepted the session; any other ending (an
+error, a bug) is non-zero, and the greeter script then runs gtkgreet instead
+(ADR-010). Text people read is translated with gettext (domain
+flickos-greeter); PAM's own messages through PAM's domain, Linux-PAM.
+
+Usage:
+  greeter-window           the login screen (needs $GREETD_SOCK and a display)
+  greeter-window --check   print the users and sessions it would offer (the
+                           boot test): "user<TAB>NAME<TAB>FULL NAME",
+                           "session<TAB>ID<TAB>NAME<TAB>COMMAND",
+                           "background<TAB>FILE", "position<TAB>PLACE" and,
+                           with more than one layout,
+                           "layout<TAB>SHORT<TAB>NAME" and "switch<TAB>KEY"
+                           lines
+
+Exit codes: 0 logged in (or --check), 1 error, 2 usage error.
+"""
+
+import argparse
+import configparser
+import contextlib
+import gettext
+import json
+import os
+import pwd
+import re
+import shlex
+import shutil
+import socket
+import struct
+import sys
+import threading
+import time
+
+NAME = "flickos-greeter"
+# Testing hook (unit tests): a root to read /etc, /usr, /var and /sys below.
+PREFIX = os.environ.get("FLICKOS_GREETER_PREFIX", "")
+LOGIN_DEFS = PREFIX + "/etc/login.defs"
+SESSIONS_DIR = PREFIX + "/usr/share/wayland-sessions"
+ICONS_DIR = PREFIX + "/var/lib/AccountsService/icons"   # the only pictures _greetd can read (G4)
+DRM_DIR = PREFIX + "/sys/class/drm"
+WALLPAPER = PREFIX + "/usr/share/flickos/styles/dark/wallpaper.png"   # flickos-layouts', the Dark style's
+STYLE = PREFIX + "/usr/share/flickos/greeter/style.css"
+STATE = PREFIX + "/var/lib/greetd/flickos/state"        # _greetd's home is /var/lib/greetd
+# Background= and Position=: the package's defaults (a conffile, for custom
+# builds), then the choice flickos-control's helper writes; the later wins.
+CONF_FILES = (PREFIX + "/etc/xdg/flickos/greeter.conf", PREFIX + "/etc/flickos/greeter")
+LOCALE_DIR = PREFIX + "/usr/share/locale"
+XKB_RULES = PREFIX + "/usr/share/X11/xkb/rules/evdev.xml"   # xkb-data's names of layouts and options
+
+UID_RANGE = (1000, 60000)           # when login.defs has no UID_MIN/UID_MAX
+NO_SHELLS = ("nologin", "false")    # accounts with these can't log in: not listed
+LIST_MAX = 8                        # rows before the user list scrolls
+LIST_PICTURE = 64                   # pixels: a picture in the list
+PICTURE_PIXELS = 96                 # the picked user's picture (flickos-lock's)
+ROW_PIXELS = LIST_PICTURE + 12      # a list row with its margins
+PICTURE_SHARE = 4                   # a picture grows to at most 1/4 of the screen's height
+ICON_PIXELS = 16                    # the card's and bottom row's icons at 100% zoom
+CARD_SPACING = 12                   # pixels between the card's parts
+DIM = 0.3                           # the theme's background over the wallpaper (flickos-lock's)
+CARD_ALPHA = 0.9                    # style.css's card (flickos-lock's)
+MARGIN = 16                         # pixels: the bottom row from the screen's edges
+REVEAL_SECONDS = 30                 # a shown password is hidden again after this without a key
+MM_TOLERANCE = 10                   # EDID sizes are in cm: a screen matches within this many mm
+BUILTIN_CONNECTORS = ("eDP", "LVDS", "DSI")       # a laptop's own screen (ADR-003)
+CLOCK_FORMATS = {"24h": "%H:%M", "12h": "%-I:%M %p"}   # flickos-lock's; from the locale (G5)
+TWELVE_HOUR = re.compile(r"%[rIl]")                    # in T_FMT: the locale's clock is 12h
+ZOOM_STEPS = (100, 150, 200, 300)   # percent (flickos-lock's)
+# Position=: where the card's middle sits, in quarters of its screen's width (ADR-015).
+POSITIONS = {"left": 1, "center": 2, "right": 3}
+DEFAULT_POSITION = "center"
+# The only pictures loaded as the background: GdkPixbuf never sees another kind (ADR-014).
+PICTURE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")
+ZOOM_KEYS = {"equal": 1, "plus": 1, "KP_Add": 1, "minus": -1, "KP_Subtract": -1, "0": 0}   # with Super
+CONFIRM_SECONDS = 4                 # flickos-menu's: how long a power button waits for its second click
+LOGIND = ("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager")
+# The usual first prompt, answered with the typed password, so never shown.
+PASSWORD_PROMPT = "Password:"
+
+# Translations: English when there is none for the system's language.
+_ = gettext.translation(NAME, LOCALE_DIR, fallback=True).gettext
+
+
+def N_(text):
+    """Marks text for the translation template; _() translates it where it is shown."""
+    return text
+
+
+def pam_text(text):
+    """A message from PAM in the system's language: greetd's worker has no
+    LANG, so PAM sends English (G5), and PAM's own translations have it."""
+    return gettext.dgettext("Linux-PAM", text)
+
+
+# ID: (name, command, XDG_SESSION_DESKTOP, XDG_CURRENT_DESKTOP). The two
+# FlickOS sessions first; the plain one has no desktop file (ADR-006).
+SESSIONS = {
+    "flickos": ("FlickOS", "flickos-session", "flickos", "labwc:wlroots"),
+    "flickos-plain": (N_("FlickOS (Plain Session)"), "flickos-session-plain", "flickos", "labwc:wlroots"),
+}
+DEFAULT_SESSION = "flickos"
+# Desktop files never offered: FlickOS's own (in SESSIONS), and bare labwc,
+# which starts with no panel and no menu (a black screen with no way out).
+HIDDEN_SESSIONS = ("flickos.desktop", "labwc.desktop")
+
+# ID: (name, symbolic icon, logind's method). No Sleep (ADR-009).
+POWER = (
+    ("restart", N_("Restart"), "system-reboot-symbolic", "Reboot"),
+    ("shutdown", N_("Shut Down"), "system-shutdown-symbolic", "PowerOff"),
+)
+# flickos-menu's words: the first click only arms the button (TwoStep).
+CONFIRM = {
+    "restart": N_("Click again to restart"),
+    "shutdown": N_("Click again to shut down"),
+}
+# Translators: the date under the clock, as strftime writes it
+# (%A weekday, %-d day, %B month), e.g. "%A, %-d. %B" in German.
+DATE_FORMAT = N_("%A %-d %B")
+TEXT = {
+    "title": N_("Log In"),
+    "password": N_("Password"),
+    "user name": N_("User name"),
+    "someone else": N_("Someone Else…"),
+    "back": N_("Choose Another User"),
+    "log in": N_("Log In"),
+    "show": N_("Show password (Alt+V)"),
+    "hide": N_("Hide password (Alt+V)"),
+    "session": N_("Session"),
+    "caps": N_("Caps Lock is on"),
+    "checking": N_("Checking…"),
+    "no name": N_("Type a user name."),
+    "wrong": N_("Wrong password. Try again."),
+    "expired": N_("Your password has expired. Press Ctrl+Alt+F1 and log in there to choose a new one."),
+    "denied": N_("This account can't log in now. Ask whoever looks after this computer."),
+    "error": N_("Couldn't log in ({error}). Try again."),
+    "power": N_("Shut Down or Restart"),
+    "going restart": N_("Restarting…"),
+    "going shutdown": N_("Shutting down…"),
+    # Translators: {who} is a program's name, {why} its own reason, in English.
+    "blocked restart": N_("{who} is keeping the computer from restarting ({why}). Log in to restart."),
+    "blocked shutdown": N_("{who} is keeping the computer from shutting down ({why}). Log in to shut down."),
+    "failed restart": N_("Couldn't restart ({error}). Try again."),
+    "failed shutdown": N_("Couldn't shut down ({error}). Try again."),
+    "keyboard": N_("Keyboard Layout"),
+    # Translators: {layout} is a keyboard layout's name, {key} a key or keys,
+    # such as Alt+Shift, both in xkeyboard-config's words.
+    "layout key": N_("Keyboard layout: {layout}. Press {key} to change it."),
+    "layout": N_("Keyboard layout: {layout}."),
+}
+
+
+class GreeterError(Exception):
+    """An expected failure, shown as one line."""
+
+
+def warn(text):
+    print(f"{NAME}: {text}", file=sys.stderr, flush=True)
+
+
+# --- users ----------------------------------------------------------------------------
+
+def login_defs(path=None):
+    """(UID_MIN, UID_MAX) from login.defs, UID_RANGE where it doesn't say."""
+    low, high = UID_RANGE
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        with open(path or LOGIN_DEFS, encoding="utf-8") as f:
+            for line in f:
+                words = line.split()
+                if len(words) >= 2 and words[0] in ("UID_MIN", "UID_MAX"):
+                    with contextlib.suppress(ValueError):
+                        if words[0] == "UID_MIN":
+                            low = int(words[1])
+                        else:
+                            high = int(words[1])
+    return low, high
+
+
+def display_name(entry):
+    """The full name of a passwd entry (GECOS up to the first comma), else the login name."""
+    return entry.pw_gecos.split(",")[0].strip() or entry.pw_name
+
+
+def users(entries, uid_range):
+    """The passwd entries to list, by full name."""
+    low, high = uid_range
+    found = [e for e in entries if low <= e.pw_uid <= high
+             and os.path.basename(e.pw_shell or "") not in NO_SHELLS]
+    return sorted(found, key=lambda e: (display_name(e).casefold(), e.pw_name))
+
+
+def picture_file(name):
+    """accountsservice's picture of a user, or None: home folders are 0700,
+    so ~/.face isn't readable here (G4)."""
+    path = os.path.join(ICONS_DIR, name)
+    return path if os.path.isfile(path) and os.access(path, os.R_OK) else None
+
+
+def initial(entry):
+    """The letter on a user's circle without a picture."""
+    return display_name(entry)[:1].upper() or "?"
+
+
+# --- sessions --------------------------------------------------------------------------
+
+def sessions(folder=None):
+    """[(id, name, command, XDG_SESSION_DESKTOP, XDG_CURRENT_DESKTOP)]:
+    SESSIONS, then the other desktop files in the folder by name."""
+    found = [(key, *value) for key, value in SESSIONS.items()]
+    folder = folder or SESSIONS_DIR
+    with contextlib.suppress(OSError):
+        names = sorted(os.listdir(folder))
+        others = []
+        for name in names:
+            if not name.endswith(".desktop") or name in HIDDEN_SESSIONS:
+                continue
+            parser = configparser.ConfigParser(interpolation=None, strict=False)
+            parser.optionxform = str
+            try:
+                parser.read(os.path.join(folder, name), encoding="utf-8")
+                entry = parser["Desktop Entry"]
+            except (configparser.Error, KeyError, UnicodeDecodeError):
+                continue
+            if entry.get("Hidden") == "true" or entry.get("NoDisplay") == "true":
+                continue
+            try_exec = entry.get("TryExec", "")
+            if try_exec and not shutil.which(try_exec):
+                continue
+            words = session_words(entry.get("Exec", ""))
+            if not words:
+                continue
+            desktops = entry.get("DesktopNames", "").strip(";").replace(";", ":")
+            others.append((name[:-len(".desktop")], entry.get("Name", name), shlex.join(words),
+                           name[:-len(".desktop")], desktops))
+        found += sorted(others, key=lambda s: s[1].casefold())
+    return found
+
+
+def session_words(command):
+    """A desktop file's Exec as an argument list, field codes (%f…) left out."""
+    try:
+        return [word for word in shlex.split(command) if not re.fullmatch(r"%[a-zA-Z]", word)]
+    except ValueError:
+        return []
+
+
+def session_request(session):
+    """greetd's start_session for a session: the command is the session's,
+    never anything typed (ADR-004)."""
+    _id, _name, command, desktop, current = session
+    env = ["XDG_SESSION_TYPE=wayland", f"XDG_SESSION_DESKTOP={desktop}"]
+    if current:
+        env.append(f"XDG_CURRENT_DESKTOP={current}")
+    return {"type": "start_session", "cmd": shlex.split(command), "env": env}
+
+
+def find_session(found, key):
+    """The session with this id, else FlickOS (a session that went away)."""
+    return next((s for s in found if s[0] == key), None) or next(s for s in found if s[0] == DEFAULT_SESSION)
+
+
+# --- the administrator's choices -----------------------------------------------------
+
+def read_config(paths=None):
+    """{"background": FILE or None, "position": PLACE} from CONF_FILES:
+    KEY=value lines, # starts a comment, the later file wins. A missing or
+    broken file, or a value that can't be, is the default (SET-4)."""
+    found = {"background": None, "position": DEFAULT_POSITION}
+    for path in paths or CONF_FILES:
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeDecodeError) as error:
+            warn(f"{path}: {error}")
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = (part.strip() for part in line.split("=", 1))
+            value = value.strip("\"'")
+            if key == "Background":
+                found["background"] = value if os.path.isabs(value) else None
+            elif key == "Position":
+                if value in POSITIONS:
+                    found["position"] = value
+                else:
+                    warn(f"{path}: Position={value}: not one of {', '.join(POSITIONS)}")
+    return found
+
+
+def background_file(config):
+    """The picture to draw: the chosen one while it can be read and is a PNG
+    or a JPEG, else the Dark wallpaper (ADR-014)."""
+    chosen = config.get("background")
+    if not chosen:
+        return WALLPAPER
+    path = PREFIX + chosen if PREFIX else chosen
+    if not os.path.isfile(path):            # also never a FIFO or a device: open() could wait
+        warn(f"Background={chosen}: not a file: the Dark wallpaper instead")
+        return WALLPAPER
+    try:
+        with open(path, "rb") as f:
+            start = f.read(8)
+    except OSError as error:
+        warn(f"Background={chosen}: {error.strerror}: the Dark wallpaper instead")
+        return WALLPAPER
+    if not start.startswith(PICTURE_MAGIC):
+        warn(f"Background={chosen}: not a PNG or JPEG picture: the Dark wallpaper instead")
+        return WALLPAPER
+    return path
+
+
+# --- what is remembered -------------------------------------------------------------
+
+def read_state(path=None):
+    """{"last": NAME, "sessions": {NAME: ID}, "zoom": PERCENT}; a missing or
+    broken file is empty."""
+    try:
+        with open(path or STATE, encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = None
+    if not isinstance(state, dict):
+        return {"last": None, "sessions": {}, "zoom": ZOOM_STEPS[0]}
+    sessions_ = state.get("sessions")
+    return {"last": state.get("last") if isinstance(state.get("last"), str) else None,
+            "sessions": {k: v for k, v in sessions_.items() if isinstance(k, str) and isinstance(v, str)}
+            if isinstance(sessions_, dict) else {},
+            "zoom": state.get("zoom") if state.get("zoom") in ZOOM_STEPS else ZOOM_STEPS[0]}
+
+
+def remember(name, session_id, zoom, path=None):
+    """After greetd accepted the session: the last user, their session and
+    the zoom, written atomically (SET-6) in a folder only _greetd reads."""
+    path = path or STATE
+    state = read_state(path)
+    state["last"] = name
+    state["sessions"][name] = session_id
+    state["zoom"] = zoom
+    folder = os.path.dirname(path)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    temporary = os.path.join(folder, f".{os.path.basename(path)}.{os.getpid()}.tmp")
+    with open(temporary, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+        f.write("\n")
+    os.replace(temporary, path)
+
+
+# --- the clock ----------------------------------------------------------------------
+
+def clock_format(t_fmt):
+    """flickos-lock's 12h or 24h format, as the system's locale writes times
+    (en_US's T_FMT is %r, en_GB's and de_DE's %T)."""
+    return CLOCK_FORMATS["12h" if TWELVE_HOUR.search(t_fmt or "") else "24h"]
+
+
+# --- zoom ---------------------------------------------------------------------------
+
+def next_zoom(current, step):
+    """The zoom after Super+= (step 1), Super+- (-1) or Super+0 (0)."""
+    if step == 0:
+        return ZOOM_STEPS[0]
+    index = min(range(len(ZOOM_STEPS)), key=lambda i: abs(ZOOM_STEPS[i] - current))
+    return ZOOM_STEPS[max(0, min(len(ZOOM_STEPS) - 1, index + step))]
+
+
+def zoom_css(percent):
+    """On the whole window, so the bottom row and the menus grow with the card."""
+    return f".flickos-greeter {{ font-size: {percent}%; }}\n"
+
+
+# --- power --------------------------------------------------------------------------
+
+class TwoStep:
+    """Which power button waits for its second click (CONFIRM). GTK-free:
+    show_armed shows it, and it is disarmed after CONFIRM_SECONDS."""
+
+    def __init__(self):
+        self.armed = None
+
+    def click(self, item_id):
+        """"arm" for the first click of a CONFIRM item, else "run"; a click on
+        any other button disarms the armed one."""
+        if item_id in CONFIRM and item_id != self.armed:
+            self.armed = item_id
+            return "arm"
+        self.armed = None
+        return "run"
+
+    def disarm(self):
+        self.armed = None
+
+
+def blocked_by(inhibitors):
+    """(who, why) of the first block inhibitor of a shutdown, or None, from
+    logind's ListInhibitors: (what, who, why, mode, uid, pid) with WHAT a
+    colon-separated list."""
+    for what, who, why, mode, _uid, _pid in inhibitors:
+        if mode == "block" and "shutdown" in what.split(":"):
+            return who, why
+    return None
+
+
+# --- the keyboard layout ------------------------------------------------------------
+
+def xkb_names(root):
+    """From evdev.xml's root: {(layout, variant): (short name, name)} and
+    {option: name}. A variant without a short name has its layout's."""
+    layouts, options = {}, {}
+    for layout in root.iterfind("layoutList/layout"):
+        name = layout.findtext("configItem/name")
+        short = layout.findtext("configItem/shortDescription") or name
+        layouts[(name, "")] = (short, layout.findtext("configItem/description") or name)
+        for variant in layout.iterfind("variantList/variant"):
+            layouts[(name, variant.findtext("configItem/name"))] = (
+                variant.findtext("configItem/shortDescription") or short,
+                variant.findtext("configItem/description") or name)
+    for option in root.iterfind("optionList/group/option"):
+        options[option.findtext("configItem/name")] = option.findtext("configItem/description")
+    return layouts, options
+
+
+def keyboard(layout, variant, options, path=None):
+    """([(short name, name)] of cage's layouts, the key that switches them)
+    from XKB_DEFAULT_*: nothing with a single layout, which needs no label.
+    The names are xkeyboard-config's, in its translations; a layout or option
+    its rules don't know shows as it is written."""
+    codes = [code.strip() for code in layout.split(",")]
+    if len(codes) < 2:
+        return [], ""
+    import xml.etree.ElementTree                  # only with two layouts: the usual start needs none
+    try:
+        names, option_names = xkb_names(xml.etree.ElementTree.parse(path or XKB_RULES).getroot())
+    except (OSError, xml.etree.ElementTree.ParseError) as error:
+        warn(f"can't read the keyboard layouts' names ({error})")
+        names, option_names = {}, {}
+    variants = [word.strip() for word in variant.split(",")] + [""] * len(codes)
+    found = []
+    for code, word in zip(codes, variants):
+        short, name = names.get((code, word)) or names.get((code, "")) or (code, code)
+        found.append((short.upper(), gettext.dgettext("xkeyboard-config", name)))
+    option = next((word.strip() for word in options.split(",") if word.strip().startswith("grp:")), "")
+    key = option_names.get(option) or option.removeprefix("grp:")
+    return found, gettext.dgettext("xkeyboard-config", key) if key else ""
+
+
+def group_after(name, shown, group, count):
+    """The layout to show after a key press: GDK's GROUP, which it learns
+    only at the next key, so a key that switches layouts moves SHOWN on
+    instead (G6). A group it can't be is left out: the first key's can be
+    anything."""
+    if name == "ISO_Next_Group":
+        return (shown + 1) % count
+    if name == "ISO_Prev_Group":
+        return (shown - 1) % count
+    if name == "ISO_First_Group":
+        return 0
+    if name == "ISO_Last_Group":
+        return count - 1
+    return group if group < count else shown
+
+
+# --- screens -----------------------------------------------------------------------
+
+def builtin_sizes(folder=None):
+    """[(width mm, height mm)] of the connected built-in screens, from their
+    EDID (bytes 21 and 22, in cm): GTK 3 has no connector names (G2)."""
+    found = []
+    folder = folder or DRM_DIR
+    with contextlib.suppress(OSError):
+        for name in sorted(os.listdir(folder)):
+            connector = name.split("-", 1)[1] if name.startswith("card") and "-" in name else ""
+            if not connector.startswith(BUILTIN_CONNECTORS):
+                continue
+            try:
+                with open(os.path.join(folder, name, "status"), encoding="ascii") as f:
+                    if f.read().strip() != "connected":
+                        continue
+                with open(os.path.join(folder, name, "edid"), "rb") as f:
+                    edid = f.read(128)
+            except (OSError, UnicodeDecodeError):
+                continue
+            if len(edid) >= 23 and edid[21] and edid[22]:
+                found.append((edid[21] * 10, edid[22] * 10))
+    return found
+
+
+def choose_monitor(sizes, builtin):
+    """The index of the monitor for the card: the one whose size (mm) matches
+    a built-in screen's; the first when none or more than one does."""
+    matches = [index for index, (width, height) in enumerate(sizes)
+               if any(abs(width - w) <= MM_TOLERANCE and abs(height - h) <= MM_TOLERANCE
+                      for w, h in builtin)]
+    return matches[0] if len(matches) == 1 else 0
+
+
+def card_position(monitors, chosen, size, place=DEFAULT_POSITION):
+    """(x, y) in the window of a child of SIZE on monitor CHOSEN, its middle
+    at a quarter, a half or three quarters of the screen's width (PLACE,
+    ADR-015), centered from top to bottom. Left and right keep MARGIN from
+    the screen's edge, or are in the middle when the card is wider. MONITORS are (x, y, width, height); cage's window
+    covers them all, from their top-left corner."""
+    left = min(m[0] for m in monitors)
+    top = min(m[1] for m in monitors)
+    x, y, width, height = monitors[chosen]
+    if place in ("left", "right") and size[0] + 2 * MARGIN <= width:
+        offset = (width * POSITIONS[place] - 2 * size[0]) // 4
+        offset = max(min(offset, width - size[0] - MARGIN), MARGIN)
+    else:                                   # also a card wider than its screen
+        offset = (width - size[0]) // 2
+    return (max(0, x - left + offset), max(0, y - top + (height - size[1]) // 2))
+
+
+def bottom_position(monitors, chosen, size):
+    """(x, y) of the session button: the bottom-left corner of monitor CHOSEN."""
+    left = min(m[0] for m in monitors)
+    top = min(m[1] for m in monitors)
+    x, y, _width, height = monitors[chosen]
+    return (x - left + MARGIN, max(0, y - top + height - size[1] - MARGIN))
+
+
+def corner_position(monitors, chosen, size):
+    """(x, y) of the layout and power buttons: the bottom-right corner of
+    monitor CHOSEN."""
+    left = min(m[0] for m in monitors)
+    top = min(m[1] for m in monitors)
+    x, y, width, height = monitors[chosen]
+    return (max(0, x - left + width - size[0] - MARGIN), max(0, y - top + height - size[1] - MARGIN))
+
+
+# --- greetd -------------------------------------------------------------------------
+
+class Greetd:
+    """greetd-ipc: a 32-bit length in native byte order, then UTF-8 JSON, both ways."""
+
+    def __init__(self, path=None, sock=None):
+        if sock is None:
+            path = path or os.environ.get("GREETD_SOCK")
+            if not path:
+                raise GreeterError("GREETD_SOCK is not set: greetd starts the login screen")
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.connect(path)
+            except OSError as error:
+                sock.close()
+                raise GreeterError(f"can't reach greetd at {path} ({error.strerror})") from None
+        self.sock = sock
+
+    def _read(self, size):
+        data = b""
+        while len(data) < size:
+            chunk = self.sock.recv(size - len(data))
+            if not chunk:
+                raise GreeterError("greetd closed the connection")
+            data += chunk
+        return data
+
+    def call(self, request):
+        payload = json.dumps(request).encode("utf-8")
+        self.sock.sendall(struct.pack("=I", len(payload)) + payload)
+        size, = struct.unpack("=I", self._read(4))
+        return json.loads(self._read(size).decode("utf-8"))
+
+
+class Conversation:
+    """One login: what to send greetd next, and what to show, for each reply
+    (ADR-004). greetd's messages lead; nothing assumes how many there are.
+
+    The typed password answers PAM's first secret prompt; anything after it
+    is asked on the card. After an auth_error the session is cancelled, so
+    the next try starts clean (greetd answers that cancel with an error that
+    still clears its state, G1). Events: ("ask", "secret"|"visible", text),
+    ("info", text), ("wrong",), ("expired",), ("denied",), ("error", text),
+    ("started",), None."""
+
+    def __init__(self, name, password, session):
+        self.name, self.password, self.session = name, password, session
+        self.password_used = False
+        self.waiting = None                  # the prompt the card shows, while it waits
+        self.finished = False
+
+    def first(self):
+        return {"type": "create_session", "username": self.name}
+
+    def answer(self, text):
+        """The card's answer to the prompt it showed."""
+        self.waiting = None
+        return {"type": "post_auth_message_response", "response": text}
+
+    def cancel(self):
+        self.finished = True
+        return {"type": "cancel_session"}
+
+    def reply(self, request, reply):
+        """(next request or None, event or None) for greetd's REPLY to REQUEST."""
+        kind = reply.get("type")
+        if request["type"] == "cancel_session":
+            self.finished = True
+            return None, None
+        if kind == "auth_message":
+            message_type, text = reply.get("auth_message_type"), reply.get("auth_message", "")
+            if message_type == "secret" and not self.password_used:
+                self.password_used = True
+                return self.answer(self.password), None
+            if message_type in ("secret", "visible"):
+                self.waiting = message_type
+                return None, ("ask", message_type, text)
+            return {"type": "post_auth_message_response"}, ("info", text)
+        if kind == "success":
+            if request["type"] == "start_session":
+                self.finished = True
+                return None, ("started",)
+            return session_request(self.session), None
+        description = reply.get("description", "")
+        if reply.get("error_type") == "auth_error":
+            if "NEW_AUTHTOK_REQD" in description:
+                event = ("expired",)
+            elif description.startswith("pam_authenticate"):
+                event = ("wrong",)
+            else:
+                event = ("denied",)
+        else:
+            event = ("error", description)
+        return self.cancel(), event
+
+
+# --- the window ---------------------------------------------------------------------
+
+def load_gtk():
+    """Gtk, Gdk, GdkPixbuf, GLib, Gio, Pango, PangoCairo, or GreeterError."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GdkPixbuf", "2.0")
+        gi.require_version("Pango", "1.0")
+        gi.require_version("PangoCairo", "1.0")
+        gi.require_foreign("cairo")
+        from gi.repository import GLib
+        GLib.set_prgname(NAME)
+        from gi.repository import Gdk, GdkPixbuf, Gio, Gtk, Pango, PangoCairo
+    except (ImportError, ValueError) as error:
+        raise GreeterError(f"GTK 3 is not available ({error})") from None
+    return Gtk, Gdk, GdkPixbuf, GLib, Gio, Pango, PangoCairo
+
+
+class Face:
+    """A user's round picture, or their initial on a circle in the theme's
+    selected color; avatar-default's place for Someone Else."""
+
+    def __init__(self, ui, size):
+        self.ui = ui
+        self.pixbuf, self.letter = None, "?"
+        self.area = ui.Gtk.DrawingArea()
+        self.set_size(size)
+        self.area.set_halign(ui.Gtk.Align.CENTER)
+        self.area.connect("draw", self.draw)
+
+    def set_size(self, size):
+        self.area.set_size_request(size, size)
+
+    def show(self, pixbuf, letter):
+        self.pixbuf, self.letter = pixbuf, letter
+        self.area.queue_draw()
+
+    def draw(self, widget, cr):
+        width, height = widget.get_allocated_width(), widget.get_allocated_height()
+        radius = min(width, height) / 2
+        cr.arc(width / 2, height / 2, radius, 0, 6.283185307179586)
+        cr.clip()
+        if self.pixbuf is not None:
+            pixbuf = self.pixbuf                # one size for every zoom: it covers the circle
+            scale = max(width / pixbuf.get_width(), height / pixbuf.get_height())
+            cr.translate((width - pixbuf.get_width() * scale) / 2, (height - pixbuf.get_height() * scale) / 2)
+            cr.scale(scale, scale)
+            self.ui.Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0)
+            cr.paint()
+            return True
+        context = widget.get_style_context()
+        _found, back = context.lookup_color("theme_selected_bg_color")
+        _found, fore = context.lookup_color("theme_selected_fg_color")
+        cr.set_source_rgba(back.red, back.green, back.blue, 1)
+        cr.paint()
+        Pango, PangoCairo = self.ui.Pango, self.ui.PangoCairo
+        font = context.get_property("font", context.get_state()).copy()
+        font.set_absolute_size(radius * 0.9 * Pango.SCALE)
+        font.set_weight(Pango.Weight.BOLD)
+        layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(font)
+        layout.set_text(self.letter, -1)
+        text_width, text_height = layout.get_pixel_size()
+        cr.set_source_rgba(fore.red, fore.green, fore.blue, 1)
+        cr.move_to((width - text_width) / 2, (height - text_height) / 2)
+        PangoCairo.show_layout(cr, layout)
+        return True
+
+
+class LoginScreen:
+    """One window across every screen (cage); the card and the bottom row on
+    one of them (ADR-003)."""
+
+    def __init__(self, gtk, greetd):
+        self.Gtk, self.Gdk, self.GdkPixbuf, self.GLib, self.Gio, self.Pango, self.PangoCairo = gtk
+        self.greetd = greetd
+        self.users, self.pictures = [], {}
+        self.sessions = [(key, *value) for key, value in SESSIONS.items()]   # until read() has the rest
+        self.state = {"last": None, "sessions": {}}
+        self.user = None                    # the picked passwd entry, None for Someone Else
+        self.session = self.sessions[0]
+        self.conversation = None
+        self.busy_now = False
+        self.shown = False
+        self.reveal_timer = None
+        self.wallpaper = None
+        self.clock_format = clock_format(_locale_t_fmt())
+        self.builtin = []
+        self.started = False
+        self.bus = None                     # the system bus, once connected
+        self.step = TwoStep()               # the power button waiting for its second click
+        self.step_timer = None
+        self.layouts, self.switch_key, self.group = [], "", 0
+        self.zoom = ZOOM_STEPS[0]
+        self.zoomed = []                    # (setter, size at 100%) of what isn't sized by the font
+        self.clock_room = {}                # zoom -> pixels the clock and date take on the card
+        # Two small files, read before the window shows so the card doesn't
+        # jump to its place a moment later (the picture loads in read()).
+        self.config = read_config()
+
+    # Building (PERF-3: nothing read here; read() runs in a thread).
+
+    def build(self):
+        Gtk, Gdk = self.Gtk, self.Gdk
+        provider = Gtk.CssProvider()
+        try:
+            provider.load_from_path(STYLE)
+        except self.GLib.Error as error:
+            warn(f"{STYLE}: {error.message}")
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.zoom_provider = Gtk.CssProvider()
+        self.zoom_provider.load_from_data(zoom_css(self.zoom).encode())
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), self.zoom_provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.window = Gtk.Window(title=_(TEXT["title"]))
+        self.window.get_style_context().add_class("flickos-greeter")
+        self.window.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        self.window.connect("key-press-event", self.on_key)
+        self.window.connect("key-release-event", self.on_key_release)
+        self.window.connect("scroll-event", self.on_scroll)
+        self.window.connect("destroy", lambda _w: Gtk.main_quit())
+        overlay = Gtk.Overlay()
+        self.area = Gtk.DrawingArea()
+        self.area.connect("draw", self.draw_background)
+        overlay.add(self.area)
+        self.window.add(overlay)
+
+        # Placed by their top-left margins on the chosen screen (place()): an
+        # overlay child gets its natural size there, a Gtk.Fixed child only
+        # its minimum, which squeezes the scrolled list.
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=CARD_SPACING,
+                            halign=Gtk.Align.START, valign=Gtk.Align.START)
+        self.card.get_style_context().add_class("card")
+        self.clock = self.label("", "clock")
+        self.date = self.label("", "date")
+        self.card.pack_start(self.clock, False, False, 0)
+        self.card.pack_start(self.date, False, False, 0)
+        self.stack = Gtk.Stack(homogeneous=False, transition_type=Gtk.StackTransitionType.NONE)
+        self.stack.add_named(self.build_list(), "list")
+        self.stack.add_named(self.build_picked(), "picked")
+        self.card.pack_start(self.stack, False, False, 0)
+        # Under both pages: a refused Shut Down needs saying on the list too.
+        self.message = self.label("", "message")
+        self.message.set_line_wrap(True)
+        self.message.set_max_width_chars(36)
+        self.message.set_justify(Gtk.Justification.CENTER)
+        self.message.set_no_show_all(True)
+        self.card.pack_start(self.message, False, False, 0)
+        overlay.add_overlay(self.card)
+
+        self.bottom = Gtk.Box(spacing=6, halign=Gtk.Align.START, valign=Gtk.Align.START)
+        self.bottom.get_style_context().add_class("bottom")
+        self.session_button = Gtk.MenuButton()
+        box = Gtk.Box(spacing=6)
+        box.pack_start(self.icon("emblem-system-symbolic"), False, False, 0)
+        self.session_label = Gtk.Label()
+        self.session_label.set_no_show_all(True)
+        box.pack_start(self.session_label, False, False, 0)
+        self.session_button.add(box)
+        self.session_button.set_tooltip_text(_(TEXT["session"]))
+        self.session_button.get_accessible().set_name(_(TEXT["session"]))
+        self.bottom.pack_start(self.session_button, False, False, 0)
+        overlay.add_overlay(self.bottom)
+        self.fill_session_menu()
+        self.corner = Gtk.Box(spacing=6, halign=Gtk.Align.START, valign=Gtk.Align.START)
+        self.corner.get_style_context().add_class("bottom")
+        self.corner.pack_start(self.build_layout(), False, False, 0)
+        self.corner.pack_start(self.build_power(), False, False, 0)
+        overlay.add_overlay(self.corner)
+
+        display = Gdk.Display.get_default()
+        display.connect("monitor-added", self.on_monitor_added)
+        display.connect("monitor-removed", lambda _d, _m: self.screens_changed())
+        for index in range(display.get_n_monitors()):
+            display.get_monitor(index).connect("notify::geometry", lambda *_a: self.screens_changed())
+        self.window.connect("size-allocate", lambda *_a: self.place_later())
+        self.card.connect("size-allocate", lambda *_a: self.place_later())
+        self.bottom.connect("size-allocate", lambda *_a: self.place_later())
+        self.corner.connect("size-allocate", lambda *_a: self.place_later())
+        Gdk.Keymap.get_for_display(display).connect("state-changed", lambda _k: self.show_caps())
+        self.connect_bus()
+        self.stack.set_visible_child_name("list")
+        self.window.show_all()
+        self.show_caps()
+        self.tick()
+        threading.Thread(target=self.read, args=(self.monitor_sizes(),), daemon=True).start()
+
+    def label(self, text, style):
+        label = self.Gtk.Label(label=text)
+        label.get_style_context().add_class(style)
+        return label
+
+    def build_list(self):
+        Gtk = self.Gtk
+        self.user_list = Gtk.ListBox()
+        self.user_list.get_style_context().add_class("users")
+        self.user_list.connect("row-activated", lambda _box, row: self.pick(row.entry))
+        self.scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.scroller.set_propagate_natural_height(True)
+        self.scroller.set_propagate_natural_width(True)   # else names are cut to the list's minimum
+        self.scroller.set_max_content_height(LIST_MAX * ROW_PIXELS)
+        self.scroller.add(self.user_list)
+        return self.scroller
+
+    def user_row(self, entry):
+        """A row of the list: picture and full name; entry None: Someone Else."""
+        Gtk = self.Gtk
+        row = Gtk.ListBoxRow()
+        row.entry = entry
+        box = Gtk.Box(spacing=12, margin=6)
+        if entry is None:
+            box.pack_start(self.avatar(LIST_PICTURE), False, False, 0)
+            name = _(TEXT["someone else"])
+        else:
+            face = Face(self, LIST_PICTURE)
+            self.zoomed.append((face.set_size, LIST_PICTURE))
+            face.show(self.pictures.get(entry.pw_name), initial(entry))
+            box.pack_start(face.area, False, False, 0)
+            name = display_name(entry)
+        label = Gtk.Label(label=name, xalign=0)
+        label.set_ellipsize(self.Pango.EllipsizeMode.END)
+        box.pack_start(label, True, True, 0)
+        box.pack_start(self.icon("go-next-symbolic"), False, False, 0)
+        row.add(box)
+        row.name = name
+        return row
+
+    def icon(self, name):
+        """A symbolic icon that grows with the zoom, as the text does."""
+        image = self.Gtk.Image.new_from_icon_name(name, self.Gtk.IconSize.BUTTON)
+        image.set_pixel_size(ICON_PIXELS)
+        self.zoomed.append((image.set_pixel_size, ICON_PIXELS))
+        return image
+
+    def avatar(self, size):
+        image = self.Gtk.Image.new_from_icon_name("avatar-default", self.Gtk.IconSize.DIALOG)
+        image.set_pixel_size(size)
+        self.zoomed.append((image.set_pixel_size, size))
+        return image
+
+    def build_picked(self):
+        Gtk = self.Gtk
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.back = Gtk.Button(image=self.icon("go-previous-symbolic"))
+        self.back.set_halign(Gtk.Align.START)
+        self.back.set_relief(Gtk.ReliefStyle.NONE)
+        self.back.set_tooltip_text(_(TEXT["back"]))
+        self.back.get_accessible().set_name(_(TEXT["back"]))
+        self.back.connect("clicked", lambda _b: self.show_list())
+        self.face = Face(self, PICTURE_PIXELS)
+        self.zoomed.append((self.face.set_size, PICTURE_PIXELS))
+        self.someone = self.avatar(PICTURE_PIXELS)
+        self.someone.set_no_show_all(True)
+        self.name = self.label("", "name")
+        self.name_entry = Gtk.Entry(placeholder_text=_(TEXT["user name"]))
+        self.name_entry.get_accessible().set_name(_(TEXT["user name"]))
+        self.name_entry.set_no_show_all(True)
+        self.name_entry.connect("activate", lambda _e: self.entry.grab_focus())
+        row = Gtk.Box(spacing=6)
+        self.entry = Gtk.Entry(visibility=False, width_chars=24, placeholder_text=_(TEXT["password"]))
+        self.entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        self.entry.set_property("caps-lock-warning", False)     # the eye has its icon slot
+        self.entry.get_accessible().set_name(_(TEXT["password"]))
+        self.entry.connect("activate", lambda _e: self.log_in())
+        self.entry.connect("icon-press", lambda *_a: self.set_shown(not self.shown))
+        self.entry.connect("changed", lambda _e: self.shown and self.set_shown(True))
+        self.go = Gtk.Button(image=self.icon("go-next-symbolic"))
+        self.go.set_tooltip_text(_(TEXT["log in"]))
+        self.go.get_accessible().set_name(_(TEXT["log in"]))
+        self.go.connect("clicked", lambda _b: self.log_in())
+        row.pack_start(self.entry, True, True, 0)
+        row.pack_start(self.go, False, False, 0)
+        self.spinner = Gtk.Spinner()
+        self.spinner.set_no_show_all(True)
+        self.caps = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        self.caps.pack_start(self.icon("dialog-warning-symbolic"), False, False, 0)
+        self.caps.pack_start(self.label(_(TEXT["caps"]), "caps"), False, False, 0)
+        self.caps.set_no_show_all(True)
+        for child in self.caps.get_children():
+            child.show()
+        for part in (self.back, self.face.area, self.someone, self.name, self.name_entry, row,
+                     self.spinner, self.caps):
+            page.pack_start(part, False, False, 0)
+        self.set_eye()
+        return page
+
+    def build_layout(self):
+        """The layout's short name, shown only with more than one (show_layout).
+        A button so that Tab reaches it and a touch screen can read what its
+        tooltip says; it can't change the layout, only cage can (ADR-009)."""
+        Gtk = self.Gtk
+        self.layout_button = Gtk.MenuButton(direction=Gtk.ArrowType.UP)
+        self.layout_button.get_accessible().set_name(_(TEXT["keyboard"]))
+        self.layout_label = Gtk.Label()
+        self.layout_label.show()
+        self.layout_button.add(self.layout_label)
+        self.layout_text = Gtk.Label(wrap=True, max_width_chars=36, margin=12)
+        self.layout_text.show()
+        popover = Gtk.Popover()
+        popover.add(self.layout_text)
+        self.layout_button.set_popover(popover)
+        self.layout_button.set_no_show_all(True)
+        return self.layout_button
+
+    def build_power(self):
+        """The power icon and its pop-up. A popover, not a Gtk.Menu: a menu
+        closes at the first click, and these need a second (ADR-009)."""
+        Gtk = self.Gtk
+        self.power_button = Gtk.MenuButton(direction=Gtk.ArrowType.UP)
+        self.power_button.add(self.icon("system-shutdown-symbolic"))
+        self.power_button.set_tooltip_text(_(TEXT["power"]))
+        self.power_button.get_accessible().set_name(_(TEXT["power"]))
+        self.power_menu = Gtk.Popover()
+        self.power_menu.connect("closed", lambda _p: self.disarm())
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin=6)
+        self.power_items = {}               # id -> (button, label, text)
+        for item in POWER:
+            key, text, icon, _method = item
+            row = Gtk.Box(spacing=8)
+            row.pack_start(self.icon(icon), False, False, 0)
+            label = Gtk.Label(label=_(text), xalign=0)
+            row.pack_start(label, True, True, 0)
+            button = Gtk.Button(relief=Gtk.ReliefStyle.NONE)
+            button.add(row)
+            button.connect("clicked", lambda _b, item=item: self.power_click(item))
+            box.pack_start(button, False, False, 0)
+            self.power_items[key] = (button, label, _(text))
+        box.show_all()
+        self.power_menu.add(box)
+        self.power_button.set_popover(self.power_menu)
+        return self.power_button
+
+    # Reading users, pictures, sessions and the state, off the main loop.
+
+    def read(self, sizes):
+        found = users(pwd.getpwall(), login_defs())
+        pictures = {}
+        size = PICTURE_PIXELS * ZOOM_STEPS[-1] // 100      # sharp at every zoom, in the list too
+        for entry in found:
+            path = picture_file(entry.pw_name)
+            if path:
+                with contextlib.suppress(self.GLib.Error):
+                    pictures[entry.pw_name] = self.GdkPixbuf.Pixbuf.new_from_file_at_scale(path, size, size, True)
+        result = (found, pictures, sessions(), read_state(), builtin_sizes(), keyboard_from_environment())
+        self.GLib.idle_add(self.have_read, result)
+        self.load_wallpaper(sizes)
+
+    def have_read(self, result):
+        self.users, self.pictures, self.sessions, self.state, self.builtin, (self.layouts, self.switch_key) = result
+        for entry in [*self.users, None]:
+            self.user_list.add(self.user_row(entry))
+        self.user_list.show_all()
+        self.fill_session_menu()
+        self.set_zoom(self.state["zoom"])
+        self.show_layout()
+        last = next((e for e in self.users if e.pw_name == self.state["last"]), None)
+        if last:
+            self.pick(last)
+        else:
+            self.show_list()
+        self.place_later()
+        return False
+
+    def load_wallpaper(self, sizes):
+        """The chosen picture or the Dark wallpaper (ADR-014), decoded at the
+        size it covers the largest screen at, never larger than the file
+        (G8). A chosen picture that can't be decoded: the Dark wallpaper."""
+        chosen = background_file(self.config)
+        for path in dict.fromkeys((chosen, WALLPAPER)):
+            pixbuf = self.decode_wallpaper(path, sizes)
+            if pixbuf is not None:
+                self.GLib.idle_add(self.wallpaper_loaded, pixbuf)
+                return
+
+    def decode_wallpaper(self, path, sizes):
+        GdkPixbuf = self.GdkPixbuf
+        try:
+            _info, width, height = GdkPixbuf.Pixbuf.get_file_info(path)
+            if not width:
+                warn(f"{path}: not a picture")
+                return None
+            need = max((max(w / width, h / height) for w, h in sizes), default=1.0)
+            scale = min(1.0, need)
+            return GdkPixbuf.Pixbuf.new_from_file_at_scale(path, max(1, round(width * scale)),
+                                                           max(1, round(height * scale)), True)
+        except (self.GLib.Error, TypeError) as error:
+            warn(f"{path}: {getattr(error, 'message', error)}")
+            return None
+
+    def wallpaper_loaded(self, pixbuf):
+        self.wallpaper = pixbuf
+        self.area.queue_draw()
+        return False
+
+    # Screens: where the card and the bottom row go.
+
+    def monitors(self):
+        display = self.Gdk.Display.get_default()
+        found = []
+        for index in range(display.get_n_monitors()):
+            monitor = display.get_monitor(index)
+            geometry = monitor.get_geometry()
+            found.append((geometry.x, geometry.y, geometry.width, geometry.height,
+                          monitor.get_width_mm(), monitor.get_height_mm()))
+        return [m for m in found if m[2] > 0 and m[3] > 0]   # a new monitor has no size yet (G2)
+
+    def monitor_sizes(self):
+        display = self.Gdk.Display.get_default()
+        return [(m[2] * display.get_monitor(i).get_scale_factor(), m[3] * display.get_monitor(i).get_scale_factor())
+                for i, m in enumerate(self.monitors())]
+
+    def on_monitor_added(self, _display, monitor):
+        monitor.connect("notify::geometry", lambda *_a: self.screens_changed())
+        self.screens_changed()
+
+    def screens_changed(self):
+        self.area.queue_draw()
+        self.set_zoom(self.zoom)            # the pictures' limit is the screen's
+
+    def place_later(self):
+        self.GLib.idle_add(self.place)
+
+    def card_screen(self):
+        """(the screens' rectangles, the index of the card's), or ([], 0)."""
+        monitors = self.monitors()
+        if not monitors:
+            return [], 0
+        return [m[:4] for m in monitors], choose_monitor([(m[4], m[5]) for m in monitors], self.builtin)
+
+    def fit_clock(self, height):
+        """At a big zoom on a small screen the card can't hold everything:
+        the clock and date go first, so the password box stays on the screen.
+        A hidden label measures 0, so their room is kept from when they showed."""
+        _minimum, natural = self.card.get_preferred_size()
+        used = natural.height - self.card.get_margin_top() - self.card.get_margin_bottom()
+        labels = (self.clock, self.date)
+        if self.clock.get_visible():
+            self.clock_room[self.zoom] = sum(label.get_preferred_height()[1] + CARD_SPACING for label in labels)
+        else:
+            used += self.clock_room[self.zoom]
+        for label in labels:
+            label.set_visible(used <= height)
+
+    def place(self):
+        rectangles, chosen = self.card_screen()
+        if not rectangles:
+            return False
+        self.fit_clock(rectangles[chosen][3])
+        row = ROW_PIXELS * self.zoom // 100
+        rows = max(2, min(LIST_MAX, (rectangles[chosen][3] - 6 * row) // row))
+        if self.scroller.get_max_content_height() != rows * row:
+            self.scroller.set_max_content_height(rows * row)
+        place = self.config["position"]
+        for child, position in ((self.card, lambda *a: card_position(*a, place)), (self.bottom, bottom_position),
+                                (self.corner, corner_position)):
+            _minimum, natural = child.get_preferred_size()     # margins included: taken off
+            size = (natural.width - child.get_margin_start() - child.get_margin_end(),
+                    natural.height - child.get_margin_top() - child.get_margin_bottom())
+            where = position(rectangles, chosen, size)
+            if (child.get_margin_start(), child.get_margin_top()) != where:
+                child.set_margin_start(where[0])
+                child.set_margin_top(where[1])
+        return False
+
+    def draw_background(self, widget, cr):
+        """The wallpaper covering each screen, under DIM of the theme's
+        background; the background alone until it is loaded."""
+        _found, bg = widget.get_style_context().lookup_color("theme_bg_color")
+        cr.set_source_rgba(bg.red, bg.green, bg.blue, 1)
+        cr.paint()
+        pixbuf = self.wallpaper
+        monitors = self.monitors()
+        if pixbuf is None or not monitors:
+            return False
+        left, top = min(m[0] for m in monitors), min(m[1] for m in monitors)
+        for x, y, width, height, _w, _h in monitors:
+            scale = max(width / pixbuf.get_width(), height / pixbuf.get_height())
+            cr.save()
+            cr.rectangle(x - left, y - top, width, height)
+            cr.clip()
+            cr.translate(x - left + (width - pixbuf.get_width() * scale) / 2,
+                         y - top + (height - pixbuf.get_height() * scale) / 2)
+            cr.scale(scale, scale)
+            self.Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0)
+            cr.paint()
+            cr.restore()
+        cr.set_source_rgba(bg.red, bg.green, bg.blue, DIM)
+        cr.paint()
+        return False
+
+    # Sessions.
+
+    def fill_session_menu(self):
+        Gtk = self.Gtk
+        menu = Gtk.Menu()
+        menu.get_style_context().add_class("flickos-greeter")     # a window of its own: for the zoom
+        group = None
+        for session in self.sessions:
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(group, _(session[1]))
+            group = group or item
+            item.set_active(session[0] == self.session[0])
+            item.connect("toggled", lambda i, s=session: i.get_active() and self.set_session(s))
+            menu.append(item)
+        menu.show_all()
+        self.session_button.set_popup(menu)
+        self.session_menu = menu
+
+    def set_session(self, session):
+        self.session = session
+        other = session[0] != DEFAULT_SESSION
+        self.session_label.set_text(_(session[1]) if other else "")
+        self.session_label.set_visible(other)            # WIN-9: only when it isn't FlickOS
+        for item in self.session_menu.get_children():
+            if item.get_label() == _(session[1]) and not item.get_active():
+                item.set_active(True)
+        self.place_later()
+
+    # The two pages.
+
+    def show_list(self):
+        self.end_conversation()
+        self.say("")
+        self.stack.set_visible_child_name("list")
+        row = next((r for r in self.user_list.get_children()
+                    if self.user is not None and r.entry is not None and r.entry.pw_name == self.user.pw_name), None)
+        row = row or self.user_list.get_row_at_index(0)
+        if row:
+            self.user_list.select_row(row)
+            row.grab_focus()
+        self.place_later()
+
+    def pick(self, entry):
+        """A user from the list (None: Someone Else): the password box."""
+        self.end_conversation()
+        self.user = entry
+        self.entry.set_text("")
+        self.set_shown(False)
+        self.say("")
+        self.someone.set_visible(entry is None)
+        self.face.area.set_visible(entry is not None)
+        self.name.set_visible(entry is not None)
+        self.name_entry.set_visible(entry is None)
+        self.name_entry.set_text("")
+        if entry is not None:
+            self.face.show(self.pictures.get(entry.pw_name), initial(entry))
+            self.name.set_text(display_name(entry))
+            self.set_session(find_session(self.sessions, self.state["sessions"].get(entry.pw_name)))
+        else:
+            self.set_session(find_session(self.sessions, DEFAULT_SESSION))
+        self.stack.set_visible_child_name("picked")
+        (self.name_entry if entry is None else self.entry).grab_focus()
+        self.place_later()
+
+    # Logging in (ADR-004).
+
+    def log_in(self):
+        if self.busy_now:
+            return
+        if self.conversation is not None and self.conversation.waiting:
+            self.send(self.conversation.answer(self.entry.get_text()))
+            return
+        name = self.user.pw_name if self.user is not None else self.name_entry.get_text().strip()
+        if not name:
+            self.say(_(TEXT["no name"]))
+            self.name_entry.grab_focus()
+            return
+        self.conversation = Conversation(name, self.entry.get_text(), self.session)
+        self.say(_(TEXT["checking"]))
+        self.send(self.conversation.first())
+
+    def end_conversation(self):
+        """Another user, or back to the list, halfway through a login."""
+        conversation, self.conversation = self.conversation, None
+        if conversation is not None and not conversation.finished:
+            request = conversation.cancel()
+            threading.Thread(target=self.call_quietly, args=(request,), daemon=True).start()
+
+    def call_quietly(self, request):
+        with contextlib.suppress(OSError, GreeterError, ValueError):
+            self.greetd.call(request)
+
+    def send(self, request):
+        self.busy(True)
+        conversation = self.conversation
+
+        def run():
+            try:
+                reply = self.greetd.call(request)
+            except (OSError, GreeterError, ValueError) as error:
+                reply = {"type": "error", "error_type": "error", "description": str(error)}
+            self.GLib.idle_add(self.replied, conversation, request, reply)
+        threading.Thread(target=run, daemon=True).start()
+
+    def replied(self, conversation, request, reply):
+        if conversation is not self.conversation:
+            return False                    # given up while greetd answered
+        following, event = conversation.reply(request, reply)
+        if event:
+            self.show_event(event)
+        if following is not None:
+            self.send(following)
+        else:
+            self.busy(False)
+            if conversation.finished and not self.started:
+                self.conversation = None
+                self.entry.grab_focus()
+        return False
+
+    def show_event(self, event):
+        kind = event[0]
+        if kind == "ask":
+            _kind, how, text = event
+            self.entry.set_text("")
+            self.set_shown(how == "visible")
+            self.say("" if text.strip() == PASSWORD_PROMPT else pam_text(text.strip()))
+        elif kind == "info":
+            self.say(pam_text(event[1].strip()))
+        elif kind == "started":
+            self.started = True
+            name = self.conversation.name
+            with contextlib.suppress(OSError):
+                remember(name, self.session[0], self.zoom)
+            self.Gtk.main_quit()
+        else:
+            self.entry.set_text("")
+            self.set_shown(False)
+            if kind == "error":
+                warn(f"greetd: {event[1]}")
+                self.say(_(TEXT["error"]).format(error=event[1]))
+            else:
+                self.say(_(TEXT[kind]))
+
+    def busy(self, busy):
+        self.busy_now = busy
+        for widget in (self.entry, self.go, self.name_entry, self.back):
+            widget.set_sensitive(not busy)
+        self.spinner.set_visible(busy)
+        (self.spinner.start if busy else self.spinner.stop)()
+
+    def say(self, text):
+        self.message.set_text(text)
+        self.message.set_visible(bool(text))
+
+    # Showing the password, Caps Lock.
+
+    def set_eye(self):
+        position = self.Gtk.EntryIconPosition.SECONDARY
+        self.entry.set_icon_from_icon_name(position, "view-conceal-symbolic" if self.shown
+                                           else "view-reveal-symbolic")
+        self.entry.set_icon_tooltip_text(position, _(TEXT["hide"] if self.shown else TEXT["show"]))
+
+    def set_shown(self, shown):
+        self.shown = shown
+        self.entry.set_visibility(shown)
+        self.set_eye()
+        if self.reveal_timer:
+            self.GLib.source_remove(self.reveal_timer)
+            self.reveal_timer = None
+        if shown:
+            self.reveal_timer = self.GLib.timeout_add_seconds(REVEAL_SECONDS, self.hide_after_wait)
+
+    def hide_after_wait(self):
+        self.reveal_timer = None
+        self.set_shown(False)
+        return False
+
+    def show_caps(self):
+        on = self.Gdk.Keymap.get_for_display(self.Gdk.Display.get_default()).get_caps_lock_state()
+        self.caps.set_visible(on)
+
+    # Shut Down and Restart (ADR-009).
+
+    def power_click(self, item):
+        if self.step.click(item[0]) == "arm":
+            self.show_armed()
+            if self.step_timer is not None:
+                self.GLib.source_remove(self.step_timer)
+            self.step_timer = self.GLib.timeout_add_seconds(CONFIRM_SECONDS, self.step_timeout)
+            return
+        self.disarm()
+        self.power_menu.popdown()
+        self.power_button.set_sensitive(False)     # logind takes it from here, or answers power_refused
+        self.say(_(TEXT[f"going {item[0]}"]))
+        self.bus.call(LOGIND[0], LOGIND[1], LOGIND[2], item[3], self.GLib.Variant("(b)", (False,)), None,
+                      self.Gio.DBusCallFlags.NONE, -1, None, self.power_answered, item)
+
+    def power_answered(self, bus, result, item):
+        try:
+            bus.call_finish(result)
+        except self.GLib.Error as error:
+            warn(f"logind refused {item[3]}: {error.message}")
+            bus.call(LOGIND[0], LOGIND[1], LOGIND[2], "ListInhibitors", None, None,
+                     self.Gio.DBusCallFlags.NONE, -1, None, self.power_refused, (item, error.message))
+
+    def power_refused(self, bus, result, refusal):
+        """What logind refused for: another user's block inhibitor (G3), or
+        whatever it said."""
+        (key, *_rest), message = refusal
+        try:
+            blocked = blocked_by(bus.call_finish(result).unpack()[0])
+        except self.GLib.Error:
+            blocked = None
+        self.power_button.set_sensitive(True)
+        if blocked:
+            self.say(_(TEXT[f"blocked {key}"]).format(who=blocked[0], why=blocked[1]))
+        else:
+            self.say(_(TEXT[f"failed {key}"]).format(error=message))
+
+    def step_timeout(self):
+        self.step_timer = None
+        self.disarm()
+        return False                        # GLib timeout: once
+
+    def disarm(self):
+        if self.step_timer is not None:
+            self.GLib.source_remove(self.step_timer)
+            self.step_timer = None
+        self.step.disarm()
+        self.show_armed()
+
+    def show_armed(self):
+        for key, (button, label, text) in self.power_items.items():
+            context = button.get_style_context()
+            if key == self.step.armed:
+                context.add_class("destructive-action")
+                label.set_text(_(CONFIRM[key]))
+            else:
+                context.remove_class("destructive-action")
+                label.set_text(text)
+
+    # The keyboard layout (ADR-009).
+
+    def show_layout(self):
+        if not self.layouts:
+            return
+        short, name = self.layouts[self.group]
+        text = (_(TEXT["layout key"]).format(layout=name, key=self.switch_key) if self.switch_key
+                else _(TEXT["layout"]).format(layout=name))
+        self.layout_label.set_text(short)
+        self.layout_text.set_text(text)
+        self.layout_button.set_tooltip_text(text)
+        self.layout_button.show()
+
+    def set_group(self, group):
+        if group != self.group:
+            self.group = group
+            self.show_layout()
+
+    # Zoom (ADR-007).
+
+    def set_zoom(self, percent):
+        self.zoom = percent
+        self.zoom_provider.load_from_data(zoom_css(percent).encode())
+        if percent not in self.clock_room:  # shown once to measure it (fit_clock)
+            self.clock.show()
+            self.date.show()
+        rectangles, chosen = self.card_screen()
+        limit = rectangles[chosen][3] // PICTURE_SHARE if rectangles else PICTURE_PIXELS
+        for setter, size in self.zoomed:
+            setter(min(size * percent // 100, max(size, limit)))
+        self.place_later()
+
+    def on_scroll(self, _window, event):
+        Gdk = self.Gdk
+        if not event.state & (Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.MOD4_MASK):
+            return False
+        if event.direction == Gdk.ScrollDirection.UP:
+            step = 1
+        elif event.direction == Gdk.ScrollDirection.DOWN:
+            step = -1
+        elif event.direction == Gdk.ScrollDirection.SMOOTH and event.delta_y:
+            step = -1 if event.delta_y > 0 else 1
+        else:
+            return True
+        self.set_zoom(next_zoom(self.zoom, step))
+        return True
+
+    # Keys (ADR-011).
+
+    def on_key_release(self, _window, event):
+        """The key that switched layouts, let go: GDK has the new group by now."""
+        if self.layouts:
+            self.set_group(group_after("", self.group, event.group, len(self.layouts)))
+        return False
+
+    def on_key(self, _window, event):
+        Gdk = self.Gdk
+        name = Gdk.keyval_name(event.keyval) or ""
+        if self.layouts:
+            self.set_group(group_after(name, self.group, event.group, len(self.layouts)))
+        if event.state & (Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.MOD4_MASK):
+            step = ZOOM_KEYS.get(name)
+            if step is not None:
+                self.set_zoom(next_zoom(self.zoom, step))
+            return True                     # never into the box (flickos-lock's ADR-019)
+        if self.power_menu.get_visible() or self.layout_button.get_popover().get_visible():
+            return False                    # the pop-up's keys: Escape closes it
+        picked = self.stack.get_visible_child_name() == "picked"
+        if picked and event.state & Gdk.ModifierType.MOD1_MASK and name in ("v", "V"):
+            self.set_shown(not self.shown)
+            return True
+        if picked and name == "Escape":
+            self.show_list()
+            return True
+        if not picked and event.string and event.string.isprintable() and not event.string.isspace() \
+                and not event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK):
+            letter = event.string.casefold()
+            row = next((r for r in self.user_list.get_children() if r.name.casefold().startswith(letter)), None)
+            if row:
+                self.user_list.select_row(row)
+                row.grab_focus()
+            return True
+        return False
+
+    # The clock, once a minute on the minute, and again after sleep.
+
+    def tick(self):
+        now = time.localtime()
+        self.clock.set_text(time.strftime(self.clock_format, now))
+        self.date.set_text(time.strftime(_(DATE_FORMAT), now))
+        self.GLib.timeout_add_seconds(60 - int(time.time()) % 60 or 60, self.tick)
+        return False
+
+    def connect_bus(self):
+        """The system bus, for logind: Shut Down and Restart (no bus, no power
+        button), and PrepareForSleep, since GLib's timeouts don't count time asleep."""
+        try:
+            self.bus = self.Gio.bus_get_sync(self.Gio.BusType.SYSTEM, None)
+            self.bus.signal_subscribe(LOGIND[0], LOGIND[2], "PrepareForSleep", LOGIND[1], None,
+                                      self.Gio.DBusSignalFlags.NONE, self.on_sleep)
+        except self.GLib.Error as error:
+            warn(f"no system bus ({error.message}): no power button, and the clock may lag after sleep")
+            self.power_button.set_no_show_all(True)
+            self.power_button.hide()
+
+    def on_sleep(self, *args):
+        if not args[-1].unpack()[0]:
+            now = time.localtime()
+            self.clock.set_text(time.strftime(self.clock_format, now))
+            self.date.set_text(time.strftime(_(DATE_FORMAT), now))
+
+
+def keyboard_from_environment():
+    """keyboard() for the XKB_DEFAULT_* the greeter script gave cage and this window."""
+    return keyboard(*(os.environ.get(f"XKB_DEFAULT_{name}", "") for name in ("LAYOUT", "VARIANT", "OPTIONS")))
+
+
+def _locale_t_fmt():
+    import locale
+    with contextlib.suppress(locale.Error):
+        locale.setlocale(locale.LC_ALL, "")
+    return locale.nl_langinfo(locale.T_FMT)
+
+
+# --- commands -----------------------------------------------------------------------
+
+def cmd_check():
+    """What the login screen would offer, for the boot test (it can't show
+    the login screen: the live session has none)."""
+    load_gtk()
+    for entry in users(pwd.getpwall(), login_defs()):
+        print(f"user\t{entry.pw_name}\t{display_name(entry)}")
+    for key, name, command, _desktop, _current in sessions():
+        print(f"session\t{key}\t{_(name)}\t{command}")
+    config = read_config()
+    print(f"background\t{background_file(config)}")
+    print(f"position\t{config['position']}")
+    layouts, key = keyboard_from_environment()
+    for short, name in layouts:
+        print(f"layout\t{short}\t{name}")
+    if layouts:
+        print(f"switch\t{key}")
+    return 0
+
+
+def cmd_run():
+    greetd = Greetd()                       # before GTK: no greetd, nothing to show
+
+    def loud(kind, value, tb):              # CODE-6: a bug ends the window, gtkgreet takes over
+        import traceback
+        traceback.print_exception(kind, value, tb)
+        os._exit(1)
+    sys.excepthook = loud
+    threading.excepthook = lambda args: loud(args.exc_type, args.exc_value, args.exc_traceback)
+    gtk = load_gtk()
+    if not gtk[0].init_check(sys.argv[:1])[0]:
+        raise GreeterError("cannot open the display")
+    screen = LoginScreen(gtk, greetd)
+    screen.build()
+    gtk[0].main()
+    return 0 if screen.started else 1
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="greeter-window", description="The FlickOS login screen's window.")
+    parser.add_argument("--check", action="store_true", help="print the users and sessions it would offer")
+    opts = parser.parse_args(argv)
+    try:
+        return cmd_check() if opts.check else cmd_run()
+    except GreeterError as error:
+        warn(str(error))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

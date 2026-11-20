@@ -1,0 +1,14 @@
+/* Tortuga: see-through slate panels, lighter slate buttons (base_color) and
+ * the lantern copper accent (selected_bg_color; tools/make-tortuga.py). Same
+ * names as the Dark style's waybar-colors.css. */
+@define-color wm_bg rgba(18, 29, 36, 0.85);
+@define-color bg_color #1c2b33;
+@define-color base_color #2c4049;
+@define-color fg_color #e6edec;
+@define-color selected_bg_color #e0a25c;
+@define-color selected_fg_color #14201f;
+@define-color borders #0c151a;
+@define-color warning_color #f2c66d;
+@define-color error_color #ff9d8f;
+/* FlickOS's brand amber: only the start button's logo (base.css). */
+@define-color brand_color #ffb13d;

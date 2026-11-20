@@ -1,3 +1,48 @@
+flickos-recovery (1.7) trixie; urgency=medium
+
+  * Release of 1.7~test1: debian/rules names the services --no-start is
+    for.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:56:08 +0800
+
+flickos-recovery (1.7~test1) trixie; urgency=medium
+
+  * debian/rules names the services --no-start is for, and says why it
+    is right for them (they act only while the computer starts); the
+    package's scripts don't change.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:50:04 +0800
+
+flickos-recovery (1.6) trixie; urgency=medium
+
+  * Released: the login screen counts as up (1.6~test1).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 10:43:16 +0800
+
+flickos-recovery (1.6~test1) trixie; urgency=medium
+
+  * start good-watch also counts flickos-greeter 2's login screen
+    (greeter-window) as up; without it every start ending at the new
+    login screen looked failed and GRUB started a restore point.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 21:36:28 +0800
+
+flickos-recovery (1.5) trixie; urgency=medium
+
+  * plan (Settings' Put Back): lists the change a restore point was
+    taken before, not only the ones after it.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 29 Oct 2026 11:38:03 +0800
+
+flickos-recovery (1.4) trixie; urgency=medium
+
+  * The password prompt's vendor link points at github.com/Flick-
+    OS/flickos.
+  * debian/copyright: Source is the public repository, github.com/Flick-
+    OS/flickos.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 12:47:25 +0800
+
 flickos-recovery (1.3) trixie; urgency=medium
 
   * Restore points made by an apt command with options (apt-get -o

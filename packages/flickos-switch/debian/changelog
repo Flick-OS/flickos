@@ -1,0 +1,76 @@
+flickos-switch (1.4) trixie; urgency=medium
+
+  * Phases 3a and 3b merged: web apps through Firefox's own button, and
+    in Software.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 18:25:47 +0800
+
+flickos-switch (1.4~test1) trixie; urgency=medium
+
+  * webapp list --known: also the Windows apps list's web versions
+    Firefox has no web app for, each matched to Firefox's web app for
+    its host (for Software, phase 3b).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 18:05:35 +0800
+
+flickos-switch (1.3~test1) trixie; urgency=medium
+
+  * Phase 3a: webapp list, add and remove for Firefox's web apps; the
+    Windows program window opens a web version in Firefox with how to
+    keep it as a web app.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:56:10 +0800
+
+flickos-switch (1.2) trixie; urgency=medium
+
+  * Phase 2c merged: lookup for Software's search.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:37:21 +0800
+
+flickos-switch (1.2~test1) trixie; urgency=medium
+
+  * Phase 2c: lookup matches what was typed (a name, a product or one of
+    the list's words), says how each entry was found, and prints
+    translated text with --json for Software.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:34:05 +0800
+
+flickos-switch (1.1) trixie; urgency=medium
+
+  * Phase 2a merged: the Windows programs window and list.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 15:17:19 +0800
+
+flickos-switch (1.1~test2) trixie; urgency=medium
+
+  * Windows programs: when Wine is installed without its 32-bit part,
+    Try with Wine says the program needs it.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 13:16:56 +0800
+
+flickos-switch (1.1~test1) trixie; urgency=medium
+
+  * open, identify and lookup: what a Windows program is, read without
+    running it, and what to use instead (the Windows apps list, 161
+    entries).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 12:49:03 +0800
+
+flickos-switch (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test2: Bring Files from Windows (phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 11:43:29 +0800
+
+flickos-switch (1.0~test2) trixie; urgency=medium
+
+  * before-install: the dialog Install FlickOS shows when a Windows disk
+    is found.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 22:03:07 +0800
+
+flickos-switch (1.0~test1) trixie; urgency=medium
+
+  * Bring Files from Windows (docs/design/flickos-switch.md, phase 1).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 03 Nov 2026 21:06:39 +0800

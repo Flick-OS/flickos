@@ -1,0 +1,43 @@
+Source: flickos-kits
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+# gettext: the translations (msgfmt) and the test that the template is current.
+Build-Depends: debhelper-compat (= 13),
+               gettext,
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kits
+Architecture: all
+# python3-gi, gir1.2-gtk-3.0: the window, GTK 3 so it follows the Arc theme.
+# flickos-software 1.20: the kits are apps in its catalog (Developer Tools), and
+# it installs and removes them, with the plan first. The terminal for the SSH
+# key and Rust (xdg-terminal-exec) and wl-copy for the public key are left out
+# of the window when missing, so neither is a dependency.
+Depends: python3,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         flickos-software (>= 1.21),
+         ${misc:Depends}
+# Its rows run settings that only these versions have: flickos-control's
+# packet-capture, wireless.test-adapter and upstream.ID (1.84), and
+# Software's Security Tools for the security kits (1.24). A test version
+# says so with Breaks (docs/05-apt-repository.md, "Testing packages"); at
+# release they become Depends with the plain numbers.
+Breaks: flickos-control (<< 1.84~),
+        flickos-software (<< 1.24~)
+Description: install and set up the FlickOS developer and security kits
+ A small window, Tool Kits, to install the kit for each kind of work (Python,
+ Node.js, C and C++, containers, and security work such as network analysis
+ or forensics) with a switch, and to set up what an installed kit needs:
+ git's name and email, an SSH key, Rust, capturing packets without
+ administrator rights, a Wi-Fi adapter for testing. Installing and removing
+ go through Software, with the plan shown first.
+ .
+ Nothing is installed by default and nothing runs in the background. The
+ setup steps change your own files only through the programs that own them
+ (git, ssh-keygen, rustup), and only when you press their button; the ones
+ that change the computer are settings of FlickOS's Settings, which asks for
+ the administrator's password and keeps them in History.

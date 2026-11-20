@@ -14,19 +14,18 @@ strings:
     shortProductName:    FlickOS
     # Must match FLICKOS_VERSION in packages/flickos-branding/usr/lib/flickos-release
     # (tools/build-iso.sh checks this).
-    version:             "2.2"
-    shortVersion:        "2.2"
-    versionedName:       "FlickOS 2.2"
-    shortVersionedName:  "FlickOS 2.2"
+    version:             "2.3"
+    shortVersion:        "2.3"
+    versionedName:       "FlickOS 2.3"
+    shortVersionedName:  "FlickOS 2.3"
     # Used as the GRUB menu entry and EFI directory name.
     bootloaderEntryName: FlickOS
     # Links on the welcome page (enabled in modules/welcome.conf).
-    # Switch productUrl to https://flickos.net once the site is online.
-    productUrl:          "https://sourceforge.net/projects/flickos/"
-    supportUrl:          "https://github.com/dvbondoy/FlickOS/issues"
-    knownIssuesUrl:      "https://github.com/dvbondoy/FlickOS/issues"
-    releaseNotesUrl:     "https://sourceforge.net/projects/flickos/files/"
-    donateUrl:           "https://flickos.vercel.app/donate"
+    productUrl:          "https://flickos.org/"
+    supportUrl:          "https://github.com/Flick-OS/flickos/issues"
+    knownIssuesUrl:      "https://github.com/Flick-OS/flickos/issues"
+    releaseNotesUrl:     "https://flickos.org/releases/"
+    donateUrl:           "https://flickos.org/donate/"
 
 sidebar:     widget
 navigation:  widget

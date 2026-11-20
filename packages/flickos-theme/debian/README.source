@@ -1,0 +1,45 @@
+flickos-theme: where the source comes from
+==========================================
+
+src/ is the GTK 3 and GTK 4 part of arc-theme 20221218 (the version of Debian
+trixie and forky; upstream https://github.com/jnsh/arc-theme):
+
+  src/gtk-3.0/sass, src/gtk-4.0/sass   common/gtk-3.0/sass and common/gtk-4.0/sass
+  src/assets                           the PNG assets, taken from the
+                                       gtk.gresource of Debian's arc-theme
+                                       20221218-1 (GTK 3 and GTK 4 use the
+                                       same 168 files)
+  src/COPYING, src/AUTHORS             upstream's
+
+build.sh compiles the Sass as arc-theme's meson build does (the templates
+gtk.scss.in with transparency on, sassc --style compact) and puts the result
+and the assets into one gtk.gresource per theme folder.
+
+FlickOS's changes to the Sass are marked "FlickOS:" in the files
+(grep -rn "FlickOS:" src/), made as docs/design/flickos-seamless-2x.md
+(ADR-2X-1) says. They are shapes only; Arc's colors are unchanged:
+
+  - corners: 6 px on controls, rows' frames and tabs, 8 px on popovers, menus,
+    dialogs, the window and the header bar (arc-theme wrote them as literals);
+  - $header_height (_colors.scss, 32 px, !default): the header bar's
+    min-height, and its buttons and entries are sized from it;
+  - $side_bg, $side_fg, $side_border (_colors.scss): the sidebars of Thunar
+    and the file chooser; equal to the window's colors in the light theme, Arc's
+    dark sidebar colors in the dark one;
+  - header bar buttons with a text, packed in the bar itself (wdisplays'
+    Cancel and Apply): a margin of ($header_height - 22px) / 2 and, unless
+    they are action buttons, Arc's button outline (`> button.text-button`
+    at the end of _common.scss);
+  - GTK 4: the same radii and header height ($header_radius 8 px).
+
+src/frame-dark.css and src/frame-light.css are FlickOS's: the window frame for
+client-side decorated windows (GTK 3; Thunar's header bar), which labwc's
+theme can't reach. Their colors follow labwc's border colors, and tools/check-look.py
+compares them and the header bar's colors with the title bar's.
+
+To update to a new arc-theme: unpack its orig tarball, replace the Sass,
+re-apply the changes by looking for "FlickOS:" in the old files, rebuild the
+assets list from the new gresource, and run the tests.
+
+Not here: the labwc themes of the same names stay in flickos-settings
+(/usr/share/themes/FlickOS-Arc*/labwc); both packages put files in the folder.

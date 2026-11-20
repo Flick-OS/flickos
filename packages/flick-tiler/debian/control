@@ -13,8 +13,11 @@ Architecture: all
 # its labwc rc.xml overlay; 1.8: its panel button needs no process that
 # stays (status once per change). flickos-settings: its rc.xml binds Super+T.
 # fuzzel is only used by the panel's arrangement menu (right click).
+# wtype presses the keys that tile the windows already open when tiling is
+# turned on (a Depends: Recommends never reach installed systems).
 Depends: python3,
          labwc,
+         wtype,
          flickos-layouts (>= 1.8),
          flickos-settings (>= 1.11),
          ${misc:Depends}

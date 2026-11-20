@@ -1,3 +1,39 @@
+flickos-screenshot (1.10) trixie; urgency=medium
+
+  * Release of 1.10~test1: screenshot, recording and changed.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 20:12:23 +0800
+
+flickos-screenshot (1.10~test1) trixie; urgency=medium
+
+  * Hooks: a saved screenshot fires screenshot and a saved recording
+    fires recording, with the file; a setting that changed fires changed
+    (docs/design/flickos-hooks.md).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 19:32:57 +0800
+
+flickos-screenshot (1.9) trixie; urgency=medium
+
+  * Recording the whole screen works on a screen of odd size (a virtual
+    machine's window, say 1920x989): it is cropped by one row or column,
+    as H.264 needs even sizes; x264 refused it before.
+  * A recording whose screen never changed after the countdown is not
+    kept: the portal sends a picture only when the screen changes, and
+    such a file had only its header but was announced as saved; it now
+    says nothing was recorded.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 29 Oct 2026 14:27:52 +0800
+
+flickos-screenshot (1.8) trixie; urgency=medium
+
+  * Screen recording: the portal's screen chooser answers with the whole
+    line it was given, as xdg-desktop-portal-wlr 0.8 wants (0.7's bare
+    names still work), and lets fuzzel ask while windows are offered.
+    Stopping a recording while the portal still asks deletes the empty
+    file it had reserved.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 29 Oct 2026 11:38:03 +0800
+
 flickos-screenshot (1.7) trixie; urgency=medium
 
   * Text from the screen (ADR-011): shot --text and the capture bar's

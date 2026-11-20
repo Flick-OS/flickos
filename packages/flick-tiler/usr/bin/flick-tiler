@@ -20,7 +20,8 @@ $XDG_RUNTIME_DIR/flickos/tiler/labwc.xml, which flickos-layout merges into
 its rc.xml overlay (flickos-layout reconfigure). Without the fragment, labwc
 runs with the plain FlickOS config and windows float as usual.
 
-Settings: [Tiler] in /etc/xdg/flickos/tiler.conf, then ~/.config/flickos/tiler
+Settings: [Tiler] in /etc/xdg/flickos/tiler.conf, then the site's
+/etc/xdg/flickos-site/flickos/tiler.conf (key by key), then ~/.config/flickos/tiler
 (toggle, mode, ratio, gap and floating write there; `default` removes the
 user's mode, ratio or gap). Every change that shows is recorded in
 $XDG_STATE_HOME/flickos/history.jsonl, where Settings > History can undo it. The daemon listens on
@@ -38,11 +39,18 @@ last. labwc 0.8 has no ToggleShowDesktop action, and the daemon already
 follows the windows, so it knows which ones it hid, whether tiling is on or
 off.
 
+Windows already open when tiling is turned on stay as they are unless the
+user chose to tile them too (TileOpen=yes, `flick-tiler tile-open on`; off by
+default): then they are tiled, except minimized and fullscreen ones. labwc
+runs window rules only when a window opens, so the daemon gives each one a region and, for that moment, a keybind of its own
+(SnapToRegion to it, then `flick-tiler snapped REGION`), reloads labwc once,
+then focuses each window and presses its key on a virtual keyboard (wtype).
+labwc matches a virtual keyboard's keys by name and keeps a bound key from
+the window. A window whose keybind didn't report back is let go again, and a
+notification says how many stay floating (Super+Shift+T tiles one).
+
 Limits: a window dragged out of its place stays counted until it is tiled
-again (Super+Shift+T) or closed; windows already open when tiling is turned
-on stay floating until tiled with Super+Shift+T (labwc runs window rules only
-when a window opens; a notification says so); all outputs use the same
-arrangement.
+again (Super+Shift+T) or closed; all outputs use the same arrangement.
 
 Exit codes: 0 ok, 1 error, 2 usage error.
 """
@@ -71,11 +79,19 @@ import xml.etree.ElementTree as ET
 # FLICK_TILER_PREFIX: run from a source tree, e.g. packages/flick-tiler.
 PREFIX = os.environ.get("FLICK_TILER_PREFIX", "")
 SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/tiler.conf"
+# The site's defaults (a variant package, flickos-fleet): key by key over SYSTEM_CONF.
+SITE_CONF = PREFIX + "/etc/xdg/flickos-site/flickos/tiler.conf"
 FLICKOS_LAYOUT = os.environ.get("FLICKOS_LAYOUT", "flickos-layout")
 REGION_PREFIX = "ft"
 # waybar "signal" of the panel button (custom/tiler in flickos-layouts'
 # layouts/common/modules.jsonc): SIGRTMIN+8 makes waybar run its exec again.
 PANEL_SIGNAL = 8
+
+# The floating panel: flickos-layout keeps this file in the overlay only while
+# the panel floats (PANEL_STATE there), and waybar restyles itself when it
+# changes. panel-full.css beside it, also flickos-layout's, is the layout's
+# look for a full panel. The surface keeps its size, so no window moves.
+PANEL_FILLED_CSS = '@import url("panel-full.css");\n'
 SECTION = "Tiler"
 
 
@@ -114,6 +130,14 @@ KEYBINDS = (
     ("W-bracketleft", [("Execute", "flick-tiler ratio -5")]),
     ("W-bracketright", [("Execute", "flick-tiler ratio +5")]),
 )
+# Tiling the windows already open: one key per window, bound only while they
+# are being tiled. Macro keys, since an ordinary keyboard has none (labwc
+# would match a real key only where the keymap has it), and flickos-shortcuts
+# leaves XF86 keys out of its sheet.
+WTYPE = "wtype"
+CAPTURE_KEYS = tuple(f"XF86Macro{n}" for n in range(1, 31))
+# For each wait: labwc's reload, a window's focus, the keybinds' replies.
+CAPTURE_SECONDS = 3
 KEY_HELP = ("Super+T on/off · Super+M next arrangement · Super+J/K focus · "
             "Super+Shift+J/K move · Super+Shift+Enter to main · Super+[ ] resize · "
             "Super+Shift+T tile window · Super+Shift+F float window")
@@ -136,6 +160,7 @@ class Settings:
     ratio: int = 55
     gap: int = 8
     floating: tuple = ()
+    tile_open: bool = False         # turning tiling on tiles the windows open then
 
 
 def config_home():
@@ -160,8 +185,9 @@ def parse_settings(values):
     """Settings from [Tiler] keys (configparser lowercases them). Bad values
     keep the default."""
     settings = Settings()
-    if "enabled" in values:
-        settings.enabled = values["enabled"].strip().lower() in ("yes", "true", "1", "on")
+    for key, attribute in (("enabled", "enabled"), ("tileopen", "tile_open")):
+        if key in values:
+            setattr(settings, attribute, values[key].strip().lower() in ("yes", "true", "1", "on"))
     if values.get("mode", "").strip() in MODES:
         settings.mode = values["mode"].strip()
     elif values.get("mode"):
@@ -180,15 +206,22 @@ def parse_settings(values):
     return settings
 
 
-def load_settings():
+def system_values():
+    """[Tiler] keys of the defaults: FlickOS's file, the site's over it key by key."""
     values = read_ini(SYSTEM_CONF)
+    values.update(read_ini(SITE_CONF))
+    return values
+
+
+def load_settings():
+    values = system_values()
     values.update(read_ini(user_conf()))
     return parse_settings(values)
 
 
 def system_settings():
     """The settings without the user's: what `mode|ratio|gap default` go back to."""
-    return parse_settings(read_ini(SYSTEM_CONF))
+    return parse_settings(system_values())
 
 
 def write_atomic(path, text):
@@ -207,10 +240,11 @@ def write_atomic(path, text):
 
 
 def save_choice(**changes):
-    """Write enabled, mode, ratio, gap and/or floating to the user's file,
+    """Write enabled, mode, ratio, gap, floating and/or tile_open to the user's file,
     keeping its other keys. None removes one, so the system's applies again.
     A change that shows is recorded for Settings > History (record)."""
-    names = {"enabled": "Enabled", "mode": "Mode", "ratio": "MasterRatio", "gap": "Gap", "floating": "Float"}
+    names = {"enabled": "Enabled", "mode": "Mode", "ratio": "MasterRatio", "gap": "Gap", "floating": "Float",
+             "tile_open": "TileOpen"}
     saved, before = read_ini(user_conf()), load_settings()
     ini = configparser.ConfigParser(interpolation=None)
     ini.optionxform = str
@@ -224,7 +258,7 @@ def save_choice(**changes):
                 ini.remove_option(SECTION, existing)
         if value is None:
             continue
-        if key == "enabled":
+        if key in ("enabled", "tile_open"):
             value = "yes" if value else "no"
         elif key == "floating":
             value = " ".join(value)
@@ -235,14 +269,61 @@ def save_choice(**changes):
     for key, value in changes.items():
         if getattr(before, key) == getattr(after, key):
             continue
-        if key == "enabled":
-            record(key, "on" if before.enabled else "off", "on" if after.enabled else "off")
+        if key in ("enabled", "tile_open"):
+            record(HISTORY_KEYS.get(key, key), "on" if getattr(before, key) else "off",
+                   "on" if getattr(after, key) else "off")
         elif key == "floating":
             record(key, " ".join(before.floating), " ".join(after.floating))
         else:
             # What the user had saved, so an undo of a first change removes it again.
             record(key, saved.get(names[key].lower(), "").strip() or DEFAULT_CHOICE,
                    DEFAULT_CHOICE if value is None else str(value))
+
+
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007):
+    the keys save_choice records."""
+    return key in ("enabled", "mode", "ratio", "gap", "floating", "tile-open")
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
 
 
 # --- History ------------------------------------------------------------------
@@ -252,11 +333,13 @@ def save_choice(**changes):
 # settings the same way (docs/design/flickos-history.md, ADR-002).
 
 HISTORY_OWNER = "flick-tiler"
+HISTORY_KEYS = {"tile_open": "tile-open"}   # setting -> its key in the history, where it differs
 HISTORY_FILE = "history.jsonl"      # in $XDG_STATE_HOME/flickos
 HISTORY_LOCK = "history.lock"
 HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
 # flickos-control's: [History] Enabled=, then the user's ~/.config/flickos/history.
 HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+HISTORY_SITE_CONF = PREFIX + "/etc/xdg/flickos-site/flickos/history.conf"
 
 
 def state_home():
@@ -265,7 +348,7 @@ def state_home():
 
 def history_enabled():
     enabled = True
-    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+    for path in (HISTORY_CONF, HISTORY_SITE_CONF, os.path.join(config_home(), "flickos", "history")):
         ini = configparser.ConfigParser(interpolation=None)
         try:
             ini.read(path, encoding="utf-8")
@@ -280,7 +363,10 @@ def history_enabled():
 def record(key, old, new):
     """Add a change to the history. It never stops the change itself: a
     history that can't be written is only a warning."""
-    if old == new or not history_enabled():
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
         return
     now = time.time_ns()
     entry = {"v": 1, "id": str(now),
@@ -359,6 +445,13 @@ def parse_mode(args, current):
     return mode
 
 
+def parse_switch(args):
+    """on, off or default (None: the system's value applies again)."""
+    if len(args) != 1 or args[0] not in ("on", "off", DEFAULT_CHOICE):
+        raise TilerError("say on, off or default")
+    return None if args[0] == DEFAULT_CHOICE else args[0] == "on"
+
+
 def change_floating(patterns, action, pattern):
     """The Float= patterns after adding or removing one (the Settings app).
     A user's Float= replaces the system one, so the result is the whole list."""
@@ -414,12 +507,20 @@ class Window:
     used: int = 0           # when it last had the focus (Tiler.uses), 0 = not since the daemon started
 
     @property
+    def maximized(self):
+        return 0 in self.states
+
+    @property
     def minimized(self):
         return 1 in self.states
 
     @property
     def activated(self):
         return 2 in self.states
+
+    @property
+    def fullscreen(self):
+        return 3 in self.states
 
 
 class Tiler:
@@ -440,6 +541,7 @@ class Tiler:
         self.rule_taken = False
         self.hidden = []        # windows show_desktop() minimized, the focused one last
         self.uses = 0           # focus changes counted, for Window.used
+        self.capture = {}       # region -> key of open windows being tiled, until each one's keybind ran
 
     # Windows
 
@@ -486,6 +588,14 @@ class Tiler:
             self.used(handle)
         return window.region is not None and (1 in old) != window.minimized
 
+    def fills_screen(self):
+        """Is a window shown maximized, fullscreen or tiled? labwc tells no
+        other program where a window is, so nothing else can count, and this
+        doesn't know a window on another desktop isn't shown."""
+        return any(window.mapped and not window.minimized
+                   and (window.maximized or window.fullscreen or window.region is not None)
+                   for window in self.windows.values())
+
     def used(self, handle):
         self.uses += 1
         self.windows[handle].used = self.uses
@@ -497,6 +607,12 @@ class Tiler:
         found = [(window.used, handle) for handle, window in self.windows.items()
                  if window.mapped and not window.parent and window.app_id.lower() in wanted]
         return max(found)[1] if found else None
+
+    def open_app_ids(self):
+        """The app ids of the main windows (not dialogs) open now, lower case,
+        sorted: the start menu marks those apps (flickos-menu's prompt style)."""
+        return sorted({window.app_id.lower() for window in self.windows.values()
+                       if window.mapped and not window.parent and window.app_id})
 
     def focused(self):
         for handle, window in self.windows.items():
@@ -592,7 +708,36 @@ class Tiler:
                 window.region = None
             self.order.clear()
             self.rule_region = None
+            self.capture.clear()
         return True
+
+    def start_capture(self):
+        """Give each open window that would be tiled a region and a key (the
+        fragment binds the key to it), the focused one first, then the ones
+        used last: the focused window becomes the main one. Minimized ones
+        stay as they are, and labwc never snaps a fullscreen one. Returns
+        [(handle, key)] in the order to focus them: the focused one last, so
+        it keeps the focus."""
+        handles = [handle for handle in self.untiled() if not self.windows[handle].fullscreen]
+        handles.sort(key=lambda handle: (self.windows[handle].activated, self.windows[handle].used), reverse=True)
+        steps = []
+        for handle, key in zip(handles, CAPTURE_KEYS):
+            self.serial += 1
+            region = f"{REGION_PREFIX}{self.serial}"
+            self.windows[handle].region = region
+            self.order.append(region)
+            self.capture[region] = key
+            steps.append((handle, key))
+        return steps[::-1]
+
+    def end_capture(self):
+        """Let go of the windows whose keybind didn't run, and drop the keys."""
+        for region in self.capture:
+            handle = self.owner(region)
+            if handle is not None:
+                self.windows[handle].region = None
+                self.order.remove(region)
+        self.capture.clear()
 
     # Output
 
@@ -641,6 +786,11 @@ class Tiler:
                     ET.SubElement(bind, "action", name=name, region=value.format(region=self.rule_region))
                 else:
                     ET.SubElement(ET.SubElement(bind, "action", name=name), "command").text = value
+        for region, key in self.capture.items():
+            bind = ET.SubElement(keyboard, "keybind", key=key)
+            ET.SubElement(bind, "action", name="SnapToRegion", region=region)
+            ET.SubElement(ET.SubElement(bind, "action", name="Execute"),
+                          "command").text = f"flick-tiler snapped {region}"
         ET.indent(top)
         return ET.tostring(top, encoding="unicode") + "\n"
 
@@ -649,11 +799,12 @@ class Tiler:
         mode = MODES[s.mode]
         if not s.enabled:
             return {"text": " ", "alt": "off", "class": ["off", s.mode], "ratio": s.ratio, "gap": s.gap,
+                    "tile_open": s.tile_open,
                     "tooltip": f"Tiling is off (Super+T). Arrangement: {mode.name}\n"
                                "Click: turn on · Right click: arrangement · Scroll: change arrangement"}
         count = len(self.visible())
         return {"text": " ", "alt": s.mode, "class": ["on", s.mode], "ratio": s.ratio, "gap": s.gap,
-                "tooltip": f"Tiling: {mode.name}, {count} window{'' if count == 1 else 's'}\n"
+                "tile_open": s.tile_open, "tooltip": f"Tiling: {mode.name}, {count} window{'' if count == 1 else 's'}\n"
                            "Click: turn off · Right click: arrangement · Scroll: change arrangement\n"
                            + KEY_HELP}
 
@@ -853,6 +1004,10 @@ def fragment_path():
     return os.path.join(runtime_dir(), "labwc.xml")
 
 
+def panel_state_path():
+    return os.path.join(os.path.dirname(runtime_dir()), "waybar", "panel-state.css")
+
+
 def reconfigure():
     """flickos-layout merges the fragment into its rc.xml overlay and reloads labwc."""
     try:
@@ -863,6 +1018,15 @@ def reconfigure():
         return
     if result.returncode != 0:
         warn(f"{FLICKOS_LAYOUT} reconfigure failed: {result.stderr.strip()}")
+
+
+def press(key):
+    """Press KEY on a virtual keyboard, for labwc's keybind. False if it couldn't."""
+    try:
+        return subprocess.run([WTYPE, "-k", key], check=False, timeout=5,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def hint_untiled(count):
@@ -876,6 +1040,22 @@ def hint_untiled(count):
         pass
 
 
+@dataclasses.dataclass
+class Capture:
+    """Tiling the windows that were open when tiling was turned on
+    (Tiler.start_capture), a step at a time from the daemon's loop:
+    reload → (focus → press)* → replies. Each wait for labwc is a
+    wl_display.sync, whose answer comes after everything labwc did for the
+    requests before it (the reload's SIGHUP was sent before it, too)."""
+    steps: list             # [(handle, key)] still to focus and press
+    focus: int | None       # the window that had the focus, given back at the end
+    state: str = "reload"   # reload, wait, focused, next, replies
+    then: str = ""          # the state after the wait
+    handle: int | None = None
+    key: str = ""
+    deadline: float = 0.0
+
+
 class Daemon:
     def __init__(self, settings):
         self.tiler = Tiler(settings)
@@ -884,10 +1064,72 @@ class Daemon:
         self.watchers = []
         self.written = None
         self.shown = None
+        self.capture = None
 
     def started(self):
         self.ready = True
         self.changed = True
+
+    def timeout(self):
+        """How long the loop may wait for something to happen."""
+        if self.capture is None:
+            return 1
+        return max(0.0, min(1.0, self.capture.deadline - time.monotonic()))
+
+    def wait_for_labwc(self, toplevels, then):
+        capture = self.capture
+        capture.state, capture.then = "wait", then
+        capture.deadline = time.monotonic() + CAPTURE_SECONDS
+
+        def answered(*_):
+            if self.capture is capture and capture.state == "wait":
+                capture.state = capture.then
+        toplevels.sync(answered)
+
+    def capture_step(self, toplevels):
+        """Take the capture as far as it goes without waiting."""
+        tiler = self.tiler
+        while (capture := self.capture) is not None:
+            if capture.state == "reload":
+                if self.changed:            # the fragment with the keys isn't written yet
+                    return
+                self.wait_for_labwc(toplevels, "next")
+            elif capture.state == "wait":
+                if time.monotonic() < capture.deadline:
+                    return
+                capture.steps.clear()       # labwc didn't answer
+                capture.state = "replies"
+            elif capture.state == "next":
+                if not capture.steps:
+                    capture.state, capture.deadline = "replies", time.monotonic() + CAPTURE_SECONDS
+                    continue
+                capture.handle, capture.key = capture.steps.pop(0)
+                window = tiler.windows.get(capture.handle)
+                if window is None or window.minimized or window.fullscreen:
+                    continue
+                toplevels.activate(capture.handle)
+                self.wait_for_labwc(toplevels, "focused")
+            elif capture.state == "focused":
+                # Only the focused window: the keybind snaps whichever has the focus.
+                window = tiler.windows.get(capture.handle)
+                if window is not None and window.activated and not press(capture.key):
+                    capture.steps.clear()
+                capture.state = "next"
+            elif capture.state == "replies":
+                if tiler.capture and time.monotonic() < capture.deadline:
+                    return
+                self.end_capture(toplevels)
+
+    def end_capture(self, toplevels):
+        capture, self.capture = self.capture, None
+        self.tiler.end_capture()
+        self.changed = True                 # the keys leave the fragment
+        window = self.tiler.windows.get(capture.focus)
+        if window is not None and not window.activated and not window.minimized:
+            toplevels.activate(capture.focus)
+        count = len(self.tiler.untiled())
+        if count:
+            hint_untiled(count)
 
     def apply(self):
         """Write (or delete) the fragment and reload labwc if it changed."""
@@ -903,6 +1145,19 @@ class Daemon:
             self.written = text
             reconfigure()
         self.notify()
+
+    def update_panel(self):
+        """Tell the floating panel whether a window fills the screen. Without
+        the file the panel doesn't float, and nothing is written."""
+        path = panel_state_path()
+        text = PANEL_FILLED_CSS if self.tiler.fills_screen() else ""
+        try:
+            with open(path, encoding="utf-8") as f:
+                if f.read() == text:
+                    return
+        except OSError:
+            return
+        write_atomic(path, text)
 
     def notify(self):
         text = json.dumps(self.tiler.status())
@@ -928,11 +1183,19 @@ class Daemon:
             if tiler.enable(on):
                 save_choice(enabled=on)
                 self.changed = True
-                # Windows open before this stay floating; labwc runs window
-                # rules only when a window opens.
-                count = len(tiler.untiled()) if on else 0
-                if count:
+                self.capture = None
+                # labwc runs window rules only when a window opens: the
+                # windows open now are tiled through keybinds (Capture) when
+                # the user chose that (tile_open), else or without wtype they
+                # stay floating.
+                if (on and settings.tile_open and shutil.which(WTYPE) is not None
+                        and (steps := tiler.start_capture())):
+                    self.capture = Capture(steps, tiler.focused())
+                elif on and (count := len(tiler.untiled())):
                     hint_untiled(count)
+        elif name == "snapped" and len(args) == 1:
+            # A capture key's keybind ran (the fragment's Execute).
+            tiler.capture.pop(args[0], None)
         elif name == "mode":
             mode = parse_mode(args, settings.mode)
             settings.mode = system_settings().mode if mode is None else mode
@@ -948,6 +1211,12 @@ class Daemon:
             settings.gap = system_settings().gap if gap is None else gap
             save_choice(gap=gap)
             self.changed = True
+        elif name == "tile-open":
+            # Used the next time tiling is turned on; nothing to reload.
+            tile_open = parse_switch(args)
+            settings.tile_open = system_settings().tile_open if tile_open is None else tile_open
+            save_choice(tile_open=tile_open)
+            self.changed = True             # the status changes
         elif name == "floating" and len(args) == 2 and args[0] in ("add", "remove"):
             # Used when the next window opens; nothing to reload.
             settings.floating = change_floating(settings.floating, args[0], args[1])
@@ -971,6 +1240,9 @@ class Daemon:
                     toplevels.minimize(handle, on=False)
                 toplevels.activate(handle)
             return json.dumps(dict(tiler.status(), found=handle is not None))
+        elif name == "open-apps":
+            # Read only: the start menu asks which apps to mark as open.
+            return json.dumps(dict(tiler.status(), app_ids=tiler.open_app_ids()))
         elif name == "show-desktop":
             # The windows' new states come back as events, like any minimize.
             hide, restore = tiler.show_desktop()
@@ -1088,7 +1360,7 @@ def serve(settings):
             if not daemon.ready and toplevels.manager is None and time.monotonic() > deadline:
                 warn(f"the compositor has no {MANAGER}; tiling needs labwc")
                 return 1
-            for key, _ in selector.select(timeout=1):
+            for key, _ in selector.select(timeout=daemon.timeout()):
                 if key.data == "wayland":
                     if not toplevels.dispatch():
                         stop.append(True)
@@ -1110,8 +1382,12 @@ def serve(settings):
                 except OSError:
                     pass
                 conn.close()
+            daemon.capture_step(toplevels)
             if daemon.ready and daemon.changed:
                 daemon.apply()
+            if daemon.ready:
+                daemon.update_panel()
+                fire_changed()      # a command's setting is applied now (hooks, ADR-007)
     finally:
         server.close()
         with contextlib.suppress(OSError):
@@ -1161,6 +1437,8 @@ def offline(words):
         save_choice(gap=parse_gap(args))
     elif name == "floating" and len(args) == 2 and args[0] in ("add", "remove"):
         save_choice(floating=change_floating(load_settings().floating, args[0], args[1]))
+    elif name == "tile-open":
+        save_choice(tile_open=parse_switch(args))
     elif name in ("toggle", "on", "off"):
         save_choice(enabled=not load_settings().enabled if name == "toggle" else name == "on")
         # A daemon that died leaves its fragment behind; the windows in it
@@ -1310,12 +1588,20 @@ def main(argv=None):
                                     "(exit status 1 if none is open)")
     focus_app.add_argument("ids", nargs="+", metavar="APP-ID", help="the app ids its windows may have")
     focus_app.set_defaults(func=cmd_focus_app)
+    snapped = commands.add_parser("snapped", help="a window open when tiling was turned on is in its "
+                                  "region (the keybind tiling it runs this)")
+    snapped.add_argument("region")
+    snapped.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["snapped", opts.region])))
     mode = commands.add_parser("mode", help="choose an arrangement: ID, next, prev or default")
     mode.add_argument("id", nargs="?", default="next")
     mode.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["mode", opts.id])))
     ratio = commands.add_parser("ratio", help="main window width in percent: N, +N, -N or default")
     ratio.add_argument("value")
     ratio.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["ratio", opts.value])))
+    tile_open = commands.add_parser("tile-open", help="turning tiling on also tiles the windows open then: "
+                                    "on, off or default")
+    tile_open.add_argument("value", choices=("on", "off", DEFAULT_CHOICE))
+    tile_open.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["tile-open", opts.value])))
     gap = commands.add_parser("gap", help=f"pixels between tiled windows and the screen edges ({GAP_MIN}-{GAP_MAX}, or default)")
     gap.add_argument("value")
     gap.set_defaults(func=lambda opts: cmd_send(argparse.Namespace(words=["gap", opts.value])))
@@ -1333,6 +1619,8 @@ def main(argv=None):
     except (TilerError, OSError) as error:
         warn(str(error))
         return 1
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
 
 
 if __name__ == "__main__":

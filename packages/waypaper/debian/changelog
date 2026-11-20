@@ -1,3 +1,11 @@
+waypaper (2.9+flickos2) trixie; urgency=medium
+
+  * Wallpaper shows every picture in a folder that has a link to nothing
+    (a removed style's wallpaper): such a link stopped the list, and the
+    pictures after it by name, PNGs included, were missing.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 22:02:30 +0800
+
 waypaper (2.9+flickos1) trixie; urgency=medium
 
   * Upstream release 2.9, packaged for FlickOS (not in Debian trixie).

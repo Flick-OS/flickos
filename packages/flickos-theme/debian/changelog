@@ -1,0 +1,40 @@
+flickos-theme (1.2) trixie; urgency=medium
+
+  * In Light, the buttons and lists at the bottom of file dialogs
+    (xarchiver's Archive type, the file filter) have the normal look
+    again: they were pale on pale, with no text or arrow showing.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 07:55:01 +0800
+
+flickos-theme (1.1) trixie; urgency=medium
+
+  * Header bar buttons with a text that are packed in the bar
+    (wdisplays' Cancel and Apply) have a margin, so they no longer fill
+    the bar and touch its edges, and Cancel has Arc's button outline
+    instead of looking like a label. Icon buttons, path bars and
+    Thunar's header bar are unchanged.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 15 Nov 2026 12:17:08 +0800
+
+flickos-theme (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1 and 1.0~test2: FlickOS-Arc-Dark and FlickOS-
+    Arc, arc-theme's GTK themes with VIS-5's corners (seamless 2.x).
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 20:32:14 +0800
+
+flickos-theme (1.0~test2) trixie; urgency=medium
+
+  * The frame rules' comment and README.source say where the colors are
+    checked (tools/check-look.py).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 08:47:47 +0800
+
+flickos-theme (1.0~test1) trixie; urgency=medium
+
+  * New package: FlickOS-Arc-Dark and FlickOS-Arc, arc-theme's GTK 3 and
+    GTK 4 themes with FlickOS's corners and header bar
+    (docs/design/flickos-seamless-2x.md, phase 2). Nothing uses them
+    yet.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 08:25:05 +0800

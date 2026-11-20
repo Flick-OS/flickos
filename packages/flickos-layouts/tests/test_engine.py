@@ -23,8 +23,14 @@ sys.dont_write_bytecode = True
 _loader = importlib.machinery.SourceFileLoader("flickos_layout", os.path.join(PACKAGE, "usr/bin/flickos-layout"))
 fl = importlib.util.module_from_spec(importlib.util.spec_from_loader(_loader.name, _loader))
 _loader.exec_module(fl)
-# Never ask the build host's flickos-phone whether the phone connection is on.
+# Never ask the build host's flickos-phone whether the phone connection is on,
+# nor its flickos-media whether the media buttons are, nor its flickos-weather
+# whether the weather is, nor its flickos-classroom-view whether this screen
+# is shared with a teacher.
 fl.PHONE = os.path.join(HERE, "no-flickos-phone")
+fl.MEDIA = os.path.join(HERE, "no-flickos-media")
+fl.WEATHER = os.path.join(HERE, "no-flickos-weather")
+fl.CLASSROOM = os.path.join(HERE, "no-flickos-classroom-view")
 # EngineTest replaces these with a fake settings store.
 REAL_GSETTINGS_GET, REAL_GSETTINGS_SET = fl.gsettings_get, fl.gsettings_set
 REAL_GSETTINGS_DEFAULT, REAL_GSETTINGS_RESET = fl.gsettings_default, fl.gsettings_reset
@@ -75,7 +81,9 @@ class EngineTest(unittest.TestCase):
         for name, value in (("LAYOUTS_DIR", self.layouts_dir),
                             ("STYLES_DIR", self.path("styles")),
                             ("SYSTEM_CONF", self.path("etc/xdg/flickos/layouts.conf")),
+                            ("SITE_CONF", self.path("site/flickos/layouts.conf")),
                             ("HISTORY_CONF", self.path("etc/xdg/flickos/history.conf")),
+                            ("HISTORY_SITE_CONF", self.path("site/flickos/history.conf")),
                             # Never the build host's add-ons.
                             ("ADDONS_DIR", self.path("addons")),
                             ("DEFAULT_LAYOUT", "flickos"),
@@ -84,6 +92,8 @@ class EngineTest(unittest.TestCase):
                             ("BASE_FOOT", self.base_foot),
                             ("BASE_FUZZEL", self.base_fuzzel),
                             ("BASE_MAKO", self.base_mako),
+                            # Never the build host's flickos-menu: the desktop card is off unless a test adds it.
+                            ("OSD_CLIENT", self.path("libexec/osd")),
                             ("GSETTINGS", self.path("no-gsettings")),
                             # No processes: set --live must never find, signal or
                             # stop the build host's waybar, dock or start menu.
@@ -95,6 +105,8 @@ class EngineTest(unittest.TestCase):
                             # Every theme counts as installed; StyleFallbackTest says which aren't.
                             ("theme_installed", lambda kind, name: True),
                             ("DPKG_QUERY", self.path("no-dpkg-query")),
+                            # Never the build host's keyboard; KeysTest writes one here.
+                            ("KEYBOARD_DEFAULTS", self.path("etc/default/keyboard")),
                             # No GTK child: CssCheckTest puts a stand-in here.
                             ("CSS_CHECKER", self.path("no-check-css")),
                             ("CSS_RESULTS", {})):
@@ -287,6 +299,25 @@ class RcxmlOverlayTest(EngineTest):
         self.assertNotIn("W-5", binds)
         self.assertIsNotNone(root.find("keyboard/default"))
 
+    def test_desktop_card_replaces_labwcs_popup(self):
+        """With flickos-menu's ring client installed, every key that switches
+        desktop also runs `desktop show` and labwc's own pop-up is off."""
+        self.write("libexec/osd", "#!/bin/sh\n")
+        os.chmod(self.path("libexec/osd"), 0o755)
+        root = self.desktops_layout()
+        self.assertEqual(root.find("desktops/popupTime").text, "0")
+        for bind in root.iter("keybind"):
+            if bind.get("key") in {key for key, _, _ in fl.desktop_keys(4)}:
+                actions = [a.get("name") for a in bind.findall("action")]
+                self.assertEqual(actions[1:], ["Execute"], bind.get("key"))
+                self.assertEqual(bind.find("action[@name='Execute']/command").text, fl.DESKTOP_SHOW)
+
+    def test_without_the_ring_client_labwcs_popup_stays(self):
+        root = self.desktops_layout()
+        self.assertIsNone(root.find("desktops/popupTime"))
+        self.assertTrue(all(len(bind.findall("action")) == 1 for bind in root.iter("keybind")
+                            if bind.get("key") in {key for key, _, _ in fl.desktop_keys(4)}))
+
     def test_one_desktop_needs_no_overlay(self):
         self.write("etc/xdg/labwc/rc.xml", "<labwc_config><keyboard><default /></keyboard></labwc_config>\n")
         self.assertIsNotNone(self.desktops_layout())
@@ -331,6 +362,30 @@ class ResolutionTest(EngineTest):
 
     def test_system_default_beats_builtin(self):
         self.set_system_default("redmond")
+        self.assertEqual(self.resolve(), "redmond")
+
+    def test_site_default_beats_system_default(self):
+        self.set_system_default("cupertino")
+        self.write("site/flickos/layouts.conf", "[Defaults]\nLayout=redmond\n")
+        self.assertEqual(self.resolve(), "redmond")
+        self.set_user_choice("cupertino")
+        self.assertEqual(self.resolve(), "cupertino")
+
+    def test_site_default_goes_key_by_key(self):
+        """A site file with only Clock= leaves the system's Layout= in force."""
+        self.set_system_default("redmond")
+        self.write("site/flickos/layouts.conf", "[Defaults]\nClock=12h\n")
+        self.assertEqual(self.resolve(), "redmond")
+        self.assertEqual(fl.system_default("Clock"), "12h")
+
+    def test_unknown_site_default_falls_back_to_the_builtin_one(self):
+        self.set_system_default("redmond")
+        self.write("site/flickos/layouts.conf", "[Defaults]\nLayout=nonexistent\n")
+        self.assertEqual(self.resolve(), "flickos")
+
+    def test_broken_site_file_leaves_the_system_default(self):
+        self.set_system_default("redmond")
+        self.write("site/flickos/layouts.conf", "[[[ no\n")
         self.assertEqual(self.resolve(), "redmond")
 
     def test_user_choice_beats_system_default(self):
@@ -825,6 +880,9 @@ class ClockTest(EngineTest):
         self.assertEqual(fl.twelve_hour("{:%a %d %b  %H:%M}"), "{:%a %d %b  %I:%M %p}")
         self.assertEqual(fl.twelve_hour("{:%H:%M:%S\n%d/%m}"), "{:%I:%M:%S %p\n%d/%m}")
         self.assertEqual(fl.twelve_hour("{:%d/%m/%Y}"), "{:%d/%m/%Y}")
+        # Redmond's: markup and the explicit argument index stay.
+        self.assertEqual(fl.twelve_hour('<span weight="600">{0:%H:%M}</span>\n{0:%a %d %b}'),
+                         '<span weight="600">{0:%I:%M %p}</span>\n{0:%a %d %b}')
 
     def test_24h_leaves_the_layouts_formats(self):
         bars = self.bars()
@@ -932,6 +990,20 @@ class StartMenuTest(EngineTest):
         with self.quiet():
             self.assertIsNone(self.layout("odd").menu)
 
+    def test_menu_arrow(self):
+        self.assertIsNone(self.layout("plain").menu_arrow)     # the default
+        self.make_layout("arrow", extra="Menu=bottom-left\nMenuArrow=23 32\n")
+        self.make_layout("odd", extra="Menu=bottom-left\nMenuArrow=left\n")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.layout("arrow").menu_arrow, "23 32")
+            self.assertIsNone(self.layout("odd").menu_arrow)
+        fl.update_menu(self.root, "bottom-left", "classic", "23 32")
+        with open(self.anchor, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "bottom-left\nclassic\n23 32\n")
+        fl.update_menu(self.root, "bottom-left", "classic")
+        with open(self.anchor, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "bottom-left\nclassic\n")
+
     def test_layouts_menu_style(self):
         self.assertEqual(self.layout("plain").menu_style, "classic")    # the default
         self.make_layout("grid", extra="Menu=top-left\nMenuStyle=grid\n")
@@ -959,7 +1031,7 @@ class StartMenuTest(EngineTest):
         with self.quiet(), contextlib.redirect_stdout(io.StringIO()) as out:
             fl.main(["menu-style", "list"])
         self.assertEqual([line.split("\t")[0] for line in out.getvalue().splitlines()],
-                         ["layout", "classic", "categories", "grid"])
+                         ["layout", "classic", "categories", "grid", "prompt"])
         self.assertEqual(set(fl.MENU_STYLE_CHOICES) - {fl.FOLLOW_LAYOUT}, set(fl.MENU_STYLES))
         with self.quiet():
             self.assertEqual(fl.main(["menu-style", "set", "ribbon"]), 1)
@@ -1157,6 +1229,41 @@ class StartMenuTest(EngineTest):
                 kill.assert_called_once_with(42, fl.signal.SIGWINCH)
                 fl.sync_menu(False)
                 stop.assert_called_once_with([42])
+
+    def test_sync_menu_replaces_a_daemon_older_than_its_program(self):
+        """A daemon started before flickos-menu was upgraded runs the old code:
+        set replaces it instead of only signalling it."""
+        with mock.patch.object(fl, "start_supervised") as start, mock.patch.object(fl, "stop") as stop, \
+                mock.patch.object(fl, "managed_menus", return_value=[42, 43]), \
+                mock.patch.object(fl, "started_before", side_effect=lambda pid, path: pid == 42), \
+                mock.patch.object(fl.os, "kill") as kill:
+            fl.sync_menu(True)
+        stop.assert_called_once_with([42])
+        start.assert_not_called()
+        kill.assert_called_once_with(43, fl.signal.SIGWINCH)
+        with mock.patch.object(fl, "start_supervised") as start, mock.patch.object(fl, "stop") as stop, \
+                mock.patch.object(fl, "managed_menus", return_value=[42]), \
+                mock.patch.object(fl, "started_before", return_value=True):
+            fl.sync_menu(True)
+        stop.assert_called_once_with([42])
+        self.assertEqual(start.call_args.args[0], ["flickos-menu", "daemon"])
+
+    def test_started_before(self):
+        """/proc/PID/stat's start time (ticks after boot) against the file's ctime."""
+        tick = os.sysconf("SC_CLK_TCK")
+        program = self.path("flickos-menu")
+        self.write("flickos-menu", "")
+        changed = os.stat(program).st_ctime
+        boot = int(changed) - 1000
+        self.write("proc/stat", f"cpu  1 2 3\nbtime {boot}\nprocesses 9\n")
+        for pid, seconds in ((7, 500), (8, 1500)):
+            self.write(f"proc/{pid}/stat", f"{pid} (flickos (menu)) S " + " ".join(["0"] * 18)
+                       + f" {seconds * tick} 0 0\n")
+        with mock.patch.object(fl, "PROC", self.path("proc")):
+            self.assertTrue(fl.started_before(7, program))
+            self.assertFalse(fl.started_before(8, program))
+            self.assertFalse(fl.started_before(9, program))         # gone
+            self.assertFalse(fl.started_before(7, None))            # not installed
 
     def test_panel_starts_the_daemon_only_while_on(self):
         self.set_system_default("plain")
@@ -1682,6 +1789,20 @@ class ControlFragmentTest(EngineTest):
         self.assertEqual({o.tag: o.text for o in top.find("magnifier")},
                          {"width": "400", "height": "400", "increment": "0.5", "useFilter": "no"})
 
+    def test_theme_options_are_set(self):
+        """flickos-control's window shadows replace the system rc.xml's, and
+        the theme's other options stay."""
+        rcxml = self.path("etc/xdg/labwc/rc.xml")
+        with open(rcxml, encoding="utf-8") as f:
+            text = f.read()
+        self.write("etc/xdg/labwc/rc.xml", text.replace("<theme>", "<theme><dropShadows>yes</dropShadows>", 1))
+        self.write("run/flickos/control/labwc.xml",
+                   "<labwc_config><theme><dropShadows>no</dropShadows></theme></labwc_config>")
+        self.prepare_plain()
+        top = ET.parse(self.overlay_rcxml).getroot()
+        self.assertEqual(top.findtext("theme/dropShadows"), "no")
+        self.assertIsNotNone(top.findtext("theme/cornerRadius"))
+
     def test_control_then_tiler(self):
         self.write("run/flickos/control/labwc.xml", self.FRAGMENT)
         self.write("run/flickos/tiler/labwc.xml", TilerFragmentTest.FRAGMENT)
@@ -2058,3 +2179,91 @@ class PhonePopupLayoutTest(EngineTest):
         self.assertNotIn("'", fl.PHONE_TOGGLE)
         self.assertIn('printf phone > "$XDG_RUNTIME_DIR/flickos/menu/request"', fl.PHONE_TOGGLE)
         self.assertTrue(fl.PHONE_TOGGLE.endswith("|| flickos-phone menu"))
+
+
+class WindowButtonsTest(EngineTest):
+    """The user's window buttons choice wins over the layout's TitlebarLayout=,
+    in labwc's rc.xml and in GTK's button-layout."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_layout("mac", titlebar="close,iconify,max:")
+        self.make_layout("plain")
+        self.make_style("dark")
+
+    def titlebar(self, layout_id):
+        with self.quiet():
+            self.assertTrue(fl.prepare(self.layout(layout_id), self.style(), fl.labwc_themes(fl.styles()),
+                                       buttons=fl.resolve_buttons()))
+        if not os.path.exists(self.overlay_rcxml):
+            return None
+        return ET.parse(self.overlay_rcxml).getroot().findtext("theme/titlebar/layout")
+
+    def test_follows_the_layout_by_default(self):
+        self.assertEqual(fl.resolve_buttons().id, "layout")
+        self.assertEqual(self.titlebar("mac"), "close,iconify,max:")
+        self.assertIsNone(self.titlebar("plain"))       # nothing to change: no overlay rc.xml
+
+    def test_choice_replaces_the_layouts_buttons(self):
+        for choice, wanted in (("left", "close,iconify,max:"), ("right", ":iconify,max,close"),
+                               ("split", "close:max")):
+            with self.subTest(choice=choice):
+                self.set_user_choice(choice, kind="buttons")
+                self.assertEqual(self.titlebar("mac"), wanted)
+                self.assertEqual(self.titlebar("plain"), wanted)
+
+    def test_unknown_choice_falls_back_to_the_layout(self):
+        self.set_user_choice("diagonal", kind="buttons")
+        with self.quiet():
+            self.assertEqual(fl.resolve_buttons().id, "layout")
+        self.assertEqual(self.titlebar("mac"), "close,iconify,max:")
+
+    def test_system_default(self):
+        self.write("etc/xdg/flickos/layouts.conf", "[Defaults]\nButtons=right\n")
+        self.assertEqual(fl.resolve_buttons().id, "right")
+        self.assertEqual(self.titlebar("plain"), ":iconify,max,close")
+
+    def test_choices_are_valid_labwc_layouts(self):
+        for value in fl.BUTTON_ARRANGEMENTS.values():
+            self.assertTrue(fl.valid_titlebar_layout(value), value)
+        self.assertEqual(set(fl.BUTTON_ARRANGEMENTS) | {fl.FOLLOW_LAYOUT}, set(fl.BUTTON_CHOICES))
+
+    def test_gtk_buttons_follow_the_choice(self):
+        self.gsettings_defaults["button-layout"] = "appmenu:close"
+        self.gsettings["button-layout"] = "appmenu:close"
+        available = fl.layouts()
+        buttons = fl.BUTTON_CHOICES["right"]
+        fl.layout_gsettings(available["plain"], available, buttons)
+        self.assertEqual(self.gsettings["button-layout"], ":minimize,maximize,close")
+        # Back to the layout's own: the default again, for a layout with none.
+        fl.layout_gsettings(available["plain"], available, fl.BUTTON_CHOICES["layout"])
+        self.assertEqual(self.gsettings["button-layout"], "appmenu:close")
+        fl.layout_gsettings(available["mac"], available, fl.BUTTON_CHOICES["layout"])
+        self.assertEqual(self.gsettings["button-layout"], "close,minimize,maximize:")
+
+    def test_gtk_buttons_the_user_set_are_kept(self):
+        self.gsettings_defaults["button-layout"] = "appmenu:close"
+        self.gsettings["button-layout"] = "close:"        # nwg-look or dconf-editor
+        available = fl.layouts()
+        kept = fl.layout_gsettings(available["plain"], available, fl.BUTTON_CHOICES["split"])
+        self.assertEqual(kept, "close:")
+        self.assertEqual(self.gsettings["button-layout"], "close:")
+
+    def test_set_state_and_history(self):
+        with self.quiet():
+            state = fl.state()
+        self.assertEqual(state["buttons"]["current"], "layout")
+        self.assertEqual([c["id"] for c in state["buttons"]["choices"]], ["layout", "left", "right", "split"])
+        with self.quiet():
+            self.assertEqual(fl.main(["buttons", "set", "diagonal"]), 1)
+            self.assertEqual(fl.main(["buttons", "set", "right"]), 0)
+        self.assertEqual(read(self.path("home/.config/flickos/buttons")), "right\n")
+        self.assertEqual(ET.parse(self.overlay_rcxml).getroot().findtext("theme/titlebar/layout"),
+                         ":iconify,max,close")
+        entries = [json.loads(line) for line in read(self.path("home/.local/state/flickos/history.jsonl"))
+                   .splitlines()]
+        self.assertEqual([(e["owner"], e["key"], e["old"], e["new"]) for e in entries],
+                         [("flickos-layout", "buttons", "default", "right")])
+        with self.quiet():
+            self.assertEqual(fl.main(["buttons", "set", "default"]), 0)
+        self.assertFalse(os.path.exists(self.path("home/.config/flickos/buttons")))

@@ -1,0 +1,3 @@
+usr/bin/flickos-classroom-view                          usr/bin/
+etc/xdg/flickos/classroom.conf                          etc/xdg/flickos/
+usr/share/polkit-1/actions/*                            usr/share/polkit-1/actions/

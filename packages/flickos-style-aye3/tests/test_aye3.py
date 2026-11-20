@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,23 @@ class MetainfoTest(unittest.TestCase):
 
     def setUp(self):
         self.root = ET.parse(METAINFO).getroot()
+
+    def test_screenshots(self):
+        """Software's two screenshots, at the apt repository's address, and (in
+        the source tree) the files repo/upload.sh publishes there, as
+        tools/make-style-shots.sh takes them."""
+        shots = self.root.findall("screenshots/screenshot")
+        self.assertEqual([shot.findtext("image") for shot in shots],
+                         [f"https://dvbondoy.github.io/flickos-apt/screenshots/aye3/{n}.png" for n in (1, 2)])
+        self.assertTrue(all(shot.findtext("caption") for shot in shots))
+        folder = os.path.join(PACKAGE, "../../repo/screenshots")
+        if not os.path.isdir(folder):
+            self.skipTest("not in the source tree")
+        for n in (1, 2):
+            with open(os.path.join(folder, "aye3", f"{n}.png"), "rb") as f:
+                head = f.read(24)
+            self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack(">II", head[16:24]), (1366, 768))
 
     def test_addon_of_the_layout_chooser(self):
         self.assertEqual(self.root.get("type"), "addon")
@@ -113,7 +131,9 @@ class FilesTest(unittest.TestCase):
 @unittest.skipUnless(os.path.isdir(LAYOUTS), "flickos-layouts is not next to this package")
 class CheckTest(unittest.TestCase):
     """flickos-layout's own check, with this package installed as it would be:
-    its files next to flickos-layouts' common/ in one share folder."""
+    its files next to flickos-layouts' common/ in one share folder, and
+    stand-ins for the themes the package depends on (the build host need not
+    have them)."""
 
     @classmethod
     def setUpClass(cls):
@@ -122,6 +142,11 @@ class CheckTest(unittest.TestCase):
         shutil.copytree(SHARE, cls.share)
         shutil.copytree(os.path.join(LAYOUTS, "usr/share/flickos/layouts/common"),
                         os.path.join(cls.share, "flickos/layouts/common"))
+        os.makedirs(os.path.join(cls.tmp, "depends/themes/Arc-Dark/gtk-3.0"))
+        icons = os.path.join(cls.tmp, "depends/icons/Numix")
+        os.makedirs(icons)
+        with open(os.path.join(icons, "index.theme"), "w", encoding="utf-8") as f:
+            f.write("[Icon Theme]\nName=Numix\n")
 
     @classmethod
     def tearDownClass(cls):
@@ -129,7 +154,7 @@ class CheckTest(unittest.TestCase):
 
     def run_layout(self, *args):
         with tempfile.TemporaryDirectory() as home:
-            env = {"HOME": home, "PATH": "/usr/bin:/bin", "XDG_DATA_DIRS": f"{self.share}:/usr/share",
+            env = {"HOME": home, "PATH": "/usr/bin:/bin", "XDG_DATA_DIRS": f"{self.share}:{self.tmp}/depends:/usr/share",
                    "FLICKOS_LAYOUT_PREFIX": os.path.abspath(LAYOUTS)}
             return subprocess.run([sys.executable, os.path.join(LAYOUTS, "usr/bin/flickos-layout"), *args],
                                   capture_output=True, text=True, env=env, check=False)

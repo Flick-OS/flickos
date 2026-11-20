@@ -1,0 +1,55 @@
+# Eleven: FlickOS's own window theme (flickos-style-eleven, written by
+# tools/make-eleven.py; man labwc-theme). Dark grey title bars with a thin
+# grey frame, the title on the left, and wide flat buttons drawn in thin
+# lines up to the window's corner: this folder's SVGs. Under the pointer a
+# button turns a little lighter, and close turns red.
+border.width: 1
+window.active.border.color: #4a4a4a
+window.inactive.border.color: #333333
+window.active.indicator.toggled-keybind.color: #c42b1c
+
+# Shadows (<dropShadows> in rc.xml; Settings can turn them off)
+window.active.shadow.size: 40
+window.inactive.shadow.size: 20
+window.active.shadow.color: #00000060
+window.inactive.shadow.color: #00000030
+
+window.titlebar.padding.width: 0
+window.titlebar.padding.height: 0
+window.active.title.bg.color: #202020
+window.inactive.title.bg.color: #202020
+window.active.label.text.color: #ffffff
+window.inactive.label.text.color: #9a9a9a
+window.label.text.justify: left
+window.button.width: 46
+window.button.height: 32
+window.button.spacing: 0
+window.button.hover.bg.corner-radius: 0
+window.active.button.unpressed.image.color: #ffffff
+window.inactive.button.unpressed.image.color: #9a9a9a
+menu.border.width: 1
+menu.border.color: #454545
+menu.items.bg.color: #2c2c2c
+menu.items.text.color: #ffffff
+menu.items.active.bg.color: #3d3d3d
+menu.items.active.text.color: #ffffff
+menu.items.padding.x: 12
+menu.items.padding.y: 6
+menu.separator.color: #454545
+menu.title.bg.color: #2c2c2c
+menu.title.text.color: #ffffff
+osd.bg.color: #2c2c2c
+osd.border.color: #454545
+osd.border.width: 1
+osd.label.text.color: #ffffff
+osd.window-switcher.preview.border.color: #4cc2ff
+osd.window-switcher.width: 640
+osd.window-switcher.padding: 8
+osd.window-switcher.item.padding.x: 12
+osd.window-switcher.item.padding.y: 6
+osd.window-switcher.item.active.border.width: 2
+snapping.overlay.region.bg.color: #4cc2ff4c
+snapping.overlay.region.border.color: #4cc2ff
+snapping.overlay.edge.bg.color: #4cc2ff4c
+snapping.overlay.edge.border.color: #4cc2ff
+magnifier.border.color: #4cc2ff

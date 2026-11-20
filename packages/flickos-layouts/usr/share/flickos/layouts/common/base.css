@@ -2,8 +2,8 @@
  * style.css. Colors: named colors from the style palette only (@wm_bg,
  * @fg_color, ...), never color values. Reference: man waybar-styles. */
 
+/* No font family: the bars use the system font (Appearance). */
 * {
-    font-family: "DejaVu Sans", sans-serif;
     font-size: 13px;
     border: none;
     border-radius: 0;
@@ -89,6 +89,7 @@ window#waybar {
 #battery,
 #custom-tiler,
 #custom-phone,
+#custom-classroom,
 #tray {
     padding: 0 10px;
 }
@@ -187,6 +188,157 @@ window#waybar {
 }
 
 #custom-phone:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+/* Sharing this screen with a teacher (flickos-classroom-view): the display
+ * icon; red while a teacher is looking or has locked the screen, dimmed
+ * while no teacher is paired. The tooltip says which, so the color is never
+ * the only sign (A11Y-6). */
+#custom-classroom {
+    min-width: 16px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 16px 16px;
+    background-image: -gtk-icontheme("video-display-symbolic");
+}
+
+#custom-classroom.looking {
+    color: @error_color;
+}
+
+#custom-classroom.unpaired {
+    color: alpha(@fg_color, 0.4);
+}
+
+#custom-classroom:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+/* Media controls (flickos-media): symbolic icons like the other buttons
+ * (the label is a space), pause while playing; the title dimmed while
+ * paused; the spectrum button dimmed while off and underlined while the
+ * spectrum is over windows. Hidden while no app plays. */
+#custom-media-previous,
+#custom-media-play,
+#custom-media-next,
+#custom-media-spectrum {
+    min-width: 16px;
+    padding: 0 6px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 16px 16px;
+}
+
+#custom-media-previous {
+    background-image: -gtk-icontheme("media-skip-backward-symbolic");
+}
+
+#custom-media-play {
+    background-image: -gtk-icontheme("media-playback-start-symbolic");
+}
+
+#custom-media-play.playing {
+    background-image: -gtk-icontheme("media-playback-pause-symbolic");
+}
+
+#custom-media-next {
+    background-image: -gtk-icontheme("media-skip-forward-symbolic");
+}
+
+#custom-media-spectrum {
+    padding: 0 10px;
+    background-image: -gtk-icontheme("flickos-spectrum-symbolic");
+}
+
+#custom-media-spectrum.off {
+    color: alpha(@fg_color, 0.4);
+}
+
+#custom-media-spectrum.on.top {
+    box-shadow: inset 0 -2px @selected_bg_color;
+}
+
+#custom-media-title {
+    padding: 0 8px 0 4px;
+}
+
+/* A long title scrolls (flickos-media's 24 characters): about as wide as
+ * them, so the buttons beside it don't move at every step. */
+#custom-media-title.scrolling {
+    min-width: 16em;
+}
+
+#custom-media-title.paused,
+#custom-media-title.stopped {
+    color: alpha(@fg_color, 0.6);
+}
+
+#custom-media-previous:hover,
+#custom-media-play:hover,
+#custom-media-next:hover,
+#custom-media-title:hover,
+#custom-media-spectrum:hover {
+    background-color: alpha(@base_color, 0.8);
+}
+
+/* The weather (flickos-weather): the sky's icon from the icon theme by
+ * class (one per sky, overcast without one), then the temperature. Dimmed
+ * while the forecast is old; "unset" says Weather until a place is chosen. */
+#custom-weather {
+    padding: 0 10px 0 32px;
+    background-repeat: no-repeat;
+    background-position: 10px center;
+    background-size: 16px 16px;
+    background-image: -gtk-icontheme("weather-overcast-symbolic");
+}
+
+#custom-weather.overcast {
+    background-image: -gtk-icontheme("weather-overcast-symbolic");
+}
+
+#custom-weather.clear {
+    background-image: -gtk-icontheme("weather-clear-symbolic");
+}
+
+#custom-weather.clear-night {
+    background-image: -gtk-icontheme("weather-clear-night-symbolic");
+}
+
+#custom-weather.few-clouds {
+    background-image: -gtk-icontheme("weather-few-clouds-symbolic");
+}
+
+#custom-weather.few-clouds-night {
+    background-image: -gtk-icontheme("weather-few-clouds-night-symbolic");
+}
+
+#custom-weather.fog {
+    background-image: -gtk-icontheme("weather-fog-symbolic");
+}
+
+#custom-weather.showers {
+    background-image: -gtk-icontheme("weather-showers-symbolic");
+}
+
+#custom-weather.showers-scattered {
+    background-image: -gtk-icontheme("weather-showers-scattered-symbolic");
+}
+
+#custom-weather.snow {
+    background-image: -gtk-icontheme("weather-snow-symbolic");
+}
+
+#custom-weather.storm {
+    background-image: -gtk-icontheme("weather-storm-symbolic");
+}
+
+#custom-weather.stale,
+#custom-weather.unset {
+    color: alpha(@fg_color, 0.6);
+}
+
+#custom-weather:hover {
     background-color: alpha(@base_color, 0.8);
 }
 

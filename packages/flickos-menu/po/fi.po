@@ -1,0 +1,945 @@
+# Finnish translation of flickos-menu.
+# Copyright (C) 2026 Pekka Kurki <pekka.kurki@proton.me>
+# This file is distributed under the same license as the flickos-menu package.
+# Pekka Kurki <pekka.kurki@proton.me>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: flickos-menu\n"
+"Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
+"POT-Creation-Date: 2026-11-15 21:28+0800\n"
+"PO-Revision-Date: 2026-10-30 13:37+0200\n"
+"Last-Translator: Pekka Kurki <pekka.kurki@proton.me>\n"
+"Language-Team: Finnish\n"
+"Language: fi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 3.6\n"
+
+#: usr/bin/flickos-menu
+msgid "Accessories"
+msgstr "Apuohjelmat"
+
+#: usr/bin/flickos-menu
+msgid "Development"
+msgstr "Ohjelmointi"
+
+#: usr/bin/flickos-menu
+msgid "Education"
+msgstr "Koulutus"
+
+#: usr/bin/flickos-menu
+msgid "Games"
+msgstr "Pelit"
+
+#: usr/bin/flickos-menu
+msgid "Graphics"
+msgstr "Grafiikka"
+
+#: usr/bin/flickos-menu
+msgid "Internet"
+msgstr "Internet"
+
+#: usr/bin/flickos-menu
+msgid "Multimedia"
+msgstr "Ääni ja video"
+
+#: usr/bin/flickos-menu
+msgid "Office"
+msgstr "Toimisto"
+
+#: usr/bin/flickos-menu
+msgid "Settings"
+msgstr "Asetukset"
+
+#: usr/bin/flickos-menu
+msgid "System"
+msgstr "Järjestelmä"
+
+#: usr/bin/flickos-menu
+msgid "Other"
+msgstr "Muut"
+
+#: usr/bin/flickos-menu
+msgid "Software"
+msgstr "Ohjelmistot"
+
+#: usr/bin/flickos-menu
+msgid "Lock Screen"
+msgstr "Lukitse näyttö"
+
+#: usr/bin/flickos-menu
+msgid "Log Out"
+msgstr "Kirjaudu ulos"
+
+#: usr/bin/flickos-menu
+msgid "Restart"
+msgstr "Käynnistä uudelleen"
+
+#: usr/bin/flickos-menu
+msgid "Shut Down"
+msgstr "Sammuta"
+
+#: usr/bin/flickos-menu
+msgid "Click again to log out"
+msgstr "Kirjaudu ulos napsauttamalla uudestaan"
+
+#: usr/bin/flickos-menu
+msgid "Click again to restart"
+msgstr "Käynnistä uudelleen napsauttamalla uudestaan"
+
+#: usr/bin/flickos-menu
+msgid "Click again to shut down"
+msgstr "Sammuta napsauttamalla uudestaan"
+
+#: usr/bin/flickos-menu
+msgid "Recent"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Trash"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Type “{name}” to see your games"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Hold Ctrl to see the numbers that open your pins"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Start with = for a sum, such as =15*3"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Start with > to run a command"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Start with / to find files and folders"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Right-click an app to pin, move or hide it"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "→ takes the grey name, ↑ the last search"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Press F1 for everything you can type"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "A category's apps"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "A sum"
+msgstr ""
+
+#. Translators: /name, >command and ?word are examples of what
+#. to type: keep the first character, translate the word.
+#: usr/bin/flickos-menu
+msgid "/name"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Files and folders by name"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid ">command"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "A command, run in a terminal"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "?word"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Manual pages"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Take the grey rest of a name"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "The last search again"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Ctrl+1–6"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Open a pinned app"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Ctrl+Enter"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Another window of an open app"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Menu key"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "An app's actions, as a right click"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Ctrl+P"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Pin or unpin the chosen app"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Ctrl+plus, Ctrl+minus"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "A larger or smaller menu"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Home"
+msgstr "Koti"
+
+#: usr/bin/flickos-menu
+msgid "Unpin from Start Menu"
+msgstr "Poista käynnistysvalikosta"
+
+#: usr/bin/flickos-menu
+msgid "Pin to Start Menu"
+msgstr "Kiinnitä käynnistysvalikkoon"
+
+#: usr/bin/flickos-menu
+msgid "Start Menu"
+msgstr "Käynnistysvalikko"
+
+#: usr/bin/flickos-menu
+msgid "Search apps"
+msgstr "Etsi sovelluksia"
+
+#: usr/bin/flickos-menu
+msgid "No apps found"
+msgstr "Sovelluksia ei löytynyt"
+
+#: usr/bin/flickos-menu
+msgid "All Apps"
+msgstr "Kaikki sovellukset"
+
+#: usr/bin/flickos-menu
+msgid "Back"
+msgstr "Takaisin"
+
+#: usr/bin/flickos-menu
+msgid "Favorites"
+msgstr "Suosikit"
+
+#: usr/bin/flickos-menu
+msgid "Folders"
+msgstr "Kansiot"
+
+#: usr/bin/flickos-menu
+msgid "What you can type (F1)"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Drag apps here to pin them"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, fuzzy
+msgid "Your account in Settings"
+msgstr "Lisää puhelin Puhelinasetuksista"
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Eject {name}"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "{name} wasn't ejected: {error}"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "New"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Ctrl+{number}"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "open"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "new"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Restart to finish updates"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-format
+msgid "Type a sum, such as 15*3 or 15% of 240."
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Run “{text}” in Terminal"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Your shell runs it in a new window"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Type a command to run in a terminal."
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "No apps match “{text}”."
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Type an app, a folder or a setting"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Type a sum"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Type a command to run in a terminal"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Type a file or folder name"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Type what to look for"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Type a name to find apps, folders and settings."
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Hold Super for every keyboard shortcut."
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Enter copies it"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Look for “{text}” in Software"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Look for files named “{text}”"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Type {count} or more letters."
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, fuzzy
+msgid "Looking…"
+msgstr "Ladataan…"
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Nothing found for “{text}”."
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Press Enter to close this window."
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Bring to Front"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Unpin"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Move Left"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Ctrl+←"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Move Right"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Ctrl+→"
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Pin"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, fuzzy
+msgid "Show in the Menu"
+msgstr "Näytä kansiossa"
+
+#: usr/bin/flickos-menu
+#, fuzzy
+msgid "Hide from the Menu"
+msgstr "Poista käynnistysvalikosta"
+
+#: usr/bin/flickos-menu
+msgid "Open in Software…"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, fuzzy
+msgid "Larger Menu"
+msgstr "Käynnistysvalikko"
+
+#: usr/bin/flickos-menu
+msgid "Ctrl++"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, fuzzy
+msgid "Smaller Menu"
+msgstr "Käynnistysvalikko"
+
+#: usr/bin/flickos-menu
+msgid "Ctrl+−"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "Choose a pin to replace with {app}. Escape cancels."
+msgstr ""
+
+#: usr/bin/flickos-menu
+msgid "Drag to resize (Ctrl+plus, Ctrl+minus)"
+msgstr ""
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "{app} is already pinned."
+msgstr "Sovellus \"{app}\" on jo kiinnitetty."
+
+#: usr/bin/flickos-menu
+#, python-brace-format
+msgid "{app} is not pinned."
+msgstr "Sovellusta \"{app}\" ei ole kiinnitetty."
+
+#: usr/share/flickos/menu/quick.py
+msgid "Wi-Fi"
+msgstr "Wi-Fi"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Do Not Disturb"
+msgstr "Älä häiritse"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Night light"
+msgstr "Yövalo"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Tiling"
+msgstr "Ruudutus"
+
+#: usr/share/flickos/menu/quick.py usr/share/flickos/menu/phone.py
+msgid "Phone"
+msgstr "Puhelin"
+
+#. Translators: a percentage, such as 82%. Some languages put a space before %.
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "{percent}%"
+msgstr "{percent}%"
+
+#. Translators: {time} is hours and minutes, such as 3:10.
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "{percent}%, {time} left"
+msgstr "{percent}%, {time} jäljellä"
+
+#. Translators: {time} is hours and minutes, such as 0:45.
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "{percent}%, charging, full in {time}"
+msgstr "{percent}%, ladataan, täynnä {time} kuluttua"
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "{percent}%, charging"
+msgstr "{percent}%, ladataan"
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "{percent}%, fully charged"
+msgstr "{percent}%, täynnä"
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "{percent}%, plugged in"
+msgstr "{percent}%, laturissa"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Off"
+msgstr "Pois päältä"
+
+#: usr/share/flickos/menu/quick.py usr/share/flickos/menu/phone.py
+msgid "Not connected"
+msgstr "Ei yhdistetty"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Connecting…"
+msgstr "Yhdistetään…"
+
+#: usr/share/flickos/menu/quick.py
+msgid "On"
+msgstr "Päällä"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Quick Settings"
+msgstr "Pika-asetukset"
+
+#: usr/share/flickos/menu/quick.py usr/share/flickos/menu/phone.py
+msgid "Mute"
+msgstr "Mykistä"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Volume"
+msgstr "Äänenvoimakkuus"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Brightness"
+msgstr "Kirkkaus"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Unmute"
+msgstr "Poista mykistys"
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "Could not turn {name} on: {error}"
+msgstr "Kohteen \"{name}\" kytkeminen päälle epäonnistui: {error}"
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "Could not turn {name} on."
+msgstr "Kohteen \"{name}\" kytkeminen päälle epäonnistui."
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "Could not turn {name} off: {error}"
+msgstr "Kohteen \"{name}\" kytkeminen pois päältä epäonnistui: {error}"
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "Could not turn {name} off."
+msgstr "Kohteen \"{name}\" kytkeminen pois päältä epäonnistui."
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "Could not change the volume: {error}"
+msgstr "Äänenvoimakkuuden muuttaminen epäonnistui: {error}"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Could not change the volume."
+msgstr "Äänenvoimakkuuden muuttaminen epäonnistui."
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "Could not change the brightness: {error}"
+msgstr "Näytön kirkkauden muuttaminen epäonnistui: {error}"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Could not change the brightness."
+msgstr "Näytön kirkkauden muuttaminen epäonnistui."
+
+#: usr/share/flickos/menu/quick.py
+#, python-brace-format
+msgid "Could not mute: {error}"
+msgstr "Mykistäminen epäonnistui: {error}"
+
+#: usr/share/flickos/menu/quick.py
+msgid "Could not mute."
+msgstr "Mykistäminen epäonnistui."
+
+#. Translators: the phone's battery charge, written as the Phone window writes it.
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "{charge} %, charging"
+msgstr "{charge} %, ladataan"
+
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "{charge} %"
+msgstr "{charge} %"
+
+#: usr/share/flickos/menu/phone.py
+msgid "No phone paired"
+msgstr "Ei paritettua puhelinta"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Add one in Phone Settings"
+msgstr "Lisää puhelin Puhelinasetuksista"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Connected"
+msgstr "Yhdistetty"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Page"
+msgstr "Sivu"
+
+#. Translators: {time} is a time of day, such as 14:02.
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "Yesterday {time}"
+msgstr "Eilen {time}"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Open"
+msgstr "Avaa"
+
+#: usr/share/flickos/menu/phone.py
+msgid "File"
+msgstr "Tiedosto"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Show in Folder"
+msgstr "Näytä kansiossa"
+
+#. Translators: {app} is the name of the app the address opens in.
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "For {app}"
+msgstr "Sovelluksessa {app}"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Text"
+msgstr "Teksti"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Copy"
+msgstr "Kopioi"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Clipboard"
+msgstr "Leikepöytä"
+
+#: usr/share/flickos/menu/phone.py
+msgid "no longer there"
+msgstr "ei enää saatavilla"
+
+#. Translators: {failed} is what didn't work ("Could not copy"); {error} is the reason, in English.
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "{failed}: {error}"
+msgstr "{failed}: {error}"
+
+#. Translators: {failed} is what didn't work ("Could not copy"), as a sentence.
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "{failed}."
+msgstr "{failed}."
+
+#: usr/share/flickos/menu/phone.py
+msgid "The phone connection didn't answer."
+msgstr "Puhelinyhteys ei vastannut."
+
+#: usr/share/flickos/menu/phone.py
+msgid "Not available in the live session."
+msgstr "Ei käytettävissä live-istunnossa."
+
+#: usr/share/flickos/menu/phone.py
+msgid "The phone connection is off. Turn it on in Phone Settings."
+msgstr "Puhelinyhteys on pois päältä. Ota se käyttöön Puhelinasetuksista."
+
+#: usr/share/flickos/menu/phone.py
+msgid ""
+"KDE Connect is already running on this computer. Use it, or quit it to use "
+"this."
+msgstr ""
+"KDE Connect on jo käynnissä tällä tietokoneella. Käytä sitä tai sulje se "
+"käyttääksesi tätä."
+
+#: usr/share/flickos/menu/phone.py
+msgid ""
+"The phone connection isn't running. Turn it off and on again in Phone "
+"Settings."
+msgstr ""
+"Puhelinyhteys ei ole käynnissä. Laita se pois päältä ja takaisin päälle "
+"Puhelinasetuksista."
+
+#: usr/share/flickos/menu/phone.py
+msgid "Loading…"
+msgstr "Ladataan…"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Received"
+msgstr "Vastaanotettu"
+
+#. Translators: the letter after the underscore is the Alt key shortcut, here and below.
+#: usr/share/flickos/menu/phone.py
+msgid "_Open Phone"
+msgstr "_Avaa Puhelin"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Phone _Settings"
+msgstr "Puhelina_setukset"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Something went wrong reading the phone. Try again."
+msgstr "Puhelimen lukemisessa tapahtui virhe. Yritä uudelleen."
+
+#: usr/share/flickos/menu/phone.py
+msgid "Something went wrong."
+msgstr "Tapahtui virhe."
+
+#: usr/share/flickos/menu/phone.py
+msgid "No phone is paired. Add one in Phone Settings."
+msgstr "Yhtään puhelinta ei ole paritettu. Lisää puhelin Puhelinasetuksista."
+
+#: usr/share/flickos/menu/phone.py
+msgid "This phone isn't connected."
+msgstr "Tätä puhelinta ei ole yhdistetty."
+
+#: usr/share/flickos/menu/phone.py
+msgid "Nothing to send from here right now."
+msgstr "Täältä ei ole juuri nyt mitään lähetettävää."
+
+#: usr/share/flickos/menu/phone.py
+msgid "Incoming call"
+msgstr "Tuleva puhelu"
+
+#: usr/share/flickos/menu/phone.py
+msgid "_Mute"
+msgstr "_Mykistä"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Mute the ringer"
+msgstr "Mykistä soittoääni"
+
+#. Translators: {phone} is the phone's name.
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "Mute {phone}"
+msgstr "Mykistä {phone}"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Pause"
+msgstr "Tauko"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Play"
+msgstr "Toista"
+
+#: usr/share/flickos/menu/phone.py
+msgid "_Pause"
+msgstr "_Tauko"
+
+#: usr/share/flickos/menu/phone.py
+msgid "_Play"
+msgstr "_Toista"
+
+#: usr/share/flickos/menu/phone.py
+msgid "_Next"
+msgstr "_Seuraava"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Next"
+msgstr "Seuraava"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Nothing yet"
+msgstr "Ei mitään vielä"
+
+#: usr/share/flickos/menu/phone.py
+msgid "What a phone sends shows here for a week"
+msgstr "Puhelimen lähettämät tiedot näkyvät tässä viikon ajan"
+
+#. Translators: what a click on a received item does, then the item: "Open example.org".
+#: usr/share/flickos/menu/phone.py
+#, python-brace-format
+msgid "{action} {item}"
+msgstr "{action} {item}"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Could not copy"
+msgstr "Kopiointi epäonnistui"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Could not mute the ringer"
+msgstr "Soittoäänen mykistäminen epäonnistui"
+
+#: usr/share/flickos/menu/phone.py
+msgid "Could not change what's playing"
+msgstr "Toiston muuttaminen epäonnistui"
+
+#: usr/share/flickos/menu/osd.py
+#, fuzzy, python-brace-format
+msgid "Volume {percent}%"
+msgstr "{percent}%"
+
+#: usr/share/flickos/menu/osd.py
+#, fuzzy, python-brace-format
+msgid "Volume {percent}%, muted"
+msgstr "{percent}%, laturissa"
+
+#: usr/share/flickos/menu/osd.py
+#, fuzzy, python-brace-format
+msgid "Microphone {percent}%"
+msgstr "{percent}%"
+
+#: usr/share/flickos/menu/osd.py
+msgid "Microphone muted"
+msgstr ""
+
+#: usr/share/flickos/menu/osd.py
+#, fuzzy, python-brace-format
+msgid "Brightness {percent}%"
+msgstr "{percent}%"
+
+#: usr/share/flickos/menu/osd.py
+#, python-brace-format
+msgid "Desktop {number}"
+msgstr ""
+
+#. Translators: A task in the start menu's search, such as "Restart Panel".
+#: usr/share/flickos/menu/providers/tasks.json
+#, fuzzy
+msgid "Restart Panel"
+msgstr "Käynnistä uudelleen"
+
+#. Translators: Words, separated by spaces, that find the task "Restart Panel" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "panel taskbar bar waybar dock reload refresh fix"
+msgstr ""
+
+#. Translators: A task in the start menu's search, such as "Restart Panel".
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "Reload Desktop"
+msgstr ""
+
+#. Translators: Words, separated by spaces, that find the task "Reload Desktop" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "desktop reload refresh reconfigure labwc keyboard shortcuts"
+msgstr ""
+
+#. Translators: A task in the start menu's search, such as "Restart Panel".
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "Fix Desktop Problems…"
+msgstr ""
+
+#. Translators: Words, separated by spaces, that find the task "Fix Desktop Problems…" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "fix repair problems broken doctor layout style panel"
+msgstr ""
+
+#. Translators: A task in the start menu's search, such as "Restart Panel".
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "Screenshot of an Area"
+msgstr ""
+
+#. Translators: Words, separated by spaces, that find the task "Screenshot of an Area" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "screenshot screen shot capture picture print snip area"
+msgstr ""
+
+#. Translators: A task in the start menu's search, such as "Restart Panel".
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "Screenshot of the Whole Screen"
+msgstr ""
+
+#. Translators: Words, separated by spaces, that find the task "Screenshot of the Whole Screen" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "screenshot screen shot capture picture print full"
+msgstr ""
+
+#. Translators: A task in the start menu's search, such as "Restart Panel".
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "Turn Tiling On or Off"
+msgstr ""
+
+#. Translators: Words, separated by spaces, that find the task "Turn Tiling On or Off" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "tiling tile tiler windows side by side"
+msgstr ""
+
+#. Translators: A task in the start menu's search, such as "Restart Panel".
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "Show Desktop"
+msgstr ""
+
+#. Translators: Words, separated by spaces, that find the task "Show Desktop" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "desktop minimize hide windows"
+msgstr ""
+
+#. Translators: Words, separated by spaces, that find the task "Log Out" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "log out logout sign out exit end session"
+msgstr ""
+
+#. Translators: After the first Enter on a task that ends the session.
+#: usr/share/flickos/menu/providers/tasks.json
+#, fuzzy
+msgid "Press Enter again to log out"
+msgstr "Kirjaudu ulos napsauttamalla uudestaan"
+
+#. Translators: Words, separated by spaces, that find the task "Restart" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "restart reboot"
+msgstr ""
+
+#. Translators: After the first Enter on a task that ends the session.
+#: usr/share/flickos/menu/providers/tasks.json
+#, fuzzy
+msgid "Press Enter again to restart"
+msgstr "Käynnistä uudelleen napsauttamalla uudestaan"
+
+#. Translators: Words, separated by spaces, that find the task "Shut Down" in the start menu's search. Translate them as words people type; English ones keep working.
+#: usr/share/flickos/menu/providers/tasks.json
+msgid "shut down shutdown power off poweroff turn off halt"
+msgstr ""
+
+#. Translators: After the first Enter on a task that ends the session.
+#: usr/share/flickos/menu/providers/tasks.json
+#, fuzzy
+msgid "Press Enter again to shut down"
+msgstr "Sammuta napsauttamalla uudestaan"

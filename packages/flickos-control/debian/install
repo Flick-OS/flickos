@@ -4,3 +4,5 @@ usr/share/applications/*                  usr/share/applications/
 usr/share/polkit-1/actions/*              usr/share/polkit-1/actions/
 etc/xdg/flickos/*                         etc/xdg/flickos/
 usr/share/flickos/applications/*          usr/share/flickos/applications/
+etc/apt/apt.conf.d/*                      etc/apt/apt.conf.d/
+usr/share/flickos-control/upstreams/*      usr/share/flickos-control/upstreams/

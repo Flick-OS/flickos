@@ -1,0 +1,5 @@
+# Files with text to translate, relative to the package folder.
+# tools/update-po.sh flickos-control reads them into flickos-control.pot.
+usr/bin/flickos-control
+usr/share/applications/flickos-control.desktop
+usr/share/flickos/applications/network.cycles.wdisplays.desktop

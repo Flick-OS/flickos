@@ -1,0 +1,22 @@
+Source: flickos-kit-web
+Section: devel
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-web
+Architecture: all
+Depends: flickos-kit-base,
+         nodejs,
+         npm,
+         ${misc:Depends}
+Description: FlickOS developer kit: Node.js and npm
+ Node.js and npm from Debian. Debian 13 has Node 20, which the Node
+ project no longer supports; Debian still patches it. npm brings a few
+ hundred small Debian packages with it.
+ .
+ A kit is installed from Software's Developer Tools and removed there too.
+ Nothing it installs runs until it is used (docs/design/flickos-dev.md).

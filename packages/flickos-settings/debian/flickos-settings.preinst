@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+# Thunar's wallpaper plugin (libthunarx-3-0) puts "Set as wallpaper" in the
+# menu of every picture, but it sets one only where $XDG_CURRENT_DESKTOP is
+# XFCE or GNOME: on FlickOS (labwc:wlroots) it does nothing and says nothing.
+# uca.xml's Set as Wallpaper (waypaper) takes its place. Thunar loads only the
+# files ending in .so in its plugin folder, so the diverted name keeps the
+# plugin out. FlickOS is amd64 only, hence the fixed folder.
+PLUGIN=/usr/lib/x86_64-linux-gnu/thunarx-3/thunar-wallpaper-plugin.so
+
+case "$1" in
+    install|upgrade)
+        dpkg-divert --package flickos-settings --add --rename \
+            --divert "$PLUGIN.flickos-off" "$PLUGIN" >/dev/null
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

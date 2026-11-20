@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Bring Files from Windows
+Comment=Copy your documents, pictures and other files from a Windows disk
+Exec=flickos-switch files
+Icon=drive-harddisk
+Terminal=false
+Categories=Utility;
+# Translators: search words, each ended by a semicolon.
+Keywords=windows;copy;move;transfer;files;migrate;onedrive;old;computer;
+StartupNotify=false

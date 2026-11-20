@@ -1,0 +1,20 @@
+/* Tortuga's panel, without the floating look (flickos-layout floating-panel
+ * set off): one plain bar along the top, FlickOS's shared rules with larger
+ * corners on what lights up. floating.css draws the islands over this.
+ * Named colors only, so the layout follows any style. */
+@import url("../common/base.css");
+
+window#waybar.tortuga #custom-launcher,
+window#waybar.tortuga #clock,
+window#waybar.tortuga #custom-tiler,
+window#waybar.tortuga #custom-phone,
+window#waybar.tortuga #wireplumber,
+window#waybar.tortuga #battery,
+window#waybar.tortuga #quick {
+    margin: 4px 2px;
+    border-radius: 8px;
+}
+
+window#waybar.tortuga #clock:hover {
+    background-color: alpha(@base_color, 0.8);
+}

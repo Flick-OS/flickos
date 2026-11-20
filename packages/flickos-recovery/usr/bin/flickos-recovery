@@ -131,7 +131,9 @@ STATE_CFG = "/.snapshots/.flickos-start.cfg"         # the same for GRUB, source
 GRUB_ACCESS = "/.snapshots/.flickos-grub.json"       # write_grub's disk access lines, for STATE_CFG at start
 LIMIT = 2                               # failed starts before the restore point
 GOOD_SECONDS = 5                        # the login screen or desktop up this long: a start that worked
-GOOD_PROCESSES = ("gtkgreet", "labwc")
+# The login screen (flickos-greeter 2: greeter-window; gtkgreet, its fallback) or
+# the desktop. A login screen this list misses makes every start look failed.
+GOOD_PROCESSES = ("greeter-window", "gtkgreet", "labwc")
 RECOVER_ID = "flickos-recover"          # the counter file's menu entry
 KEEP = 5
 MIN_FREE = 2 * 1024 ** 3                # bytes, or MIN_FREE_SHARE of the disk if that is more
@@ -755,7 +757,9 @@ def settle():
 
 
 def history_entries(since):
-    """apt's history after the time SINCE: [{date, command, install, upgrade, remove}]."""
+    """apt's history after the time SINCE: [{date, command, install, upgrade, remove}].
+    A restore point is taken in its own transaction, after apt wrote that one's
+    Start-Date (whole seconds), so a transaction counts by when it ended."""
     paths = [HISTORY] + [f"{HISTORY}.{n}.gz" for n in range(1, 13)]
     entries = []
     for path in paths:
@@ -772,9 +776,12 @@ def history_entries(since):
             fields = dict(line.split(": ", 1) for line in block.strip().splitlines() if ": " in line)
             try:
                 when = datetime.datetime.strptime(fields.get("Start-Date", ""), "%Y-%m-%d  %H:%M:%S")
+                # No End-Date: still running, or apt was killed.
+                ended = datetime.datetime.strptime(fields.get("End-Date", fields.get("Start-Date", "")),
+                                                   "%Y-%m-%d  %H:%M:%S")
             except ValueError:
                 continue
-            if when.timestamp() < since:
+            if ended.timestamp() < int(since):
                 continue
             entry = {"date": when.isoformat(sep=" "), "command": fields.get("Commandline", "")}
             for key, out in (("Install", "install"), ("Upgrade", "upgrade"), ("Remove", "remove"),

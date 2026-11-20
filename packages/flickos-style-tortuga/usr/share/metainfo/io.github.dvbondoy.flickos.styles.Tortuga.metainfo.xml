@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS style is an AppStream add-on of the layout chooser
+     (docs/design/flickos-ricing.md, ADR-006, ADR-013, ADR-014 and ADR-020):
+     Software lists add-ons that extend flickos-layout.desktop under Styles,
+     FlickOS::style names the style's folder in /usr/share/flickos/styles,
+     and FlickOS::layout the layout Use sets with it. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.styles.Tortuga</id>
+  <extends>flickos-layout.desktop</extends>
+  <name>Tortuga</name>
+  <summary>Floating islands, lantern light and a harbour at dusk</summary>
+  <description>
+    <p>
+      A dark style for the FlickOS desktop: slate title bars with thin
+      buttons that get a round face under the pointer, a lantern copper
+      accent, a deep slate terminal, and an island harbour at dusk on the
+      wallpaper, with lanterns along the quay and their light in the water.
+    </p>
+    <p>
+      It comes with a layout of the same name: three floating islands at the
+      top with the apps button, the clock and the status, and a dock at the
+      bottom with your four desktops as a two-by-two grid beside it. While a
+      window fills the screen the islands join into one panel and the dock
+      hides. Use sets both; you can still pick another layout in Settings.
+    </p>
+  </description>
+  <screenshots>
+    <!-- Taken by tools/make-style-shots.sh, published by repo/upload.sh from
+         repo/screenshots/. -->
+    <screenshot type="default">
+      <caption>Files and a terminal in the Tortuga style and layout</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/tortuga/1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>All apps in the start menu</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/tortuga/2.png</image>
+    </screenshot>
+  </screenshots>
+  <icon type="stock">preferences-desktop-theme</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::style">tortuga</value>
+    <value key="FlickOS::layout">tortuga</value>
+  </custom>
+</component>

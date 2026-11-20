@@ -1,0 +1,159 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the flickos-greeter package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: flickos-greeter\n"
+"Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
+"POT-Creation-Date: 2026-11-05 10:06+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: usr/libexec/flickos/greeter-window
+msgid "FlickOS (Plain Session)"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Restart"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Shut Down"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Click again to restart"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Click again to shut down"
+msgstr ""
+
+#. Translators: the date under the clock, as strftime writes it
+#. (%A weekday, %-d day, %B month), e.g. "%A, %-d. %B" in German.
+#: usr/libexec/flickos/greeter-window
+msgid "%A %-d %B"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Log In"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Password"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "User name"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Someone Else…"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Choose Another User"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Show password (Alt+V)"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Hide password (Alt+V)"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Session"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Caps Lock is on"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Checking…"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Type a user name."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Wrong password. Try again."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid ""
+"Your password has expired. Press Ctrl+Alt+F1 and log in there to choose a "
+"new one."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "This account can't log in now. Ask whoever looks after this computer."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+#, python-brace-format
+msgid "Couldn't log in ({error}). Try again."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Shut Down or Restart"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Restarting…"
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Shutting down…"
+msgstr ""
+
+#. Translators: {who} is a program's name, {why} its own reason, in English.
+#: usr/libexec/flickos/greeter-window
+#, python-brace-format
+msgid ""
+"{who} is keeping the computer from restarting ({why}). Log in to restart."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+#, python-brace-format
+msgid ""
+"{who} is keeping the computer from shutting down ({why}). Log in to shut "
+"down."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+#, python-brace-format
+msgid "Couldn't restart ({error}). Try again."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+#, python-brace-format
+msgid "Couldn't shut down ({error}). Try again."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+msgid "Keyboard Layout"
+msgstr ""
+
+#. Translators: {layout} is a keyboard layout's name, {key} a key or keys,
+#. such as Alt+Shift, both in xkeyboard-config's words.
+#: usr/libexec/flickos/greeter-window
+#, python-brace-format
+msgid "Keyboard layout: {layout}. Press {key} to change it."
+msgstr ""
+
+#: usr/libexec/flickos/greeter-window
+#, python-brace-format
+msgid "Keyboard layout: {layout}."
+msgstr ""

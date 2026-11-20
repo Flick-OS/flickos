@@ -222,6 +222,44 @@ class ReloadTest(WatchTest):
                       read(f"{self.root}/waybar/style.css"))
         self.assertEqual(said, ["dark-orange: panel, notifications, new foot and fuzzel windows use it"])
 
+    def supervised_waybar(self, catches, command=("supervise", "--", "waybar")):
+        """waybar 100 under a supervisor 99, which catches RESTART_SIGNAL or
+        (started before flickos-layouts 1.75) doesn't. `set` starts one as
+        `supervise`; the login's panel supervises from `panel` itself."""
+        self.fake_process(99, "flickos-layout", ["python3", "/usr/bin/flickos-layout", *command])
+        self.write("proc/99/status", f"SigCgt:\t{1 << (fl.RESTART_SIGNAL - 1) if catches else 0:016x}\n")
+        self.fake_process(100, "waybar", ["waybar", "-c", f"{self.root}/waybar/config.jsonc"])
+        self.write("proc/100/stat", "100 (waybar) S 99 2 3\n")
+
+    def test_supervisor_restarts_the_panel(self):
+        """waybar's own reload would empty the clock's calendar."""
+        self.supervised_waybar(catches=True)
+        _runs, kills, said = self.apply("palette", "dark-orange")
+        self.assertEqual(kills, [(99, fl.RESTART_SIGNAL)])
+        self.assertTrue(said[-1].startswith("dark-orange: panel"))
+
+    def test_the_login_panel_restarts_too(self):
+        """The first panel of a session runs under `panel`, not `supervise`."""
+        self.supervised_waybar(catches=True, command=("panel",))
+        _runs, kills, _said = self.apply("palette", "dark-orange")
+        self.assertEqual(kills, [(99, fl.RESTART_SIGNAL)])
+
+    def test_older_supervisor_gets_a_reload(self):
+        self.supervised_waybar(catches=False)
+        _runs, kills, _said = self.apply("palette", "dark-orange")
+        self.assertEqual(kills, [(100, signal.SIGUSR2)])
+
+    def test_supervisor_of(self):
+        self.supervised_waybar(catches=True)
+        self.fake_process(101, "waybar", ["waybar"])     # parent 1: no such process here
+        self.assertEqual(fl.supervisor_of(100), 99)
+        self.assertIsNone(fl.supervisor_of(101))
+        self.assertIsNone(fl.supervisor_of(102))
+        self.fake_process(103, "sh", ["sh", "-c", "waybar"])
+        self.fake_process(104, "waybar", ["waybar"])
+        self.write("proc/104/stat", "104 (waybar) S 103 2 3\n")
+        self.assertIsNone(fl.supervisor_of(104))
+
     def test_no_makoctl_without_mako(self):
         """makoctl would start a plain mako through D-Bus activation."""
         runs, kills, _said = self.apply("palette", "dark-orange")

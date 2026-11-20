@@ -1,0 +1,1214 @@
+#!/usr/bin/python3
+"""Keep a FlickOS computer set up the way its organization chose.
+
+flickos-fleet is the agent of FlickOS's service for organizations that look
+after many computers (docs/design/flickos-fleet.md). It changes nothing that a
+person at the computer couldn't change with FlickOS's own commands, and it
+owns no setting: every value goes to the program that owns it.
+
+A policy is a JSON document, {"version": N, "values": {KEY: VALUE}}. Only the
+keys in POLICY_KEYS are known; any other is reported, never run. A value goes
+to its owner one of three ways:
+
+  site      the owner's site defaults file in SITE_DIR
+            (/etc/xdg/flickos-site/flickos/NAME.conf), over FlickOS's own
+            defaults and under each user's own choice. The agent writes only
+            the files it made (FILES in the state) and asks the owner whether
+            it took each value (`flickos-control get`, `flickos-layout ... list`,
+            `flick-tiler modes|status`); a value refused is left out of the
+            file and reported. Then each desktop session applies the change:
+            `flickos-control apply-defaults` and `flickos-layout
+            apply-defaults`, run as the session's user in a user scope.
+  system    `flickos-control system KEY VALUE` (as root it needs no password
+            and records nothing in History), only when `flickos-control
+            system KEY` says the value differs.
+  countme   flickos-countme's helper, on or off.
+  packages  packages.install and packages.remove: apt-get, waiting for apt's
+            lock, keeping changed config files, repairing an interrupted dpkg
+            first. Only from the apt sources the computer already has. Never
+            removed: flickos-desktop, its Depends and this package; never
+            installed: the live session's packages; a change apt would make
+            to other packages (its simulation says) is refused whole.
+
+Nothing is undone because a policy key went away: the computer keeps the last
+values, except the site files, which always hold exactly the policy's site keys.
+
+The server (ADR-010): `join` asks it for a token, kept in CONF
+(/etc/flickos/fleet, root only, with Org= and Computer=); flickos-fleet.timer
+runs `run` every 30 minutes, which sends one check-in (CHECKIN_FIELDS, and the
+inventory once a day: INVENTORY_FIELDS) and applies the policy it answers
+with, if newer. The server's interval may make the next check-in later, never
+sooner. Nothing is sent before `join` or after `leave`; the service doesn't
+start without CONF. What is sent: PRIVACY.md (/usr/share/doc/flickos-fleet/).
+
+Commands:
+  join CODE [--yes] [--server URL]
+                         join the organization that made the code: shows its
+                         name and asks first (--yes: don't ask)
+  lookup CODE [--server URL]
+                         the organization a join code is for, as JSON
+                         (Settings asks with it before the password)
+  run                    the timer's check-in (does nothing before join)
+  status [--json]        the organization, last check-in, policy version and
+                         what failed (anyone may run it)
+  leave                  stop being managed: tells the server if it can,
+                         removes the site files, stops the timer; settings
+                         and apps stay as they are
+  check FILE [--dry-run] apply a policy file here, without a server (for
+                         tests, and to see what a policy does); --dry-run
+                         prints what would change and changes nothing
+
+join, run, leave and check (without --dry-run) need root.
+
+Exit codes: 0 ok, 1 a key failed or an error, 2 usage error.
+"""
+
+import argparse
+import configparser
+import contextlib
+import datetime
+import hashlib
+import json
+import os
+import pwd
+import re
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+# FLICKOS_FLEET_PREFIX: run from a source tree or in tests (never the build host's files).
+PREFIX = os.environ.get("FLICKOS_FLEET_PREFIX", "")
+SITE_DIR = PREFIX + "/etc/xdg/flickos-site/flickos"     # the owners' site defaults (flickos-fleet ADR-004)
+STATE_DIR = PREFIX + "/var/lib/flickos-fleet"           # the unit's StateDirectory
+STATE_FILE = "state.json"           # STATE_KEYS, readable by everyone (no secret in it)
+# The state: files = site files written, failed = {KEY: MESSAGE} of the last
+# policy, policy = its version, org = the organization's name, next = when the
+# next check-in is due (Unix time), last = the last check-in that got an
+# answer, interval = the server's last interval (a 304 has no body to give
+# one), inventory = the day the inventory was last sent (YYYY-MM-DD).
+STATE_KEYS = ("files", "failed", "policy", "org", "next", "last", "interval", "inventory")
+CONF = PREFIX + "/etc/flickos/fleet"   # Token=, Computer=, Org=, Server= (root, 0600)
+SERVER = "https://fleet.flickos.org"   # the service (server/fleet); Server= in CONF overrides it
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")     # plain http only to these (tests, a local Worker)
+USER_AGENT = "flickos-fleet/1"
+HTTP_SECONDS = 30
+INTERVAL_MIN = 1800                 # the timer's own 30 minutes: an interval can't be shorter
+INTERVAL_MAX = 86400
+RETRY_SECONDS = 86400               # after an answer that says "not now" (401, 402, 409)
+JOIN_CODE = re.compile(r"^[A-Za-z0-9-]{4,64}$")
+MACHINE_ID = PREFIX + "/etc/machine-id"
+RELEASE = PREFIX + "/usr/lib/flickos-release"
+DMI = PREFIX + "/sys/class/dmi/id"
+POWER_SUPPLY = PREFIX + "/sys/class/power_supply"
+UPGRADE_STAMP = PREFIX + "/var/lib/apt/periodic/upgrade-stamp"     # unattended-upgrades' last run
+# What every check-in sends besides the policy's version and its failed keys
+# (PRIVACY.md lists the same).
+CHECKIN_FIELDS = ("machine", "agent", "flickos", "uptime", "free_gb")
+INVENTORY_FIELDS = ("hostname", "maker", "model", "cpu", "memory_mb", "disk_gb", "battery",
+                    "last_upgrade", "pending_updates", "held", "packages")
+FLICKOS_PACKAGES = ("flickos-*", "flick-tiler", "sfwbar", "waypaper")     # the inventory's package list
+UNITS = ("flickos-fleet.timer",)
+SERVICE = "flickos-fleet.service"
+PROC = PREFIX + "/proc"
+COUNTME_HELPER = PREFIX + "/usr/libexec/flickos/countme-helper"
+# Owners' commands, found on PATH (the service's PATH, or the tests' stand-ins).
+CONTROL = "flickos-control"
+LAYOUT = "flickos-layout"
+TILER = "flick-tiler"
+COUNTME = "flickos-countme"
+APT_GET = "apt-get"
+DPKG = "dpkg"
+DPKG_QUERY = "dpkg-query"
+APT_MARK = "apt-mark"
+SYSTEMCTL = "systemctl"
+APT_SECONDS = 3600                  # one apt-get run, downloads included
+# ADR-002's options: wait for unattended-upgrades instead of failing, and
+# keep the admin's changed config files without asking.
+APT_OPTIONS = ("-y", "-q", "-o", "DPkg::Lock::Timeout=600", "-o", "Dpkg::Options::=--force-confdef",
+               "-o", "Dpkg::Options::=--force-confold")
+PACKAGE_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")
+DESKTOP_PACKAGE = "flickos-desktop"            # it and its Depends are never removed (control-helper's rule)
+SELF_PACKAGE = "flickos-fleet"
+# control-helper's LIVE_PACKAGES: only the live session uses them.
+LIVE_PACKAGES = ("live-boot", "live-config", "live-config-systemd", "live-tools", "flickos-installer", "calamares")
+COMMAND_SECONDS = 120               # one owner command; apt has its own limit
+# The environment of an owner command run as root to read or check a value:
+# a home of its own, so root's own choices never stand in for the site's.
+OWNER_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# What a session's environment passes on to the commands run in it (ADR-004).
+SESSION_VARIABLES = ("WAYLAND_DISPLAY", "LABWC_PID", "XDG_RUNTIME_DIR", "XDG_CONFIG_DIRS", "XDG_DATA_DIRS",
+                     "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "XDG_SESSION_ID", "DBUS_SESSION_BUS_ADDRESS",
+                     "HOME", "USER", "LOGNAME", "PATH", "LANG", "LANGUAGE", "FLICKOS_PLAIN")
+SESSION_PREFIXES = ("LC_", "FLICKOS_")
+POLICY_BYTES = 65536                # a policy file or answer bigger than this is refused
+HEADER = ("# Written by flickos-fleet from the organization's policy. It is replaced at every\n"
+          "# check-in; change the policy on the dashboard instead.\n")
+
+# --- What the agent knows: POLICY_KEYS ------------------------------------------------
+#
+# Site files: key -> (file, section, option). The values allowed are the owner's:
+# LAYOUT_LISTS names the `flickos-layout` list a value must be in.
+LAYOUT_KEYS = {
+    "layout": ("Layout", ["list"]),
+    "style": ("Style", ["style", "list"]),
+    "clock": ("Clock", ["clock", "list"]),
+    "clicks": ("Clicks", ["clicks", "list"]),
+    "launcher": ("Launcher", ["launcher", "list"]),
+    "menu-style": ("MenuStyle", ["menu-style", "list"]),
+    "quick-settings": ("QuickSettings", ["quick-settings", "list"]),
+}
+# flickos-control's own settings that a policy may set: KEY's first word.
+# (history is left out until every History writer reads the site file:
+# flickos-phone, -media, -screenshot and -weather don't yet.)
+CONTROL_PREFIXES = ("touchpad", "mouse", "keyboard", "idle", "zoom", "night-light")
+CONTROL_TOPICS = {"touchpad": "input", "mouse": "input"}       # else the first word
+TILER_KEYS = {"tiler.mode": "Mode", "tiler.gap": "Gap"}
+WELCOME_LINKS = ("project", "docs", "issues", "donate")         # flickos-welcome's DEFAULT_LINKS
+DESKTOP_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.desktop$")
+# System settings through `flickos-control system` (ADR-011): section 6's table.
+SYSTEM_KEYS = ("updates.auto", "updates.scope", "updates.reboot", "firewall", "firewall.phones",
+               "firewall.local-ports", "containers.dhcp", "power.power-key", "power.lid",
+               "power.lid-external-power", "firefox.memory", "keyboard.system", "timezone", "ntp")
+COUNTME_KEY = "countme"
+PACKAGE_KEYS = ("packages.install", "packages.remove")
+ON_OFF = {"on": "on", "off": "off", "yes": "on", "no": "off", "true": "on", "false": "off"}
+
+
+class FleetError(Exception):
+    pass
+
+
+def warn(message):
+    print(f"flickos-fleet: {message}", file=sys.stderr)
+
+
+def run(argv, env=None, input_text=None, timeout=COMMAND_SECONDS):
+    """Run a program (argument list only, CODE-7). A CompletedProcess; a
+    program that is missing or hangs is a failed one."""
+    try:
+        return subprocess.run(argv, env=env, input=input_text, capture_output=True, text=True,
+                              stdin=None if input_text is not None else subprocess.DEVNULL,
+                              timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return subprocess.CompletedProcess(argv, 127, "", str(error))
+
+
+def last_line(result):
+    """The owner's own message about a failure: its last line on stderr."""
+    lines = [line.strip() for line in (result.stderr or result.stdout or "").splitlines() if line.strip()]
+    return lines[-1] if lines else f"{result.args[0]} failed ({result.returncode})"
+
+
+def write_atomic(path, text, mode=0o644):
+    folder = os.path.dirname(path)
+    os.makedirs(folder, mode=0o755, exist_ok=True)
+    fd, temp = tempfile.mkstemp(dir=folder, prefix=".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(temp, mode)
+        os.replace(temp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temp)
+        raise
+
+
+# --- State ----------------------------------------------------------------------------
+
+def read_state():
+    try:
+        with open(os.path.join(STATE_DIR, STATE_FILE), encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = {}
+    if not isinstance(state, dict) or state.get("v") != 1:
+        state = {"v": 1}
+    if not isinstance(state.get("files"), list):
+        state["files"] = []
+    if not isinstance(state.get("failed"), dict):
+        state["failed"] = {}
+    return state
+
+
+def clear_state():
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(os.path.join(STATE_DIR, STATE_FILE))
+
+
+def write_state(state):
+    write_atomic(os.path.join(STATE_DIR, STATE_FILE), json.dumps(state, indent=1, sort_keys=True) + "\n")
+
+
+# --- The policy -----------------------------------------------------------------------
+
+def read_policy(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read(POLICY_BYTES + 1)
+    except (OSError, UnicodeDecodeError) as error:
+        raise FleetError(f"{path}: {error}") from error
+    if len(text) > POLICY_BYTES:
+        raise FleetError(f"{path}: bigger than {POLICY_BYTES} bytes")
+    return parse_policy(text, path)
+
+
+def parse_policy(text, where="the policy"):
+    try:
+        policy = json.loads(text)
+    except ValueError as error:
+        raise FleetError(f"{where}: not JSON ({error})") from error
+    if not isinstance(policy, dict) or not isinstance(policy.get("values"), dict):
+        raise FleetError(f'{where}: no "values" object')
+    version = policy.get("version", 0)
+    if not isinstance(version, int) or isinstance(version, bool) or version < 0:
+        raise FleetError(f'{where}: "version" is not a whole number')
+    return {"version": version, "values": policy["values"]}
+
+
+def kind_of(key):
+    """How a policy key is applied: "layouts", "control", "tiler", "welcome",
+    "menu", "system", "countme", or None for a key this agent doesn't know."""
+    if key in LAYOUT_KEYS:
+        return "layouts"
+    if key in TILER_KEYS:
+        return "tiler"
+    if key in ("welcome.enabled", "welcome.links"):
+        return "welcome"
+    if key == "menu.pins":
+        return "menu"
+    if key in SYSTEM_KEYS:
+        return "system"
+    if key == COUNTME_KEY:
+        return "countme"
+    if key in PACKAGE_KEYS:
+        return "packages"
+    if key.split(".")[0] in CONTROL_PREFIXES and "." in key:
+        return "control"
+    return None
+
+
+def text_value(value):
+    """A policy's scalar as INI text: true/false as yes/no, numbers as written."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str) and "\n" not in value and "\r" not in value:
+        return value.strip()
+    raise FleetError("not a single line of text, a number or true/false")
+
+
+# --- Site files -----------------------------------------------------------------------
+
+def owner_env(home):
+    """An owner command run as root to read or check a value: no session, and
+    a home of its own, so the site's values aren't hidden by root's choices."""
+    return {"PATH": OWNER_PATH, "HOME": home, "XDG_CONFIG_HOME": os.path.join(home, "config"),
+            "XDG_STATE_HOME": os.path.join(home, "state"), "XDG_RUNTIME_DIR": os.path.join(home, "run"),
+            "LANG": "C.UTF-8", "FLICKOS_FLEET_CHECK": "1"}
+
+
+def owner_ids(argv, home):
+    """The first column of an owner's list command, or None if it failed."""
+    result = run(argv, env=owner_env(home))
+    if result.returncode != 0:
+        return None
+    return {line.split("\t")[0] for line in result.stdout.splitlines() if line.strip()}
+
+
+def site_files(values, home, failed):
+    """{file name: {section: {option: text}}} of the site keys in values, each
+    checked first where the owner can say before the file exists. Keys that
+    fail go to failed."""
+    files = {}
+
+    def put(name, section, option, text):
+        files.setdefault(name, {}).setdefault(section, {})[option] = text
+
+    lists = {}
+    for key, value in values.items():
+        kind = kind_of(key)
+        try:
+            if kind == "layouts":
+                option, argv = LAYOUT_KEYS[key]
+                if key not in lists:
+                    lists[key] = owner_ids([LAYOUT, *argv], home)
+                text = text_value(value)
+                if lists[key] is None:
+                    raise FleetError(f"{LAYOUT} {' '.join(argv)} failed")
+                if text not in lists[key]:
+                    raise FleetError(f"'{text}' isn't one of: {', '.join(sorted(lists[key]))}")
+                put("layouts.conf", "Defaults", option, text)
+            elif kind == "control":
+                prefix, _skip, rest = key.partition(".")
+                topic = CONTROL_TOPICS.get(prefix, prefix)
+                option = "".join(part.title() for part in rest.split("-"))
+                put(f"{topic}.conf", prefix.title(), option, text_value(value))
+            elif kind == "tiler":
+                text = text_value(value)
+                if key == "tiler.mode":
+                    if "modes" not in lists:
+                        lists["modes"] = owner_ids([TILER, "modes"], home)
+                    if lists["modes"] is None or text not in lists["modes"]:
+                        raise FleetError(f"'{text}' isn't one of: {', '.join(sorted(lists['modes'] or ()))}")
+                put("tiler.conf", "Tiler", TILER_KEYS[key], text)
+            elif kind == "welcome":
+                if key == "welcome.enabled":
+                    put("welcome.conf", "Welcome", "Enabled", text_value(bool_value(value)))
+                else:
+                    if not isinstance(value, dict):
+                        raise FleetError("not an object of links")
+                    for name, link in value.items():
+                        if name not in WELCOME_LINKS:
+                            raise FleetError(f"unknown link '{name}' (known: {', '.join(WELCOME_LINKS)})")
+                        link = text_value(link)
+                        if link and not link.startswith("https://"):
+                            raise FleetError(f"the {name} link isn't an https:// address")
+                    for name, link in value.items():
+                        put("welcome.conf", "Links", name.title(), text_value(link))
+            elif kind == "menu":
+                if not isinstance(value, list) or not all(isinstance(i, str) and DESKTOP_ID.match(i) for i in value):
+                    raise FleetError("not a list of desktop ids (name.desktop)")
+                put("menu.conf", "Menu", "Pinned", ";".join(value))
+        except FleetError as error:
+            failed[key] = str(error)
+    return files
+
+
+def on_off(value):
+    """"on" or "off" from on/off, yes/no or true/false (JSON's or as text)."""
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, str) and value.strip().lower() in ON_OFF:
+        return ON_OFF[value.strip().lower()]
+    raise FleetError("not on/off, yes/no or true/false")
+
+
+def bool_value(value):
+    return on_off(value) == "on"
+
+
+def ini_text(sections):
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    ini.read_dict(sections)
+    lines = [HEADER]
+    for section in ini.sections():
+        lines.append(f"\n[{section}]\n")
+        lines.extend(f"{option}={value}\n" for option, value in ini.items(section))
+    return "".join(lines)
+
+
+def verify_control(values, home, failed):
+    """Ask flickos-control which of the site's control keys it took: `get`
+    must show each with the source "site". Returns the keys it refused."""
+    keys = [key for key in values if kind_of(key) == "control" and key not in failed]
+    if not keys:
+        return []
+    result = run([CONTROL, "get"], env=owner_env(home))
+    if result.returncode != 0:
+        for key in keys:
+            failed[key] = f"{CONTROL} get failed: {last_line(result)}"
+        return keys
+    known = {}
+    for line in result.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) == 3:
+            known[fields[0]] = fields[2]
+    warnings = [line.strip() for line in result.stderr.splitlines() if line.strip()]
+    refused = []
+    for key in keys:
+        if key not in known:
+            failed[key] = f"{CONTROL} has no setting {key}"
+        elif known[key] != "site":
+            # The owner's warning names the file it left the value out of.
+            said = next((w for w in warnings if f"/{file_of(key)}:" in w), None)
+            failed[key] = said or f"{CONTROL} didn't take this value"
+        else:
+            continue
+        refused.append(key)
+    return refused
+
+
+def verify_tiler(values, home, failed):
+    """flick-tiler's status (no daemon in this environment: the saved
+    settings) must show the gap written."""
+    if "tiler.gap" not in values or "tiler.gap" in failed:
+        return []
+    os.makedirs(os.path.join(home, "run"), mode=0o700, exist_ok=True)
+    result = run([TILER, "status"], env=owner_env(home))
+    try:
+        gap = json.loads(result.stdout).get("gap")
+        wanted = int(text_value(values["tiler.gap"]))
+    except (ValueError, AttributeError, FleetError):
+        gap, wanted = None, False
+    if result.returncode == 0 and gap == wanted:
+        return []
+    failed["tiler.gap"] = f"{TILER} didn't take this value" + (f" (it uses {gap})" if gap is not None else "")
+    return ["tiler.gap"]
+
+
+def drop(files, key):
+    """Take one key out of the planned site files."""
+    kind = kind_of(key)
+    if kind == "control":
+        prefix, _skip, rest = key.partition(".")
+        name, section = f"{CONTROL_TOPICS.get(prefix, prefix)}.conf", prefix.title()
+        option = "".join(part.title() for part in rest.split("-"))
+    elif kind == "tiler":
+        name, section, option = "tiler.conf", "Tiler", TILER_KEYS[key]
+    else:
+        return
+    files.get(name, {}).get(section, {}).pop(option, None)
+    if not files.get(name, {}).get(section, True):
+        del files[name][section]
+    if name in files and not files[name]:
+        del files[name]
+
+
+def foreign_files(names, state):
+    """Site files the agent didn't write (a variant's package, an admin by hand):
+    never touched."""
+    ours = set(state["files"])
+    return {name for name in names if os.path.exists(os.path.join(SITE_DIR, name)) and name not in ours}
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def apply_site(values, state, dry_run, report):
+    """Write the site files of values, the owners checking them; remove the
+    ones of ours the policy no longer has. Returns the names that changed."""
+    failed = {}
+    site_values = {key: value for key, value in values.items()
+                   if kind_of(key) in ("layouts", "control", "tiler", "welcome", "menu")}
+    with tempfile.TemporaryDirectory(prefix="flickos-fleet-") as home:
+        files = site_files(site_values, home, failed)
+        for name in foreign_files(files, state):
+            for key in site_values:
+                if file_of(key) == name:
+                    failed[key] = f"{os.path.join(SITE_DIR, name)} wasn't written by flickos-fleet; it is left alone"
+            del files[name]
+        texts = {name: ini_text(sections) for name, sections in files.items()}
+        names = set(texts) | set(state["files"])
+        before = {name: read_text(os.path.join(SITE_DIR, name)) for name in names}
+        if dry_run:
+            for name in sorted(names):
+                if texts.get(name) != before[name]:
+                    report.append(f"site {name}: {'would be written' if name in texts else 'would be removed'}")
+            changed = set()
+        else:
+            for name, text in texts.items():
+                if text != before[name]:
+                    write_atomic(os.path.join(SITE_DIR, name), text)
+            refused = verify_control(site_values, home, failed) + verify_tiler(site_values, home, failed)
+            for key in refused:
+                drop(files, key)
+            for name in {file_of(key) for key in refused}:
+                if name in files:
+                    texts[name] = ini_text(files[name])
+                    write_atomic(os.path.join(SITE_DIR, name), texts[name])
+                else:
+                    texts.pop(name, None)
+            for name in names - set(texts):
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(os.path.join(SITE_DIR, name))
+            state["files"] = sorted(texts)
+            changed = {name for name in names if texts.get(name) != before[name]}
+            for name in sorted(changed):
+                report.append(f"site {name}: {'written' if name in texts else 'removed'}")
+    for key in sorted(failed):
+        report.append(f"{key}: failed: {failed[key]}")
+    return changed, failed
+
+
+def file_of(key):
+    kind = kind_of(key)
+    if kind == "layouts":
+        return "layouts.conf"
+    if kind == "control":
+        prefix = key.split(".")[0]
+        return f"{CONTROL_TOPICS.get(prefix, prefix)}.conf"
+    return {"tiler": "tiler.conf", "welcome": "welcome.conf", "menu": "menu.conf"}.get(kind)
+
+
+# --- System settings and the count ---------------------------------------------------
+
+def apply_system(values, dry_run, report):
+    """`flickos-control system KEY VALUE` for each system key whose value
+    differs from `flickos-control system KEY`. Returns {key: message} of failures."""
+    failed = {}
+    with tempfile.TemporaryDirectory(prefix="flickos-fleet-") as home:
+        env = owner_env(home)
+        for key in sorted(k for k in values if kind_of(k) == "system"):
+            try:
+                wanted = text_value(values[key])
+            except FleetError as error:
+                failed[key] = str(error)
+                continue
+            current = run([CONTROL, "system", key], env=env)
+            if current.returncode == 0 and current.stdout.strip() == wanted:
+                continue
+            if dry_run:
+                report.append(f"{key}: would change {current.stdout.strip() or '?'} -> {wanted}")
+                continue
+            result = run([CONTROL, "system", key, wanted], env=env)
+            if result.returncode == 0:
+                report.append(f"{key}: {current.stdout.strip() or '?'} -> {wanted}")
+            else:
+                failed[key] = last_line(result)
+        if COUNTME_KEY in values:
+            try:
+                wanted = on_off(values[COUNTME_KEY])
+                status = run([COUNTME, "status"], env=env)
+                enabled = json.loads(status.stdout).get("enabled") if status.returncode == 0 else None
+                if enabled is not (wanted == "on"):
+                    if dry_run:
+                        report.append(f"countme: would change -> {wanted}")
+                    else:
+                        result = run([COUNTME_HELPER, wanted], env=env)
+                        if result.returncode != 0:
+                            raise FleetError(last_line(result))
+                        report.append(f"countme: -> {wanted}")
+            except (FleetError, ValueError, AttributeError) as error:
+                failed[COUNTME_KEY] = str(error) or "flickos-countme status failed"
+    for key in sorted(failed):
+        report.append(f"{key}: failed: {failed[key]}")
+    return failed
+
+
+# --- Packages -------------------------------------------------------------------------
+
+def apt_env():
+    return {"PATH": OWNER_PATH, "LC_ALL": "C.UTF-8", "DEBIAN_FRONTEND": "noninteractive"}
+
+
+def installed(names):
+    """The ones of names that are installed now."""
+    if not names:
+        return set()
+    result = run([DPKG_QUERY, "-W", "-f", "${Package}\t${db:Status-Status}\n", *names], env=apt_env())
+    return {line.split("\t")[0] for line in result.stdout.splitlines() if line.endswith("\tinstalled")}
+
+
+def protected():
+    """flickos-desktop, every package in its Depends (alternatives too), and this one."""
+    result = run([DPKG_QUERY, "-W", "-f", "${Depends}", DESKTOP_PACKAGE], env=apt_env())
+    names = {DESKTOP_PACKAGE, SELF_PACKAGE}
+    if result.returncode == 0:
+        for part in re.split(r"[,|]", result.stdout):
+            name = re.sub(r"\(.*?\)|\[.*?\]|:any", "", part).strip()
+            if name:
+                names.add(name)
+    return names
+
+
+def apt_errors(result):
+    errors = [line[3:] for line in (result.stderr or "").splitlines() if line.startswith("E: ")]
+    return "apt: " + (" ".join(errors) or f"exit code {result.returncode}")
+
+
+def simulate(args):
+    """apt-get's plan: (packages it would remove, packages it would install)."""
+    result = run([APT_GET, "-s", "-q", *args], env=apt_env(), timeout=300)
+    if result.returncode != 0:
+        raise FleetError(apt_errors(result))
+    return (set(re.findall(r"^Remv (\S+)", result.stdout, re.M)),
+            set(re.findall(r"^Inst (\S+)", result.stdout, re.M)))
+
+
+def repair_dpkg(report):
+    """An interrupted dpkg (a power cut, a stopped run) blocks every apt run
+    until it is repaired (Fleet phase 0 item 3)."""
+    audit = run([DPKG, "--audit"], env=apt_env())
+    if not audit.stdout.strip():
+        return
+    report.append("packages: repairing an interrupted install first")
+    run([DPKG, "--configure", "-a"], env=apt_env(), timeout=APT_SECONDS)
+    result = run([APT_GET, *APT_OPTIONS, "-f", "install"], env=apt_env(), timeout=APT_SECONDS)
+    if result.returncode != 0:
+        raise FleetError(f"dpkg needs repairing and couldn't be: {apt_errors(result)}")
+
+
+def package_names(value):
+    if not isinstance(value, list) or not all(isinstance(n, str) and PACKAGE_NAME.match(n) for n in value):
+        raise FleetError("not a list of package names")
+    return sorted(set(value))
+
+
+def apply_packages(values, dry_run, report):
+    """packages.install, then packages.remove. Returns {key: message} of failures."""
+    failed = {}
+    if not any(key in values for key in PACKAGE_KEYS):
+        return failed
+    repaired = dry_run
+    for key in PACKAGE_KEYS:
+        if key not in values:
+            continue
+        try:
+            names = package_names(values[key])
+            present = installed(names)
+            if key == "packages.install":
+                todo = [n for n in names if n not in present]
+                if not todo:
+                    continue
+                live = [n for n in todo if n in LIVE_PACKAGES]
+                if live:
+                    raise FleetError(f"{', '.join(live)} only belong in the live session")
+                if not repaired:
+                    repair_dpkg(report)
+                    repaired = True
+                try:
+                    removed, new = simulate(["install", *todo])
+                except FleetError:
+                    if dry_run:
+                        raise
+                    run([APT_GET, "-q", "update"], env=apt_env(), timeout=APT_SECONDS)   # lists may be old
+                    removed, new = simulate(["install", *todo])
+                if removed:
+                    raise FleetError(f"installing would remove {', '.join(sorted(removed))}, so nothing was changed")
+                args = ["install", *todo]
+            else:
+                todo = [n for n in names if n in present]
+                if not todo:
+                    continue
+                if not repaired:
+                    repair_dpkg(report)
+                    repaired = True
+                removed, new = simulate(["remove", *todo])
+                needed = sorted(n.split(":")[0] for n in removed if n.split(":")[0] in protected())
+                if needed:
+                    raise FleetError(f"removing would take {', '.join(needed)}, which FlickOS needs, "
+                                     "so nothing was changed")
+                others = sorted(n for n in removed if n.split(":")[0] not in todo)
+                if others:
+                    raise FleetError(f"removing would also take {', '.join(others)}, so nothing was changed")
+                args = ["remove", *todo]
+            if dry_run:
+                report.append(f"{key}: would {args[0]} {', '.join(todo)}")
+                continue
+            result = run([APT_GET, *APT_OPTIONS, *args], env=apt_env(), timeout=APT_SECONDS)
+            if result.returncode != 0:
+                raise FleetError(apt_errors(result))
+            report.append(f"{key}: {'installed' if args[0] == 'install' else 'removed'} {', '.join(todo)}")
+        except FleetError as error:
+            failed[key] = str(error)
+            report.append(f"{key}: failed: {error}")
+    return failed
+
+
+# --- Desktop sessions (ADR-004) --------------------------------------------------------
+
+def read_proc(pid, name):
+    try:
+        with open(os.path.join(PROC, str(pid), name), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def process_uid(pid):
+    status = read_proc(pid, "status") or b""
+    for line in status.decode("utf-8", "replace").splitlines():
+        if line.startswith("Uid:"):
+            return int(line.split()[1])
+    return None
+
+
+def sessions():
+    """[(user name, environment)] of the running FlickOS desktops: a labwc's
+    user, and the environment of a program it started (labwc's own lacks
+    WAYLAND_DISPLAY and LABWC_PID). logind calls greetd's sessions "tty", so
+    they are found by their labwc process."""
+    try:
+        pids = [int(name) for name in os.listdir(PROC) if name.isdigit()]
+    except OSError:
+        return []
+    labwcs = [pid for pid in pids if (read_proc(pid, "comm") or b"").strip() == b"labwc"]
+    found = []
+    for labwc in labwcs:
+        uid = process_uid(labwc)
+        if uid in (None, 0):
+            continue
+        for pid in pids:
+            raw = read_proc(pid, "environ")
+            if not raw or process_uid(pid) != uid:
+                continue
+            env = dict(item.split("=", 1) for item in raw.decode("utf-8", "replace").split("\0") if "=" in item)
+            if env.get("LABWC_PID") == str(labwc) and env.get("WAYLAND_DISPLAY"):
+                try:
+                    user = pwd.getpwuid(uid).pw_name
+                except KeyError:
+                    break
+                found.append((user, {k: v for k, v in env.items()
+                                     if k in SESSION_VARIABLES or k.startswith(SESSION_PREFIXES)}))
+                break
+    return found
+
+
+def in_sessions(commands, report):
+    """Run each command in every desktop session, as its user, in a user
+    scope: a panel restarted from a plain `runuser` dies with its transient
+    unit (Fleet phase 0 item 2)."""
+    for user, env in sessions():
+        variables = [f"{k}={v}" for k, v in sorted(env.items())]
+        for command in commands:
+            result = run(["runuser", "-u", user, "--", "env", "-i", *variables,
+                          "systemd-run", "--user", "--scope", "--quiet", "--", *command])
+            if result.returncode != 0:
+                report.append(f"session of {user}: {' '.join(command)} failed: {last_line(result)}")
+
+
+# --- Applying a policy ----------------------------------------------------------------
+
+def apply_policy(policy, dry_run=False):
+    """Apply a policy here. Returns (report lines, {key: message} of failures)."""
+    values = policy["values"]
+    report, failed = [], {}
+    for key in sorted(values):
+        if kind_of(key) is None:
+            failed[key] = "this agent doesn't know this key"
+            report.append(f"{key}: failed: {failed[key]}")
+    state = read_state()
+    changed, site_failed = apply_site(values, state, dry_run, report)
+    failed.update(site_failed)
+    failed.update(apply_system(values, dry_run, report))
+    failed.update(apply_packages(values, dry_run, report))
+    if not dry_run:
+        state["failed"] = failed
+        write_state(state)
+        if changed:
+            commands = []
+            if any(name not in ("layouts.conf", "tiler.conf", "welcome.conf", "menu.conf") for name in changed):
+                commands.append([CONTROL, "apply-defaults"])
+            commands.append([LAYOUT, "apply-defaults"])
+            in_sessions(commands, report)
+    return report, failed
+
+
+# --- What a computer sends (section 7) ------------------------------------------------
+
+def read_file(path, limit=4096):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read(limit).strip()
+    except OSError:
+        return ""
+
+
+def machine_hash():
+    """ADR-006: SHA-256 of /etc/machine-id's text without its newline."""
+    text = read_file(MACHINE_ID)
+    if not text:
+        raise FleetError(f"{MACHINE_ID} is missing")
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def flickos_version():
+    for line in read_file(RELEASE).splitlines():
+        if line.startswith("FLICKOS_VERSION="):
+            return line.split("=", 1)[1].strip().strip("\"'")
+    return ""
+
+
+def agent_version():
+    result = run([DPKG_QUERY, "-W", "-f", "${Version}", SELF_PACKAGE], env=apt_env())
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def checkin_fields():
+    """CHECKIN_FIELDS: sent at every check-in."""
+    try:
+        uptime = int(float(read_file(os.path.join(PROC, "uptime")).split()[0]))
+    except (IndexError, ValueError):
+        uptime = None
+    try:
+        disk = os.statvfs(PREFIX + "/")
+        free_gb = round(disk.f_bavail * disk.f_frsize / 1e9)      # rounded: a steady state writes nothing
+    except OSError:
+        free_gb = None
+    return {"machine": machine_hash(), "agent": agent_version(), "flickos": flickos_version(),
+            "uptime": uptime, "free_gb": free_gb}
+
+
+def battery():
+    """[{"design": Wh, "full": Wh}] of each battery, or [] (charge in Ah where
+    the battery reports no energy)."""
+    found = []
+    try:
+        names = sorted(os.listdir(POWER_SUPPLY))
+    except OSError:
+        return found
+    for name in names:
+        folder = os.path.join(POWER_SUPPLY, name)
+        if read_file(os.path.join(folder, "type")) != "Battery":
+            continue
+        for kind in ("energy", "charge"):
+            design, full = (read_file(os.path.join(folder, f"{kind}_{which}")) for which in ("full_design", "full"))
+            if design.isdigit() and full.isdigit():
+                found.append({"design": round(int(design) / 1e6, 1), "full": round(int(full) / 1e6, 1),
+                              "unit": "Wh" if kind == "energy" else "Ah"})
+                break
+    return found
+
+
+def inventory():
+    """INVENTORY_FIELDS: sent at join and once a day."""
+    cpu = ""
+    for line in read_file(os.path.join(PROC, "cpuinfo"), 65536).splitlines():
+        if line.startswith("model name"):
+            cpu = line.split(":", 1)[1].strip()
+            break
+    memory_mb = None
+    for line in read_file(os.path.join(PROC, "meminfo")).splitlines():
+        if line.startswith("MemTotal:"):
+            memory_mb = int(line.split()[1]) // 1024
+    try:
+        disk = os.statvfs(PREFIX + "/")
+        disk_gb = round(disk.f_blocks * disk.f_frsize / 1e9)
+    except OSError:
+        disk_gb = None
+    try:
+        last_upgrade = datetime.date.fromtimestamp(os.stat(UPGRADE_STAMP).st_mtime).isoformat()
+    except OSError:
+        last_upgrade = None
+    plan = run([APT_GET, "-s", "-q", "dist-upgrade"], env=apt_env(), timeout=300)
+    pending = len(re.findall(r"^Inst ", plan.stdout, re.M)) if plan.returncode == 0 else None
+    held = sorted(run([APT_MARK, "showhold"], env=apt_env()).stdout.split())
+    listed = run([DPKG_QUERY, "-W", "-f", "${Package}\t${Version}\t${db:Status-Status}\n", *FLICKOS_PACKAGES],
+                 env=apt_env())
+    packages = {fields[0]: fields[1] for fields in (line.split("\t") for line in listed.stdout.splitlines())
+                if len(fields) == 3 and fields[2] == "installed"}
+    return {"hostname": socket.gethostname(), "maker": read_file(os.path.join(DMI, "sys_vendor")),
+            "model": read_file(os.path.join(DMI, "product_name")), "cpu": cpu, "memory_mb": memory_mb,
+            "disk_gb": disk_gb, "battery": battery(), "last_upgrade": last_upgrade,
+            "pending_updates": pending, "held": held, "packages": packages}
+
+
+# --- The server (ADR-010) --------------------------------------------------------------
+
+class NoRedirects(urllib.request.HTTPRedirectHandler):
+    """A redirect could carry the token elsewhere: an answer that redirects is refused."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "redirects are refused", headers, fp)
+
+
+def read_conf():
+    """CONF's KEY=VALUE lines, or {} before join."""
+    values = {}
+    with contextlib.suppress(FileNotFoundError):
+        with open(CONF, encoding="utf-8") as f:
+            for line in f:
+                key, sep, value = line.strip().partition("=")
+                if sep and not key.startswith("#"):
+                    values[key.strip()] = value.strip()
+    return values
+
+
+def joined():
+    return os.path.exists(CONF)
+
+
+def check_server(url):
+    """https, or plain http to this computer only (tests, a local Worker)."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme == "https" and parts.hostname:
+        return url.rstrip("/")
+    if parts.scheme == "http" and parts.hostname in LOCAL_HOSTS:
+        return url.rstrip("/")
+    raise FleetError(f"{url}: the server must be an https:// address")
+
+
+def request(server, method, path, body=None, token=None):
+    """One request: (HTTP status, the answer's JSON object or {})."""
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(check_server(server) + path, data=data, headers=headers, method=method)
+    opener = urllib.request.build_opener(NoRedirects)
+    try:
+        with opener.open(req, timeout=HTTP_SECONDS) as answer:
+            status, text = answer.status, answer.read(POLICY_BYTES + 1)
+    except urllib.error.HTTPError as error:
+        status, text = error.code, error.read(POLICY_BYTES + 1) if error.fp else b""
+    except (urllib.error.URLError, OSError) as error:
+        reason = getattr(error, "reason", error)
+        raise FleetError(f"can't reach {server}: {reason}") from error
+    if len(text) > POLICY_BYTES:
+        raise FleetError(f"{server} answered with more than {POLICY_BYTES} bytes")
+    try:
+        answer = json.loads(text) if text.strip() else {}
+    except ValueError:
+        answer = {}
+    return status, answer if isinstance(answer, dict) else {}
+
+
+def interval_of(answer, last=INTERVAL_MIN):
+    """The answer's interval, kept between INTERVAL_MIN and INTERVAL_MAX; last
+    for an answer without one (a 304)."""
+    try:
+        seconds = int(answer.get("interval", last))
+    except (TypeError, ValueError):
+        seconds = last
+    return max(INTERVAL_MIN, min(INTERVAL_MAX, seconds))
+
+
+def plain(text, limit=200):
+    """A name the server gives, safe to print: one line, no control characters."""
+    return re.sub(r"[\x00-\x1f\x7f]", "", str(text))[:limit].strip()
+
+
+# --- Commands ---------------------------------------------------------------------------
+
+def running_as_root():
+    return os.geteuid() == 0
+
+
+def need_root(what):
+    if not running_as_root():
+        raise FleetError(f"{what} changes this computer: run it as root (sudo)")
+
+
+def live_session():
+    return "boot=live" in read_file(os.path.join(PROC, "cmdline")).split()
+
+
+def systemctl(*args):
+    result = run([SYSTEMCTL, *args])
+    if result.returncode != 0:
+        warn(f"systemctl {' '.join(args)}: {last_line(result)}")
+
+
+def look_up(code, server):
+    """The organization's name for a join code (GET /v1/join/CODE). Raises
+    FleetError with what to do when the code can't be used."""
+    if not JOIN_CODE.match(code):
+        raise FleetError("that isn't a join code: copy it from the dashboard")
+    status, answer = request(server, "GET", "/v1/join/" + urllib.parse.quote(code, safe=""))
+    if status == 404:
+        raise FleetError("this join code is unknown or has expired: make a new one on the dashboard")
+    if status == 409:
+        raise FleetError("all of the organization's seats are in use: an admin can add seats on the dashboard")
+    if status != 200 or not answer.get("org"):
+        raise FleetError(f"{server} answered {status}")
+    return plain(answer["org"])
+
+
+def cmd_lookup(opts):
+    if joined():
+        raise FleetError("this computer is already managed by an organization")
+    org = look_up(opts.code, check_server(opts.server or SERVER))
+    print(json.dumps({"org": org}))
+    return 0
+
+
+def cmd_join(opts):
+    need_root("join")
+    if live_session():
+        raise FleetError("the live session forgets everything at shutdown: join after installing FlickOS")
+    if joined():
+        org = read_state().get("org") or read_conf().get("Org") or "an organization"
+        raise FleetError(f"this computer is already managed by {org}; run `flickos-fleet leave` first")
+    server = check_server(opts.server or SERVER)
+    org = look_up(opts.code, server)
+    print(f"This computer will be managed by {org}. Its settings, apps and updates will be set from "
+          f"{org}'s dashboard, and it will send what PRIVACY.md lists "
+          "(/usr/share/doc/flickos-fleet/PRIVACY.md).")
+    if not opts.yes:
+        if not sys.stdin.isatty():
+            raise FleetError("not joined: confirm with --yes when there is no terminal to ask in")
+        if input("Join? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("Not joined.")
+            return 1
+    body = {"code": opts.code, **checkin_fields(), "inventory": inventory()}
+    del body["uptime"], body["free_gb"]
+    status, answer = request(server, "POST", "/v1/join", body)
+    if status == 404:
+        raise FleetError("this join code is unknown or has expired: make a new one on the dashboard")
+    if status == 409:
+        raise FleetError("all of the organization's seats are in use: an admin can add seats on the dashboard")
+    token, computer = answer.get("token"), answer.get("computer")
+    if status != 200 or not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{16,256}", token):
+        raise FleetError(f"{server} answered {status} without a token: not joined")
+    org = plain(answer.get("org") or org)
+    lines = [f"Token={token}", f"Computer={plain(computer or '', 64)}", f"Org={org}"]
+    if server != SERVER:
+        lines.append(f"Server={server}")
+    os.makedirs(os.path.dirname(CONF), mode=0o755, exist_ok=True)
+    write_atomic(CONF, "".join(line + "\n" for line in lines), mode=0o600)
+    state = read_state()
+    state.update(org=org, next=0, interval=interval_of(answer), inventory=datetime.date.today().isoformat())
+    write_state(state)
+    systemctl("enable", "--now", *UNITS)
+    systemctl("start", "--no-block", SERVICE)     # the first check-in, and the policy, now
+    print(f"This computer is now managed by {org}. Its policy is being applied.")
+    return 0
+
+
+def cmd_run(opts):
+    """The timer's check-in."""
+    need_root("run")
+    if not joined():
+        return 0
+    conf, state = read_conf(), read_state()
+    now = int(time.time())
+    if not opts.now and isinstance(state.get("next"), int) and now < state["next"]:
+        return 0                    # the server asked for a longer interval
+    server = conf.get("Server") or SERVER
+    body = {**checkin_fields(), "policy": state.get("policy", 0), "failed": state["failed"]}
+    today = datetime.date.today().isoformat()
+    if state.get("inventory") != today:
+        body["inventory"] = inventory()
+    status, answer = request(server, "POST", "/v1/checkin", body, token=conf.get("Token"))
+    if status in (200, 304):
+        interval = interval_of(answer, state.get("interval", INTERVAL_MIN))
+        state.update(last=now, next=now + interval, interval=interval)
+        if "inventory" in body:
+            state["inventory"] = today
+        if status == 200 and isinstance(answer.get("policy"), dict):
+            policy = parse_policy(json.dumps(answer["policy"]), "the server's policy")
+            write_state(state)
+            report, failed = apply_policy(policy)
+            state = read_state()
+            state.update(policy=policy["version"], failed=failed)
+            for line in report:
+                print(line)
+        write_state(state)
+        return 0
+    if status == 410:
+        print("The organization removed this computer: leaving.")
+        return leave(tell_server=False)
+    messages = {401: "the server doesn't know this computer's token: join again with a new code",
+                402: "the organization's subscription has ended: nothing changes until it is renewed",
+                409: "this computer looks like a copy of another one: join it again with a new code"}
+    if status in messages:
+        state["next"] = now + RETRY_SECONDS
+        write_state(state)
+        raise FleetError(messages[status])
+    raise FleetError(f"{server} answered {status}")
+
+
+def leave(tell_server=True):
+    conf, state = read_conf(), read_state()
+    if tell_server and conf.get("Token"):
+        with contextlib.suppress(FleetError):
+            request(conf.get("Server") or SERVER, "POST", "/v1/leave", token=conf["Token"])
+    removed = []
+    for name in state["files"]:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(os.path.join(SITE_DIR, name))
+            removed.append(name)
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(CONF)
+    clear_state()
+    systemctl("disable", "--now", *UNITS)
+    if removed:
+        report = []
+        commands = [[LAYOUT, "apply-defaults"]]
+        if any(name not in ("layouts.conf", "tiler.conf", "welcome.conf", "menu.conf") for name in removed):
+            commands.insert(0, [CONTROL, "apply-defaults"])
+        in_sessions(commands, report)
+        for line in report:
+            warn(line)
+    org = state.get("org") or conf.get("Org") or "the organization"
+    print(f"This computer has left {org}. Its settings and apps stay as they are; "
+          "the desktop's defaults are FlickOS's own again.")
+    return 0
+
+
+def cmd_leave(opts):
+    need_root("leave")
+    if not joined():
+        print("This computer isn't managed by an organization.")
+        return 0
+    return leave()
+
+
+def status_data():
+    state = read_state()
+    data = {"joined": joined(), "org": state.get("org"), "policy": state.get("policy"),
+            "last": state.get("last"), "next": state.get("next"), "failed": state["failed"]}
+    return data
+
+
+def cmd_status(opts):
+    data = status_data()
+    if opts.json:
+        print(json.dumps(data, sort_keys=True))
+        return 0
+    if not data["joined"]:
+        print("This computer isn't managed by an organization.")
+        return 0
+    print(f"Managed by: {data['org'] or '?'}")
+    last = (datetime.datetime.fromtimestamp(data["last"]).strftime("%Y-%m-%d %H:%M")
+            if isinstance(data["last"], int) else "not yet")
+    print(f"Last check-in: {last}")
+    print(f"Policy version: {data['policy'] if data['policy'] is not None else 'none yet'}")
+    for key, message in sorted(data["failed"].items()):
+        print(f"Failed: {key}: {message}")
+    return 0
+
+
+def cmd_check(opts):
+    if not opts.dry_run and not running_as_root():
+        warn("check changes system settings: run it as root (sudo), or with --dry-run")
+        return 1
+    policy = read_policy(opts.file)
+    report, failed = apply_policy(policy, dry_run=opts.dry_run)
+    for line in report:
+        print(line)
+    if not report:
+        print("Nothing to change." if opts.dry_run else "Nothing changed.")
+    return 1 if failed else 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="flickos-fleet",
+                                     description="Keep this computer set up the way its organization chose.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    join = commands.add_parser("join", help="join the organization that made the code (asks first)")
+    join.add_argument("code", help="the join code from the organization's dashboard")
+    join.add_argument("--yes", action="store_true", help="don't ask")
+    join.add_argument("--server", help=f"another server than {SERVER} (https)")
+    join.set_defaults(func=cmd_join)
+    lookup = commands.add_parser("lookup", help="the organization a join code is for, as JSON")
+    lookup.add_argument("code")
+    lookup.add_argument("--server", help=f"another server than {SERVER} (https)")
+    lookup.set_defaults(func=cmd_lookup)
+    run_parser = commands.add_parser("run", help="check in now if it is due (the timer)")
+    run_parser.add_argument("--now", action="store_true", help="even if the server asked to wait")
+    run_parser.set_defaults(func=cmd_run)
+    status = commands.add_parser("status", help="the organization, last check-in and what failed")
+    status.add_argument("--json", action="store_true", help="as JSON (Settings)")
+    status.set_defaults(func=cmd_status)
+    commands.add_parser("leave", help="stop being managed; settings and apps stay").set_defaults(func=cmd_leave)
+    check = commands.add_parser("check", help="apply a policy file here, without a server")
+    check.add_argument("file", help='a policy: {"version": N, "values": {KEY: VALUE}}')
+    check.add_argument("--dry-run", action="store_true", help="print what would change, change nothing")
+    check.set_defaults(func=cmd_check)
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except (FleetError, OSError) as error:
+        warn(str(error))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

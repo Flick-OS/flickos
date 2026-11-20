@@ -17,3 +17,13 @@ Description: Apps by other developers, built by FlickOS from their source and re
 SignWith: 52010189F405561121FD968C9B188FF94ED19E68
 Suite: trixie-community
 DebIndices: Packages Release . .gz dep11.py
+
+Origin: FlickOS
+Label: FlickOS Testing
+Codename: trixie-testing
+Architectures: amd64
+Components: main
+Description: FlickOS packages being tried by testers before they reach trixie (added by hand, never by automatic updates)
+SignWith: 52010189F405561121FD968C9B188FF94ED19E68
+Suite: trixie-testing
+DebIndices: Packages Release . .gz dep11.py

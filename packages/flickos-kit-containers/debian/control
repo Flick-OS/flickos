@@ -1,0 +1,26 @@
+Source: flickos-kit-containers
+Section: devel
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-containers
+Architecture: all
+Depends: flickos-kit-base,
+         podman,
+         podman-docker,
+         distrobox,
+         uidmap,
+         passt,
+         ${misc:Depends}
+Description: FlickOS developer kit: Podman and Distrobox for containers
+ Rootless containers: Podman (podman-docker makes the docker command
+ work through it) and Distrobox. Nothing runs until a container is
+ started: the kit keeps netavark's DHCP helper off until
+ /etc/flickos/kits/netavark-on exists.
+ .
+ A kit is installed from Software's Developer Tools and removed there too.
+ Nothing it installs runs until it is used (docs/design/flickos-dev.md).

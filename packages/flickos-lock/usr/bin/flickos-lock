@@ -1,0 +1,1434 @@
+#!/usr/bin/python3
+"""Lock the screen of the FlickOS labwc session.
+
+`flickos-lock lock` covers every screen and returns as soon as the
+compositor confirms the lock, so swayidle's lock before sleep is safe. Then a
+lock screen in the style's colors takes over: clock, date, the user's name
+and picture, and a password box with a button that shows the password
+(Alt+V). The password is checked by PAM (/etc/pam.d/flickos-lock).
+
+It owns no settings: flickos-control's `lock` (Super+L, the menus, swayidle)
+runs it with the background chosen on *Power & Idle* (--image, --scaling) and,
+for the idle lock only, --grace (a key or a mouse move within GRACE_SECONDS
+unlocks). Design: docs/design/flickos-lock.md.
+
+How it locks (ext-session-lock-v1 only, so a crash never shows the desktop):
+- The front (standard library, no GTK) locks first, in about 35 ms, and
+  returns once labwc confirms. It forks the guard and exits.
+- The guard keeps that lock and starts the lock screen (`screen`, GTK 3 and
+  gtk-session-lock). When GTK is loaded, the guard lets its own lock go
+  (labwc keeps the screens covered) and the lock screen takes it over.
+- If the lock screen dies or never takes over, the guard starts swaylock,
+  which takes over the lock; the password unlocks it the same way.
+
+A class lock (flickos-classroom-view's agent, its ADR-007): --class-message
+shows the teacher's words instead of the password box, until the agent
+removes the --release file, or after CLASS_FAILSAFE seconds in which it
+didn't refresh it (the teacher's computer is gone). If the computer locked
+itself meanwhile (swayidle's lock found the screen locked and left a mark),
+the release brings the password box back instead of unlocking. The class
+lock isn't a security boundary: if its screen dies, swaylock takes over and
+the student's own password unlocks. With --class-image (the teacher's demo,
+its ADR-014) the lock screen shows the picture in FILE instead of the card,
+checked twice a second and reloaded when it changes.
+
+Commands:
+  lock [--image [OUTPUT:]PATH]... [--scaling MODE] [--grace]
+           lock the screen; returns once it is locked (one lock at a time)
+  lock --class-message TEXT --release FILE [--class-image FILE] [--image ...] [--scaling MODE]
+           a class lock (with --class-image: showing the teacher's screen)
+
+Exit codes: 0 ok (locked, or already locked), 1 error, 2 usage error.
+"""
+
+import argparse
+import contextlib
+import fcntl
+import os
+import pwd
+import select
+import socket
+import struct
+import sys
+import time
+
+# Imported where they are used, not here: the front's path to "locked" pays
+# only for Python, compiling this file (~25 ms) and argparse. ctypes.util
+# alone costs ~25-35 ms (PAM, in the lock screen); subprocess, shutil,
+# threading and traceback after the lock or in the lock screen.
+
+NAME = "flickos-lock"
+# FLICKOS_LOCK_PREFIX: run from a source tree, e.g. packages/flickos-lock.
+PREFIX = os.environ.get("FLICKOS_LOCK_PREFIX", "")
+STYLE = PREFIX + "/usr/share/flickos/lock/style.css"
+SELF = [sys.executable, os.path.realpath(__file__)]
+PROC = "/proc"
+
+# In $XDG_RUNTIME_DIR/flickos/: the guard holds LOCK_FILE (flock) for the whole
+# lock; LOCKED_FILE exists once the compositor has confirmed it; ZOOM_FILE is
+# the lock screen's zoom for the session (ADR-019); LOG_FILE what went wrong.
+FOLDER = "lock"
+LOCK_FILE = "lock.lock"
+LOCKED_FILE = "locked"
+ZOOM_FILE = "zoom"
+LOG_FILE = "lock.log"
+LOG_BYTES = 256 * 1024             # then started again
+
+# How long each step may take before swaylock is used instead (ADR-003).
+LOCK_TIMEOUT = 5                   # the compositor confirming a lock
+READY_SECONDS = 15                 # the lock screen loading GTK (cold: ~0.5 s)
+LOCK_TRIES = 10                    # takeover attempts, LOCK_RETRY_SECONDS apart:
+LOCK_RETRY_SECONDS = 0.1           # labwc may not yet have seen the guard let go
+
+PAM_SERVICE = "flickos-lock"       # /etc/pam.d/flickos-lock: @include common-auth (ADR-005)
+PAM_CONFDIR = None                 # tests: a private PAM folder (pam_start_confdir)
+# A class lock (flickos-classroom-view ADR-007): a teacher's message, no
+# password box, until the agent removes the release file or stops refreshing it.
+CLASS_FILE = "class"               # in the lock folder while a class lock holds the screen
+WANTED_FILE = "wanted"             # a normal lock was asked for during a class lock
+CLASS_FAILSAFE = 120               # seconds the release file may go unrefreshed (its Q8)
+CLASS_CHECK_SECONDS = 1            # how often the lock screen looks at it, only during a class lock
+DEMO_CHECK_MS = 500                # how often a demo (--class-image) looks for a new frame
+GRACE_SECONDS = 5                  # the idle lock's grace period (ADR-017)
+GRACE_MOVE_PIXELS = 12             # a pointer move further than this counts
+REVEAL_SECONDS = 30                # a shown password is hidden again after this without a key
+DIM = 0.3                          # the theme's background over the wallpaper (ADR-007)
+CARD_ALPHA = 0.9                   # style.css's card; a test checks text contrast at it
+PICTURE_PIXELS = 96
+ZOOM_STEPS = (100, 150, 200, 300)  # percent, Super+= / Super+- / Super+0 (ADR-019)
+
+SWAYLOCK = ["swaylock", "-c", "383c4a"]          # Arc-Dark bg_color (tools/check-palette.py)
+# flickos-layouts' swaylock config for the style in use (>= 1.64), in the runtime folder.
+SWAYLOCK_STYLE = os.path.join("style", "swaylock")
+LAYOUT = "flickos-layout"                        # its `clock current`: 24h or 12h
+CLOCK_FORMATS = {"24h": "%H:%M", "12h": "%-I:%M %p"}
+DATE_FORMAT = "%A %-d %B"
+SCALING_MODES = ("fill", "fit", "stretch", "center", "tile", "solid_color")   # swaylock's -s
+# A password shown on the lock screen would be seen here too (ADR-011):
+# flickos-screenshot's recording (a flock held while recording) and the second
+# screen add-on (flickos-phone's SECOND_SCREEN_FILE). Tests compare the paths.
+RECORDING_LOCK = os.path.join("screenshot", "recording.lock")
+SECOND_SCREEN_FILE = os.path.join("second-screen", "on")
+FACE_FILES = ("/var/lib/AccountsService/icons/{user}", "~/.face")
+LIVE_HINT = "In the live session, the password is live."
+LOGIND = ("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager")
+
+TEXT = {
+    "placeholder": "Password",
+    "show": "Show password (Alt+V)",
+    "hide": "Hide password (Alt+V)",
+    "unlock": "Unlock",
+    "checking": "Checking…",
+    "wrong": "Wrong password. Try again.",
+    "error": "Couldn't check the password ({error}). Try again.",
+    "caps": "Caps Lock is on",
+}
+
+
+class LockError(Exception):
+    """An expected failure, shown as one line."""
+
+
+def boottime():
+    """Seconds on CLOCK_BOOTTIME: the same in every process and, unlike the
+    monotonic clock, counting time asleep, so a grace period never survives
+    a suspend even if logind's PrepareForSleep didn't arrive."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
+def warn(text):
+    print(f"{NAME}: {text}", file=sys.stderr, flush=True)
+
+
+def runtime_folder():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        raise LockError("XDG_RUNTIME_DIR is not set")
+    return os.path.join(base, "flickos")
+
+
+def lock_folder():
+    folder = os.path.join(runtime_folder(), FOLDER)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    return folder
+
+
+def write_atomic(path, text):
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    temporary = os.path.join(folder, f".{os.path.basename(path)}.{os.getpid()}.tmp")
+    with open(temporary, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(temporary, path)
+
+
+def remove(path):
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)
+
+
+def log_file():
+    """The log the guard and the lock screen write to (stderr), started again
+    above LOG_BYTES."""
+    path = os.path.join(lock_folder(), LOG_FILE)
+    with contextlib.suppress(OSError):
+        if os.path.getsize(path) > LOG_BYTES:
+            os.unlink(path)
+    return open(path, "a", buffering=1, encoding="utf-8")
+
+
+def log(text):
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [{os.getpid()}] {text}", file=sys.stderr, flush=True)
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. Only
+    the guard calls it, after the lock is confirmed and after the unlock, never
+    in the lock screen that decides the unlock. A hook that locks the screen
+    again doesn't fire these (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+# --- PAM, through ctypes (ADR-005) ------------------------------------------------
+
+PAM_SUCCESS = 0
+PAM_PROMPT_ECHO_OFF, PAM_PROMPT_ECHO_ON, PAM_ERROR_MSG, PAM_TEXT_INFO = 1, 2, 3, 4
+PAM_BUF_ERR, PAM_AUTH_ERR, PAM_CONV_ERR = 5, 7, 19
+PAM_REFRESH_CRED = 0x0010
+_PAM = {}
+
+
+def pam_libraries():
+    """ctypes, libc, libpam and PAM's structures, loaded once."""
+    if not _PAM:
+        import ctypes
+        import ctypes.util
+
+        class Message(ctypes.Structure):
+            _fields_ = [("msg_style", ctypes.c_int), ("msg", ctypes.c_char_p)]
+
+        class Response(ctypes.Structure):
+            _fields_ = [("resp", ctypes.c_void_p), ("resp_retcode", ctypes.c_int)]
+
+        conv_func = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.POINTER(Message)),
+                                     ctypes.POINTER(ctypes.POINTER(Response)), ctypes.c_void_p)
+
+        class Conv(ctypes.Structure):
+            _fields_ = [("conv", conv_func), ("appdata_ptr", ctypes.c_void_p)]
+
+        libc = ctypes.CDLL(ctypes.util.find_library("c"))
+        libc.calloc.restype = ctypes.c_void_p
+        libc.calloc.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
+        libc.strdup.restype = ctypes.c_void_p
+        libc.strdup.argtypes = [ctypes.c_char_p]
+        libpam = ctypes.CDLL(ctypes.util.find_library("pam") or "libpam.so.0")
+        handle = ctypes.POINTER(ctypes.c_void_p)
+        libpam.pam_start.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(Conv), handle]
+        libpam.pam_start_confdir.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(Conv),
+                                             ctypes.c_char_p, handle]
+        libpam.pam_authenticate.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        libpam.pam_setcred.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        libpam.pam_end.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        libpam.pam_strerror.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        libpam.pam_strerror.restype = ctypes.c_char_p
+        _PAM.update(ctypes=ctypes, libc=libc, libpam=libpam, Response=Response, Conv=Conv, conv_func=conv_func)
+    return _PAM
+
+
+def authenticate(user, password):
+    """(PAM code, PAM's words for it, [what PAM asked to show]) for user's
+    password. The password is copied into a ctypes buffer that is zeroed
+    afterwards; PAM frees (and clears) its own copy. Blocks: run in a thread."""
+    pam = pam_libraries()
+    ctypes, libc, libpam = pam["ctypes"], pam["libc"], pam["libpam"]
+    secret = ctypes.create_string_buffer(password.encode())
+    shown = []
+
+    def conversation(count, messages, responses, _data):
+        try:
+            replies = libc.calloc(count, ctypes.sizeof(pam["Response"]))
+            if not replies:
+                return PAM_BUF_ERR
+            array = ctypes.cast(replies, ctypes.POINTER(pam["Response"]))
+            for i in range(count):
+                style, text = messages[i].contents.msg_style, messages[i].contents.msg
+                if style == PAM_PROMPT_ECHO_OFF:
+                    array[i].resp = libc.strdup(secret.value)
+                elif style == PAM_PROMPT_ECHO_ON:
+                    array[i].resp = libc.strdup(user.encode())
+                elif style in (PAM_ERROR_MSG, PAM_TEXT_INFO) and text:
+                    shown.append(text.decode(errors="replace"))
+            responses[0] = array
+            return PAM_SUCCESS
+        except Exception:                   # nothing may cross into C
+            return PAM_CONV_ERR
+
+    callback = pam["conv_func"](conversation)   # alive until pam_end
+    conv = pam["Conv"](callback, None)
+    handle = ctypes.c_void_p()
+    try:
+        if PAM_CONFDIR:
+            code = libpam.pam_start_confdir(PAM_SERVICE.encode(), user.encode(), ctypes.byref(conv),
+                                            PAM_CONFDIR.encode(), ctypes.byref(handle))
+        else:
+            code = libpam.pam_start(PAM_SERVICE.encode(), user.encode(), ctypes.byref(conv), ctypes.byref(handle))
+        if code != PAM_SUCCESS:
+            return code, f"PAM could not start ({code})", shown
+        try:
+            code = libpam.pam_authenticate(handle, 0)
+            words = (libpam.pam_strerror(handle, code) or b"").decode(errors="replace")
+            if code == PAM_SUCCESS:
+                libpam.pam_setcred(handle, PAM_REFRESH_CRED)     # best effort
+            return code, words, shown
+        finally:
+            libpam.pam_end(handle, code)
+    finally:
+        ctypes.memset(secret, 0, len(secret))
+
+
+# --- The pre-lock: ext-session-lock-v1 from the standard library (ADR-003) --------
+
+class PreLock:
+    """A Wayland client that only locks: labwc covers every screen itself
+    while no lock surface is drawn. Closing it without unlocking (abandon)
+    leaves the screens covered until another locker takes over."""
+
+    DISPLAY, REGISTRY, SYNC, MANAGER, LOCK = 1, 2, 3, 4, 5
+    INTERFACE = b"ext_session_lock_manager_v1"
+    LOCKED, FINISHED = 0, 1                         # ext_session_lock_v1 events
+
+    def __init__(self, sock):
+        self.sock, self.buffer = sock, b""
+
+    @classmethod
+    def connect(cls, timeout=LOCK_TIMEOUT):
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        display = os.environ.get("WAYLAND_DISPLAY")
+        if not runtime or not display:
+            raise LockError("not in a Wayland session (WAYLAND_DISPLAY is not set)")
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            sock.connect(display if display.startswith("/") else os.path.join(runtime, display))
+        except OSError as error:
+            sock.close()
+            raise LockError(f"cannot reach the compositor ({error.strerror})") from None
+        return cls(sock)
+
+    def send(self, object_id, opcode, payload=b""):
+        self.sock.sendall(struct.pack("=II", object_id, (8 + len(payload)) << 16 | opcode) + payload)
+
+    def events(self):
+        while True:
+            while len(self.buffer) >= 8:
+                object_id, word = struct.unpack_from("=II", self.buffer)
+                size = word >> 16
+                if size < 8 or len(self.buffer) < size:
+                    break
+                payload, self.buffer = self.buffer[8:size], self.buffer[size:]
+                if object_id == self.DISPLAY and word & 0xFFFF == 0:
+                    raise LockError("the compositor reported a protocol error")
+                yield object_id, word & 0xFFFF, payload
+            data = self.sock.recv(4096)
+            if not data:
+                raise LockError("the compositor closed the connection")
+            self.buffer += data
+
+    def lock(self):
+        """True once the compositor confirms the lock; False when it refuses
+        (another lock is held). LockError without the protocol or on a timeout."""
+        try:
+            self.send(self.DISPLAY, 1, struct.pack("=I", self.REGISTRY))     # get_registry
+            self.send(self.DISPLAY, 0, struct.pack("=I", self.SYNC))         # sync
+            manager = None
+            for object_id, opcode, payload in self.events():
+                if object_id == self.REGISTRY and opcode == 0:               # global
+                    name, size = struct.unpack_from("=II", payload)
+                    if payload[8:8 + size - 1] == self.INTERFACE:
+                        manager = name
+                elif object_id == self.SYNC and opcode == 0:
+                    break
+            if manager is None:
+                raise LockError("the compositor has no ext-session-lock-v1")
+            interface = self.INTERFACE + b"\0"
+            self.send(self.REGISTRY, 0, struct.pack("=II", manager, len(interface)) + interface
+                      + b"\0" * (-len(interface) % 4) + struct.pack("=II", 1, self.MANAGER))
+            self.send(self.MANAGER, 1, struct.pack("=I", self.LOCK))          # lock
+            for object_id, opcode, _payload in self.events():
+                if object_id == self.LOCK and opcode == self.LOCKED:
+                    return True
+                if object_id == self.LOCK and opcode == self.FINISHED:
+                    return False
+        except socket.timeout:
+            raise LockError("the compositor didn't answer in time") from None
+        except OSError as error:
+            raise LockError(f"lost the compositor ({error})") from None
+        return False
+
+    def abandon(self):
+        """Let the lock go without unlocking: the screens stay covered."""
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
+
+
+# --- lock: the front and the guard --------------------------------------------------
+
+def held_elsewhere(lock):
+    """True while another process holds lock (an open file) with flock."""
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    return False
+
+
+def take_lock_or_wait(folder, timeout=LOCK_TIMEOUT):
+    """The open LOCK_FILE, held, for the one lock of the session; None when
+    another flickos-lock already locked, or locks within timeout (ADR-003:
+    logind's lock and swayidle's before-sleep may come together)."""
+    lock = open(os.path.join(folder, LOCK_FILE), "a+")
+    deadline = time.monotonic() + timeout
+    while True:
+        if not held_elsewhere(lock):
+            return lock
+        if os.path.exists(os.path.join(folder, LOCKED_FILE)):
+            if os.path.exists(os.path.join(folder, CLASS_FILE)):
+                write_atomic(os.path.join(folder, WANTED_FILE), "1\n")
+            lock.close()
+            return None
+        if time.monotonic() > deadline:
+            lock.close()
+            raise LockError("another lock didn't finish locking in time")
+        time.sleep(0.05)
+
+
+def image_arguments(images, scaling):
+    """swaylock's and the lock screen's background options."""
+    arguments = []
+    for image in images:
+        arguments += ["--image", image]
+    if scaling:
+        arguments += ["--scaling", scaling]
+    return arguments
+
+
+def swaylock_command(images, scaling, daemonize=False):
+    """swaylock with the style's colors where flickos-layouts wrote them, the
+    same background; the fallback whenever the lock screen can't be used."""
+    command = ["swaylock"] + (["-f"] if daemonize else [])
+    style = None
+    with contextlib.suppress(LockError):
+        style = os.path.join(runtime_folder(), SWAYLOCK_STYLE)
+    command += ["-C", style] if style and os.path.isfile(style) else SWAYLOCK[1:]
+    for image in images:
+        command += ["-i", image]
+    if scaling:
+        command += ["-s", scaling]
+    return command
+
+
+class LineReader:
+    """Lines from a child's stdout, each read with a time limit."""
+
+    def __init__(self, stream):
+        self.fd, self.buffer = stream.fileno(), b""
+
+    def line(self, timeout):
+        """The next line, '' at the end, None when timeout (seconds; None:
+        no limit) passes first."""
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while b"\n" not in self.buffer:
+            left = None if deadline is None else max(0, deadline - time.monotonic())
+            ready, _, _ = select.select([self.fd], [], [], left)
+            if not ready:
+                return None
+            data = os.read(self.fd, 4096)
+            if not data:
+                return ""
+            self.buffer += data
+        line, self.buffer = self.buffer.split(b"\n", 1)
+        return line.decode(errors="replace")
+
+
+def class_release(release, now=None):
+    """What a class lock does now: None (stay), "teacher" (the agent removed
+    the release file) or "failsafe" (it went unrefreshed for CLASS_FAILSAFE
+    seconds: the teacher's computer is gone)."""
+    try:
+        age = (time.time() if now is None else now) - os.stat(release).st_mtime
+    except FileNotFoundError:
+        return "teacher"
+    except OSError:
+        return None
+    return "failsafe" if age >= CLASS_FAILSAFE else None
+
+
+def screen_command(opts, grace_until):
+    extra = ["--class-message", opts.class_message, "--release", opts.release] if opts.release else []
+    if opts.release and opts.class_image:
+        extra += ["--class-image", opts.class_image]
+    return [*SELF, "screen", *image_arguments(opts.image, opts.scaling), "--grace-until", f"{grace_until:.3f}",
+            *extra]
+
+
+def fire_hooks(hooks, event):
+    """hooks(event), and nothing it does can end the guard: a lock that dies
+    after it is confirmed has no one left to fall back to swaylock."""
+    try:
+        hooks(event)
+    except Exception as error:         # noqa: BLE001 - any bug of the hooks' must stay theirs
+        log(f"hooks {event}: {error!r}")
+
+
+def guard(pre, opts, grace_until, folder, start=None, run=None, hooks=None):
+    """Keep the pre-lock until the lock screen has GTK loaded, hand over, then
+    wait for the unlock. Whatever goes wrong ends in swaylock holding the lock
+    (ADR-004). Fires the hooks `locked` and `unlocked` (hooks is fire, for
+    tests); neither when swaylock had to take over. Returns the exit status."""
+    import subprocess
+    start, run, hooks = start or subprocess.Popen, run or subprocess.call, hooks or fire
+    screen = start(screen_command(opts, grace_until), stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    reader = LineReader(screen.stdout)
+    try:
+        ready = reader.line(READY_SECONDS)
+        if ready != "ready":
+            return fall_back(pre, screen, opts, folder, run, f"the lock screen didn't start ({ready!r})")
+        pre.abandon()
+        screen.stdin.write(b"go\n")
+        screen.stdin.flush()
+        locked = reader.line(LOCK_TIMEOUT + LOCK_TRIES * LOCK_RETRY_SECONDS)
+        if locked != "locked":
+            return fall_back(pre, screen, opts, folder, run, f"the lock screen didn't take over ({locked!r})")
+        log("locked by the lock screen")
+        fire_hooks(hooks, "locked")
+        end = reader.line(None)
+        status = screen.wait()
+        if status == 0 and end.startswith("unlocked"):
+            log(f"unlocked ({end})")
+            remove(os.path.join(folder, CLASS_FILE))
+            remove(os.path.join(folder, LOCKED_FILE))
+            fire_hooks(hooks, "unlocked")
+            return 0
+        return fall_back(pre, screen, opts, folder, run, f"the lock screen ended with status {status}")
+    except OSError as error:                # its pipe closed: it died
+        return fall_back(pre, screen, opts, folder, run, f"lost the lock screen ({error})")
+
+
+def fall_back(pre, screen, opts, folder, run, why):
+    """swaylock takes over the lock (abandoned by the pre-lock or the dead
+    lock screen) and the guard waits for it."""
+    log(f"{why}: swaylock takes over")
+    pre.abandon()
+    if screen.poll() is None:
+        screen.kill()
+        screen.wait()
+    status = run(swaylock_command(opts.image, opts.scaling))
+    log(f"swaylock ended with status {status}")
+    remove(os.path.join(folder, CLASS_FILE))
+    remove(os.path.join(folder, LOCKED_FILE))
+    return 0 if status == 0 else 1
+
+
+def cmd_lock(opts):
+    """Lock, return once locked; the guard stays behind (a forked child)."""
+    for image in opts.image:
+        if not image.split(":", 1)[-1]:
+            raise LockError(f"--image {image!r}: no picture")
+    if bool(opts.class_message is not None) != bool(opts.release):
+        raise LockError("a class lock needs both --class-message and --release")
+    if opts.class_message is not None and opts.grace:
+        raise LockError("a class lock has no grace period")
+    if opts.class_image and not opts.release:
+        raise LockError("--class-image is for a class lock (--class-message and --release)")
+    folder = lock_folder()
+    lock = take_lock_or_wait(folder)
+    if lock is None:
+        return 0                            # another flickos-lock has locked
+    try:
+        pre = PreLock.connect()
+        locked = pre.lock()
+    except LockError as error:
+        warn(f"{error}; using swaylock")
+        lock.close()
+        command = swaylock_command(opts.image, opts.scaling, daemonize=True)
+        os.execvp(command[0], command)
+    if not locked:
+        lock.close()
+        return 0                            # another program holds a lock: locked
+    grace_until = boottime() + GRACE_SECONDS if opts.grace else 0
+    write_atomic(os.path.join(folder, LOCKED_FILE), f"{os.getpid()}\n")
+    remove(os.path.join(folder, WANTED_FILE))
+    if opts.release:
+        write_atomic(os.path.join(folder, CLASS_FILE), f"{opts.release}\n")
+    if os.fork():
+        return 0                            # the front: locked, swayidle may go on
+    # The guard: its own session, its output in the log.
+    os.setsid()
+    status = 1
+    try:
+        stream = log_file()
+        null = os.open(os.devnull, os.O_RDWR)
+        os.dup2(null, 0)
+        os.dup2(stream.fileno(), 1)
+        os.dup2(stream.fileno(), 2)
+        log(f"locked; guard {os.getpid()}")
+        status = guard(pre, opts, grace_until, folder)
+    except BaseException:                   # the guard must never die quietly
+        import subprocess
+        import traceback
+        traceback.print_exc()
+        with contextlib.suppress(BaseException):
+            fall_back(pre, _Gone(), opts, folder, subprocess.call, "the guard failed")
+    finally:
+        os._exit(status)
+
+
+class _Gone:
+    """A lock screen process that is already gone (fall_back's argument)."""
+
+    def poll(self):
+        return 0
+
+
+# --- What the lock screen shows: no GTK here, tested ----------------------------------
+
+def live_session(proc=PROC):
+    with contextlib.suppress(OSError):
+        with open(os.path.join(proc, "cmdline"), encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    return False
+
+
+def shared_screen(runtime):
+    """True while the screen may be seen elsewhere: a flickos-screenshot
+    recording runs (it holds RECORDING_LOCK) or the second screen is on."""
+    if os.path.exists(os.path.join(runtime, SECOND_SCREEN_FILE)):
+        return True
+    try:
+        with open(os.path.join(runtime, RECORDING_LOCK), encoding="utf-8") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def display_name(entry):
+    """The full name of a passwd entry (GECOS up to the first comma), else the login name."""
+    return entry.pw_gecos.split(",")[0].strip() or entry.pw_name
+
+
+def picture_file(entry):
+    """accountsservice's picture (Settings > Users), else ~/.face, else None
+    (the icon theme's)."""
+    for pattern in FACE_FILES:
+        if pattern.startswith("~/"):
+            path = os.path.join(entry.pw_dir, pattern[2:])
+        else:
+            path = pattern.format(user=entry.pw_name)
+        if os.path.isfile(path) and os.access(path, os.R_OK):
+            return path
+    return None
+
+
+def clock_format(choice):
+    return CLOCK_FORMATS.get((choice or "").strip(), CLOCK_FORMATS["24h"])
+
+
+def split_image(argument):
+    """(output or None, path) of an --image argument, as swaylock reads it:
+    OUTPUT:PATH unless the whole of it is a path (starts with / or ~)."""
+    if argument.startswith(("/", "~")) or ":" not in argument:
+        return None, os.path.expanduser(argument)
+    output, path = argument.split(":", 1)
+    return output or None, os.path.expanduser(path)
+
+
+def image_for(images, position, outputs):
+    """The picture for the screen at position (x, y): the one given for the
+    output there (outputs: {name: (x, y)} of `wlr-randr --json`), else the
+    first given for every output, else None."""
+    for output, path in images:
+        if output and outputs.get(output) == position:
+            return path
+    return next((path for output, path in images if not output), None)
+
+
+def enabled_outputs(text):
+    """{name: (x, y)} of the enabled outputs in `wlr-randr --json`."""
+    import json
+    found = {}
+    with contextlib.suppress(ValueError, TypeError, AttributeError):
+        for output in json.loads(text):
+            if output.get("enabled") and isinstance(output.get("position"), dict):
+                found[output["name"]] = (output["position"].get("x"), output["position"].get("y"))
+    return found
+
+
+def placement(image, screen, mode):
+    """(width, height, x, y): where a picture of size image goes on a screen
+    of size screen in a swaylock --scaling mode."""
+    (iw, ih), (sw, sh) = image, screen
+    if mode == "stretch":
+        return sw, sh, 0, 0
+    if mode == "center":
+        return iw, ih, (sw - iw) // 2, (sh - ih) // 2
+    factor = (min if mode == "fit" else max)(sw / iw, sh / ih)
+    width, height = max(1, round(iw * factor)), max(1, round(ih * factor))
+    return width, height, (sw - width) // 2, (sh - height) // 2
+
+
+def next_zoom(current, step):
+    """The zoom after Super+= (step 1), Super+- (-1) or Super+0 (0)."""
+    if step == 0:
+        return ZOOM_STEPS[0]
+    index = min(range(len(ZOOM_STEPS)), key=lambda i: abs(ZOOM_STEPS[i] - current))
+    return ZOOM_STEPS[max(0, min(len(ZOOM_STEPS) - 1, index + step))]
+
+
+def read_zoom(folder):
+    with contextlib.suppress(OSError, ValueError):
+        with open(os.path.join(folder, ZOOM_FILE), encoding="utf-8") as f:
+            value = int(f.read().strip())
+            if value in ZOOM_STEPS:
+                return value
+    return ZOOM_STEPS[0]
+
+
+def zoom_css(percent):
+    return f".flickos-lock .card {{ font-size: {percent}%; }}\n"
+
+
+def moved_far(start, point):
+    return start is not None and abs(point[0] - start[0]) + abs(point[1] - start[1]) > GRACE_MOVE_PIXELS
+
+
+# --- The lock screen (GTK 3, gtk-session-lock) ----------------------------------------
+
+def load_gtk():
+    """Gtk, Gdk, GdkPixbuf, GLib, Gio, GtkSessionLock, or LockError."""
+    global shutil, subprocess, threading
+    import shutil
+    import subprocess
+    import threading
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GdkPixbuf", "2.0")
+        gi.require_version("GtkSessionLock", "0.1")
+        from gi.repository import GLib
+        GLib.set_prgname(NAME)
+        from gi.repository import Gdk, GdkPixbuf, Gio, Gtk, GtkSessionLock
+    except (ImportError, ValueError) as error:
+        raise LockError(f"GTK 3 or gtk-session-lock is not available ({error})") from None
+    if not Gtk.init_check(sys.argv[:1])[0]:
+        raise LockError("cannot open the display")
+    return Gtk, Gdk, GdkPixbuf, GLib, Gio, GtkSessionLock
+
+
+class LockScreen:
+    """One window per screen, all the text on one card, the password box
+    shared by every screen (ADR-007, ADR-008)."""
+
+    def __init__(self, gtk, opts, out):
+        self.Gtk, self.Gdk, self.GdkPixbuf, self.GLib, self.Gio, self.SessionLock = gtk
+        self.opts, self.out = opts, out
+        self.user = pwd.getpwuid(os.getuid())
+        self.runtime = runtime_folder()
+        self.folder = lock_folder()
+        self.images = [split_image(image) for image in opts.image]
+        self.outputs = {}
+        self.screens = {}                   # GdkMonitor: Screen
+        self.lock = None
+        self.unlocked = False
+        self.checking = False
+        self.shown = False
+        self.failures = 0
+        self.grace_until = opts.grace_until
+        self.zoom = read_zoom(self.folder)
+        self.clock_format = None            # until flickos-layout answers (PERF-3)
+        self.pictures = {}                  # (path, size, scale, mode): (cairo surface, x, y) or None
+        self.loading = set()
+        self.reveal_timer = None
+        self.live = live_session()
+        self.buffer = self.Gtk.EntryBuffer()
+        self.class_lock = bool(opts.release)    # no password box until released
+
+    # Locking: the guard's pre-lock is let go, this one takes over.
+
+    def take_over(self):
+        """True once the compositor confirms this process's lock. labwc may
+        still be closing the guard's connection: refused, it tries again."""
+        GLib, Gdk = self.GLib, self.Gdk
+        context = GLib.MainContext.default()
+        for _ in range(LOCK_TRIES):
+            self.lock = self.SessionLock.prepare_lock()
+            answer = {}
+            self.lock.connect("locked", lambda _l: answer.setdefault("locked", True))
+            self.lock.connect("finished", lambda _l: answer.setdefault("locked", False))
+            self.lock.lock_lock()
+            Gdk.Display.get_default().flush()        # GDK sends it only when its loop runs
+            deadline = time.monotonic() + LOCK_TIMEOUT
+            while "locked" not in answer and time.monotonic() < deadline:
+                context.iteration(False) or time.sleep(0.002)
+            if answer.get("locked"):
+                self.lock.connect("finished", self.on_finished)
+                return True
+            time.sleep(LOCK_RETRY_SECONDS)
+        return False
+
+    def on_finished(self, _lock):
+        """The compositor ended the lock without an unlock (it is going away)."""
+        if not self.unlocked:
+            log("the compositor ended the lock")
+            os._exit(1)
+
+    # Building.
+
+    def build(self):
+        Gtk, Gdk = self.Gtk, self.Gdk
+        screen = Gdk.Screen.get_default()
+        provider = Gtk.CssProvider()
+        try:
+            provider.load_from_path(STYLE)
+        except self.GLib.Error as error:
+            log(f"{STYLE}: {error.message}")
+        Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.zoom_provider = Gtk.CssProvider()
+        self.zoom_provider.load_from_data(zoom_css(self.zoom).encode())
+        Gtk.StyleContext.add_provider_for_screen(screen, self.zoom_provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        display = Gdk.Display.get_default()
+        for index in range(display.get_n_monitors()):
+            self.add_screen(display.get_monitor(index))
+        display.connect("monitor-added", lambda _d, monitor: self.add_screen(monitor))
+        display.connect("monitor-removed", lambda _d, monitor: self.remove_screen(monitor))
+        Gdk.Keymap.get_for_display(display).connect("state-changed", lambda _k: self.show_caps())
+        self.show_caps()
+        self.watch_sleep()
+        self.background(self.read_details)
+        self.tick()
+        if self.class_lock:
+            self.GLib.timeout_add_seconds(CLASS_CHECK_SECONDS, self.check_release)
+        self.demo, self.demo_stamp, self.demo_busy = {}, None, False
+        if self.class_lock and self.opts.class_image:
+            self.GLib.timeout_add(DEMO_CHECK_MS, self.check_demo)
+
+    def check_demo(self):
+        """During a demo only: load the teacher's newest frame when FILE changed,
+        decoded and scaled per screen off the main loop."""
+        if not self.class_lock:
+            return False
+        try:
+            stamp = os.stat(self.opts.class_image).st_mtime_ns
+        except OSError:
+            return True
+        if stamp != self.demo_stamp and not self.demo_busy:
+            self.demo_stamp, self.demo_busy = stamp, True
+            sizes = {name: (s.area.get_allocated_width() * s.area.get_scale_factor(),
+                            s.area.get_allocated_height() * s.area.get_scale_factor(), s.area.get_scale_factor())
+                     for name, s in self.screens.items()}
+            self.background(lambda: self.load_demo(sizes))
+        return True
+
+    def load_demo(self, sizes):
+        GdkPixbuf = self.GdkPixbuf
+        frames = {}
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file(self.opts.class_image)
+            iw, ih = pixbuf.get_width(), pixbuf.get_height()
+            for name, (sw, sh, scale) in sizes.items():
+                if sw < 2 or sh < 2:
+                    continue
+                factor = min(sw / iw, sh / ih)
+                w, h = max(1, round(iw * factor)), max(1, round(ih * factor))
+                # The teacher sends its own size: often no scaling (a copy costs 2 ms a frame).
+                same = (w, h) == (iw, ih)
+                frames[name] = (pixbuf if same else pixbuf.scale_simple(w, h, GdkPixbuf.InterpType.BILINEAR),
+                                scale)
+        except self.GLib.Error as error:
+            log(f"demo frame: {error.message}")
+        self.GLib.idle_add(self.demo_loaded, frames)
+
+    def demo_loaded(self, frames):
+        self.demo_busy = False
+        for name, (pixbuf, scale) in frames.items():
+            self.demo[name] = self.Gdk.cairo_surface_create_from_pixbuf(pixbuf, scale, None)
+        for screen in self.screens.values():
+            screen.card.hide()
+            screen.area.queue_draw()
+        return False
+
+    def check_release(self):
+        """During a class lock only: the agent removes the release file to let
+        go, and keeps it fresh while the teacher is there (class_release)."""
+        why = class_release(self.opts.release)
+        if why is None:
+            return True
+        if os.path.exists(os.path.join(self.folder, WANTED_FILE)):
+            # The computer locked itself meanwhile: the password box comes back.
+            log(f"class lock released ({why}); a normal lock was asked for, the password stays")
+            remove(os.path.join(self.folder, WANTED_FILE))
+            remove(os.path.join(self.folder, CLASS_FILE))
+            self.class_lock = False
+            self.demo.clear()
+            for screen in self.screens.values():
+                screen.card.show()
+                screen.area.queue_draw()
+                screen.show_password(True)
+                screen.refresh()
+            return False
+        if why == "teacher":
+            self.unlock("teacher")
+        else:
+            self.unlock("failsafe")
+        return False
+
+    def add_screen(self, monitor):
+        screen = Screen(self, monitor)
+        self.screens[monitor] = screen
+        self.lock.new_surface(screen.window, monitor)
+        screen.window.show_all()
+        screen.refresh()
+
+    def remove_screen(self, monitor):
+        """Unmap first: gtk-session-lock 0.2 destroying a lock window outright
+        makes labwc drop the connection (phase 0, L5)."""
+        screen = self.screens.pop(monitor, None)
+        if screen:
+            self.SessionLock.unmap_lock_window(screen.window)
+            self.GLib.idle_add(lambda: screen.window.destroy() or False)
+
+    def background(self, work):
+        threading.Thread(target=work, daemon=True).start()
+
+    def read_details(self):
+        """Off the main loop: the clock's hours and, for pictures per output,
+        where each output is."""
+        choice = ""
+        if shutil.which(LAYOUT):
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                choice = subprocess.run([LAYOUT, "clock", "current"], capture_output=True, text=True,
+                                        timeout=10).stdout
+        outputs = {}
+        if any(output for output, _path in self.images) and shutil.which("wlr-randr"):
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                outputs = enabled_outputs(subprocess.run(["wlr-randr", "--json"], capture_output=True,
+                                                         text=True, timeout=10).stdout)
+        self.GLib.idle_add(self.details_read, clock_format(choice), outputs)
+
+    def details_read(self, fmt, outputs):
+        self.clock_format, self.outputs = fmt, outputs
+        self.update_clock()
+        for screen in self.screens.values():
+            screen.area.queue_draw()
+        return False
+
+    # The clock, once a minute on the minute, and again after sleep.
+
+    def update_clock(self):
+        if self.clock_format is None:
+            return
+        now = time.localtime()
+        for screen in self.screens.values():
+            screen.clock.set_text(time.strftime(self.clock_format, now))
+            screen.date.set_text(time.strftime(DATE_FORMAT, now))
+
+    def tick(self):
+        self.update_clock()
+        self.update_reveal_button()
+        self.GLib.timeout_add_seconds(60 - int(time.time()) % 60 or 60, self.tick)
+        return False
+
+    def watch_sleep(self):
+        """logind's PrepareForSleep: GLib's timeouts don't count time asleep,
+        so the clock is set again after it; and sleeping ends the grace period."""
+        try:
+            bus = self.Gio.bus_get_sync(self.Gio.BusType.SYSTEM, None)
+            bus.signal_subscribe(LOGIND[0], LOGIND[2], "PrepareForSleep", LOGIND[1], None,
+                                 self.Gio.DBusSignalFlags.NONE, self.on_sleep)
+        except self.GLib.Error as error:
+            log(f"no system bus ({error.message}): the clock may lag after sleep")
+
+    def on_sleep(self, *args):
+        going = args[-1].unpack()[0]
+        if going:
+            self.grace_until = 0
+            return
+        self.update_clock()
+        for screen in self.screens.values():
+            screen.window.queue_draw()
+
+    # Showing the password, Caps Lock, messages.
+
+    def shared(self):
+        return shared_screen(self.runtime)
+
+    def update_reveal_button(self):
+        """No eye while the screen may be seen elsewhere (ADR-011)."""
+        shared = self.shared()
+        if shared and self.shown:
+            self.set_shown(False)
+        for screen in self.screens.values():
+            screen.set_eye(not shared, self.shown)
+
+    def set_shown(self, shown):
+        if shown and self.shared():
+            shown = False
+        self.shown = shown
+        for screen in self.screens.values():
+            screen.entry.set_visibility(shown)
+            screen.set_eye(not self.shared(), shown)
+        if self.reveal_timer:
+            self.GLib.source_remove(self.reveal_timer)
+            self.reveal_timer = None
+        if shown:
+            self.reveal_timer = self.GLib.timeout_add_seconds(REVEAL_SECONDS, self.hide_after_wait)
+
+    def hide_after_wait(self):
+        self.reveal_timer = None
+        self.set_shown(False)
+        return False
+
+    def show_caps(self):
+        on = self.Gdk.Keymap.get_for_display(self.Gdk.Display.get_default()).get_caps_lock_state()
+        for screen in self.screens.values():
+            screen.caps.set_visible(on)
+
+    def say(self, text):
+        for screen in self.screens.values():
+            screen.message.set_text(text)
+            screen.message.set_visible(bool(text))
+
+    # Checking the password.
+
+    def check(self, *_args):
+        if self.checking or self.unlocked:
+            return
+        self.checking = True
+        password = self.buffer.get_text()
+        for screen in self.screens.values():
+            screen.busy(True)
+        self.say(TEXT["checking"])
+        self.background(lambda: self.GLib.idle_add(self.checked, *authenticate(self.user.pw_name, password)))
+
+    def checked(self, code, words, shown):
+        self.checking = False
+        if code == PAM_SUCCESS:
+            self.unlock("password")
+            return False
+        self.failures += 1
+        log(f"password not accepted: {words}{' (' + '; '.join(shown) + ')' if shown else ''}")
+        self.buffer.delete_text(0, -1)
+        self.set_shown(False)
+        if shown:
+            self.say(shown[-1])
+        elif code == PAM_AUTH_ERR:
+            self.say(TEXT["wrong"])
+        else:
+            self.say(TEXT["error"].format(error=words))
+        for screen in self.screens.values():
+            screen.busy(False)
+        for screen in self.screens.values():
+            screen.entry.grab_focus_without_selecting()
+        return False
+
+    def in_grace(self):
+        return not self.unlocked and boottime() < self.grace_until
+
+    def unlock(self, why):
+        """The only caller of unlock_and_destroy (ADR-005): after PAM_SUCCESS,
+        within an idle lock's grace period (ADR-017), or when a class lock
+        is released by its teacher or the failsafe."""
+        if self.unlocked:
+            return
+        self.unlocked = True
+        log(f"unlocking ({why}, {self.failures} wrong before)")
+        self.lock.unlock_and_destroy()
+        self.Gdk.Display.get_default().sync()
+        self.out.write(f"unlocked {self.failures}\n")
+        self.out.flush()
+        self.Gtk.main_quit()
+
+    # Keys, the pointer, zoom.
+
+    def on_key(self, window, event):
+        if self.class_lock:
+            return True
+        if self.in_grace():
+            self.unlock("grace")
+            return True
+        screen = next((s for s in self.screens.values() if s.window is window), None)
+        if screen and window.get_focus() is not screen.entry and screen.entry.get_sensitive():
+            # Keys must always reach the box: after a screen came back, labwc
+            # gave its window the keyboard with nothing focused in it.
+            screen.entry.grab_focus_without_selecting()
+        Gdk = self.Gdk
+        name = Gdk.keyval_name(event.keyval) or ""
+        if event.state & (Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.MOD4_MASK):
+            step = {"equal": 1, "plus": 1, "KP_Add": 1, "minus": -1, "KP_Subtract": -1, "0": 0}.get(name)
+            if step is not None:
+                self.set_zoom(next_zoom(self.zoom, step))
+            return True                      # never into the box (ADR-019)
+        if event.state & Gdk.ModifierType.MOD1_MASK and name in ("v", "V"):
+            self.set_shown(not self.shown)
+            return True
+        if name == "Escape":
+            self.buffer.delete_text(0, -1)
+            return True
+        if name in ("Return", "KP_Enter"):
+            self.check()
+            return True
+        if self.shown:
+            self.set_shown(True)             # restart the wait
+        return False
+
+    def on_scroll(self, _window, event):
+        Gdk = self.Gdk
+        if not event.state & (Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.MOD4_MASK):
+            return False
+        if event.direction == Gdk.ScrollDirection.UP:
+            step = 1
+        elif event.direction == Gdk.ScrollDirection.DOWN:
+            step = -1
+        elif event.direction == Gdk.ScrollDirection.SMOOTH and event.delta_y:
+            step = -1 if event.delta_y > 0 else 1
+        else:
+            return True
+        self.set_zoom(next_zoom(self.zoom, step))
+        return True
+
+    def on_motion(self, screen, event):
+        if not self.in_grace():
+            return False
+        point = (event.x_root, event.y_root)
+        if screen.pointer_start is None:
+            screen.pointer_start = point
+        elif moved_far(screen.pointer_start, point):
+            self.unlock("grace")
+        return False
+
+    def set_zoom(self, percent):
+        self.zoom = percent
+        self.zoom_provider.load_from_data(zoom_css(percent).encode())
+        for screen in self.screens.values():
+            screen.load_face()
+        with contextlib.suppress(OSError):
+            write_atomic(os.path.join(self.folder, ZOOM_FILE), f"{percent}\n")
+
+    # Pictures, loaded and scaled in a thread for each screen's size.
+
+    def wallpaper(self, path, size, scale, mode):
+        """(cairo surface, x, y) of path for a screen of size (logical) at
+        scale, or None while it is loading (drawn when ready) or unreadable.
+        Only the scaled copies are kept (phase 0: 80 MB with the original)."""
+        key = (path, size, scale, mode)
+        if key in self.pictures:
+            return self.pictures[key]
+        if key not in self.loading:
+            self.loading.add(key)
+            self.background(lambda: self.load_wallpaper(key))
+        return None
+
+    def load_wallpaper(self, key):
+        path, (width, height), scale, mode = key
+        GdkPixbuf = self.GdkPixbuf
+        result = None
+        try:
+            info = GdkPixbuf.Pixbuf.get_file_info(path)
+            if info[0] is None:
+                raise self.GLib.Error("not a picture")
+            screen = (width * scale, height * scale)
+            if mode == "tile":
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+                result = (pixbuf, 0, 0)
+            else:
+                w, h, x, y = placement((info[1], info[2]), screen, mode)
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, w, h, False)
+                result = (pixbuf, x / scale, y / scale)
+        except self.GLib.Error as error:
+            log(f"{path}: {error.message}")
+        self.GLib.idle_add(self.wallpaper_loaded, key, result)
+
+    def wallpaper_loaded(self, key, result):
+        self.loading.discard(key)
+        if result:
+            pixbuf, x, y = result
+            result = (self.Gdk.cairo_surface_create_from_pixbuf(pixbuf, key[2], None), x, y)
+        self.pictures[key] = result
+        for screen in self.screens.values():
+            screen.area.queue_draw()
+        return False
+
+
+class Screen:
+    """The lock window on one monitor: the background and the card."""
+
+    def __init__(self, lock, monitor):
+        Gtk = lock.Gtk
+        self.lock, self.monitor, self.pointer_start = lock, monitor, None
+        self.window = Gtk.Window()
+        self.window.get_style_context().add_class("flickos-lock")
+        self.window.add_events(lock.Gdk.EventMask.POINTER_MOTION_MASK | lock.Gdk.EventMask.SCROLL_MASK
+                               | lock.Gdk.EventMask.SMOOTH_SCROLL_MASK | lock.Gdk.EventMask.ENTER_NOTIFY_MASK)
+        self.window.connect("key-press-event", lock.on_key)
+        self.window.connect("key-release-event", lambda *_a: lock.class_lock)   # the hidden box gets none
+        self.window.connect("scroll-event", lock.on_scroll)
+        self.window.connect("motion-notify-event", lambda _w, event: lock.on_motion(self, event))
+        # Where the pointer was when the window appeared: the grace period's start.
+        self.window.connect("enter-notify-event", lambda _w, event: self.pointer_start is None and setattr(
+            self, "pointer_start", (event.x_root, event.y_root)) or False)
+        self.window.connect("focus-in-event", self.on_focus)
+        overlay = Gtk.Overlay()
+        self.area = Gtk.DrawingArea()
+        self.area.connect("draw", self.draw)
+        overlay.add(self.area)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, halign=Gtk.Align.CENTER,
+                       valign=Gtk.Align.CENTER)
+        card.get_style_context().add_class("card")
+        self.card = card
+        self.clock = self.label("", "clock")
+        self.date = self.label("", "date")
+        self.face = Gtk.Image()
+        self.load_face()
+        name = self.label(display_name(lock.user), "name")
+        row = Gtk.Box(spacing=6)
+        self.entry = Gtk.Entry.new_with_buffer(lock.buffer)
+        self.entry.set_visibility(False)
+        self.entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        self.entry.set_property("caps-lock-warning", False)    # the eye has its icon slot (ADR-006)
+        self.entry.set_width_chars(24)
+        self.entry.set_placeholder_text(TEXT["placeholder"])
+        self.entry.get_accessible().set_name(TEXT["placeholder"])
+        self.entry.connect("icon-press", lambda *_a: lock.set_shown(not lock.shown))
+        self.go = Gtk.Button.new_from_icon_name("go-next-symbolic", Gtk.IconSize.BUTTON)
+        self.go.set_tooltip_text(TEXT["unlock"])
+        self.go.get_accessible().set_name(TEXT["unlock"])
+        self.go.connect("clicked", lock.check)
+        self.spinner = Gtk.Spinner()
+        row.pack_start(self.entry, True, True, 0)
+        row.pack_start(self.go, False, False, 0)
+        self.caps = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        self.caps.pack_start(Gtk.Image.new_from_icon_name("dialog-warning-symbolic", Gtk.IconSize.BUTTON),
+                             False, False, 0)
+        self.caps.pack_start(self.label(TEXT["caps"], "caps"), False, False, 0)
+        self.caps.set_no_show_all(True)
+        for child in self.caps.get_children():
+            child.show()
+        self.message = self.label("", "message")
+        self.message.set_no_show_all(True)
+        self.message.set_line_wrap(True)
+        self.message.set_max_width_chars(36)
+        # A class lock's message from the teacher, instead of the password box.
+        self.class_text = self.label(lock.opts.class_message or "", "class-message")
+        self.class_text.set_no_show_all(True)
+        self.class_text.set_line_wrap(True)
+        self.class_text.set_max_width_chars(36)
+        self.class_text.set_justify(Gtk.Justification.CENTER)
+        parts = [self.clock, self.date, self.face, name, self.class_text, row, self.spinner, self.caps,
+                 self.message]
+        if lock.live:
+            parts.append(self.label(LIVE_HINT, "hint"))
+        for part in parts:
+            card.pack_start(part, False, False, 0)
+        self.spinner.set_no_show_all(True)
+        overlay.add_overlay(card)
+        self.window.add(overlay)
+        self.set_eye(not lock.shared(), lock.shown)
+        self.row = row
+        if lock.class_lock:
+            self.show_password(False)
+
+    def show_password(self, shown):
+        """The password box, or (a class lock) the teacher's message."""
+        self.row.set_no_show_all(not shown)
+        self.row.set_visible(shown)
+        if shown:
+            self.row.show_all()
+        self.class_text.set_visible(not shown)
+
+    def label(self, text, style):
+        label = self.lock.Gtk.Label(label=text)
+        label.get_style_context().add_class(style)
+        return label
+
+    def refresh(self):
+        self.lock.update_clock()
+        self.lock.show_caps()
+        if not self.lock.class_lock:
+            self.entry.grab_focus_without_selecting()
+
+    def on_focus(self, _window, _event):
+        log(f"keyboard on {self.monitor.get_model()}")
+        if self.entry.get_sensitive() and not self.lock.class_lock:
+            self.entry.grab_focus_without_selecting()
+        return False
+
+    def set_eye(self, offered, shown):
+        position = self.lock.Gtk.EntryIconPosition.SECONDARY
+        if not offered:
+            self.entry.set_icon_from_icon_name(position, None)
+            return
+        self.entry.set_icon_from_icon_name(position, "view-conceal-symbolic" if shown else "view-reveal-symbolic")
+        self.entry.set_icon_tooltip_text(position, TEXT["hide"] if shown else TEXT["show"])
+
+    def busy(self, checking):
+        self.entry.set_sensitive(not checking)
+        self.go.set_sensitive(not checking)
+        self.spinner.set_visible(checking)
+        (self.spinner.start if checking else self.spinner.stop)()
+
+    def load_face(self):
+        """The user's picture, round, PICTURE_PIXELS at 100% zoom; the icon
+        theme's avatar-default without one."""
+        lock, Gtk = self.lock, self.lock.Gtk
+        size = PICTURE_PIXELS * lock.zoom // 100
+        path = picture_file(lock.user)
+        pixbuf = None
+        if path:
+            with contextlib.suppress(lock.GLib.Error):
+                pixbuf = lock.GdkPixbuf.Pixbuf.new_from_file_at_scale(path, size, size, True)
+        if pixbuf is None:
+            self.face.set_from_icon_name("avatar-default", Gtk.IconSize.DIALOG)
+            self.face.set_pixel_size(size)
+            return
+        self.face.set_from_pixbuf(None)
+        self.face.set_size_request(size, size)
+        self.face_pixbuf = pixbuf
+        if not getattr(self, "face_drawn", False):
+            self.face.connect("draw", self.draw_face)
+            self.face_drawn = True
+        self.face.queue_draw()
+
+    def draw_face(self, widget, cr):
+        pixbuf = self.face_pixbuf
+        width, height = widget.get_allocated_width(), widget.get_allocated_height()
+        radius = min(width, height, pixbuf.get_width(), pixbuf.get_height()) / 2
+        cr.arc(width / 2, height / 2, radius, 0, 6.283185307179586)
+        cr.clip()
+        self.lock.Gdk.cairo_set_source_pixbuf(cr, pixbuf, (width - pixbuf.get_width()) / 2,
+                                              (height - pixbuf.get_height()) / 2)
+        cr.paint()
+        return True
+
+    def draw(self, widget, cr):
+        """The wallpaper (scaled as --scaling says) under DIM of the theme's
+        background, or the background alone."""
+        lock = self.lock
+        width, height = widget.get_allocated_width(), widget.get_allocated_height()
+        frame = next((f for name, f in lock.demo.items() if lock.screens.get(name) is self), None)
+        if frame is not None:
+            cr.set_source_rgb(0, 0, 0)
+            cr.paint()
+            scale = widget.get_scale_factor()
+            fw, fh = frame.get_width() / scale, frame.get_height() / scale
+            cr.set_source_surface(frame, (width - fw) / 2, (height - fh) / 2)
+            cr.paint()
+            return False
+        found, bg = widget.get_style_context().lookup_color("theme_bg_color")
+        bg = bg if found else lock.Gdk.RGBA(0.22, 0.235, 0.29, 1)
+        geometry = self.monitor.get_geometry()
+        path = image_for(lock.images, (geometry.x, geometry.y), lock.outputs)
+        mode = lock.opts.scaling or "fill"
+        shown = None
+        if path and mode != "solid_color" and width > 1 and height > 1:
+            shown = lock.wallpaper(path, (width, height), widget.get_scale_factor(), mode)
+        cr.set_source_rgba(bg.red, bg.green, bg.blue, 1)
+        cr.paint()
+        if shown:
+            surface, x, y = shown
+            if mode == "tile":
+                import cairo
+                pattern = cairo.SurfacePattern(surface)
+                pattern.set_extend(cairo.Extend.REPEAT)
+                cr.set_source(pattern)
+            else:
+                cr.set_source_surface(surface, x, y)
+            cr.paint()
+            cr.set_source_rgba(bg.red, bg.green, bg.blue, DIM)
+            cr.paint()
+        return False
+
+
+def cmd_screen(opts):
+    """The lock screen (started by the guard): `ready` once GTK is loaded,
+    takes the lock over after `go`, `locked`, then `unlocked N`."""
+    out = os.fdopen(os.dup(1), "w", buffering=1)
+    os.dup2(2, 1)                           # stray prints go to the log, not the guard
+
+    import threading
+    import traceback
+
+    def loud(kind, value, tb):              # CODE-6: a bug ends the process, the guard takes over
+        traceback.print_exception(kind, value, tb)
+        os._exit(1)
+    sys.excepthook = loud
+    threading.excepthook = lambda args: loud(args.exc_type, args.exc_value, args.exc_traceback)
+    gtk = load_gtk()
+    out.write("ready\n")
+    if sys.stdin.readline().strip() != "go":
+        return 1
+    if not gtk[5].is_supported():
+        raise LockError("the compositor has no ext-session-lock-v1")
+    screen = LockScreen(gtk, opts, out)
+    if not screen.take_over():
+        raise LockError("the compositor refused the lock")
+    out.write("locked\n")
+    screen.build()
+    gtk[0].main()
+    return 0 if screen.unlocked else 1
+
+
+# --- main ---------------------------------------------------------------------------
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="Lock the screen of the FlickOS session.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    lock = commands.add_parser("lock", help="lock the screen; returns once it is locked")
+    lock.add_argument("--image", action="append", default=[], metavar="[OUTPUT:]PATH",
+                      help="the background picture, for one output or all (again for more)")
+    lock.add_argument("--scaling", choices=SCALING_MODES, help="how the picture fills a screen (default fill)")
+    lock.add_argument("--grace", action="store_true",
+                      help=f"a key or a mouse move within {GRACE_SECONDS} s unlocks (the idle lock)")
+    lock.add_argument("--class-message", metavar="TEXT",
+                      help="a class lock: TEXT and no password box, until --release FILE is removed")
+    lock.add_argument("--release", metavar="FILE", help="the class lock's release file (kept fresh by the agent)")
+    lock.add_argument("--class-image", metavar="FILE",
+                      help="a class lock showing the picture in FILE (the teacher's screen), reloaded when it changes")
+    lock.set_defaults(func=cmd_lock)
+    screen = commands.add_parser("screen")              # internal: started by the guard
+    screen.add_argument("--image", action="append", default=[])
+    screen.add_argument("--scaling", choices=SCALING_MODES)
+    screen.add_argument("--grace-until", type=float, default=0)
+    screen.add_argument("--class-message")
+    screen.add_argument("--release")
+    screen.add_argument("--class-image")
+    screen.set_defaults(func=cmd_screen)
+    opts = parser.parse_args(argv)
+    if not opts.command:
+        parser.print_usage(sys.stderr)
+        return 2
+    try:
+        return opts.func(opts)
+    except LockError as error:
+        warn(str(error))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

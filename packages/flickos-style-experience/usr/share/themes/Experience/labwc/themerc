@@ -1,0 +1,54 @@
+# Experience: FlickOS's own window theme (flickos-style-experience,
+# written by tools/make-experience.py; man labwc-theme). Deep blue title
+# bars with a blue frame, white bold-looking titles on the left, glossy
+# rounded buttons with a white edge and a red close: this folder's SVGs.
+border.width: 3
+window.active.border.color: #0b56d6
+window.inactive.border.color: #7a93db
+window.active.indicator.toggled-keybind.color: #e0432b
+
+# Shadows (<dropShadows> in rc.xml; Settings can turn them off)
+window.active.shadow.size: 40
+window.inactive.shadow.size: 20
+window.active.shadow.color: #00000060
+window.inactive.shadow.color: #00000030
+
+window.titlebar.padding.width: 4
+window.titlebar.padding.height: 1
+window.active.title.bg.color: #0b56d6
+window.inactive.title.bg.color: #7a93db
+window.active.label.text.color: #ffffff
+window.inactive.label.text.color: #e6ecfa
+window.label.text.justify: left
+window.button.width: 26
+window.button.height: 26
+window.button.spacing: 1
+window.button.hover.bg.corner-radius: 4
+window.active.button.unpressed.image.color: #ffffff
+window.inactive.button.unpressed.image.color: #e6ecfa
+menu.border.width: 1
+menu.border.color: #aca899
+menu.items.bg.color: #ffffff
+menu.items.text.color: #000000
+menu.items.active.bg.color: #316ac5
+menu.items.active.text.color: #ffffff
+menu.items.padding.x: 8
+menu.items.padding.y: 4
+menu.separator.color: #d4d0c8
+menu.title.bg.color: #0b56d6
+menu.title.text.color: #ffffff
+osd.bg.color: #ece9d8
+osd.border.color: #0b56d6
+osd.border.width: 2
+osd.label.text.color: #000000
+osd.window-switcher.preview.border.color: #316ac5
+osd.window-switcher.width: 640
+osd.window-switcher.padding: 8
+osd.window-switcher.item.padding.x: 12
+osd.window-switcher.item.padding.y: 6
+osd.window-switcher.item.active.border.width: 2
+snapping.overlay.region.bg.color: #316ac54c
+snapping.overlay.region.border.color: #316ac5
+snapping.overlay.edge.bg.color: #316ac54c
+snapping.overlay.edge.border.color: #316ac5
+magnifier.border.color: #316ac5

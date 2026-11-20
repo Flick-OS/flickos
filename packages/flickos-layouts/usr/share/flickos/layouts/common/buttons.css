@@ -1,0 +1,65 @@
+/* The buttons of FlickOS's built-in layouts: one rounded shape, set in from
+ * the bar's edges, that lights up the same way under the pointer. Imported
+ * after base.css by Redmond, Cupertino and Traditional only: the styles'
+ * layouts draw their own buttons from base.css. The margin fits every bar,
+ * Cupertino's 24 px and the floating panel's 36 px too, without growing it.
+ * Named colors only. */
+#custom-launcher,
+#taskbar button,
+#custom-desk,
+#custom-media-previous,
+#custom-media-play,
+#custom-media-next,
+#custom-media-title,
+#custom-media-spectrum,
+#custom-weather,
+#custom-phone,
+#custom-classroom,
+#custom-trail,
+#custom-tiler,
+#custom-recording,
+#quick,
+#clock {
+    margin: 3px 1px;
+    border-radius: 6px;
+}
+
+#custom-launcher:hover,
+#taskbar button:hover,
+#custom-desk:hover,
+#custom-media-previous:hover,
+#custom-media-play:hover,
+#custom-media-next:hover,
+#custom-media-title:hover,
+#custom-media-spectrum:hover,
+#custom-weather:hover,
+#custom-phone:hover,
+#custom-classroom:hover,
+#custom-trail:hover,
+#custom-tiler:hover,
+#custom-recording:hover,
+#quick:hover,
+#clock:hover {
+    background-color: alpha(@fg_color, 0.08);
+}
+
+/* The light is what shows the pointer here, so the logo keeps its amber. */
+#custom-launcher:hover {
+    color: @fg_color;
+    -gtk-icon-palette: warning @brand_color;
+}
+
+/* The focused window: a faint fill and a short line in the middle. The line
+ * is a background image, so it stays centered at any width. */
+#taskbar button.active {
+    border-bottom: none;
+    background-color: alpha(@fg_color, 0.06);
+    background-image: linear-gradient(@selected_bg_color, @selected_bg_color);
+    background-repeat: no-repeat;
+    background-size: 16px 3px;
+    background-position: 50% 100%;
+}
+
+#taskbar button.active:hover {
+    background-color: alpha(@fg_color, 0.1);
+}

@@ -3,8 +3,30 @@
 # The tests import usr/bin/flickos-control; no bytecode next to installed files.
 export PYTHONDONTWRITEBYTECODE = 1
 
+# Translations (docs/12-translating.md): every po/LANG.po in po/LINGUAS.
+LANGS := $(shell sed 's/\#.*//' po/LINGUAS)
+
 %:
 	dh $@
+
+# --check: a translation with a broken {placeholder} fails the build.
+override_dh_auto_build:
+	set -e; for lang in $(LANGS); do \
+		mkdir -p debian/locale/$$lang/LC_MESSAGES; \
+		msgfmt --check --output-file=debian/locale/$$lang/LC_MESSAGES/flickos-control.mo po/$$lang.po; \
+	done
+	msgfmt --desktop --template=usr/share/applications/flickos-control.desktop -d po \
+		--output-file=debian/flickos-control.desktop
+	msgfmt --desktop --template=usr/share/flickos/applications/network.cycles.wdisplays.desktop -d po \
+		--output-file=debian/network.cycles.wdisplays.desktop
+
+# The desktop files with the translations' Name[LANG] lines replace the ones
+# debian/install copied.
+override_dh_install:
+	dh_install
+	install -m 644 debian/flickos-control.desktop debian/flickos-control/usr/share/applications/
+	install -m 644 debian/network.cycles.wdisplays.desktop debian/flickos-control/usr/share/flickos/applications/
+	if [ -d debian/locale ]; then cp -r debian/locale debian/flickos-control/usr/share/; fi
 
 # Skipped with DEB_BUILD_OPTIONS=nocheck.
 override_dh_auto_test:

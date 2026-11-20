@@ -1,0 +1,377 @@
+#!/usr/bin/python3
+"""Run your own programs when something happens on the FlickOS desktop.
+
+A hook is any executable file in ~/.config/flickos/hooks/EVENT.d/ (the
+folder of the event it wants). When the event happens, FlickOS runs every
+hook of that folder, one after another in the order of their names, in any
+language. With no hooks nothing runs and nothing is added to login.
+
+Nothing here is a daemon. The program that sees an event (the lock screen's
+guard, swayidle, the panel's supervisor, the program that owns a setting)
+starts `flickos-hooks run EVENT` only when the event's folder has files in it. Hooks belong to you: there is no folder for packages and
+nothing is run as root, in the plain session, or at the login screen.
+Design: docs/design/flickos-hooks.md.
+
+What a hook can count on:
+- Its environment is the session's (WAYLAND_DISPLAY, the session bus, PATH),
+  plus FLICKOS_EVENT, the event's name, and the event's own values
+  (FLICKOS_NAME, listed by `events`), which are data: always quote them.
+- It runs with no input, in your home folder, in a process group of its own,
+  one hook after another, and is stopped after HOOK_SECONDS (SIGTERM, then
+  SIGKILL). To keep something running, start it with `setsid -f`.
+- Its output goes to $XDG_RUNTIME_DIR/flickos/hooks.log (`log`).
+- A hook that changes something FlickOS reports as an event doesn't fire it:
+  FLICKOS_HOOK is set, and events started under it are dropped. An event that
+  starts more than BURST_LIMIT times in a minute is dropped too.
+
+Commands:
+  events                 event, values, what it means (tab-separated)
+  list                   event, file, state: ready, not executable, ignored
+  test EVENT [NAME=VALUE ...]
+                         run the hooks of EVENT now, output on the terminal
+  log                    what ran this session and how it ended
+  run EVENT              internal: what the programs that see events start
+
+Exit codes: 0 ok, 1 error (for `test`: a hook failed), 2 usage error.
+"""
+
+import argparse
+import contextlib
+import fcntl
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+
+NAME = "flickos-hooks"
+
+# The events there are, and who fires them (docs/design/flickos-hooks.md,
+# section 4). Each has the names of the values it carries (as FLICKOS_NAME) and
+# a line for `events`. An event with nobody to fire it isn't listed. These names
+# are promised to scripts (ADR-008): add events, don't rename or remove them.
+EVENTS = {
+    "locked": ((), "the lock screen took over; not when swaylock had to"),
+    "unlocked": ((), "the lock screen was unlocked; not when swaylock was"),
+    "woke": ((), "the computer woke from sleep; the screen is usually still locked"),
+    "screens": ((), "a screen came or went, or was turned off or on, and they settled"),
+    "phone-connected": (("PHONE_ID", "PHONE_NAME"), "a paired phone can be reached"),
+    "phone-disconnected": (("PHONE_ID",), "a paired phone went away"),
+    "changed": (("OWNER", "KEY", "OLD", "NEW"), "a setting changed and was applied, as History shows it"),
+    "screenshot": (("FILE",), "a screenshot was saved to a file"),
+    "recording": (("FILE",), "a screen recording was saved to a file"),
+}
+
+HOOK_SECONDS = 30             # one hook may run this long, then SIGTERM
+KILL_SECONDS = 5              # SIGKILL this long after the SIGTERM
+LOCK_SECONDS = 60             # a second firing of an event waits this long for the first
+BURST_LIMIT = 20              # starts of one event in BURST_WINDOW seconds, then it is dropped
+BURST_WINDOW = 60
+LOG_BYTES = 256 * 1024        # then the log is started again
+HOOKS_FOLDER = os.path.join("flickos", "hooks")      # in $XDG_CONFIG_HOME
+LOG_FILE = "hooks.log"                               # in $XDG_RUNTIME_DIR/flickos/
+STATE_FOLDER = "hooks"                               # locks and counts, there too
+# Set in a hook's environment, and checked by every program that fires events
+# (their fire()), so a hook's own changes don't call the hooks again.
+HOOK_MARK = "FLICKOS_HOOK"
+PLAIN_MARK = "FLICKOS_PLAIN"                         # the plain session: no hooks
+# Not hooks: hidden files, backups and what dpkg leaves next to a changed file.
+IGNORED = re.compile(r"^\.|~$|\.bak$|\.dpkg-[a-z]+$")
+
+
+class HooksError(Exception):
+    """An expected failure, shown as one line."""
+
+
+class UsageError(HooksError):
+    """Something the command line got wrong: exit code 2."""
+
+
+def warn(text):
+    print(f"{NAME}: {text}", file=sys.stderr, flush=True)
+
+
+def config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+
+
+def hooks_folder(event=None):
+    folder = os.path.join(config_home(), HOOKS_FOLDER)
+    return folder if event is None else os.path.join(folder, event + ".d")
+
+
+def runtime_folder():
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base or not os.path.isabs(base):
+        raise HooksError("XDG_RUNTIME_DIR isn't set; are you logged in to the desktop?")
+    folder = os.path.join(base, "flickos")
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    return folder
+
+
+def find_hooks(event):
+    """[(file name, path, state)] of the event's folder, sorted by name; the
+    state is ready, not executable or ignored. A missing folder has none."""
+    folder = hooks_folder(event)
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return []
+    found = []
+    for name in names:
+        path = os.path.join(folder, name)
+        if IGNORED.search(name) or not os.path.isfile(path):
+            state = "ignored"
+        elif not os.access(path, os.X_OK):
+            state = "not executable"
+        else:
+            state = "ready"
+        found.append((name, path, state))
+    return found
+
+
+def hook_environment(event, values):
+    """What a hook gets: the session's environment, without FlickOS's own
+    variables (a lock started by swayidle carries FLICKOS_IDLE, a panel its
+    layout), then the event's values, FLICKOS_EVENT and HOOK_MARK. values is
+    {NAME: text}; names the event doesn't carry are left out."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("FLICKOS_")}
+    for name in EVENTS[event][0]:
+        if name in values:
+            env["FLICKOS_" + name] = str(values[name])
+    env["FLICKOS_EVENT"] = event
+    env[HOOK_MARK] = "1"
+    return env
+
+
+# --- The log ----------------------------------------------------------------------
+
+def open_log():
+    """The log, private and started again above LOG_BYTES, open for appending
+    (hooks write to it through the same descriptor)."""
+    path = os.path.join(runtime_folder(), LOG_FILE)
+    with contextlib.suppress(OSError):
+        if os.path.getsize(path) > LOG_BYTES:
+            os.unlink(path)
+    return open(os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a", buffering=1, encoding="utf-8")
+
+
+def log_line(stream, event, text):
+    stream.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {event} {text}\n")
+    stream.flush()
+
+
+# --- Running hooks --------------------------------------------------------------
+
+def run_hook(path, env, out, seconds=None):
+    """Run one hook to the end, or stop it after seconds. Returns (how it ended
+    as text, whether it succeeded)."""
+    seconds = HOOK_SECONDS if seconds is None else seconds
+    try:
+        process = subprocess.Popen([path], env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=out,
+                                   cwd=os.path.expanduser("~"), start_new_session=True)
+    except OSError as error:
+        return f"couldn't start ({error.strerror or error}); does it begin with #!/bin/sh or similar?", False
+    try:
+        status = process.wait(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        for sig, wait in ((signal.SIGTERM, KILL_SECONDS), (signal.SIGKILL, None)):
+            with contextlib.suppress(OSError):
+                os.killpg(process.pid, sig)
+            try:
+                process.wait(timeout=wait)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        return f"stopped after {seconds} s", False
+    if status < 0:
+        return f"killed by signal {-status}", False
+    return f"exit {status}", status == 0
+
+
+@contextlib.contextmanager
+def event_lock(event, seconds=None):
+    """Hold the event's lock, waiting up to seconds for the run that has it
+    (two firings of one event never overlap). Yields whether it was got."""
+    seconds = LOCK_SECONDS if seconds is None else seconds
+    folder = os.path.join(runtime_folder(), STATE_FOLDER)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    with open(os.path.join(folder, event + ".lock"), "a") as lock:
+        deadline = time.monotonic() + seconds
+        got = False
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                got = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.1)
+        try:
+            yield got
+        finally:
+            if got:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def too_often(event, now=None):
+    """Count this start of event; True, and say so once, when it is the
+    BURST_LIMIT+1st in BURST_WINDOW seconds. Called with the event's lock
+    held, so the count has one writer."""
+    now = time.time() if now is None else now
+    folder = os.path.join(runtime_folder(), STATE_FOLDER)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    path = os.path.join(folder, event + ".count")
+    starts, reported = [], 0.0
+    with contextlib.suppress(OSError, ValueError):
+        with open(path, encoding="utf-8") as f:
+            first, _, rest = f.read().partition("\n")
+            reported = float(first)
+            starts = [float(item) for item in rest.split()]
+    starts = [item for item in starts if now - item < BURST_WINDOW]
+    drop = len(starts) >= BURST_LIMIT
+    say = drop and reported < starts[0]
+    if not drop:
+        starts.append(now)
+    if say:
+        reported = now
+    with contextlib.suppress(OSError):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"{reported}\n" + " ".join(str(item) for item in starts) + "\n")
+    return drop, say
+
+
+def cmd_run(opts):
+    """What the programs that see an event start: its hooks, with the output in
+    the log. Silent about everything but the log, as its caller isn't
+    waiting for it."""
+    event = opts.event
+    if event not in EVENTS:
+        warn(f"no event called {event}; `{NAME} events` lists them")
+        return 2
+    if os.environ.get(PLAIN_MARK) or os.environ.get(HOOK_MARK):
+        return 0
+    hooks = find_hooks(event)
+    if not hooks:
+        return 0
+    values = {name: os.environ["FLICKOS_" + name] for name in EVENTS[event][0] if "FLICKOS_" + name in os.environ}
+    env = hook_environment(event, values)
+    with open_log() as out, event_lock(event) as got:
+        if not got:
+            log_line(out, event, f"dropped: the last {event} hooks were still running after {LOCK_SECONDS} s")
+            return 0
+        drop, say = too_often(event)
+        if drop:
+            if say:
+                log_line(out, event, f"dropped: more than {BURST_LIMIT} a minute; the rest of the minute is dropped")
+            return 0
+        for name, path, state in hooks:
+            if state == "not executable":
+                log_line(out, event, f"{name}: not run, not executable (chmod +x {path})")
+            elif state == "ready":
+                started = time.monotonic()
+                log_line(out, event, f"{name}: started")
+                how, _ok = run_hook(path, env, out)
+                log_line(out, event, f"{name}: {how} in {time.monotonic() - started:.1f} s")
+    return 0
+
+
+# --- Looking at hooks -----------------------------------------------------------
+
+def cmd_events(opts):
+    for event, (values, meaning) in EVENTS.items():
+        print(f"{event}\t{','.join('FLICKOS_' + v for v in values) or '-'}\t{meaning}")
+    return 0
+
+
+def cmd_list(opts):
+    """Every file of every event's folder. A folder named like no event is
+    listed too: it is the likeliest typo."""
+    shown = 0
+    for event in EVENTS:
+        for name, _path, state in find_hooks(event):
+            print(f"{event}\t{name}\t{state}")
+            shown += 1
+    try:
+        folders = sorted(os.listdir(hooks_folder()))
+    except OSError:
+        folders = []
+    for folder in folders:
+        if folder.endswith(".d") and folder[:-2] not in EVENTS and os.path.isdir(os.path.join(hooks_folder(), folder)):
+            print(f"{folder[:-2]}\t-\tno such event")
+            shown += 1
+    if not shown:
+        warn(f"no hooks in {hooks_folder()}")
+    return 0
+
+
+def parse_values(event, pairs):
+    values = {}
+    for pair in pairs:
+        name, equals, value = pair.partition("=")
+        if not equals or name not in EVENTS[event][0]:
+            raise UsageError(f"{event} has no value called {name or pair}; it has: "
+                             f"{', '.join(EVENTS[event][0]) or 'none'}")
+        values[name] = value
+    return values
+
+
+def cmd_test(opts):
+    """Run the event's hooks now, with their output on the terminal. The
+    environment is the one `run` gives, but nothing is limited or logged."""
+    event = opts.event
+    if event not in EVENTS:
+        raise UsageError(f"no event called {event}; `{NAME} events` lists them")
+    env = hook_environment(event, parse_values(event, opts.values))
+    hooks = [hook for hook in find_hooks(event) if hook[2] != "ignored"]
+    if not hooks:
+        warn(f"no hooks for {event} in {hooks_folder(event)}")
+        return 0
+    failed = 0
+    for name, path, state in hooks:
+        if state == "not executable":
+            warn(f"{name}: not run, not executable (chmod +x {path})")
+            failed += 1
+            continue
+        warn(f"running {name}")
+        how, ok = run_hook(path, env, None)
+        warn(f"{name}: {how}")
+        failed += not ok
+    return 1 if failed else 0
+
+
+def cmd_log(opts):
+    try:
+        with open(os.path.join(runtime_folder(), LOG_FILE), encoding="utf-8", errors="replace") as f:
+            sys.stdout.write(f.read())
+    except FileNotFoundError:
+        warn("no hooks have run in this session")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="Run your own programs when something happens "
+                                     "on the FlickOS desktop.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
+    commands.add_parser("events", help="print the events, their values and what they mean").set_defaults(func=cmd_events)
+    commands.add_parser("list", help="print the hooks and whether they will run").set_defaults(func=cmd_list)
+    test = commands.add_parser("test", help="run the hooks of an event now, output on the terminal")
+    test.add_argument("event")
+    test.add_argument("values", nargs="*", metavar="NAME=VALUE", help="a value the event carries")
+    test.set_defaults(func=cmd_test)
+    commands.add_parser("log", help="print what ran this session and how it ended").set_defaults(func=cmd_log)
+    run = commands.add_parser("run", help="internal: run the hooks of an event (what the programs start)")
+    run.add_argument("event")
+    run.set_defaults(func=cmd_run)
+    opts = parser.parse_args(argv)
+    try:
+        return opts.func(opts)
+    except HooksError as error:
+        warn(str(error))
+        return 2 if isinstance(error, UsageError) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+export PYTHONDONTWRITEBYTECODE = 1
+
+%:
+	dh $@
+
+# build.sh compiles the Sass into build/usr/share/themes.
+override_dh_auto_build:
+	sh build.sh
+
+# Skipped with DEB_BUILD_OPTIONS=nocheck.
+override_dh_auto_test:
+	python3 -m unittest discover -s tests -v
+
+override_dh_auto_clean:
+	rm -rf build
+
+# Installed by debian/install; the gresource must not be executable.
+override_dh_fixperms:
+	dh_fixperms
+	find debian/flickos-theme -name '*.gresource' -exec chmod 644 {} +

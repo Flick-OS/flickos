@@ -146,6 +146,9 @@ These have each broken a FlickOS program before:
 | The first show of a new layer-shell window costs 50–100 ms | Build it hidden, `realize()` and `get_preferred_size()` ahead ([PERF-10](08-performance.md#perf-10-should-do-slow-work-before-it-is-needed-off-the-critical-path)) |
 | `GtkFlowBox` filtering hides children with `set_child_visible(False)` | Check `get_child_visible()` when looking for the first shown child |
 | An active `Gtk.Spinner` on a `GtkStack` page that isn't shown keeps animating: 60 redraws a second, measured as about 3,500 wakeups a minute (Software, 2026-10) | Start a spinner on `map` and stop it on `unmap` (`Ui.loading()`, Software's `spinner()`); a hidden spinner doesn't animate |
+| GDK sends a Wayland request only when its main loop next runs: `lock_lock()` before building windows reached labwc 250 ms late | `Gdk.Display.get_default().flush()` right after a request that must go now ([flickos-lock](../design/flickos-lock.md), ADR-003) |
+| gtk-session-lock 0.2 destroys a lock window's `wl_surface` before its role, and labwc drops the connection (protocol error) | `GtkSessionLock.unmap_lock_window()` first, destroy in an idle after (ADR-008) |
+| A lock window that gets the keyboard back after its screen returned may have nothing focused in it: typed keys go nowhere | Focus the box on `focus-in-event` and on any key that arrives without it (`grab_focus_without_selecting`, which also keeps the text from being selected) |
 
 Add a row when you find a new one.
 

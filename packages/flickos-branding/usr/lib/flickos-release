@@ -4,7 +4,12 @@
 # - auto/config uses it for the ISO volume name.
 # - tools/build-iso.sh uses it for the ISO file name (FlickOS-64bit-vVERSION.iso)
 #   and checks that the installer branding (branding.desc) matches.
+# - FLICKOS_DEBIAN is the Debian release (codename) FlickOS is built on, and
+#   the name of its apt suites (FLICKOS_DEBIAN, -community, -testing):
+#   auto/config's --distribution and the repo/ and tools/ scripts read it.
+#   Moving to a new Debian release: docs/06-ci-and-releases.md.
 # Bump FLICKOS_VERSION for each FlickOS release.
 # History: 1.0-1.1 were based on Ubuntu 20.04/LXLE; 2.0 is based on Debian 13.
 FLICKOS_NAME="FlickOS"
-FLICKOS_VERSION="2.2"
+FLICKOS_VERSION="2.3"
+FLICKOS_DEBIAN="trixie"

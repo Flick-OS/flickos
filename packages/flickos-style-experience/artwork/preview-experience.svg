@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="150" viewBox="0 0 1920 1200">
+  <!-- The experience layout's preview (tools/make-experience.py). -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1650c4"/>
+      <stop offset="0.45" stop-color="#3d82e0"/>
+      <stop offset="0.8" stop-color="#8fbdee"/>
+      <stop offset="1" stop-color="#cfe3f7"/>
+    </linearGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8cc45a"/>
+      <stop offset="1" stop-color="#5c9e34"/>
+    </linearGradient>
+    <linearGradient id="hill" x1="0.2" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#7ccb3e"/>
+      <stop offset="0.35" stop-color="#58ad2b"/>
+      <stop offset="1" stop-color="#2e7a1a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.32" cy="0.1" r="0.55">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cloud" filterUnits="userSpaceOnUse" x="-400" y="-300" width="2700" height="1300">
+      <feTurbulence type="fractalNoise" baseFrequency="0.008 0.014" numOctaves="4" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="120" xChannelSelector="R" yChannelSelector="G" result="moved"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="3" seed="2"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 2.2 -0.6" result="holes"/>
+      <feComposite in="moved" in2="holes" operator="in"/>
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <filter id="grass" filterUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1200">
+      <feTurbulence type="fractalNoise" baseFrequency="0.5 0.07" numOctaves="2" seed="4"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.12  0 0 0 0 0.35  0 0 0 0 0.05  0 0 0 1.6 -0.75"/>
+    </filter>
+    <path id="hillshape" d="M-60 1300V760C260 650 640 560 1020 600S1640 760 1980 720V1300Z"/>
+    <clipPath id="hillclip"><use href="#hillshape"/></clipPath>
+    <linearGradient id="tail" x1="1235" y1="625" x2="1600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1200" fill="url(#sky)"/>
+  <g fill="#ffffff" opacity="0.88" filter="url(#cloud)">
+    <ellipse cx="380" cy="210" rx="260" ry="70"/>
+    <ellipse cx="560" cy="170" rx="170" ry="60"/>
+    <ellipse cx="1080" cy="330" rx="330" ry="80"/>
+    <ellipse cx="300" cy="470" rx="240" ry="55"/>
+    <ellipse cx="1650" cy="560" rx="300" ry="60"/>
+    <ellipse cx="900" cy="520" rx="200" ry="45"/>
+  </g>
+  <path d="M-60 1200V700C300 640 700 650 1100 690S1700 640 1980 600V1200Z" fill="url(#far)"/>
+  <use href="#hillshape" fill="url(#hill)"/>
+  <g clip-path="url(#hillclip)">
+    <rect width="1920" height="1200" filter="url(#grass)" opacity="0.5"/>
+    <rect width="1920" height="1200" fill="url(#sun)"/>
+  </g>
+  <path d="M1235 625L1625.5 285.5L1574.5 234.5Z" fill="url(#tail)"/>
+  <path d="M1618.7 474.6A330 330 0 1 1 1385.4 241.3" fill="none" stroke="#ffb13d" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="1600" cy="260" r="40" fill="#ffb13d"/>
+  <path d="M260 262V194A24 24 0 0 1 284 170H1336A24 24 0 0 1 1360 194V262Z" fill="#0b56d6"/>
+  <rect x="300" y="202" width="300" height="30" rx="6" fill="#ffffff"/>
+  <rect x="1140" y="186" width="60" height="60" rx="10" fill="#3c74e8" stroke="#ffffff" stroke-width="4"/><rect x="1210" y="186" width="60" height="60" rx="10" fill="#3c74e8" stroke="#ffffff" stroke-width="4"/><rect x="1280" y="186" width="60" height="60" rx="10" fill="#e2603a" stroke="#ffffff" stroke-width="4"/>
+  <rect x="260" y="262" width="1100" height="640" fill="#cecece" stroke="#0b56d6" stroke-width="12"/>
+  <rect x="320" y="320" width="980" height="520" fill="#fcfcfc"/>
+  <rect y="1104" width="1920" height="96" fill="#2157d0"/>
+  <rect y="1104" width="1920" height="8" fill="#ffffff" fill-opacity="0.3"/>
+  <path d="M0 1104H230A48 48 0 0 1 278 1152A48 48 0 0 1 230 1200H0Z" fill="#3a993a"/>
+  <circle cx="64" cy="1152" r="20" fill="none" stroke="#ffb13d" stroke-width="7"/>
+  <rect x="104" y="1138" width="110" height="28" rx="6" fill="#ffffff"/>
+  <rect x="330" y="1118" width="128" height="68" rx="10" fill="#1d4cb4"/><rect x="470" y="1118" width="128" height="68" rx="10" fill="#3d72e0"/><rect x="610" y="1118" width="128" height="68" rx="10" fill="#3d72e0"/>
+  <rect x="1500" y="1104" width="420" height="96" fill="#1576cf"/>
+  <rect x="1500" y="1104" width="4" height="96" fill="#0c2f7a"/>
+  <circle cx="1560" cy="1152" r="14" fill="#ffffff"/><circle cx="1616" cy="1152" r="14" fill="#ffffff"/><circle cx="1672" cy="1152" r="14" fill="#ffffff"/>
+  <rect x="1740" y="1138" width="130" height="28" rx="6" fill="#ffffff"/>
+</svg>

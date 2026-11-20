@@ -1,0 +1,36 @@
+flickos-fleet (1.1) trixie; urgency=medium
+
+  * Release of 1.1~test1: the check-in timer starts again after an
+    upgrade.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:56:08 +0800
+
+flickos-fleet (1.1~test1) trixie; urgency=medium
+
+  * A joined computer's check-in timer starts again after an upgrade: --
+    no-start stopped it at every upgrade until the next boot. Installing
+    still starts and enables nothing.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 12:50:03 +0800
+
+flickos-fleet (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 11:26:39 +0800
+
+flickos-fleet (1.0~test1) trixie; urgency=medium
+
+  * First version (docs/design/flickos-fleet.md phase 2, step 2): check
+    FILE [--dry-run] applies a policy file: site defaults checked by
+    their owners, system settings through flickos-control, countme, and
+    apply-defaults in each desktop session.
+  * join, run, status and leave (step 3): the service's requests (ADR-
+    010), the token in /etc/flickos/fleet (root only), the daily
+    inventory, packages.install and packages.remove, flickos-fleet.timer
+    (enabled by join, not by the package), PRIVACY.md.
+  * lookup CODE (no root): the organization a join code is for, which
+    Settings shows before asking for the password; polkit actions for
+    join and leave.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 10:59:18 +0800

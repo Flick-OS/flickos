@@ -7,6 +7,9 @@
 
 window#sfwbar {
     background-color: alpha(@wm_bg, 0.9);
+    /* A line on the edge facing the windows, so the dock doesn't run into a
+     * dark window next to it. */
+    border-right: 1px solid alpha(@fg_color, 0.18);
     font-family: Cantarell, sans-serif;
 }
 
@@ -27,19 +30,39 @@ button#showapps {
     transition: background-color 150ms ease-in-out;
 }
 
-/* Show Apps at the bottom: sfwbar gives the bar's start and end parts half
- * the dock each, so the button grows into its half and sits at its end. */
+/* Show Apps at the bottom. sfwbar gives the bar's start and end parts half
+ * the dock each, and wraps every widget in an event box that takes the
+ * clicks. A vexpand on the button stretches that box over the whole half
+ * (a click anywhere above the icon opened the menu), so the button doesn't
+ * expand: the end part's box is put at the bottom and in the middle instead.
+ * The start part gets its own alignment back: without it the apps column
+ * follows the end part's. Structural selectors, as sfwbar names neither. */
+window#sfwbar > * > * > * > *:last-child > * {
+    -GtkWidget-valign: end;
+    -GtkWidget-halign: center;
+}
+
+window#sfwbar > * > * > * > *:first-child > * {
+    -GtkWidget-valign: start;
+    -GtkWidget-halign: fill;
+}
+
 button#showapps {
     margin-bottom: 8px;
     color: @fg_color;
-    -GtkWidget-vexpand: true;
-    -GtkWidget-valign: end;
 }
 
 button#taskbar_popup image,
 button#showapps image {
     min-width: 40px;
     min-height: 40px;
+}
+
+/* sfwbar puts an app's icon in a grid the button's width and leaves it at the
+ * left: centred, the icon sits over the dot of an open app. */
+button#taskbar_popup image {
+    -GtkWidget-hexpand: true;
+    -GtkWidget-halign: center;
 }
 
 button#showapps image {

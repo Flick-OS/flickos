@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Windows Program
+Comment=What to do with a Windows program: its FlickOS version, the web, or Wine
+Exec=flickos-switch open %f
+Icon=application-x-executable
+Terminal=false
+NoDisplay=true
+MimeType=application/x-msdownload;application/vnd.microsoft.portable-executable;application/x-ms-dos-executable;application/x-msi;application/msix;application/msixbundle;application/x-ms-shortcut;
+StartupNotify=false

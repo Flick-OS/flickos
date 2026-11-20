@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS kit is an AppStream add-on of the Tool Kits window
+     (docs/design/flickos-dev.md, ADR-001 and ADR-002): Software lists add-ons
+     that extend flickos-kits.desktop, and FlickOS::kit names the kit. The
+     category is a custom value because appstreamcli ignores an X-FlickOS-*
+     category. This kit's is "classroom" (Q15): Software shows it under
+     Education. Its ID keeps the kit's first name, Classroom (Q16). -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.kits.classroom</id>
+  <extends>flickos-kits.desktop</extends>
+  <name>Young Learners</name>
+  <summary>Learning apps for children, at school and at home</summary>
+  <description>
+    <p>
+      Apps for learning from Debian, for a classroom or a home: GCompris
+      with activities for ages 2 to 10, Kalzium for the periodic table,
+      KGeography for maps and flags, KTurtle for first steps in programming
+      and KMPlot for graphs of functions.
+    </p>
+    <p>
+      Nothing here runs until it is opened.
+    </p>
+  </description>
+  <icon type="stock">applications-education</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::kit">classroom</value>
+    <value key="FlickOS::kit-category">classroom</value>
+  </custom>
+</component>

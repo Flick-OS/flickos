@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS style is an AppStream add-on of the layout chooser
+     (docs/design/flickos-ricing.md, ADR-006, ADR-013, ADR-014 and ADR-018):
+     Software lists add-ons that extend flickos-layout.desktop under Styles,
+     FlickOS::style names the style's folder in /usr/share/flickos/styles,
+     and FlickOS::layout the layout Use sets with it. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.styles.Experience</id>
+  <extends>flickos-layout.desktop</extends>
+  <name>Experience</name>
+  <summary>Blue title bars, a blue panel with a green Start button</summary>
+  <description>
+    <p>
+      A bright style for the FlickOS desktop in the colors of the early 2000s:
+      deep blue title bars with glossy rounded buttons and a red close button,
+      light grey windows with colorful icons, a black console, pale yellow
+      notifications, and a green hill under a blue sky.
+    </p>
+    <p>
+      It comes with a layout of the same name: one blue panel at the bottom
+      with a green Start button, the window list, and a lighter blue
+      notification area with the clock. Use sets both; you can still pick
+      another layout in Settings.
+    </p>
+  </description>
+  <screenshots>
+    <!-- Taken by tools/make-style-shots.sh, published by repo/upload.sh from
+         repo/screenshots/. -->
+    <screenshot type="default">
+      <caption>Files and a terminal in the Experience style and layout</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/experience/1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The start menu</caption>
+      <image type="source" width="1366" height="768">https://dvbondoy.github.io/flickos-apt/screenshots/experience/2.png</image>
+    </screenshot>
+  </screenshots>
+  <icon type="stock">preferences-desktop-theme</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::style">experience</value>
+    <value key="FlickOS::layout">experience</value>
+  </custom>
+</component>

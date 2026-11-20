@@ -1,3 +1,58 @@
+flickos-style-footprint (1.9) trixie; urgency=medium
+
+  * Dock: right-click an app for Pin to Dock or Unpin from Dock (saved
+    as Settings' Pinned Apps, so the two stay in step). Needs sfwbar
+    +flickos9 (WindowInfo pinned/appid, a right click on any app) and
+    flickos-layouts 1.86 (pinned takes an app id).
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 07:42:42 +0800
+
+flickos-style-footprint (1.8) trixie; urgency=medium
+
+  * Dock: Show Apps is on every screen. sfwbar copies a bar to the other
+    screens when it reads its mirror line, so the Show Apps section,
+    declared after it, never reached a second monitor; it now comes
+    first (a test keeps it there).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 14:46:05 +0800
+
+flickos-style-footprint (1.7) trixie; urgency=medium
+
+  * Dock: Show Apps's click area is only the button (a click anywhere
+    above it in the bottom half of the dock opened the menu), and app
+    icons are centred over their dot. A 1 px line under the top bar and
+    along the dock's right edge, so they don't run into a dark window.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 16 Nov 2026 10:32:22 +0800
+
+flickos-style-footprint (1.6) trixie; urgency=medium
+
+  * Screenshots for Software: the style and layout with two windows, and
+    the start menu.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 21:14:13 +0800
+
+flickos-style-footprint (1.5) trixie; urgency=medium
+
+  * Release of 1.5~test2: window shadows.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:38 +0800
+
+flickos-style-footprint (1.5~test2) trixie; urgency=medium
+
+  * Window shadows: the keys every window theme has must match, so this
+    style sets them too.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:19:39 +0800
+
+flickos-style-footprint (1.4) trixie; urgency=medium
+
+  * Homepage is github.com/Flick-OS/flickos.
+  * Homepage is flickos.org, and debian/copyright's Source the public
+    repository.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 12:47:25 +0800
+
 flickos-style-footprint (1.3) trixie; urgency=medium
 
   * The top bar has no apps button: the dock's Show Apps is the

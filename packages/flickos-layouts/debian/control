@@ -17,6 +17,8 @@ Architecture: all
 # launch (dock clicks).
 # python3-gi, gir1.2-gtk-3.0: the chooser window (flickos-layout pick), GTK 3 so
 # it follows the Arc theme.
+# libxkbcommon0: the keyboard layout's keymap, to move keys it lacks
+# (docs/design/flickos-keys.md); loaded only for a keyboard other than US.
 # sfwbar: the Cupertino dock and Traditional's window list (Dock=). +flickos3
 # has the .running class dock.css uses and sensor_maximized; +flickos4 marks
 # the current desktop in Traditional's desktop switcher.
@@ -25,7 +27,9 @@ Depends: flickos-branding (>= 1.4),
          python3-gi,
          gir1.2-gtk-3.0,
          libglib2.0-bin,
+         libxkbcommon0,
          flickos-settings (>= 1.17),
+         flickos-theme (>= 1.0~test1),
          sfwbar (>= 1.0~beta17+git20260910+flickos4),
          ${misc:Depends}
 # flick-tiler 1.1 tells waybar when the tiling state changes (SIGRTMIN+8);
@@ -33,11 +37,13 @@ Depends: flickos-branding (>= 1.4),
 # Quick Settings (`flickos-menu quick`), which the volume and battery icons
 # and Super+A open while it is on. 1.10 has the phone popup (`flickos-menu
 # phone`), which the phone button opens while the phone connection is on.
+# 1.32 has the prompt style (MenuStyle=prompt); an older menu shows classic.
 # flickos-shortcuts 1.16 reads the merged files while the labwc-merge marker
-# exists (an older sheet would show only the user's keys).
+# exists (an older sheet would show only the user's keys); 1.17 names keys
+# moved for the keyboard as it labels them (Å, not aring).
 Breaks: flick-tiler (<< 1.7),
-        flickos-menu (<< 1.10),
-        flickos-shortcuts (<< 1.16)
+        flickos-menu (<< 1.34~),
+        flickos-shortcuts (<< 1.17)
 # waypaper: the chooser's Wallpaper button (shown only when it is installed).
 Recommends: waypaper
 Description: FlickOS desktop layouts and styles, and the flickos-layout tool

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A FlickOS kit is an AppStream add-on of the Tool Kits window
+     (docs/design/flickos-dev.md, ADR-001 and ADR-002): Software lists add-ons
+     that extend flickos-kits.desktop, and FlickOS::kit names the kit. The
+     category is a custom value because appstreamcli ignores an X-FlickOS-*
+     category. This kit's is "classroom", like Young Learners (Q15, Q16):
+     Software shows it under Education. -->
+<component type="addon">
+  <id>io.github.dvbondoy.flickos.kits.study</id>
+  <extends>flickos-kits.desktop</extends>
+  <name>Study</name>
+  <summary>Notes, flashcards and graphs for students</summary>
+  <description>
+    <p>
+      Apps for studying from Debian, for secondary school and university:
+      Xournal++ for handwritten notes and for writing on PDFs, LabPlot for
+      graphs and data, KWordQuiz for flashcards, and Artha, an English
+      dictionary and thesaurus that works offline.
+    </p>
+    <p>
+      Nothing here runs until it is opened.
+    </p>
+  </description>
+  <icon type="stock">applications-science</icon>
+  <url type="homepage">https://flickos.org/</url>
+  <developer id="io.github.dvbondoy">
+    <name>FlickOS</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <custom>
+    <value key="FlickOS::kit">study</value>
+    <value key="FlickOS::kit-category">classroom</value>
+  </custom>
+</component>

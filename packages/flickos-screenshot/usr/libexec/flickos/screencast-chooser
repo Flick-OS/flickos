@@ -1,13 +1,17 @@
 #!/bin/sh
 # FlickOS's screen chooser for xdg-desktop-portal-wlr (chooser_type=dmenu, in
-# /etc/xdg/xdg-desktop-portal-wlr/labwc): the screens' names come on stdin,
-# and the one to share goes to stdout; nothing declines.
+# /etc/xdg/xdg-desktop-portal-wlr/labwc): what may be shared comes on stdin,
+# one line each, and the chosen line goes to stdout; nothing declines. Before
+# portal-wlr 0.8 a line is a screen's name; since 0.8 it is
+# "Monitor: NAME DESCRIPTION" or "Window: TITLE (ID)", and only the whole
+# line is accepted back.
 #
 # flickos-screenshot writes the screen it records to REQUEST right before it
 # asks the portal. That answer is used only if it is at most MAX_AGE seconds
 # old and names one of the screens, and the file is deleted either way. Every
 # other request (a browser sharing the screen) is asked, as portal-wlr's own
-# default does: slurp (click a screen), else fuzzel, else the only screen.
+# default does: slurp (click a screen; not while windows are offered too),
+# else fuzzel, else the only line.
 # Design: docs/design/flickos-screenshot.md, ADR-006.
 set -u
 
@@ -16,19 +20,35 @@ MAX_AGE=2
 
 outputs=$(cat)
 
+# The line portal-wlr gave for the screen named $1, if any.
+screen_line() {
+    printf '%s\n' "$outputs" | while IFS= read -r line; do
+        case "$line" in
+            "$1"|"Monitor: $1"|"Monitor: $1 "*)
+                printf '%s\n' "$line"
+                break
+                ;;
+        esac
+    done
+}
+
 if [ -f "$REQUEST" ]; then
     name=$(head -n 1 "$REQUEST")
     age=$(( $(date +%s) - $(stat -c %Y "$REQUEST") ))
     rm -f "$REQUEST"
-    if [ "$age" -le "$MAX_AGE" ] && [ -n "$name" ] &&
-            printf '%s\n' "$outputs" | grep -qxF -- "$name"; then
-        printf '%s\n' "$name"
-        exit 0
+    if [ "$age" -le "$MAX_AGE" ] && [ -n "$name" ]; then
+        line=$(screen_line "$name")
+        if [ -n "$line" ]; then
+            printf '%s\n' "$line"
+            exit 0
+        fi
     fi
 fi
 
-if command -v slurp >/dev/null 2>&1; then
-    exec slurp -f %o -or
+if command -v slurp >/dev/null 2>&1 && ! printf '%s\n' "$outputs" | grep -q '^Window: '; then
+    # slurp prints the bare name: give portal-wlr its own line for it.
+    name=$(slurp -f %o -or) && screen_line "$name"
+    exit 0
 fi
 if command -v fuzzel >/dev/null 2>&1; then
     printf '%s\n' "$outputs" | exec fuzzel --dmenu --prompt "Share which screen? "

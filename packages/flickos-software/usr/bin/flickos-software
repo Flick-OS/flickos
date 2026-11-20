@@ -8,7 +8,12 @@ through libappstream and its system cache): Debian's, and FlickOS's
 repository's two distributions, told apart by the catalog's origin
 (APT_ORIGINS): FlickOS's own apps, and the community apps other developers
 publish there, which FlickOS builds from their public source and reviews
-(design ADR-004). Flathub's come from the appstream.xml that flatpak keeps
+(design ADR-004). FlickOS's paid apps come from its store's catalog
+(phase 3b): fetched with featured.json from the store's Worker, which
+serves it without a key, until a key brings the same catalog through apt.
+A store app shows only while featured.json gives it a price; its last free
+version, still in FlickOS's repository, is the same app, offered only while
+installed (Q12). Flathub's come from the appstream.xml that flatpak keeps
 for the remote (read with the standard library). An app that is in more
 than one shows once, and an apt source is the default: it shares libraries
 with the system, takes less disk and memory, and the automatic updates
@@ -19,6 +24,18 @@ The front page's shelves (Made for FlickOS, Apps to start with) are
 featured.json: the package's copy (FEATURED_FILE), replaced by the newest
 one from FEATURED_URL, fetched at most every FEATURED_HOURS and kept in
 the cache folder. That request carries nothing about its user (ADR-009).
+The same file can give an app a price (`"paid": {ID: {"price", "buy",
+"product"}}`, phase 3a): its rows say Paid · price, and its page offers
+Buy…, which opens the `buy` address in the browser. An app with `product`
+(FlickOS's own, sold through its store) offers Buy… in place of Install
+until it is bought; one without it (another developer's) is a free
+download whose key the developer sells, so its page has both. What this
+computer's key bought is PURCHASES_FILE, which flickos-control's helper
+writes (phase 3c): a bought app installs from the store. For the store's
+app, Buy… puts a one-time claim code in the checkout's address and runs
+`flickos-control purchases claim`, which waits for the payment and adds
+the key itself (ADR-011); Add Key… adds a key bought elsewhere. Neither
+key nor code is kept here.
 
 The window never reads the catalogs itself (libappstream needs seconds and
 hundreds of MB for that): `index` turns them into two files in
@@ -41,8 +58,8 @@ apps go through libflatpak into the system installation, which needs no
 password for an administrator (flatpak's own polkit rule). Before either,
 `plan` simulates the change without a password: what comes with an app
 (Flathub's runtimes, with their sizes) or what goes with it. Nothing that
-FlickOS's desktop needs is ever removed (PROTECTED_PREFIXES and
-flickos-desktop's Depends): `remove` and `install` refuse such a change
+FlickOS's desktop needs is ever removed (PROTECTED_PREFIXES but FlickOS's
+apps, and flickos-desktop's Depends): `remove` and `install` refuse such a change
 themselves, not only the window.
 
 Styles for the desktop are apps here too (docs/design/flickos-ricing.md,
@@ -51,13 +68,44 @@ flickos-layout.desktop (STYLE_EXTENDS) and names its style folder
 (STYLE_KEY) shows under Styles only; installed, its page offers Try (until
 logout) and Use instead of Open, through flickos-layout. FlickOS's own
 style packages (STYLE_PREFIX) can be removed, unlike FlickOS's others.
+Kits (docs/design/flickos-dev.md, ADR-001/002) are apps the same way: a
+package flickos-kit-NAME whose metainfo is an add-on extending
+flickos-kits.desktop (KIT_EXTENDS) shows under Developer Tools (the classroom
+kit, Q15, under Education; the security kits, flickos-security.md ADR-S01,
+under Security Tools, which has no shelf and says PERMISSION, ADR-S05) only, with no Open (an installed one has Set Up…, which opens the Tool Kits window on it);
+installing it brings what a kind of work needs, removing a member
+removes the kit and the plan says so. They can be removed (KIT_PREFIX).
 Flatpak apps update with the automatic updates (ADR-008):
 flickos-software-update.timer runs /usr/libexec/flickos/software-update once
 a day, which follows apt's own settings (Update-Package-Lists for Flathub's
 catalog, Unattended-Upgrade for the apps), so flickos-control's Updates page
 turns both on and off. It does nothing in the live session.
 
-This program owns no settings. It sends nothing about its user (ADR-009):
+A search that names a Windows program ("photoshop", "ms word") shows
+what to use instead above the results: the window runs `flickos-switch
+lookup --json` (SWITCH), which owns the Windows apps list, and
+windows_answer picks one answer from it (docs/design/flickos-switch.md,
+phase 2c). Nothing shows when flickos-switch is missing or slow.
+
+Web apps are apps here too (the same design, phase 3b): Firefox's own web
+apps (Taskbar Tabs) and the Windows apps list's web versions, from
+`flickos-switch webapp list --json --known`, which the window runs at its
+start and each time it becomes active (the user may have made or removed
+one in Firefox). web_rows turns them into rows (source WEB, not in SOURCES:
+the index and the commands here never have them) that Catalog.set_web puts
+after the index's apps. Only Firefox's address bar button makes or
+removes a web app well, so Install and Remove run `flickos-switch webapp
+add` and `remove`, which open the page in Firefox and say which button to
+press. Nothing about web apps shows while firefox-esr is missing.
+
+The one setting Software owns (ADR-007) is whether apps with a price
+show: `paid`, Paid= in [Software] of /etc/xdg/flickos/software.conf, then
+the user's ~/.config/flickos/software. Off hides them from the search, the
+categories and the shelves until one is installed. A change is recorded in
+the shared History (docs/design/flickos-history.md), which flickos-control
+shows and undoes with `paid set`.
+
+It sends nothing about its user (ADR-009):
 icons and screenshots are fetched from the addresses in the catalogs and
 kept in ~/.cache/flickos/software/images/ for IMAGE_DAYS.
 
@@ -70,30 +118,45 @@ Commands:
                     or the front page's shelves: shelf, app id, name
   info ID           print an app's page: field, value
   index [--force]   rebuild the index when a catalog changed (or always)
-  refresh [--force] fetch catalogs and featured.json when missing or old (or
-                    all), then index
+  refresh [--force] fetch catalogs, featured.json and the store's catalog when
+                    missing or old (or all), then index
   plan [--json] [--source SOURCE] [--remove] ID
                     what installing (removing) the app would bring (take)
   install [--json] [--source SOURCE] ID
   remove [--json] [--source SOURCE] ID
                     install or remove an app; --json prints one JSON object
                     per line ({"event": "progress"|"done"|"error"|"cancelled"})
-                    and SIGTERM cancels. SOURCE: debian, flickos, community
-                    or flathub (SOURCES)
+                    and SIGTERM cancels. SOURCE: debian, store, flickos,
+                    community or flathub (SOURCES); installing from the store
+                    is refused until it is bought
+  open FILE...      show .deb, .flatpak, .flatpakref and .flatpakrepo files in
+                    the window (what a double-click runs; ADR-012)
+  plan --file FILE [--file FILE...] [--json]
+  install --file FILE [--file FILE...] [--json]
+  info --file FILE  the same for files: what they are and need, and the
+                    install (events also {"event": "item", "path", "status":
+                    "done"|"error", "message"}; "done" has "failed")
+  paid current      print whether apps with a price show: on or off
+  paid set on|off|default
+                    show them or not; default puts the system's back
 
 Exit codes: 0 ok, 1 error (or cancelled), 2 usage error.
 """
 
 import argparse
+import configparser
 import contextlib
+import datetime
 import fcntl
 import gzip
 import hashlib
+import io
 import json
 import locale
 import os
 import re
 import shutil
+import secrets
 import signal
 import subprocess
 import sys
@@ -114,14 +177,21 @@ PREFIX = os.environ.get("FLICKOS_SOFTWARE_PREFIX", "")
 
 # --- Sources -------------------------------------------------------------------------
 
-# In the order a page prefers them (ADR-002: the apt sources first).
-SOURCES = ("debian", "flickos", "community", "flathub")
-SOURCE_NAMES = {"debian": "Debian", "flickos": "FlickOS", "community": "FlickOS Community",
-                "flathub": "Flathub"}
-APT_SOURCES = ("debian", "flickos", "community")    # installed through PackageKit
+# In the order a page prefers them (ADR-002: the apt sources first). The
+# store (phase 3b) comes before FlickOS's free repository: an app sold there
+# whose last free version is still in the free one (Notes; the selling
+# design's ADR-008) is named and described by the store.
+STORE = "store"
+SOURCES = ("debian", STORE, "flickos", "community", "flathub")
+WEB = "web"                         # web apps' source (phase 3b): not in SOURCES, never in the index
+SOURCE_NAMES = {"debian": "Debian", STORE: "FlickOS Store", "flickos": "FlickOS", "community": "FlickOS Community",
+                "flathub": "Flathub", WEB: "Firefox (web app)"}
+APT_SOURCES = ("debian", STORE, "flickos", "community")     # installed through PackageKit
 # A catalog's origin (DEP-11's Origin; FlickOS's repo/conf/dep11.py writes
 # flickos-DISTRIBUTION-COMPONENT) -> source; any other origin is Debian's.
-APT_ORIGINS = ((re.compile(r"^flickos-[a-z]+-community-"), "community"), (re.compile(r"^flickos-"), "flickos"))
+STORE_ORIGIN = re.compile(r"^flickos-[a-z]+-store-")
+APT_ORIGINS = ((STORE_ORIGIN, STORE), (re.compile(r"^flickos-[a-z]+-community-"), "community"),
+               (re.compile(r"^flickos-"), "flickos"))
 # Said on a page from that source.
 SOURCE_NOTES = {
     # Honest about what the review doesn't change: no sandbox (design ADR-004).
@@ -145,9 +215,29 @@ REFRESH_DAYS = 7
 # Never removed, by remove or by an install that would remove packages: the
 # desktop itself (also everything flickos-desktop Depends on, read from dpkg).
 PROTECTED_PREFIXES = ("flickos-", "flick-")
-# ... except FlickOS's style packages: a style is the user's choice to keep.
+# ... except FlickOS's style packages and its apps (a package of an app in
+# the catalog, such as Notes): the user chose them, so they may go again.
 STYLE_PREFIX = "flickos-style-"
 DESKTOP_PACKAGE = "flickos-desktop"
+# Apps whose package is little use without packages of another architecture
+# (flickos-switch ADR-004): Debian's Wine runs no 32-bit Windows program, and
+# every installer is one, without wine32:i386 (trixie's Wine has no WoW64
+# mode). Installing the app first turns on flickos-control's system setting
+# for the architecture (CONTROL; its own password prompt, recorded in
+# History), then installs these with it in one transaction; removing it
+# removes them and turns the setting off when nothing of that architecture is
+# left. packages: NAME (this computer's architecture) or NAME:ARCH, all named,
+# because apt meets wine's "wine64 | wine32" with wine32 alone once that is in
+# the transaction (a Wine without its 64-bit part), and autoremove leaves
+# packages asked for by name. size, download: what the architecture's part
+# adds, for the plan before its package lists are there (PackageKit's
+# simulation on the 2.2 live image, 175 i386 packages, 2026-11-04).
+OTHER_ARCH = {"wine": {"arch": "i386", "packages": ("wine64", "wine32:i386"), "setting": "i386",
+                       "what": "support for 32-bit programs", "button": "_Add 32-bit Support",
+                       "size": 803_000_000, "download": 164_000_000}}
+CONTROL = "flickos-control"
+DPKG_ARCHES = ["dpkg-query", "-W", "-f", "${db:Status-Abbrev}\t${binary:Package}\t${Architecture}\n"]
+APT_MANUAL = ["apt-mark", "showmanual"]
 
 # AppStream component types that are apps.
 APP_TYPES = ("desktop-application", "desktop")
@@ -170,11 +260,28 @@ STYLE_KEY = "FlickOS::style"
 # community package's: layouts are code (ADR-006).
 LAYOUT_KEY = "FlickOS::layout"
 STYLE_CATEGORY = "X-FlickOS-Style"
+# A kit (docs/design/flickos-dev.md, ADR-001/002): an add-on of the Tool Kits
+# window, a package flickos-kit-NAME whose Depends are what a kind of work
+# needs. KIT_KEY names it, KIT_CATEGORY_KEY the category it is shown in
+# (appstreamcli ignores an X-FlickOS-* category in the metainfo, so a custom
+# value names it and Software gives the row its own category).
+KIT_PREFIX = "flickos-kit-"
+KIT_EXTENDS = "flickos-kits.desktop"
+KIT_KEY = "FlickOS::kit"
+KIT_CATEGORY_KEY = "FlickOS::kit-category"
+KIT_CATEGORIES = {"development": "X-FlickOS-Development", "classroom": "X-FlickOS-Classroom",
+                  "security": "X-FlickOS-Security"}
+# Said at the top of Security Tools and on each of its kits' pages
+# (flickos-security.md, ADR-S05): one sentence, the same words everywhere.
+PERMISSION = "Use these tools only on computers and networks you own or have permission to test."
+CATEGORY_NOTES = {"security-tools": PERMISSION}
+WEB_CATEGORY = "X-FlickOS-WebApp"
 LAYOUT = "flickos-layout"
+KITS = "flickos-kits"               # the Tool Kits window: an installed kit's page has Set Up…, which opens it
 CATEGORIES = (
     ("audio-video", "Audio & Video", "applications-multimedia", ("AudioVideo", "Audio", "Video")),
     ("development", "Development", "applications-development", ("Development",)),
-    ("education", "Education", "applications-education", ("Education",)),
+    ("education", "Education", "applications-education", ("Education", KIT_CATEGORIES["classroom"])),
     ("games", "Games", "applications-games", ("Game",)),
     ("graphics", "Graphics & Photography", "applications-graphics", ("Graphics", "Photography")),
     ("internet", "Internet", "applications-internet", ("Network",)),
@@ -182,6 +289,9 @@ CATEGORIES = (
     ("science", "Science", "applications-science", ("Science",)),
     ("system", "System", "applications-system", ("System", "Settings")),
     ("utilities", "Utilities", "applications-utilities", ("Utility",)),
+    ("web", "Web Apps", "web-browser", (WEB_CATEGORY,)),
+    ("developer-tools", "Developer Tools", "applications-development", (KIT_CATEGORIES["development"],)),
+    ("security-tools", "Security Tools", "security-high", (KIT_CATEGORIES["security"],)),
     ("styles", "Styles", "preferences-desktop-theme", (STYLE_CATEGORY,)),
 )
 # The front page's shelves (design Q7): the maintainer's list on the store's
@@ -198,6 +308,50 @@ FEATURED = "featured.json"          # the fetched copy, in the cache folder
 FEATURED_HOURS = 24
 FEATURED_BYTES = 256_000
 SHELF_APPS = 12                     # tiles a shelf shows at most
+# A price in featured.json (phase 3a): {"paid": {app ID: {"price": "$12",
+# "buy": "https://…", "product": "notes"}}}. The price is shown as it is
+# (Q13); product names FlickOS's store's product (selling design, ADR-003).
+PRICE_CHARS = 24                    # a longer price is left out
+PRODUCT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+# The store's catalog (phase 3b): its repository's DEP-11 file, which the
+# store's Worker serves without a key (server/store/store.js, CATALOG) for
+# each Debian release (FLICKOS_DEBIAN). Fetched with featured.json, at most
+# every FEATURED_HOURS, so its apps (names, descriptions, pictures) show
+# before anything is bought. Once a key brings the store's lists to apt
+# (flickos-control purchases), the pool's copy wins. A store app shows only
+# while featured.json gives it a price. The live Worker answers 503 there
+# until the store opens (its phase 3): nothing shows.
+STORE_CATALOG_URL = os.environ.get(           # testing hook: another address
+    "FLICKOS_SOFTWARE_STORE_CATALOG_URL",
+    "https://flickos-store.dvbondoy.workers.dev/v1/catalog/{release}/Components-amd64.yml.gz")
+STORE_CATALOG = "store-catalog.yml.gz"      # the fetched copy, in the cache folder
+STORE_CHECKED = "store-catalog.checked"     # its time: when it was last fetched (the copy's changes the index)
+STORE_CATALOG_BYTES = 4_000_000             # unpacked; a larger one is refused
+# What this computer's key bought (phase 3c): flickos-control's helper
+# writes it when a key is added, removed or checked, never with the key
+# (its PURCHASES_FILE): {"status": "valid"|"revoked", "products": [...]}.
+# Adding a key and Buy…'s claim run flickos-control purchases (CONTROL),
+# which owns the key; this window never sees it.
+PURCHASES_FILE = PREFIX + "/var/lib/flickos-control/purchases.json"
+KEY_CHARS = 52                      # flickos-control's normal_key: 13 groups of four, a-z and 2-7
+CLAIM_BYTES = 24                    # Buy…'s claim code: 32 characters (ADR-011)
+CMDLINE = PREFIX + "/proc/cmdline"  # boot=live: the live session, where a key would be lost
+FLICKOS_RELEASE = PREFIX + "/usr/lib/flickos-release"      # FLICKOS_DEBIAN (flickos-branding)
+OS_RELEASE = PREFIX + "/etc/os-release"                     # VERSION_CODENAME, without it
+
+# The setting Software owns (ADR-007), and the shared History.
+SYSTEM_CONF = PREFIX + "/etc/xdg/flickos/software.conf"
+HISTORY_CONF = PREFIX + "/etc/xdg/flickos/history.conf"
+SECTION = "Software"
+PAID = "paid"                       # the setting's key: in History and `paid set`
+PAID_NAME = "Paid"                  # its name in the files
+PAID_DEFAULT = "on"
+CHOICES = ("on", "off")
+DEFAULT_CHOICE = "default"
+HISTORY_OWNER = NAME
+HISTORY_FILE = "history.jsonl"      # in $XDG_STATE_HOME/flickos
+HISTORY_LOCK = "history.lock"
+HISTORY_BYTES = 256 * 1024          # above this, the older half is dropped
 
 # Friendly names for what a Flathub app brings along (ref name prefix -> words).
 RUNTIME_NAMES = (
@@ -215,8 +369,9 @@ RUNTIME_NAMES = (
 
 # --- The index -----------------------------------------------------------------------
 
-INDEX_VERSION = 4                   # bump when the row format changes (2: FlickOS's sources, 3: styles,
-                                    # 4: a style's layout)
+INDEX_VERSION = 7                   # bump when the row format changes (2: FlickOS's sources, 3: styles,
+                                    # 4: a style's layout, 5: the store's apps, 6: kits, 7: security
+                                    # kits, which an index of 6 left out)
 INDEX = "index.json"
 PAGES = "pages-{}.jsonl"            # {} = the build's time: a new file for each build
 LOCK = "software.lock"              # in $XDG_RUNTIME_DIR/flickos: one window per session
@@ -230,6 +385,13 @@ IMAGE_BYTES = 8_000_000             # larger downloads are refused
 FETCH_SECONDS = 20
 QUERY_SECONDS = 30                  # dpkg-query is given up after
 PLAN_SECONDS = 120                  # a plan child is stopped after (PackageKit waiting for a lock)
+# A search asks flickos-switch which Windows programs it names (its design,
+# ADR-002 and phase 2c): `lookup --json WORDS`, given up after LOOKUP_MS.
+SWITCH = "flickos-switch"
+LOOKUP_MS = 1000
+WORD_MATCHES = 2                    # matches by the list's words shown at most ("excel", not "music")
+FIREFOX = "firefox-esr"             # web apps are its Taskbar Tabs (flickos-switch ADR-005)
+WEB_ICON = "web-browser"            # a web app's icon until Firefox has made it (no other companies' logos)
 
 # --- The window ----------------------------------------------------------------------
 
@@ -239,6 +401,15 @@ TILE_ICON = 48
 PAGE_ICON = 96
 SHOT_HEIGHT = 340
 # PackageKit and libflatpak status words -> what the window says.
+# A web app's page (phase 3b).
+WEB_ABOUT = ("A web app is a website in a window of its own, with its own button in the taskbar and a "
+             "place in the start menu. It runs in Firefox and shares its sign-ins.")
+WEB_INSTALL = ("Opens in Firefox. To keep it as a web app, press the button at the right of the address bar, "
+               "next to the star. It then opens in its own window, from the start menu, and takes no disk "
+               "space but what the page keeps.")
+WEB_REMOVE = ("Removing it opens it in Firefox: press the button at the right of its address bar. The page "
+              "goes back to being a tab in Firefox.")
+WEB_WHY = "A web app: it opens in a window of its own, from Firefox."
 STATUS_TEXT = {
     "waiting-for-auth": "Waiting for your password…",
     "waiting-for-lock": "Waiting for another installation to finish…",
@@ -246,6 +417,8 @@ STATUS_TEXT = {
     "install": "Installing…",
     "remove": "Removing…",
     "cleanup": "Finishing…",
+    "arch-on": "Adding support for 32-bit programs…",
+    "arch-off": "Turning off support for 32-bit programs…",
     "commit": "Installing…",
     "finished": "Finishing…",
 }
@@ -275,7 +448,7 @@ def runtime_dir():
     return os.path.join(base, "flickos")
 
 
-def write_atomic(path, data):
+def write_atomic(path, data, mode=None):
     """Write text or bytes to path through a temporary file and a rename."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     temp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
@@ -283,10 +456,192 @@ def write_atomic(path, data):
         with open(temp, "wb" if isinstance(data, bytes) else "w",
                   **({} if isinstance(data, bytes) else {"encoding": "utf-8"})) as f:
             f.write(data)
+        if mode is not None:
+            os.chmod(temp, mode)
         os.replace(temp, path)
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(temp)
+
+
+def home_dir(variable, *default):
+    return os.environ.get(variable) or os.path.join(os.path.expanduser("~"), *default)
+
+
+def config_home():
+    return home_dir("XDG_CONFIG_HOME", ".config")
+
+
+def state_home():
+    return home_dir("XDG_STATE_HOME", ".local", "state")
+
+
+# --- The setting: apps with a price (ADR-007) ---------------------------------------
+
+def user_conf():
+    return os.path.join(config_home(), "flickos", "software")
+
+
+def read_choice(path):
+    """Paid= of one file: on, off, or None when it isn't set. A file that
+    can't be read, or a value that isn't one, counts as absent (SET-4)."""
+    ini = configparser.ConfigParser(interpolation=None)
+    try:
+        ini.read(path, encoding="utf-8")
+        value = ini.get(SECTION, PAID_NAME, fallback="").strip().lower()
+    except (configparser.Error, UnicodeDecodeError) as error:
+        warn(f"{path}: {error}")
+        return None
+    if value and value not in CHOICES:
+        warn(f"{path}: {PAID_NAME}={value} isn't on or off; left out")
+        return None
+    return value or None
+
+
+def paid_setting():
+    """(on or off, whether the user chose it): the user's file over the
+    system's, over PAID_DEFAULT."""
+    chosen = read_choice(user_conf())
+    return chosen or read_choice(SYSTEM_CONF) or PAID_DEFAULT, chosen is not None
+
+
+def set_paid(value):
+    """`paid set VALUE`: write the user's choice (default removes it, so the
+    system's applies again) and record the change. Returns the value in force."""
+    value = value.lower()
+    if value not in CHOICES + (DEFAULT_CHOICE,):
+        raise SoftwareError(f"{PAID}: on, off or {DEFAULT_CHOICE}")
+    before = paid_setting()[0]
+    path = user_conf()
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.optionxform = str
+    with contextlib.suppress(configparser.Error, UnicodeDecodeError):
+        ini.read(path, encoding="utf-8")
+    if not ini.has_section(SECTION):
+        ini.add_section(SECTION)
+    for existing in list(ini[SECTION]):
+        if existing.lower() == PAID_NAME.lower():
+            ini.remove_option(SECTION, existing)
+    if value != DEFAULT_CHOICE:
+        ini[SECTION][PAID_NAME] = value
+    try:
+        if ini[SECTION]:
+            lines = ["# Software's choices (flickos-software). Change them with: flickos-software paid set on|off",
+                     "# VALUE default puts the system's back. The window's menu does the same.",
+                     f"[{SECTION}]"]
+            lines += [f"{key}={item}" for key, item in ini[SECTION].items()]
+            write_atomic(path, "\n".join(lines) + "\n")
+        else:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(path)
+    except OSError as error:
+        raise SoftwareError(f"{path} can't be written: {error}") from None
+    after, chosen = paid_setting()
+    record(PAID, before, after if chosen else DEFAULT_CHOICE)
+    return after
+
+
+# --- Hooks (docs/design/flickos-hooks.md) ---------------------------------------
+# The user's own programs in ~/.config/flickos/hooks/EVENT.d/, run by
+# flickos-hooks. `changed` carries what History records (owner, key, old, new),
+# but only once the change is applied (ADR-007): record() queues it, History on
+# or off, and fire_changed() fires the queue when the command is done (main) or
+# a daemon or window has applied it. Only the keys changed_key() allows fire:
+# a key History records isn't promised to scripts until it is added there.
+CHANGED = []
+
+
+def fire(event, **values):
+    """Run the user's hooks for event (docs/design/flickos-hooks.md, ADR-004).
+    Never waits for them and never fails: with no hook it is one failed
+    listdir, and `setsid -f` returns as soon as flickos-hooks has forked. A
+    change made by a hook doesn't fire again (FLICKOS_HOOK)."""
+    if os.environ.get("FLICKOS_PLAIN") or os.environ.get("FLICKOS_HOOK"):
+        return
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    with contextlib.suppress(OSError):
+        if os.listdir(os.path.join(config, "flickos", "hooks", event + ".d")):
+            import subprocess
+            env = {**os.environ, **{"FLICKOS_" + key.upper(): str(value) for key, value in values.items()}}
+            subprocess.run(["setsid", "-f", "flickos-hooks", "run", event], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def changed_key(key):
+    """Whether a change of key fires `changed` (the allow list, ADR-007)."""
+    return key == PAID
+
+
+def queue_changed(key, old, new):
+    """record()'s change, kept for the `changed` hooks until it is applied."""
+    if changed_key(key):
+        CHANGED.append((key, str(old), str(new)))
+
+
+def fire_changed():
+    """The queued changes' `changed` hooks, oldest first. Call it once they are
+    applied; without changes it does nothing."""
+    while CHANGED:
+        key, old, new = CHANGED.pop(0)
+        fire("changed", owner=HISTORY_OWNER, key=key, old=old, new=new)
+
+
+# --- History ------------------------------------------------------------------------
+# One JSON line per change, appended. The format is shared with flickos-control
+# and the other owners (docs/design/flickos-history.md).
+
+def history_enabled():
+    enabled = True
+    for path in (HISTORY_CONF, os.path.join(config_home(), "flickos", "history")):
+        ini = configparser.ConfigParser(interpolation=None)
+        try:
+            ini.read(path, encoding="utf-8")
+            value = ini.get("History", "Enabled", fallback=None)
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+        if value is not None:
+            enabled = value.strip().lower() not in ("no", "false", "off", "0")
+    return enabled
+
+
+def record(key, old, new):
+    """Add a change to the history. It never stops the change itself: a
+    history that can't be written is only a warning."""
+    if old == new:
+        return
+    queue_changed(key, old, new)        # for the hooks, History on or off (ADR-007)
+    if not history_enabled():
+        return
+    now = time.time_ns()
+    when = datetime.datetime.fromtimestamp(now / 1e9).astimezone().isoformat(timespec="seconds")
+    entry = {"v": 1, "id": str(now), "time": when, "owner": HISTORY_OWNER, "key": key, "old": old, "new": new}
+    folder = os.path.join(state_home(), "flickos")
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        with open(os.path.join(folder, HISTORY_LOCK), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = os.path.join(folder, HISTORY_FILE)
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                size = os.fstat(f.fileno()).st_size
+            if size > HISTORY_BYTES:
+                trim_history(path)
+    except OSError as error:
+        warn(f"the history can't be written: {error}")
+
+
+def trim_history(path):
+    """Keep the newest lines that fit in half of HISTORY_BYTES (under the lock)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    kept, size = [], 0
+    for line in reversed(lines):
+        size += len(line.encode())
+        if size > HISTORY_BYTES // 2:
+            break
+        kept.append(line)
+    write_atomic(path, "".join(reversed(kept)), mode=0o600)
 
 
 @contextlib.contextmanager
@@ -562,19 +917,48 @@ def debian_apps():
         warn(f"Debian's apps are left out: {error.message}")
         return
     seen = set()
-    found = [(c, None) for c in pool.get_components_by_kind(AppStream.ComponentKind.DESKTOP_APP).as_array()]
+    found = [(c, None, None) for c in pool.get_components_by_kind(AppStream.ComponentKind.DESKTOP_APP).as_array()]
     for component in pool.get_components_by_kind(AppStream.ComponentKind.ADDON).as_array():
         style = style_of(component)
         if style and own_style(component, style):
-            found.append((component, style))
-    for component, style in found:
+            found.append((component, style, None))
+        kit = kit_of(component)
+        if kit:
+            found.append((component, None, kit))
+    # The store's fetched catalog last: the pool's copy (with a key) wins.
+    found += [(c, None, None) for c in store_components(AppStream)]
+    for component, style, kit in found:
         app_id = component.get_id()
         package = component.get_pkgname()
         key = (apt_source(component.get_origin()), app_id)
         if not app_id or not package or key in seen:
             continue
         seen.add(key)
-        yield debian_component(AppStream, component, style)
+        yield debian_component(AppStream, component, style, kit)
+
+
+def store_catalog():
+    """The fetched store catalog's path, or None."""
+    path = os.path.join(cache_dir(), STORE_CATALOG)
+    return path if os.path.exists(path) else None
+
+
+def store_components(AppStream):
+    """The desktop apps of the fetched store catalog (libappstream reads the
+    gzipped DEP-11 itself, about 20 ms), only those whose origin is a store's."""
+    path = store_catalog()
+    if path is None:
+        return []
+    from gi.repository import Gio, GLib
+    reader = AppStream.Metadata()
+    reader.set_format_style(AppStream.FormatStyle.CATALOG)
+    try:
+        reader.parse_file(Gio.File.new_for_path(path), AppStream.FormatKind.YAML)
+    except GLib.Error as error:
+        warn(f"the FlickOS Store's apps are left out: {error.message}")
+        return []
+    return [c for c in reader.get_components().as_array()
+            if c.get_kind() == AppStream.ComponentKind.DESKTOP_APP and STORE_ORIGIN.match(c.get_origin() or "")]
 
 
 def style_of(addon):
@@ -583,6 +967,19 @@ def style_of(addon):
     style = addon.get_custom_value(STYLE_KEY)
     if STYLE_EXTENDS in (addon.get_extends() or []) and style and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", style):
         return style
+    return None
+
+
+def kit_of(addon):
+    """The kit an add-on of the Tool Kits window names, or None: it extends
+    KIT_EXTENDS, names a kit and a known category, and is the package
+    flickos-kit-NAME of FlickOS's own sources (a kit installs system packages;
+    community apps can't)."""
+    kit = addon.get_custom_value(KIT_KEY)
+    category = KIT_CATEGORIES.get(addon.get_custom_value(KIT_CATEGORY_KEY) or "")
+    if (KIT_EXTENDS in (addon.get_extends() or []) and category and kit and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", kit)
+            and (addon.get_pkgname() or "") == KIT_PREFIX + kit and apt_source(addon.get_origin()) != "community"):
+        return kit
     return None
 
 
@@ -602,9 +999,10 @@ def own_style(component, style):
     return apt_source(component.get_origin()) != "community" or style == component.get_pkgname()
 
 
-def debian_component(AppStream, c, style=None):
+def debian_component(AppStream, c, style=None, kit=None):
     """(row, page) from one libappstream component (also called by the tests
-    with a stand-in). style: the style folder of a style's add-on."""
+    with a stand-in). style: the style folder of a style's add-on; kit: the
+    name of a kit's."""
     icons, later = [], []
     for icon in c.get_icons() or []:
         kind = icon.get_kind()
@@ -643,6 +1041,8 @@ def debian_component(AppStream, c, style=None):
         "pkg": c.get_pkgname(),
         "origin": c.get_origin() or "",
     }
+    if kit:
+        row["cats"], row["kit"] = [KIT_CATEGORIES[c.get_custom_value(KIT_CATEGORY_KEY)]], kit
     if style:
         row["cats"], row["style"] = [STYLE_CATEGORY], style
         layout = layout_of(c)
@@ -698,6 +1098,8 @@ def merge(sources):
                 match["icons"] = list(dict.fromkeys(local + [i for i in match["icons"] if i.startswith("url:")]))
                 continue
             app = {k: row[k] for k in ("id", "name", "summary", "icons", "cats", "kw")}
+            if row.get("kit"):
+                app["kit"] = row["kit"]
             if row.get("style"):
                 app["style"] = row["style"]
             if row.get("layout"):
@@ -717,6 +1119,7 @@ def stamps():
         "lang": languages()[:1],
         "debian": max(newest(SWCATALOG_YAML), newest(SWCATALOG_CACHE)),
         "flathub": mtime(os.path.join(FLATHUB_CATALOG, "appstream.xml.gz")) if flathub_usable() else 0,
+        STORE: mtime(os.path.join(cache_dir(), STORE_CATALOG)),
     }
 
 
@@ -798,8 +1201,7 @@ def prune_images(folder, days=IMAGE_DAYS):
 
 def parse_featured(text):
     """[{id, name, apps: [{id, …}]}] from featured.json's text; ValueError when
-    it isn't one of this version's. Unknown keys are ignored (phase 4 of the
-    design adds a paid app's price and buy address to its entry)."""
+    it isn't one of this version's. Unknown keys are ignored."""
     data = json.loads(text)
     if not isinstance(data, dict) or data.get("v") != FEATURED_VERSION or not isinstance(data.get("shelves"), list):
         raise ValueError("not a featured.json of this version")
@@ -817,18 +1219,57 @@ def parse_featured(text):
     return shelves
 
 
-def read_featured(folder=None):
-    """The newest usable shelves: the fetched copy in the cache, else the
-    package's. [] when neither can be read."""
+def parse_paid(text):
+    """{app ID: {price, buy, product or None}} from featured.json's text (a
+    usable one: parse_featured). An entry without a price, with a buy address
+    that isn't https://, or with an odd product is left out with a warning."""
+    paid = json.loads(text).get("paid", {})
+    if not isinstance(paid, dict):
+        warn("featured.json: paid isn't an object; left out")
+        return {}
+    found = {}
+    for app_id, entry in paid.items():
+        if not app_id or not isinstance(entry, dict):
+            warn(f"featured.json: the price of {app_id!r:.40} isn't an object; left out")
+            continue
+        price = tidy(entry["price"]) if isinstance(entry.get("price"), str) else ""
+        buy = entry.get("buy") if isinstance(entry.get("buy"), str) else ""
+        product = entry.get("product")
+        try:
+            host = urllib.parse.urlsplit(buy).hostname
+        except ValueError:
+            host = None
+        if not price or len(price) > PRICE_CHARS:
+            problem = "no price" if not price else f"a price longer than {PRICE_CHARS} characters"
+        elif not buy.startswith("https://") or not host or any(c.isspace() for c in buy):
+            problem = "a buy address that isn't https://"
+        elif product is not None and not (isinstance(product, str) and PRODUCT_NAME.fullmatch(product)):
+            problem = "a product that isn't a store's product name"
+        else:
+            found[app_id] = {"price": price, "buy": buy, "product": product}
+            continue
+        warn(f"featured.json: {app_id:.40} has {problem}; left out")
+    return found
+
+
+def load_featured(folder=None):
+    """(shelves, paid) of the newest usable featured.json: the fetched copy
+    in the cache, else the package's. ([], {}) when neither can be read."""
     for path in (os.path.join(folder or cache_dir(), FEATURED), FEATURED_FILE):
         try:
             with open(path, encoding="utf-8") as f:
-                return parse_featured(f.read())
+                text = f.read()
+            return parse_featured(text), parse_paid(text)
         except FileNotFoundError:
             continue
         except (OSError, ValueError) as error:
             warn(f"{path} is left out: {error}")
-    return []
+    return [], {}
+
+
+def read_featured(folder=None):
+    """The newest usable shelves (load_featured)."""
+    return load_featured(folder)[0]
 
 
 def featured_stale(folder=None):
@@ -860,7 +1301,184 @@ def fetch_featured(folder=None, url=None):
     return changed
 
 
+def flickos_release():
+    """The Debian release FlickOS is built on (FLICKOS_DEBIAN), or None."""
+    for path, name in ((FLICKOS_RELEASE, "FLICKOS_DEBIAN"), (OS_RELEASE, "VERSION_CODENAME")):
+        with contextlib.suppress(OSError, UnicodeDecodeError), open(path, encoding="utf-8") as f:
+            for line in f:
+                match = re.fullmatch(rf'{name}="?([a-z]+)"?', line.strip())
+                if match:
+                    return match.group(1)
+    return None
+
+
+def read_purchases(path=None):
+    """(the store's products this computer's key holds, whether its key was
+    turned off) from PURCHASES_FILE: (frozenset(), False) without a key."""
+    try:
+        with open(path or PURCHASES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return frozenset(), False
+    if not isinstance(data, dict) or data.get("v") != 1:
+        return frozenset(), False
+    if data.get("status") == "revoked":
+        return frozenset(), True
+    products = data.get("products") if data.get("status") == "valid" else None
+    if not isinstance(products, list):
+        return frozenset(), False
+    return frozenset(p for p in products if isinstance(p, str) and PRODUCT_NAME.fullmatch(p)), False
+
+
+def key_shaped(text):
+    """Whether text can be a store key (flickos-control checks it again):
+    case, spaces and dashes don't matter."""
+    plain = re.sub(r"[\s-]", "", text or "").lower()
+    return len(plain) == KEY_CHARS and re.fullmatch(r"[a-z2-7]+", plain) is not None
+
+
+def live_session(path=None):
+    """The live image (boot=live): a key added there is lost at shutdown."""
+    try:
+        with open(path or CMDLINE, encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    except OSError:
+        return False
+
+
+def claim_address(buy, code):
+    """Buy…'s address with the claim code in its fragment, which the browser
+    never sends to a server (ADR-011)."""
+    return buy.split("#", 1)[0] + "#claim=" + code
+
+
+def store_catalog_stale(folder=None):
+    """True when the store's catalog wasn't fetched for FEATURED_HOURS (or ever)."""
+    return mtime(os.path.join(folder or cache_dir(), STORE_CHECKED)) < time.time() - FEATURED_HOURS * 3600
+
+
+def check_store_catalog(data):
+    """ValueError unless data is a gzipped DEP-11 file of a store
+    (STORE_ORIGIN, the release's), within STORE_CATALOG_BYTES."""
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as packed:
+            text = packed.read(STORE_CATALOG_BYTES + 1)
+    except (OSError, EOFError) as error:
+        raise ValueError(f"the store's catalog isn't gzip ({error})") from None
+    if len(text) > STORE_CATALOG_BYTES:
+        raise ValueError(f"the store's catalog is larger than {STORE_CATALOG_BYTES} bytes")
+    header = text[:400].decode("utf-8", "replace")
+    origin = re.search(r"^Origin: (\S+)$", header, re.M)
+    if not header.startswith("---\nFile: DEP-11\n") or not origin or not STORE_ORIGIN.match(origin.group(1)):
+        raise ValueError("the store's catalog isn't a FlickOS Store DEP-11 file")
+
+
+def fetch_store_catalog(folder=None, url=None):
+    """Download the store's catalog into the cache (only a usable one
+    replaces the copy there); True when it changed. A plain GET with nothing
+    about the user (ADR-009). Raises OSError or ValueError."""
+    if url is None:
+        release = flickos_release()
+        if release is None:
+            raise ValueError(f"the Debian release isn't known ({FLICKOS_RELEASE})")
+        url = STORE_CATALOG_URL.format(release=release)
+    request = urllib.request.Request(url, headers={"User-Agent": "FlickOS-Software"})
+    with urllib.request.urlopen(request, timeout=FETCH_SECONDS) as response:
+        data = response.read(STORE_CATALOG_BYTES + 1)
+    if len(data) > STORE_CATALOG_BYTES:
+        raise ValueError(f"{url} is larger than {STORE_CATALOG_BYTES} bytes")
+    check_store_catalog(data)
+    path = os.path.join(folder or cache_dir(), STORE_CATALOG)
+    try:
+        with open(path, "rb") as f:
+            changed = f.read() != data
+    except OSError:
+        changed = True
+    # Rewritten only when it changed: its time is the index's stamp.
+    if changed:
+        write_atomic(path, data)
+    write_atomic(os.path.join(folder or cache_dir(), STORE_CHECKED), "")
+    return changed
+
+
+def fetch_shop(force=False, folder=None):
+    """featured.json and the store's catalog, each when it is old (or with
+    force): {"featured": changed, "store": changed}. A failure is a warning
+    and counts as unchanged."""
+    changed = {"featured": False, STORE: False}
+    for name, stale, fetch, what in (("featured", featured_stale, fetch_featured, "The front page's shelves"),
+                                     (STORE, store_catalog_stale, fetch_store_catalog, "The FlickOS Store's apps")):
+        if force or stale(folder):
+            try:
+                changed[name] = fetch(folder)
+            except (OSError, ValueError) as error:
+                warn(f"{what} weren't updated: {error}")
+    return changed
+
+
 # --- The catalog the window and the commands read ------------------------------------
+
+def searchable(app):
+    """The folded text Catalog.search() looks in, kept in the app."""
+    app["hay"] = fold(" ".join([app["name"], app["summary"], " ".join(app["kw"]), app["id"],
+                                " ".join(s.get("pkg", "") for s in app["src"].values())]))
+    app["fname"] = fold(app["name"])
+
+
+def web_rows(known):
+    """Rows like the index's for `flickos-switch webapp list --json --known`
+    (phase 3b): {id: web:ENTRY for the list's web versions, made or not (its
+    page stays its page), web:ID for one made from any address; src: {WEB:
+    {url, webapp: Firefox's ID or None, launch}}}. Made ones first, then by
+    name; anything odd is left out."""
+    rows, seen = [], set()
+    for item in known if isinstance(known, list) else []:
+        if not isinstance(item, dict) or not all(isinstance(item.get(k), str) and item[k]
+                                                 for k in ("name", "start")):
+            continue
+        made = item.get("made") is True and isinstance(item.get("id"), str)
+        entry = item.get("entry") if isinstance(item.get("entry"), str) else None
+        key = entry or (item["id"] if made else None)
+        if not key or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", key) or key in seen:
+            continue
+        try:
+            host = urllib.parse.urlsplit(item["start"]).hostname or item["start"]
+        except ValueError:
+            continue
+        seen.add(key)
+        windows = item.get("windows") if isinstance(item.get("windows"), str) else None
+        icon, launcher = item.get("icon"), item.get("launcher")
+        icons = [f"file:{icon}"] if made and isinstance(icon, str) and os.path.isabs(icon) else []
+        launch = [launcher] if made and isinstance(launcher, str) and launcher.endswith(".desktop") else []
+        rows.append({
+            "id": f"web:{key}", "name": tidy(item["name"]),
+            "summary": f"The web version of {windows}." if windows else f"A web app of {host}.",
+            "icons": icons + [f"stock:{WEB_ICON}"], "cats": [WEB_CATEGORY],
+            "kw": [w for w in (windows, host, "web app") if w],
+            "src": {WEB: {"url": item["start"], "webapp": item["id"] if made else None, "launch": launch}},
+            "keys": [f"web:{key}".casefold()],
+        })
+    rows.sort(key=lambda r: (r["src"][WEB]["webapp"] is None, fold(r["name"])))
+    return rows
+
+
+def web_address(text):
+    """An address typed for a new web app, with https:// when none was
+    typed; None unless it is http or https with a host that has a dot."""
+    text = text.strip()
+    if not text or text.startswith("-") or any(c.isspace() for c in text):
+        return None
+    if "://" not in text:
+        text = "https://" + text
+    try:
+        parts = urllib.parse.urlsplit(text)
+        host = parts.hostname
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https") or not host or "." not in host.strip("."):
+        return None
+    return text
+
 
 class Catalog:
     """The index in memory, what is installed, and the search."""
@@ -869,13 +1487,19 @@ class Catalog:
         self.folder = folder or cache_dir()
         self.apps = []
         self.by_key = {}
+        self.indexed = 0
         self.searchable = False
         self.pages_file = None
         self.stamps = None
         self.packages = {}          # installed Debian package -> version
         self.flatpaks = set()       # installed Flathub app IDs (system installation)
         self.protected = set()      # packages never removed
+        self.app_packages = frozenset()     # the apt packages of the index's apps
         self.featured = []          # read_featured()'s shelves (the window reads them with the index)
+        self.priced = []            # the apps set_paid() gave a price ("paid" in the row)
+        self.show_paid = True       # the setting: off hides priced apps not installed (hidden)
+        self.bought = frozenset()   # the store's products this computer's key holds (phase 3c)
+        self.key_off = False        # the key on this computer was turned off (a refund)
 
     def close(self):
         if self.pages_file:
@@ -902,6 +1526,7 @@ class Catalog:
         self.close()
         self.pages_file = pages
         self.apps = index["apps"]
+        self.indexed = len(self.apps)       # web apps (set_web) come after the index's
         self.stamps = index.get("stamps")
         self.by_key = {}
         self.searchable = False
@@ -909,6 +1534,8 @@ class Catalog:
             for key in app.get("keys", ()):
                 self.by_key.setdefault(key, number)
             app["number"] = number
+        self.app_packages = frozenset(app["src"][source]["pkg"] for app in self.apps
+                                      for source in APT_SOURCES if source in app["src"])
 
     def prepare_search(self):
         """The folded text search() looks in (about 100 ms: the window does it
@@ -916,10 +1543,67 @@ class Catalog:
         if self.searchable:
             return
         for app in self.apps:
-            app["hay"] = fold(" ".join([app["name"], app["summary"], " ".join(app["kw"]), app["id"],
-                                        " ".join(s.get("pkg", "") for s in app["src"].values())]))
-            app["fname"] = fold(app["name"])
+            searchable(app)
         self.searchable = True
+
+    def set_web(self, rows):
+        """web_rows()'s web apps after the index's apps, in place of the ones
+        set before: search, find, the categories and installed() see them."""
+        for app in self.apps[self.indexed:]:
+            for key in app["keys"]:
+                if self.by_key.get(key) == app["number"]:
+                    del self.by_key[key]
+        del self.apps[self.indexed:]
+        for row in rows:
+            app = dict(row, number=len(self.apps))
+            if self.searchable:
+                searchable(app)
+            self.apps.append(app)
+            for key in app["keys"]:
+                self.by_key.setdefault(key, app["number"])
+
+    def set_paid(self, paid):
+        """featured.json's prices (parse_paid) on the apps they name, in place
+        of the ones set before. Not in the index: a new price needs no rebuild.
+        Web apps never have one."""
+        for app in self.priced:
+            app.pop("paid", None)
+        self.priced = []
+        for app_id, entry in paid.items():
+            app = self.find(app_id)
+            if app is not None and WEB not in app["src"] and "paid" not in app:
+                app["paid"] = entry
+                self.priced.append(app)
+
+    def locked(self, app):
+        """True when the app is FlickOS's store's and not bought: Buy… in place of Install."""
+        product = app.get("paid", {}).get("product")
+        return product is not None and product not in self.bought
+
+    def hidden(self, app):
+        """True when the setting is off and the app has a price, isn't
+        installed and isn't bought, or when it is only in the store and has
+        no price (sources): not in the search, categories or shelves."""
+        if STORE in app["src"] and not self.sources(app):
+            return True
+        paid = app.get("paid")
+        return bool(paid) and not self.show_paid and paid["product"] not in self.bought \
+            and not self.installed_from(app)
+
+    def sources(self, app):
+        """The app's sources a page offers, in SOURCES' order (web apps' last).
+        The store's only while featured.json gives the app a price or it is
+        installed from there; while it has one, FlickOS's free version only
+        while that is installed (Q12: Buy…, never the old free version)."""
+        found = [source for source in (*SOURCES, WEB) if source in app["src"]]
+        if STORE not in app["src"]:
+            return found
+        installed = self.installed_from(app)
+        if installed == STORE:
+            return found
+        if not app.get("paid"):
+            return [source for source in found if source != STORE]
+        return [source for source in found if source != "flickos" or installed == "flickos"]
 
     def stale(self):
         """True when a catalog (or the language) changed since the index was built."""
@@ -957,7 +1641,7 @@ class Catalog:
         found = []
         for app in self.apps:
             hay = app["hay"]
-            if not all(p in hay for p in parts):
+            if not all(p in hay for p in parts) or self.hidden(app):
                 continue
             name = app["fname"]
             if name == query:
@@ -976,13 +1660,15 @@ class Catalog:
         wanted = next((c[3] for c in CATEGORIES if c[0] == category_id), None)
         if wanted is None:
             raise SoftwareError(f"no category {category_id}")
-        return [app for app in self.apps if any(c in wanted for c in app["cats"])]
+        return [app for app in self.apps if any(c in wanted for c in app["cats"]) and not self.hidden(app)]
 
     def category_counts(self):
         """{category ID: number of apps}, in one pass."""
         counts = dict.fromkeys((c[0] for c in CATEGORIES), 0)
         wanted = {name: c[0] for c in CATEGORIES for name in c[3]}
         for app in self.apps:
+            if self.hidden(app):
+                continue
             for category_id in {wanted[c] for c in app["cats"] if c in wanted}:
                 counts[category_id] += 1
         return counts
@@ -995,23 +1681,33 @@ class Catalog:
             apps = []
             for entry in shelf["apps"]:
                 app = self.find(entry["id"])
-                if app is not None and app not in apps:
+                if app is not None and app not in apps and not self.hidden(app):
                     apps.append(app)
             if apps:
                 found.append((shelf["id"], shelf["name"], apps[:SHELF_APPS]))
         return found
 
     def read_installed(self):
-        """What is installed now (dpkg's status, the system Flatpak folder)."""
+        """What is installed now (dpkg's status, the system Flatpak folder) and
+        what the key bought."""
         self.packages, depends = installed_packages()
         self.flatpaks = installed_flatpaks()
         self.protected = depends
+        self.bought, self.key_off = read_purchases()
 
     def installed_from(self, app):
         """The source app is installed from, or None."""
+        web = app["src"].get(WEB)
+        if web:
+            return WEB if web["webapp"] else None
         for source in APT_SOURCES:
             apt = app["src"].get(source)
             if apt and apt["pkg"] in self.packages:
+                # The same package as FlickOS's free version: the store's
+                # only once its key holds the product (phase 3c).
+                if source == STORE and "flickos" in app["src"] and \
+                        app.get("paid", {}).get("product") not in self.bought:
+                    continue
                 return source
         flathub = app["src"].get("flathub")
         if flathub and flathub["id"] in self.flatpaks:
@@ -1019,12 +1715,29 @@ class Catalog:
         return None
 
     def installed(self):
-        return [app for app in self.apps if self.installed_from(app)]
+        """The installed apps by name, web apps among them (set_web puts them last)."""
+        return sorted((app for app in self.apps if self.installed_from(app)), key=lambda a: fold(a["name"]))
 
     def is_protected(self, package):
-        """Never removed here: FlickOS's packages but its styles, and what the desktop needs."""
-        return (package.startswith(PROTECTED_PREFIXES) and not package.startswith(STYLE_PREFIX)) \
-            or package in self.protected
+        """Never removed here: what the desktop needs, and FlickOS's packages
+        but its styles, its kits and its apps (Notes: no part of the desktop
+        needs it)."""
+        return package in self.protected or (package.startswith(PROTECTED_PREFIXES)
+                                             and not package.startswith((STYLE_PREFIX, KIT_PREFIX))
+                                             and package not in self.app_packages)
+
+
+def kit_note(app):
+    """What a kit's page says above its description: PERMISSION for a
+    security kit (ADR-S05), else None."""
+    if app.get("kit") and KIT_CATEGORIES["security"] in app.get("cats", ()):
+        return PERMISSION
+    return None
+
+
+def kit_setup_argv(app):
+    """The command of an installed kit's Set Up…: the Tool Kits window on its row."""
+    return [KITS, "window", "--kit", app["kit"]]
 
 
 def use_args(app, how):
@@ -1084,13 +1797,18 @@ def installed_flatpaks(folder=None):
 
 
 def choose_source(catalog, app, wanted=None):
-    """The source to use for app: wanted when it has it, else the one it is
-    installed from, else the first in SOURCES."""
+    """The source to use for app: wanted when it has it, else the store's
+    while it sells the app (its text and price, also over an installed free
+    version), else the one it is installed from, else the first it offers."""
     if wanted:
         if wanted not in app["src"]:
             raise SoftwareError(f"{app['name']} isn't on {SOURCE_NAMES[wanted]}")
         return wanted
-    return catalog.installed_from(app) or next(s for s in SOURCES if s in app["src"])
+    offered = catalog.sources(app)
+    if STORE in offered and app.get("paid"):
+        return STORE
+    return catalog.installed_from(app) or next(iter(offered), None) or \
+        next(s for s in (*SOURCES, WEB) if s in app["src"])
 
 
 # --- Changing the system: PackageKit and libflatpak (child commands only) -------------
@@ -1122,6 +1840,8 @@ class Output:
             return "Done."
         if event == "cancelled":
             return "Cancelled."
+        if event == "item":
+            return f"{fields.get('status')}\t{os.path.basename(fields.get('path', ''))}\t{fields.get('message', '')}"
         if event == "error":
             return None             # main() prints it on stderr
         return None
@@ -1178,9 +1898,16 @@ class PackageKitFailed(SoftwareError):
     """PackageKit's own error message (pk_message() turns it into words)."""
 
 
+# apt's words for a package file that is no longer where its lists say
+STALE_LISTS = re.compile(r"not \(yet\) available|404\s+Not Found|Hash Sum mismatch|unexpected size", re.I)
+
+
 def pk_message(error, verb, name):
     """A PackageKit failure in plain words (HIG TXT-6)."""
     text = str(error)
+    if STALE_LISTS.search(text):
+        return (f"{name} wasn't {verb}: this computer's package lists are out of date ({text}). "
+                f"Try again in a few minutes.")
     if re.search(r"not.?authori[sz]ed|authentication|dismissed", text, re.I):
         return f"{name} wasn't {verb}: the password wasn't given."
     if re.search(r"lock|another", text, re.I):
@@ -1205,10 +1932,88 @@ def pk_run(Pk, GLib, call, *args, progress=None, cancellable=None):
     return result
 
 
-def pk_resolve(Pk, GLib, package, installed):
-    flags = "installed;arch" if installed else "newest;arch;~installed"
+def pk_resolve(Pk, GLib, package, installed, arch=None):
+    """PackageKit's ids for package: of this computer's architecture, or of arch."""
+    flags = ("installed" if installed else "newest;~installed") + ("" if arch else ";arch")
     result = pk_run(Pk, GLib, "resolve", Pk.filter_bitfield_from_string(flags), [package])
-    return [p.get_id() for p in result.get_package_array()]
+    ids = [p.get_id() for p in result.get_package_array()]
+    return [i for i in ids if arch is None or i.split(";")[2] == arch]
+
+
+def foreign_architectures():
+    try:
+        result = subprocess.run(["dpkg", "--print-foreign-architectures"], capture_output=True, text=True,
+                                timeout=QUERY_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return result.stdout.split()
+
+
+def asked_for(arch):
+    """The installed packages of arch someone asked for (apt's manual mark;
+    dpkg's name:arch), or None when they can't be read. The ones only
+    installed for others go with the architecture (control-helper i386-off)."""
+    try:
+        result = subprocess.run(DPKG_ARCHES, capture_output=True, text=True, timeout=QUERY_SECONDS, check=False)
+        manual = subprocess.run(APT_MANUAL, capture_output=True, text=True, timeout=QUERY_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0 or manual.returncode != 0:
+        return None
+    asked = set(manual.stdout.split())
+    found = set()
+    for line in result.stdout.splitlines():
+        status, _, rest = line.partition("\t")
+        name, _, package_arch = rest.partition("\t")
+        name = name if ":" in name else f"{name}:{arch}"
+        if package_arch == arch and status[1:2] not in ("n", "c") and name in asked:
+            found.add(name)
+    return found
+
+
+def other_parts(package, installed):
+    """(package's OTHER_ARCH entry or None, its packages that aren't installed)."""
+    extra = OTHER_ARCH.get(package)
+    if extra is None:
+        return None, []
+    return extra, [p for p in extra["packages"] if p.partition(":")[0] not in installed]
+
+
+def resolve_parts(extra, parts, foreign, resolve):
+    """PackageKit ids for parts (resolve(name, arch) -> ids); a part of an
+    architecture that isn't on yet is left out (its lists aren't there)."""
+    ids = []
+    for part in parts:
+        name, _, arch = part.partition(":")
+        if not arch or arch in foreign:
+            ids += resolve(name, arch or None)
+    return ids
+
+
+def turns_off(extra, foreign, installed, removing):
+    """Whether removing (PackageKit ids) leaves nothing of extra's architecture
+    that someone asked for, so its setting goes off too. installed:
+    asked_for() (None: unknown)."""
+    if extra is None or extra["arch"] not in foreign or installed is None:
+        return False
+    gone = {f"{i.split(';')[0]}:{i.split(';')[2]}" for i in removing if i.split(";")[2] == extra["arch"]}
+    return installed <= gone
+
+
+def control_setting(extra, value, name, verb):
+    """flickos-control's system setting for extra's architecture on or off: it
+    asks for the password (pkexec) and records the change for History."""
+    try:
+        result = subprocess.run([CONTROL, "system", extra["setting"], value], stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, check=False)
+    except OSError as error:
+        raise SoftwareError(f"{name} wasn't {verb}: {error}") from None
+    if result.returncode != 0:
+        reason = last_line(result.stderr).removeprefix(f"{CONTROL}: ")
+        if re.search(r"not.?authori[sz]ed|dismissed|authentication", reason, re.I):
+            raise SoftwareError(f"{name} wasn't {verb}: the password wasn't given.")
+        raise SoftwareError(f"{name} wasn't {verb}: {extra['what']} couldn't be turned {value} "
+                            f"({reason or 'no reason given'}).")
 
 
 def apt_plan(catalog, app, remove, source="debian"):
@@ -1218,16 +2023,32 @@ def apt_plan(catalog, app, remove, source="debian"):
     package = app["src"][source]["pkg"]
     simulate = Pk.transaction_flag_bitfield_from_string("simulate")
     verb = "removed" if remove else "installed"
+    extra, missing = other_parts(package, catalog.packages)
+    foreign = foreign_architectures() if extra else []
+    # Installed, but without its other architecture's part: install only that.
+    only_parts = not remove and package in catalog.packages and bool(missing)
     try:
-        ids = pk_resolve(Pk, GLib, package, installed=remove)
+        ids = [] if only_parts else pk_resolve(Pk, GLib, package, installed=remove)
+        if extra and (ids or only_parts):
+            ids += resolve_parts(extra, extra["packages"] if remove else missing, foreign,
+                                 lambda name, arch: pk_resolve(Pk, GLib, name, remove, arch))
     except PackageKitFailed as error:
         raise SoftwareError(pk_message(error, verb, app["name"])) from None
-    if not ids:
+    if not ids and not only_parts:
         if remove:
             raise SoftwareError(f"{app['name']} isn't installed from {SOURCE_NAMES[source]}.")
         if package in catalog.packages:
             raise SoftwareError(f"{app['name']} is already installed.")
         raise SoftwareError(f"{app['name']} isn't in {SOURCE_NAMES[source]}'s package lists for this computer.")
+    adds = None
+    if not remove and any(":" in p for p in missing):
+        on = extra["arch"] in foreign
+        adds = {"what": extra["what"], "on": on, "size": 0 if on else extra["size"],
+                "download": 0 if on else extra["download"]}
+    if not ids:             # only the parts, and their architecture's lists aren't there yet
+        return {"source": source, "action": "install", "app": app["name"], "package": package, "items": [],
+                "packages": [], "removes": [], "protected": [], "ids": [], "size": 0, "download": 0,
+                "only_parts": True, "adds": adds, "turns_off": False}
     try:
         if remove:
             # allow dependents, and take the packages only this app needed (autoremove)
@@ -1244,7 +2065,10 @@ def apt_plan(catalog, app, remove, source="debian"):
     installing = changes.get("installing", [])
     plan = {"source": source, "action": "remove" if remove else "install", "app": app["name"],
             "package": package, "items": [], "packages": sorted({i.split(";")[0] for i in (removing if remove else installing)}),
-            "removes": sorted({i.split(";")[0] for i in removing})}
+            "removes": sorted({i.split(";")[0] for i in removing}), "ids": ids, "only_parts": only_parts,
+            "adds": adds,
+            "turns_off": remove and turns_off(extra, foreign, asked_for(extra["arch"]) if extra else None,
+                                              removing)}
     plan["protected"] = [p for p in plan["removes"] if catalog.is_protected(p)]
     sized = removing if remove else installing
     size = download = 0
@@ -1264,6 +2088,22 @@ def apt_change(catalog, app, remove, out, source="debian"):
     Pk, GLib = packagekit()
     package = plan["package"]
     verb = "removed" if remove else "installed"
+    extra = OTHER_ARCH.get(package)
+    if plan["adds"] and not plan["adds"]["on"]:
+        # The architecture first (its own password), then its package lists,
+        # then the plan again: now with the parts.
+        out.emit("progress", status="arch-on", percent=None, cancel=False)
+        control_setting(extra, "on", app["name"], verb)
+        try:
+            pk_run(Pk, GLib, "refresh_cache", False)        # the running daemon sees the new architecture
+        except PackageKitFailed as error:
+            raise SoftwareError(pk_message(error, verb, app["name"])) from None
+        plan = apt_plan(catalog, app, remove, source)
+        refuse_protected(plan)
+        if not plan["adds"]["on"] or not plan["ids"]:
+            raise SoftwareError(f"{app['name']} wasn't {verb}: {extra['what']} is on, but its packages "
+                                f"aren't in the package lists. Try again in a few minutes.")
+    current = {"plan": plan}
 
     def progress(status, _kind, *_):
         percent = status.get_percentage()
@@ -1271,7 +2111,7 @@ def apt_change(catalog, app, remove, out, source="debian"):
                  percent=percent if 0 <= percent <= 100 else None, cancel=bool(status.get_allow_cancel()))
 
     def work(cancellable):
-        ids = pk_resolve(Pk, GLib, package, installed=remove)
+        ids = current["plan"]["ids"]
         if remove:
             pk_run(Pk, GLib, "remove_packages", 0, ids, True, True, progress=progress, cancellable=cancellable)
         else:
@@ -1279,13 +2119,31 @@ def apt_change(catalog, app, remove, out, source="debian"):
             pk_run(Pk, GLib, "install_packages", trusted, ids, progress=progress, cancellable=cancellable)
 
     try:
-        run_cancellable(work)
+        try:
+            run_cancellable(work)
+        except PackageKitFailed as error:
+            if remove or not STALE_LISTS.search(str(error)):
+                raise
+            # The lists name a version the repository has replaced (FlickOS's
+            # keeps only the newest): fetch them again and try once more.
+            pk_run(Pk, GLib, "refresh_cache", False)
+            current["plan"] = apt_plan(catalog, app, remove, source)
+            refuse_protected(current["plan"])
+            run_cancellable(work)
     except PackageKitFailed as error:
         raise SoftwareError(pk_message(error, verb, app["name"])) from None
     # PackageKit reports a cancelled transaction as a success: check the result.
     packages, _ = installed_packages()
-    if (package in packages) == remove:
+    wanted = [i.split(";")[0] for i in current["plan"]["ids"]]
+    if (package in packages) == remove or not remove and not all(p in packages for p in wanted):
         raise Cancelled()
+    if remove and current["plan"]["turns_off"]:
+        out.emit("progress", status="arch-off", percent=None, cancel=False)
+        try:
+            control_setting(extra, "off", app["name"], verb)
+        except SoftwareError as error:
+            # The app is gone; only the architecture stays (Settings' History can undo it).
+            warn(f"{extra['what'].capitalize()} stays on: {error}")
 
 
 def refuse_protected(plan):
@@ -1432,6 +2290,786 @@ def flatpak_change(catalog, app, remove, out):
     run_cancellable(work)
 
 
+# --- Files from outside: .deb, .flatpak, .flatpakref, .flatpakrepo (ADR-012) ---------
+#
+# `open FILE...` shows one page for the files; `plan --file` and `install --file`
+# are the children it runs. Reading a file never runs anything from it: dpkg-deb
+# reads a package's control data, libflatpak a bundle's header, and the link
+# files are plain text. A `.deb` installs through PackageKit (its untrusted-file
+# action asks for the password every time), Flatpak files through libflatpak
+# into the system installation.
+
+FLATHUB_URL = "https://dl.flathub.org/repo/"
+FLATHUB_REPO_FILE = "https://dl.flathub.org/repo/flathub.flatpakrepo"
+OPEN_FOLDER = os.path.join("software", "open")      # under runtime_dir(): one small file per path to open
+FILE_SECONDS = 20                   # reading one file is given up after
+FILE_LIMIT = 1 << 20                # a link file is never bigger than this
+FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
+KIND_WORDS = {"deb": "Debian package", "ref": "Flatpak app", "bundle": "Flatpak app", "repo": "Flatpak source"}
+
+# What a Flatpak's [Context] says, in words (ADR-012: the page shows it before Install).
+FS_WORDS = {
+    "home": "your home folder", "host": "all your files", "host-os": "the system's program files",
+    "host-etc": "the system's settings files", "xdg-download": "your Downloads folder",
+    "xdg-documents": "your Documents folder", "xdg-pictures": "your Pictures folder",
+    "xdg-music": "your Music folder", "xdg-videos": "your Videos folder", "xdg-desktop": "your Desktop folder",
+    "xdg-config": "your settings folders", "xdg-data": "your data folders", "xdg-cache": "your cache folders",
+}
+
+
+def native_architecture():
+    try:
+        result = subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True,
+                                timeout=QUERY_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return "amd64"
+    return result.stdout.strip() or "amd64"
+
+
+def read_small(path, limit=FILE_LIMIT):
+    base = os.path.basename(path)
+    try:
+        with open(path, "rb") as f:
+            data = f.read(limit + 1)
+    except OSError as error:
+        raise SoftwareError(f"{base} can't be read: {error.strerror or error}") from None
+    if len(data) > limit:
+        raise SoftwareError(f"{base} is too big to be a link file.")
+    return data.decode("utf-8", "replace")
+
+
+def keyfile(text, section):
+    """One section of a key file (a .flatpakref, a .flatpakrepo, a bundle's metadata) as a dict."""
+    parser = configparser.RawConfigParser(strict=False, delimiters=("=",))
+    parser.optionxform = str
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return {}
+    return dict(parser[section]) if parser.has_section(section) else {}
+
+
+def file_kind(path):
+    """deb, ref, bundle or repo, from what the file starts with (a bundle's by its name)."""
+    base = os.path.basename(path)
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512)
+    except OSError as error:
+        raise SoftwareError(f"{base} can't be read: {error.strerror or error}") from None
+    if head.startswith(b"!<arch>\n"):
+        return "deb"
+    text = head.lstrip(b"\xef\xbb\xbf \t\r\n")
+    if text.startswith(b"[Flatpak Ref]"):
+        return "ref"
+    if text.startswith(b"[Flatpak Repo]"):
+        return "repo"
+    if base.endswith(".flatpak") and not text.startswith(b"["):
+        return "bundle"
+    raise SoftwareError(f"{base} isn't a Debian package or a Flatpak file.")
+
+
+def friendly_name(app_id):
+    """Calculator for org.gnome.Calculator (a file has no better name than its ID)."""
+    return app_id.rsplit(".", 1)[-1] or app_id
+
+
+def split_list(value):
+    return [part for part in (value or "").split(";") if part]
+
+
+def permission_words(metadata):
+    """(sentences, risky) for a Flatpak's metadata: what the app may reach.
+    Risky: the whole home folder or all files for writing, or a way out of the
+    sandbox. Devices are listed but never risky: games ask for all of them
+    so controllers work (ADR-012)."""
+    context = keyfile(metadata, "Context")
+    words, risky = [], False
+    sockets = split_list(context.get("sockets"))
+    devices = split_list(context.get("devices"))
+    features = split_list(context.get("features"))
+    if "network" in split_list(context.get("shared")):
+        words.append("Use the network")
+    if "pulseaudio" in sockets:
+        words.append("Play and record sound")
+    if "all" in devices:
+        words.append("Use all devices, such as game controllers and cameras")
+    if "cups" in sockets:
+        words.append("Print")
+    if "ssh-auth" in sockets:
+        words.append("Use your SSH keys")
+    if "gpg-agent" in sockets:
+        words.append("Use your GPG keys")
+    if "pcsc" in sockets:
+        words.append("Use smart cards")
+    if "bluetooth" in features:
+        words.append("Use Bluetooth")
+    for entry in split_list(context.get("filesystems")):
+        if entry.startswith("!"):
+            continue
+        path, _, mode = entry.partition(":")
+        where = FS_WORDS.get(path) or (f"the folder {path}" if path.startswith(("~", "/")) else None)
+        if where is None:
+            continue
+        if mode == "ro":
+            words.append(f"Read {where}")
+        else:
+            words.append(f"Read and write {where}")
+            risky = risky or path in ("home", "host", "host-os", "host-etc")
+    if "session-bus" in sockets or "system-bus" in sockets:
+        words.append("Talk to every program on the desktop (it can leave the sandbox)")
+        risky = True
+    for key, value in keyfile(metadata, "Session Bus Policy").items():
+        if key == "org.freedesktop.Flatpak" and value in ("talk", "own"):
+            words.append("Start programs outside the sandbox")
+            risky = True
+        elif key == "org.freedesktop.secrets" and value in ("talk", "own"):
+            words.append("Use your saved passwords")
+    return words, risky
+
+
+def control_fields(text):
+    """dpkg-deb -f's output as a dict (a continuation line starts with a space)."""
+    fields, last = {}, None
+    for line in text.splitlines():
+        if line[:1] in (" ", "\t") and last:
+            fields[last] += "\n" + line.strip()
+        elif ":" in line:
+            last, _, value = line.partition(":")
+            fields[last] = value.strip()
+    return fields
+
+
+class Reason:
+    """A bare message with .message, what flatpak_message() reads from a GLib.Error."""
+
+    def __init__(self, message):
+        self.message = message
+
+
+def cant(item, reason):
+    """A refusal as a sentence."""
+    return f"{item['name']} can't be installed: {' '.join(str(reason).split())}"
+
+
+def new_item(path):
+    path = os.path.abspath(path)
+    return {"path": path, "file": os.path.basename(path), "kind": None, "name": "", "version": "", "arch": "",
+            "summary": "", "size": 0, "download": 0, "maker": "", "homepage": "", "notes": [],
+            "permissions": [], "risky": False, "refused": None, "catalog": None, "adds": None}
+
+
+def inspect_deb(item):
+    try:
+        result = subprocess.run(["dpkg-deb", "-f", item["path"], "Package", "Version", "Architecture",
+                                 "Installed-Size", "Maintainer", "Homepage", "Description"],
+                                capture_output=True, text=True, timeout=FILE_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise SoftwareError(f"{item['file']} can't be read.") from None
+    fields = control_fields(result.stdout)
+    if result.returncode != 0 or not FILE_NAME.match(fields.get("Package", "")) or not fields.get("Version"):
+        raise SoftwareError(f"{item['file']} isn't a valid Debian package.")
+    size = fields.get("Installed-Size", "")
+    item.update(name=fields["Package"], version=fields["Version"], arch=fields.get("Architecture", ""),
+                summary=fields.get("Description", "").partition("\n")[0], maker=fields.get("Maintainer", ""),
+                homepage=fields.get("Homepage", ""), size=int(size) * 1024 if size.isdigit() else 0)
+    supported = {"all", native_architecture(), *foreign_architectures()}
+    if item["arch"] not in supported:
+        raise SoftwareError(f"{item['file']} is for {item['arch']} computers; this one runs "
+                            f"{native_architecture()}.")
+
+
+def inspect_bundle(item):
+    Flatpak, Gio, GLib = libflatpak()
+    try:
+        bundle = Flatpak.BundleRef.new(Gio.File.new_for_path(item["path"]))
+    except GLib.Error:
+        raise SoftwareError(f"{item['file']} isn't a valid Flatpak file.") from None
+    if bundle.get_kind() != Flatpak.RefKind.APP:
+        raise SoftwareError(f"{item['file']} is a runtime, not an app.")
+    if bundle.get_arch() != FLATPAK_ARCH:
+        raise SoftwareError(f"{item['file']} is for {bundle.get_arch()} computers; this one runs {FLATPAK_ARCH}.")
+    app_id = bundle.get_name()
+    item.update(app_id=app_id, name=friendly_name(app_id), version=bundle.get_branch(), arch=bundle.get_arch(),
+                ref=bundle.format_ref(), size=bundle.get_installed_size(), url=bundle.get_origin() or "",
+                runtime_repo=bundle.get_runtime_repo_url() or "")
+    with contextlib.suppress(OSError):
+        item["download"] = os.path.getsize(item["path"])
+    metadata = bundle.get_metadata()
+    if metadata is not None:
+        text = bytes(metadata.get_data()).decode("utf-8", "replace")
+        item["permissions"], item["risky"] = permission_words(text)
+        runtime = keyfile(text, "Application").get("runtime", "")
+        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_]+/[A-Za-z0-9_.-]+", runtime):
+            item["runtime_ref"] = f"runtime/{runtime}"
+    # A bundle exported with appstream data names the app properly.
+    with contextlib.suppress(Exception):
+        data = bundle.get_appstream()
+        if data is not None:
+            root = ET.fromstring(gzip.decompress(bytes(data.get_data())))
+            name = root.findtext(".//component/name")
+            if name:
+                item["name"] = tidy(name)[:80]
+    if not item["url"]:
+        item["notes"].append("It won't update by itself: the file doesn't say where updates come from.")
+
+
+def inspect_ref(item):
+    fields = keyfile(read_small(item["path"]), "Flatpak Ref")
+    app_id, branch, url = fields.get("Name", ""), fields.get("Branch") or "master", fields.get("Url", "")
+    if not FILE_NAME.match(app_id) or not FILE_NAME.match(branch):
+        raise SoftwareError(f"{item['file']} isn't a valid Flatpak link file.")
+    if fields.get("IsRuntime", "false").lower() == "true":
+        raise SoftwareError(f"{item['file']} is a runtime, not an app.")
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc:
+        raise SoftwareError(f"{item['file']} names a source that isn't an https address.")
+    flathub = url.rstrip("/") + "/" == FLATHUB_URL
+    item.update(app_id=app_id, name=friendly_name(app_id), version=branch, arch=FLATPAK_ARCH,
+                ref=f"app/{app_id}/{FLATPAK_ARCH}/{branch}", url=url, flathub=flathub, host=parts.netloc,
+                gpg_key=bool(fields.get("GPGKey")), summary=fields.get("Comment", "")[:200],
+                homepage=fields.get("Homepage", ""),
+                suggested=re.sub(r"[^A-Za-z0-9_.-]", "", fields.get("SuggestRemoteName", ""))[:40])
+    if not flathub and not item["gpg_key"]:
+        raise SoftwareError(f"{item['file']} names a source ({parts.netloc}) with no signing key.")
+
+
+def inspect_repo(item):
+    fields = keyfile(read_small(item["path"]), "Flatpak Repo")
+    url = fields.get("Url", "")
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc:
+        raise SoftwareError(f"{item['file']} names a source that isn't an https address.")
+    if not fields.get("GPGKey"):
+        raise SoftwareError(f"{item['file']} names a source ({parts.netloc}) with no signing key.")
+    title = tidy(fields.get("Title", "")) or parts.netloc
+    item.update(name=title[:80], url=url, host=parts.netloc, summary=(fields.get("Comment")
+                                                                      or fields.get("Description") or "")[:200],
+                homepage=fields.get("Homepage", ""))
+
+
+INSPECT = {"deb": inspect_deb, "bundle": inspect_bundle, "ref": inspect_ref, "repo": inspect_repo}
+
+
+def inspect_file(path):
+    """What a file is, from the file alone. A file that can't be used says why in item["refused"]."""
+    item = new_item(path)
+    try:
+        item["kind"] = file_kind(item["path"])
+        INSPECT[item["kind"]](item)
+    except SoftwareError as error:
+        item["refused"] = str(error)
+    item["name"] = item["name"] or item["file"]
+    return item
+
+
+def compare_versions(first, second):
+    """1, 0 or -1 as dpkg orders the versions."""
+    for operator, result in (("gt", 1), ("eq", 0)):
+        try:
+            if subprocess.run(["dpkg", "--compare-versions", first, operator, second],
+                              timeout=QUERY_SECONDS, check=False).returncode == 0:
+                return result
+        except (OSError, subprocess.TimeoutExpired):
+            return 0
+    return -1
+
+
+def catalog_app_for_package(catalog, package):
+    for app in catalog.apps:
+        for source in APT_SOURCES:
+            entry = app["src"].get(source)
+            if entry and entry.get("pkg") == package:
+                return app
+    return None
+
+
+def deb_simulation(paths):
+    """What installing the files changes (a simulation, no password):
+    {PackageKit's info: [ids]}."""
+    Pk, GLib = packagekit()
+    simulate = Pk.transaction_flag_bitfield_from_string("simulate")
+    result = pk_run(Pk, GLib, "install_files", simulate, paths)
+    changes = {}
+    for item in result.get_package_array():
+        changes.setdefault(Pk.info_enum_to_string(item.get_info()), []).append(item.get_id())
+    return changes, Pk, GLib
+
+
+def plan_debs(debs, catalog, plan):
+    """Fill the .deb items and plan["deb"] from one simulation of all of them."""
+    installed = catalog.packages
+    for item in debs:
+        have = installed.get(item["name"])
+        if have:
+            relation = compare_versions(item["version"], have)
+            if relation == 0:
+                item["refused"] = f"{item['name']} {have} is already installed."
+            elif relation < 0:
+                item["notes"].append(f"It is older than the installed version ({have}); installing it replaces it.")
+            else:
+                item["notes"].append(f"It replaces the installed version ({have}).")
+        app = catalog_app_for_package(catalog, item["name"])
+        if app is not None:
+            item["catalog"] = app["id"]
+        if catalog.is_protected(item["name"]) and not have:
+            item["refused"] = f"{item['name']} has a name only FlickOS's own packages use, so a file can't install it."
+        item["summary"] = item["summary"] or "Debian package"
+    todo = [i for i in debs if not i["refused"]]
+    plan["deb"] = {"packages": [], "removes": [], "download": 0, "size": 0}
+    if not todo:
+        return
+
+    def simulate(items):
+        return deb_simulation([i["path"] for i in items])
+
+    try:
+        changes, Pk, GLib = simulate(todo)
+    except PackageKitFailed as error:
+        # Find the file at fault; the rest are planned together.
+        ok = []
+        for item in todo:
+            try:
+                simulate([item])
+                ok.append(item)
+            except PackageKitFailed as single:
+                item["refused"] = cant(item, pk_message(single, "installed", "").split(": ", 1)[-1])
+        if len(ok) == len(todo):
+            plan["error"] = pk_message(error, "installed", "").split(": ", 1)[-1]
+            return
+        todo = ok
+        if not todo:
+            return
+        try:
+            changes, Pk, GLib = simulate(todo)
+        except PackageKitFailed as again:
+            plan["error"] = pk_message(again, "installed", "").split(": ", 1)[-1]
+            return
+    own = {i["name"] for i in todo}
+    adds = [i for key in ("installing", "updating", "downgrading", "reinstalling") for i in changes.get(key, [])]
+    removes = [i for key in ("removing", "obsoleting") for i in changes.get(key, [])]
+    plan["deb"]["packages"] = sorted({i.split(";")[0] for i in adds} - own)
+    plan["deb"]["removes"] = sorted({i.split(";")[0] for i in removes})
+    protected = [p for p in plan["deb"]["removes"] if catalog.is_protected(p)]
+    if protected:
+        for item in todo:
+            item["refused"] = (f"Installing {item['name']} would remove part of the FlickOS desktop ("
+                               + ", ".join(protected) + ").")
+        plan["deb"]["removes"] = []
+        return
+    sized = [i for i in adds if i.split(";")[0] not in own]
+    if sized:
+        with contextlib.suppress(PackageKitFailed):
+            for details in pk_run(Pk, GLib, "get_details", sized).get_details_array():
+                plan["deb"]["size"] += details.get_size() or 0
+                plan["deb"]["download"] += details.get_download_size() or 0
+
+
+def remote_by_url(installation, url):
+    """The name of the system remote that has this address, or None."""
+    wanted = url.rstrip("/")
+    for remote in installation.list_remotes():
+        if (remote.get_url() or "").rstrip("/") == wanted:
+            return remote.get_name()
+    return None
+
+
+def plan_flatpaks(items, catalog, plan):
+    """Fill the Flatpak items, and plan["flatpak"] from one transaction stopped
+    before it starts (no password)."""
+    Flatpak, Gio, GLib = libflatpak()
+    plan["flatpak"] = {"runtimes": [], "size": 0, "download": 0}
+    try:
+        installation = Flatpak.Installation.new_system(None)
+    except GLib.Error as error:
+        for item in items:
+            item["refused"] = f"Flatpak apps can't be installed here: {error.message}"
+        return
+    transaction = flatpak_transaction(Flatpak, installation)
+    flathub_here = flathub_configured()
+    planned, refs = 0, {}
+    for item in items:
+        if flatpak_installed_ref(Flatpak, GLib, installation, item["ref"]) is not None:
+            item["refused"] = f"{item['name']} is already installed."
+            continue
+        if item["kind"] == "bundle":
+            # Not a transaction of the bundle: libflatpak sets up its remote (and asks for the
+            # password) before it stops at the plan. Only the runtime it needs is planned.
+            runtime = item.get("runtime_ref")
+            if runtime and not runtime_installed(Flatpak, GLib, installation, runtime):
+                if flathub_here:
+                    transaction.add_install(FLATHUB, runtime, None)
+                    planned += 1
+                else:
+                    item["notes"].append(f"It needs {runtime_name(runtime) or runtime.split('/')[1]}, "
+                                         "which isn't installed, and Flathub isn't added.")
+            continue
+        app = catalog.find(item["app_id"]) if catalog.loaded else None
+        if app is not None and "flathub" in app["src"]:
+            item["catalog"] = app["id"]
+            item["name"] = app["name"]
+            item["summary"] = item["summary"] or app["summary"]
+        if item["flathub"]:
+            if not flathub_here:
+                item["adds"] = {"what": "Flathub", "host": "dl.flathub.org"}
+                item["notes"].append("This also adds Flathub, the place the app comes from.")
+                continue
+            remote = FLATHUB
+        else:
+            remote = remote_by_url(installation, item["url"])
+            if remote is None:
+                item["adds"] = {"what": item["host"], "host": item["host"]}
+                item["notes"].append(f"This also adds the source {item['host']}. Only add a source you trust.")
+                continue
+        try:
+            transaction.add_install(remote, item["ref"], None)
+        except GLib.Error as error:
+            item["refused"] = cant(item, flatpak_message(error, "installed", "").split(": ", 1)[-1])
+            continue
+        refs[item["ref"]] = item
+        planned += 1
+    if not planned:
+        return
+
+    def ready(transaction):
+        for op in transaction.get_operations():
+            ref = op.get_ref()
+            if ref.split("/")[1].endswith(".Locale"):
+                continue            # reports its full size; only the chosen languages come
+            if ref in refs:
+                refs[ref]["download"] = op.get_download_size()
+                refs[ref]["size"] = op.get_installed_size()
+                continue
+            plan["flatpak"]["download"] += op.get_download_size()
+            plan["flatpak"]["size"] += op.get_installed_size()
+            name = runtime_name(ref)
+            if name and name not in plan["flatpak"]["runtimes"]:
+                plan["flatpak"]["runtimes"].append(name)
+        return False
+
+    transaction.connect("ready", ready)
+    transaction.connect("add-new-remote", lambda *_args: False)     # a plan adds nothing
+    try:
+        transaction.run(None)
+    except GLib.Error as error:
+        if not error.matches(Flatpak.error_quark(), Flatpak.Error.ABORTED):
+            plan["error"] = flatpak_message(error, "installed", "").split(": ", 1)[-1]
+
+
+def runtime_installed(Flatpak, GLib, installation, ref):
+    _kind, name, arch, branch = ref.split("/")
+    try:
+        return installation.get_installed_ref(Flatpak.RefKind.RUNTIME, name, arch, branch, None)
+    except GLib.Error:
+        return None
+
+
+def plan_repos(items):
+    Flatpak, _Gio, GLib = libflatpak()
+    try:
+        installation = Flatpak.Installation.new_system(None)
+    except GLib.Error as error:
+        for item in items:
+            item["refused"] = f"Sources can't be added here: {error.message}"
+        return
+    for item in items:
+        have = remote_by_url(installation, item["url"])
+        if have:
+            item["refused"] = f"{item['host']} is already a source ({have})."
+        elif item["url"].rstrip("/") + "/" == FLATHUB_URL:
+            item["notes"].append("This is Flathub, the source Software already lists apps from.")
+        else:
+            item["notes"].append("Adding a source trusts its signing key. Apps from it don't appear in Software; "
+                                 "install them from the link files its website gives.")
+
+
+def plan_files(paths, catalog):
+    """The plan for opening paths: one item per file, and what the Debian and
+    Flatpak files need together. Nothing is changed and no password is asked."""
+    seen, items = set(), []
+    for path in paths:
+        full = os.path.abspath(path)
+        if full not in seen:
+            seen.add(full)
+            items.append(inspect_file(full))
+    plan = {"items": items, "deb": None, "flatpak": None, "error": None, "live": live_session()}
+    debs = [i for i in items if i["kind"] == "deb" and not i["refused"]]
+    flats = [i for i in items if i["kind"] in ("ref", "bundle") and not i["refused"]]
+    repos = [i for i in items if i["kind"] == "repo" and not i["refused"]]
+    if debs:
+        try:
+            plan_debs(debs, catalog, plan)
+        except SoftwareError as error:
+            for item in debs:
+                item["refused"] = str(error)
+    if flats:
+        try:
+            plan_flatpaks(flats, catalog, plan)
+        except SoftwareError as error:
+            for item in flats:
+                item["refused"] = str(error)
+    if repos:
+        try:
+            plan_repos(repos)
+        except SoftwareError as error:
+            for item in repos:
+                item["refused"] = str(error)
+    return plan
+
+
+def files_plan_words(plan, size=human_size):
+    """The sentences under the file rows (HIG TXT-8)."""
+    items = [i for i in plan["items"] if not i["refused"]]
+    parts = []
+    own = sum(i["size"] for i in items if i["kind"] in ("deb", "bundle", "ref"))
+    deb, flat = plan.get("deb"), plan.get("flatpak")
+    need = own + (deb["size"] if deb else 0) + (flat["size"] if flat else 0)
+    download = (deb["download"] if deb else 0) + (flat["download"] if flat else 0) \
+        + sum(i["download"] for i in items if i["kind"] in ("bundle", "ref"))
+    if need:
+        text = f"Needs {size(need)} of disk space"
+        if download:
+            text += f" ({size(download)} to download or copy)"
+        parts.append(text + ".")
+    if deb and deb["packages"]:
+        count = len(deb["packages"])
+        parts.append(f"It brings {count} other package from Debian." if count == 1
+                     else f"It brings {count} other packages from Debian.")
+    if flat and flat["runtimes"]:
+        parts.append(f"It also needs {join_words(flat['runtimes'])} from Flathub.")
+    if deb and deb["removes"]:
+        parts.append(f"Installing it removes {', '.join(deb['removes'])}.")
+    kinds = {i["kind"] for i in items}
+    if "deb" in kinds:
+        parts.append("Debian packages ask for your password"
+                     + (", and so do Flatpak files" if "bundle" in kinds else "")
+                     + ". A package nobody at FlickOS has checked runs its scripts as the administrator.")
+    elif "bundle" in kinds:
+        parts.append("Installing from a Flatpak file asks for your password.")
+    if plan.get("live"):
+        parts.append("This is the live session: what you install here is gone after you restart.")
+    if plan.get("error"):
+        parts.append(f"What it needs couldn't be checked: {plan['error']}")
+    return " ".join(parts)
+
+
+def remote_name_for(installation, wanted, host):
+    """A name for a new remote that no remote has yet."""
+    base = re.sub(r"[^A-Za-z0-9_.-]", "-", wanted or host).strip("-.")[:40] or "source"
+    names = {r.get_name() for r in installation.list_remotes()}
+    name, number = base, 1
+    while name in names:
+        number += 1
+        name = f"{base}-{number}"
+    return name
+
+
+def fetch_flathub_repo():
+    """Flathub's .flatpakrepo over TLS (what the image's 0150-flathub hook adds from)."""
+    request = urllib.request.Request(FLATHUB_REPO_FILE, headers={"User-Agent": NAME})
+    try:
+        with urllib.request.urlopen(request, timeout=FILE_SECONDS) as response:
+            return response.read(FILE_LIMIT)
+    except (OSError, ValueError) as error:
+        raise SoftwareError(f"Flathub couldn't be added: {error}") from None
+
+
+def add_flathub(Flatpak, GLib, installation):
+    data = fetch_flathub_repo()
+    try:
+        remote = Flatpak.Remote.new_from_file(FLATHUB, GLib.Bytes.new(data))
+        installation.add_remote(remote, True, None)
+    except GLib.Error as error:
+        raise SoftwareError(f"Flathub couldn't be added: {error.message}") from None
+
+
+def add_repo_item(item, out):
+    Flatpak, _Gio, GLib = libflatpak()
+    try:
+        installation = Flatpak.Installation.new_system(None)
+        name = remote_name_for(installation, item.get("suggested") or item["host"], item["host"])
+        with open(item["path"], "rb") as f:
+            remote = Flatpak.Remote.new_from_file(name, GLib.Bytes.new(f.read(FILE_LIMIT)))
+        installation.add_remote(remote, True, None)
+    except (GLib.Error, OSError) as error:
+        raise SoftwareError(f"{item['host']} wasn't added: {getattr(error, 'message', error)}") from None
+    out.emit("item", path=item["path"], status="done", message=f"{item['host']} was added as a source.")
+
+
+def flatpak_files_change(items, out):
+    """Install the Flatpak files in one transaction. Returns how many failed."""
+    Flatpak, Gio, GLib = libflatpak()
+    try:
+        installation = Flatpak.Installation.new_system(None)
+    except GLib.Error as error:
+        for item in items:
+            out.emit("item", path=item["path"], status="error",
+                     message=f"Flatpak apps can't be installed here: {error.message}")
+        return len(items)
+    allowed = {FLATHUB_URL} | {i["url"].rstrip("/") + "/" for i in items if i.get("adds")}
+    errors = {}
+
+    def work(cancellable):
+        if any(i["kind"] == "ref" and i["flathub"] for i in items) and not flathub_configured():
+            add_flathub(Flatpak, GLib, installation)
+        transaction = flatpak_transaction(Flatpak, installation)
+        transaction.connect("add-new-remote",
+                            lambda _t, _reason, _from, _name, url: url.rstrip("/") + "/" in allowed)
+        done = {"ops": -1, "count": 1}
+
+        def ready(transaction):
+            done["count"] = max(1, len(transaction.get_operations()))
+            return True
+
+        def new_operation(_transaction, op, progress):
+            done["ops"] += 1
+            progress.set_update_frequency(300)
+            words = runtime_name(op.get_ref())
+
+            def changed(progress):
+                percent = (done["ops"] * 100 + progress.get_progress()) // done["count"]
+                out.emit("progress", status="download", percent=min(100, percent), cancel=True,
+                         detail=words or "")
+
+            progress.connect("changed", changed)
+
+        def operation_error(_transaction, op, error, _details):
+            errors[op.get_ref()] = error.message
+            return True                     # the other apps go on
+
+        transaction.connect("ready", ready)
+        transaction.connect("new-operation", new_operation)
+        transaction.connect("operation-error", operation_error)
+        for item in items:
+            if item["kind"] == "bundle":
+                transaction.add_install_bundle(Gio.File.new_for_path(item["path"]), None)
+            elif item["flathub"]:
+                transaction.add_install(FLATHUB, item["ref"], None)
+            else:
+                remote = remote_by_url(installation, item["url"])
+                if remote:
+                    transaction.add_install(remote, item["ref"], None)
+                else:
+                    with open(item["path"], "rb") as f:
+                        transaction.add_install_flatpakref(GLib.Bytes.new(f.read(FILE_LIMIT)))
+        try:
+            transaction.run(cancellable)
+        except GLib.Error as error:
+            if cancellable.is_cancelled() or error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+                raise Cancelled() from None
+            if not errors:
+                errors["*"] = error.message
+
+    try:
+        run_cancellable(work)
+    except SoftwareError as error:
+        errors["*"] = str(error)
+    failed = 0
+    for item in items:
+        if flatpak_installed_ref(Flatpak, GLib, installation, item["ref"]) is not None:
+            out.emit("item", path=item["path"], status="done", message=f"{item['name']} is installed.")
+        else:
+            failed += 1
+            reason = errors.get(item["ref"]) or errors.get("*") or "it wasn't installed"
+            out.emit("item", path=item["path"], status="error",
+                     message=flatpak_message(Reason(reason), "installed", item["name"]))
+    return failed
+
+
+def deb_files_change(items, out):
+    """Install the .deb files in one PackageKit transaction. Returns how many failed."""
+    Pk, GLib = packagekit()
+    paths = [i["path"] for i in items]
+
+    def progress(status, _kind, *_):
+        percent = status.get_percentage()
+        out.emit("progress", status=Pk.status_enum_to_string(status.get_status()),
+                 percent=percent if 0 <= percent <= 100 else None, cancel=bool(status.get_allow_cancel()))
+
+    def work(cancellable):
+        pk_run(Pk, GLib, "install_files", 0, paths, progress=progress, cancellable=cancellable)
+
+    reason = None
+    try:
+        run_cancellable(work)
+    except PackageKitFailed as error:
+        reason = pk_message(error, "installed", "It")
+    # PackageKit reports a cancelled transaction as a success: look at what is installed.
+    packages, _ = installed_packages()
+    failed = 0
+    for item in items:
+        if packages.get(item["name"]) == item["version"]:
+            out.emit("item", path=item["path"], status="done", message=f"{item['name']} is installed.")
+        else:
+            failed += 1
+            out.emit("item", path=item["path"], status="error",
+                     message=(reason or "It wasn't installed.").replace("It wasn't", f"{item['name']} wasn't", 1))
+    return failed
+
+
+def files_change(paths, out):
+    """Install what plan_files() found usable. Raises SoftwareError when nothing was."""
+    catalog = open_catalog()
+    plan = plan_files(paths, catalog)
+    usable = []
+    for item in plan["items"]:
+        if item["refused"]:
+            out.emit("item", path=item["path"], status="error", message=item["refused"])
+        else:
+            usable.append(item)
+    if not usable:
+        raise SoftwareError("None of the files can be installed.")
+    failed = len(plan["items"]) - len(usable)
+    for item in (i for i in usable if i["kind"] == "repo"):
+        try:
+            add_repo_item(item, out)
+        except SoftwareError as error:
+            failed += 1
+            out.emit("item", path=item["path"], status="error", message=str(error))
+    flats = [i for i in usable if i["kind"] in ("ref", "bundle")]
+    if flats:
+        failed += flatpak_files_change(flats, out)
+    debs = [i for i in usable if i["kind"] == "deb"]
+    if debs:
+        failed += deb_files_change(debs, out)
+    return failed
+
+
+def spool_folder():
+    return os.path.join(runtime_dir(), OPEN_FOLDER)
+
+
+def spool_files(paths):
+    """Hand paths to the open window: one small file each, written atomically."""
+    folder = spool_folder()
+    for path in paths:
+        name = f"{time.time_ns():020d}-{secrets.token_hex(4)}"
+        write_atomic(os.path.join(folder, name), os.path.abspath(path) + "\n", mode=0o600)
+
+
+def take_spool():
+    """The paths handed over since the last call, oldest first; the files are deleted."""
+    folder = spool_folder()
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return []
+    paths = []
+    for name in names:
+        if name.endswith(".tmp"):
+            continue                # write_atomic()'s file, not renamed yet
+        full = os.path.join(folder, name)
+        try:
+            with open(full, encoding="utf-8") as f:
+                text = f.read().strip()
+            os.unlink(full)
+        except OSError:
+            continue
+        if text:
+            paths.append(text)
+    return paths
+
+
 def refresh(force=False):
     """Fetch the catalogs fetch_needed() names (all with force): apt's lists
     through PackageKit, which runs the appstream hook, and Flathub's through
@@ -1457,12 +3095,8 @@ def refresh(force=False):
                 warn(f"Flathub's catalog wasn't updated: {error.message}")
         except SoftwareError as error:
             warn(str(error))
-    if force or featured_stale():
-        try:
-            fetch_featured()
-            fetched.append("featured")
-        except (OSError, ValueError) as error:
-            warn(f"The front page's shelves weren't updated: {error}")
+    shop = fetch_shop(force)
+    fetched += [name for name, changed in shop.items() if changed]
     return fetched
 
 
@@ -1480,6 +3114,8 @@ def open_catalog(installed=True):
         catalog.load()
     if installed:
         catalog.read_installed()
+    catalog.set_paid(load_featured()[1])
+    catalog.show_paid = paid_setting()[0] == "on"
     return catalog
 
 
@@ -1526,11 +3162,28 @@ def cmd_list(opts):
     else:
         counts = catalog.category_counts()
         for category_id, name, _icon, _names in CATEGORIES:
-            print(f"{category_id}\t{name}\t{counts[category_id]}")
+            if category_id != "web":        # web apps are the window's only
+                print(f"{category_id}\t{name}\t{counts[category_id]}")
     return 0
 
 
+def print_item(item):
+    """A file's page as `field<TAB>value` lines (cmd_info --file)."""
+    for field in ("file", "kind", "name", "version", "arch", "summary", "size", "maker", "homepage", "url",
+                  "refused"):
+        if item.get(field):
+            print(f"{field}\t{item[field]}")
+    for note in item["notes"]:
+        print(f"note\t{note}")
+    for words in item["permissions"]:
+        print(f"can\t{words}")
+
+
 def cmd_info(opts):
+    if opts.file:
+        for path in opts.file:
+            print_item(inspect_file(path))
+        return 0
     catalog = open_catalog()
     app = app_or_error(catalog, opts.app)
     source = choose_source(catalog, app, opts.source)
@@ -1542,7 +3195,13 @@ def cmd_info(opts):
               app["src"][source].get("pkg") or app["src"][source].get("ref")),
              ("developer", page["dev"]), ("license", page["license"]), ("homepage", page["home"]),
              ("version", page["version"])]
+    paid = app.get("paid")
+    if paid:
+        lines += [("price", paid["price"]), ("buy", paid["buy"])] + \
+            ([("product", paid["product"])] if paid["product"] else [])
     lines += [("screenshot", shot["url"]) for shot in page["shots"]]
+    if kit_note(app):
+        lines.append(("note", kit_note(app)))
     lines += [("description", text) for text in page["desc"]]
     for key, value in lines:
         print(f"{key}\t{value}")
@@ -1568,7 +3227,25 @@ def cmd_refresh(opts):
     return cmd_index(argparse.Namespace(force=False))
 
 
+def cmd_plan_files(opts):
+    plan = plan_files(opts.file, open_catalog())
+    if opts.json:
+        print(json.dumps(plan))
+        return 1 if all(i["refused"] for i in plan["items"]) else 0
+    for item in plan["items"]:
+        print_item(item)
+        print()
+    words = files_plan_words(plan, human_size)
+    if words:
+        print(words)
+    return 1 if all(i["refused"] for i in plan["items"]) else 0
+
+
 def cmd_plan(opts):
+    if opts.file:
+        return cmd_plan_files(opts)
+    if not opts.app:
+        raise SoftwareError("plan needs an app or --file FILE")
     catalog = open_catalog()
     app = app_or_error(catalog, opts.app)
     source = choose_source(catalog, app, opts.source)
@@ -1588,6 +3265,11 @@ def cmd_plan(opts):
     if plan["download"]:
         print(f"download\t{human_size(plan['download'])}")
     print(f"{'frees' if opts.remove else 'size'}\t{human_size(plan['size'])}")
+    adds = plan.get("adds")
+    if adds and not adds["on"]:
+        print(f"adds\t{adds['what']}\t{human_size(adds['download'])}\t{human_size(adds['size'])}")
+    if plan.get("turns_off"):
+        print(f"turns off\t{OTHER_ARCH[plan['package']]['what']}")
     for package in plan["protected"]:
         print(f"refused\t{package} is part of the FlickOS desktop")
     return 1 if plan["protected"] else 0
@@ -1596,10 +3278,18 @@ def cmd_plan(opts):
 def cmd_change(opts):
     remove = opts.command == "remove"
     out = Output(opts.json)
+    if opts.file:
+        if remove:
+            raise SoftwareError("--file works with install only")
+        return cmd_install_files(opts, out)
+    if not opts.app:
+        raise SoftwareError(f"{opts.command} needs an app or --file FILE")
     try:
         catalog = open_catalog()
         app = app_or_error(catalog, opts.app)
         source = choose_source(catalog, app, opts.source)
+        if source == STORE and not remove and catalog.locked(app):
+            raise SoftwareError(f"{app['name']} is sold in the FlickOS Store: buy it first ({app['paid']['buy']})")
         if source in APT_SOURCES:
             apt_change(catalog, app, remove, out, source)
         else:
@@ -1611,6 +3301,43 @@ def cmd_change(opts):
         out.emit("error", message=str(error))
         raise
     out.emit("done")
+    return 0
+
+
+def cmd_install_files(opts, out):
+    try:
+        failed = files_change(opts.file, out)
+    except Cancelled:
+        out.emit("cancelled")
+        return 1
+    except SoftwareError as error:
+        out.emit("error", message=str(error))
+        raise
+    out.emit("done", failed=failed)
+    return 1 if failed else 0
+
+
+def cmd_open(opts):
+    """Open the window on files, or hand them to the window that is open."""
+    paths = [os.path.abspath(p) for p in opts.files]
+    try:
+        with single_instance() as first:
+            if not first:
+                spool_files(paths)
+                return 0
+            opts.app = opts.search = None
+            opts.installed = False
+            return window(opts)
+    except SoftwareError as error:
+        warn(str(error))
+        return 1
+
+
+def cmd_paid(opts):
+    if opts.paid_command == "set":
+        set_paid(opts.value)
+    else:
+        print(paid_setting()[0])
     return 0
 
 
@@ -1641,12 +3368,13 @@ def main(argv=None):
     listing = commands.add_parser("list", help="print the categories, or apps")
     which = listing.add_mutually_exclusive_group()
     which.add_argument("--installed", action="store_true")
-    which.add_argument("--category", choices=[c[0] for c in CATEGORIES])
+    which.add_argument("--category", choices=[c[0] for c in CATEGORIES if c[0] != "web"])
     which.add_argument("--shelves", action="store_true", help="the front page's shelves")
     listing.set_defaults(func=cmd_list)
     info = commands.add_parser("info", help="print an app's page")
     info.add_argument("--source", choices=SOURCES)
-    info.add_argument("app", metavar="ID")
+    info.add_argument("app", metavar="ID", nargs="?")
+    info.add_argument("--file", action="append", metavar="FILE", help="a package or Flatpak file, not an app")
     info.set_defaults(func=cmd_info)
     index = commands.add_parser("index", help="rebuild the index when a catalog changed")
     index.add_argument("--force", action="store_true")
@@ -1664,7 +3392,18 @@ def main(argv=None):
     for sub in (plan, install, remove):
         sub.add_argument("--json", action="store_true", help="print JSON")
         sub.add_argument("--source", choices=SOURCES)
-        sub.add_argument("app", metavar="ID")
+        sub.add_argument("app", metavar="ID", nargs="?")
+        sub.add_argument("--file", action="append", metavar="FILE",
+                         help=".deb, .flatpak, .flatpakref or .flatpakrepo file (repeat for more)")
+    open_files = commands.add_parser("open", help="show .deb and Flatpak files, to install them")
+    open_files.add_argument("files", nargs="+", metavar="FILE")
+    open_files.set_defaults(func=cmd_open)
+    paid = commands.add_parser("paid", help="whether apps with a price show")
+    paid_commands = paid.add_subparsers(dest="paid_command", metavar="COMMAND", required=True)
+    paid_commands.add_parser("current", help="print on or off")
+    paid_set = paid_commands.add_parser("set", help="show apps with a price or not")
+    paid_set.add_argument("value", choices=CHOICES + (DEFAULT_CHOICE,))
+    paid.set_defaults(func=cmd_paid)
     argv = list(sys.argv[1:] if argv is None else argv)
     # No command, or only show's options: show.
     if not argv or argv[0].startswith("--") and argv[0] not in ("-h", "--help"):
@@ -1675,6 +3414,8 @@ def main(argv=None):
     except SoftwareError as error:
         warn(str(error))
         return 1
+    finally:
+        fire_changed()        # the change is applied now (ADR-007)
 
 
 # --- The window ----------------------------------------------------------------------
@@ -1750,7 +3491,22 @@ class Software:
         self.fetch_queue = []
         self.fetchers = 0
         self.child = None           # the running install/remove: (process, app, action)
+        self.claim = None           # Buy… waiting for the payment's key: (process, app, {"stopped": bool})
+        self.adding_key = False     # Add Key… running
+        self.lookup = None          # the running flickos-switch lookup
+        # Web apps (phase 3b): only with Firefox and flickos-switch.
+        self.web_on = bool(shutil.which(FIREFOX) and shutil.which(SWITCH))
+        self.web_read = None        # the running webapp list
+        self.web_text = None        # its last answer, to show again only when it changed
+        self.web_rows = []          # web_rows() of it, set again in each new catalog
         self.child_can_cancel = False
+        self.files = []             # the files page (ADR-012): their items (plan_files()), in order
+        self.file_status = {}       # path -> what happened to it: (kind, message)
+        self.files_plan = None
+        self.queued_files = []      # opened before the catalog or while another install ran
+        self.files_busy = False     # a files plan is being read
+        self.catalog_shown = False  # the first catalog was read: queued files may open now
+        self.spool_monitor = None
         self.page_app = None
         self.page_source = None
         self.featured = []          # read_featured()'s shelves
@@ -1762,6 +3518,7 @@ class Software:
         win.connect("delete-event", self.on_delete)
         win.connect("destroy", lambda _w: Gtk.main_quit())
         win.connect("key-press-event", self.on_key)
+        win.connect("notify::is-active", self.on_active)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         win.add(outer)
@@ -1786,6 +3543,19 @@ class Software:
             sections.pack_start(button, False, False, 0)
         bar.set_center_widget(sections)
 
+        # The window's menu: the setting Software owns (ADR-007).
+        menu = Gtk.Menu()
+        self.paid_item = Gtk.CheckMenuItem.new_with_mnemonic("Show _Paid Apps")
+        self.paid_item.set_active(paid_setting()[0] == "on")
+        self.paid_item.connect("toggled", self.on_paid_toggled)
+        menu.append(self.paid_item)
+        menu.show_all()
+        menu_button = Gtk.MenuButton(popup=menu)
+        menu_button.add(Gtk.Image.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.BUTTON))
+        menu_button.set_tooltip_text("Menu")
+        menu_button.get_accessible().set_name("Menu")
+        bar.pack_end(menu_button, False, False, 0)
+
         self.search = Gtk.SearchEntry(placeholder_text="Search apps")
         self.search.set_tooltip_text("Search (Ctrl+F)")
         self.search.get_accessible().set_name("Search apps")
@@ -1807,6 +3577,7 @@ class Software:
         self.stack.add_named(self.build_explore(), "explore")
         self.stack.add_named(self.build_list(), "list")
         self.stack.add_named(self.build_page(), "app")
+        self.stack.add_named(self.build_files(), "files")
 
         self.status = Gtk.Label(xalign=0, margin=6, wrap=True, selectable=True, no_show_all=True)
         self.status.get_style_context().add_class("dim-label")
@@ -1818,6 +3589,9 @@ class Software:
         self.win.show_all()
         self.stack.set_visible_child_name("loading")
         self.background(self.read_catalog, self.catalog_read, key="catalog")
+        self.read_web()
+        self.queued_files += list(getattr(self.opts, "files", None) or [])
+        self.watch_spool()
         self.Gtk.main()
 
     def read_catalog(self):
@@ -1828,18 +3602,24 @@ class Software:
             catalog.load()
             catalog.prepare_search()
         catalog.read_installed()
-        catalog.featured = read_featured()
+        catalog.featured, paid = load_featured()
+        catalog.set_paid(paid)
+        catalog.show_paid = paid_setting()[0] == "on"
         return catalog
 
     def catalog_read(self, catalog, error, updated=False):
         """The catalog read in a thread: show it. updated: after update_catalogs()."""
         if error:
             self.show_error(f"The list of apps couldn't be read: {error}")
+            self.catalog_shown = True
+            self.open_queued_files()
             return
         first = not self.catalog.loaded
+        self.catalog_shown = True
         if self.catalog is not catalog:
             self.catalog.close()
         self.catalog = catalog
+        catalog.set_web(self.web_rows)
         self.featured = catalog.featured
         if catalog.loaded and catalog.apps:
             self.show_catalog(first)
@@ -1849,6 +3629,7 @@ class Software:
                                        "Check the network connection and open Software again.")
         if first and not updated and self.update_catalogs() != "refresh":
             self.update_featured()      # refresh fetches it too
+        self.open_queued_files()
 
     def update_catalogs(self):
         """Fetch missing or old catalogs, or rebuild a stale index, in a child.
@@ -1877,20 +3658,91 @@ class Software:
         return command
 
     def update_featured(self):
-        """Fetch featured.json in a thread when the copy is old; show the new
-        shelves when they changed."""
-        if not featured_stale():
+        """Fetch featured.json and the store's catalog in a thread when they
+        are old; show the new shelves and prices when they changed, and index
+        the store's apps again when its catalog did."""
+        if not featured_stale() and not store_catalog_stale():
             return
 
         def done(changed, error):
             if error:
                 warn(f"The front page's shelves weren't updated: {error}")
-            elif changed:
-                self.featured = read_featured()
+                return
+            if changed["featured"]:
+                self.featured, paid = load_featured()
+                self.catalog.set_paid(paid)
                 if self.catalog.loaded:
                     self.fill_explore()
+                    self.refresh_view()
+            if changed[STORE] and self.child is None:
+                self.update_catalogs()
 
-        self.background(fetch_featured, done, key="featured")
+        self.background(fetch_shop, done, key="featured")
+
+    def read_web(self):
+        """Firefox's web apps and the list's web versions (`flickos-switch
+        webapp list --json --known`) in a child, one at a time; the view is
+        shown again when they changed."""
+        Gio, GLib = self.Gio, self.GLib
+        if not self.web_on or self.web_read is not None:
+            return
+        try:
+            process = Gio.Subprocess.new([SWITCH, "webapp", "list", "--json", "--known"],
+                                         Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            return
+        self.web_read = process
+
+        def finished(_process, result):
+            self.web_read = None
+            try:
+                _, stdout, _ = process.communicate_utf8_finish(result)
+            except GLib.Error:
+                return
+            if not process.get_successful() or stdout == self.web_text:
+                return
+            try:
+                rows = web_rows(json.loads(stdout or "[]"))
+            except ValueError as error:
+                warn(f"{SWITCH} webapp list's answer wasn't understood: {error}")
+                return
+            self.web_text, self.web_rows = stdout, rows
+            self.catalog.set_web(rows)
+            if self.catalog.loaded:
+                self.refresh_view()
+
+        process.communicate_utf8_async(None, None, finished)
+
+    def on_active(self, win, _pspec):
+        """Back in the window: the user may have made or removed a web app in
+        Firefox, changed the paid setting elsewhere (History's Undo), added or
+        removed a key in Settings, or installed an app in a terminal."""
+        if win.is_active():
+            self.read_web()
+            self.show_paid(paid_setting()[0] == "on")
+            if self.catalog.loaded and self.child is None:
+                self.background(self.read_installed, self.installed_changed, key="installed")
+
+    def on_paid_toggled(self, item):
+        try:
+            set_paid("on" if item.get_active() else "off")
+        except SoftwareError as error:
+            self.show_error(str(error))
+        self.show_paid(paid_setting()[0] == "on")
+        fire_changed()              # shown now (hooks, ADR-007)
+
+    def show_paid(self, on):
+        """The paid setting in force: the menu's check item and the lists."""
+        if self.paid_item.get_active() != on:
+            self.paid_item.handler_block_by_func(self.on_paid_toggled)
+            self.paid_item.set_active(on)
+            self.paid_item.handler_unblock_by_func(self.on_paid_toggled)
+        if self.catalog.show_paid == on:
+            return
+        self.catalog.show_paid = on
+        if self.catalog.loaded:
+            self.fill_explore()
+            self.refresh_view()
 
     def show_catalog(self, first):
         self.fill_explore()
@@ -2125,6 +3977,8 @@ class Software:
                 return
             self.show_page(app)
             self.stack.set_visible_child_name("app")
+        elif kind == "files":
+            self.stack.set_visible_child_name("files")
         else:
             self.fill_list(kind, argument)
             self.stack.set_visible_child_name("list")
@@ -2157,7 +4011,11 @@ class Software:
             app = self.catalog.find(argument)
             if app is not None:
                 self.show_page(app, keep_source=True)
-        elif kind != "explore":
+            elif self.history:
+                self.go_back()      # a web app removed in Firefox
+            else:
+                self.go("explore", None, remember=False)
+        elif kind not in ("explore", "files"):
             self.fill_list(kind, argument)
 
     def on_section(self, button, kind):
@@ -2202,7 +4060,25 @@ class Software:
         return False
 
     def on_delete(self, _win, _event):
-        """Closing while an app installs asks first: closing would stop it."""
+        """Closing while an app installs, or while Buy… waits for a payment,
+        asks first: closing stops it."""
+        if self.claim is not None:
+            Gtk = self.Gtk
+            app = self.claim[1]
+            dialog = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                       text=f"Stop Waiting for the Payment of {app['name']}?")
+            dialog.format_secondary_text("Software is waiting for the key of your purchase. If you have paid, "
+                                         "the receipt email's order number gets the key from the store's page; "
+                                         "then Add Key… adds it.")
+            dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+            stop = dialog.add_button("_Stop and Close", Gtk.ResponseType.ACCEPT)
+            stop.get_style_context().add_class("destructive-action")
+            dialog.set_default_response(Gtk.ResponseType.CANCEL)
+            answer = dialog.run()
+            dialog.destroy()
+            if answer != Gtk.ResponseType.ACCEPT:
+                return True
+            self.stop_claim()
         if self.child is None:
             return False
         Gtk = self.Gtk
@@ -2246,6 +4122,8 @@ class Software:
                                  column_spacing=12, row_spacing=12, min_children_per_line=2,
                                  max_children_per_line=5)
         for category_id, name, icon, _names in CATEGORIES:
+            if category_id == "web" and not self.web_on:
+                continue
             button = Gtk.Button()
             inner = Gtk.Box(spacing=10, margin=6)
             inner.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DND), False, False, 0)
@@ -2310,8 +4188,19 @@ class Software:
         are drawn and only their icons are loaded (a category has up to 1,200)."""
         Gtk = self.Gtk
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=24)
+        top = Gtk.Box(spacing=12)
         self.list_title = self.heading("")
-        box.pack_start(self.list_title, False, False, 0)
+        top.pack_start(self.list_title, True, True, 0)
+        # The Web Apps category's: a web app of any address.
+        self.new_web_button = Gtk.Button.new_with_mnemonic("_New Web App…")
+        self.new_web_button.connect("clicked", lambda _b: self.new_web_app())
+        self.new_web_button.set_no_show_all(True)
+        top.pack_end(self.new_web_button, False, False, 0)
+        box.pack_start(top, False, False, 0)
+        # A category's sentence (CATEGORY_NOTES): Security Tools' permission.
+        self.list_note = self.label("", selectable=True)
+        self.list_note.set_no_show_all(True)
+        box.pack_start(self.list_note, False, False, 0)
         self.list_store = Gtk.ListStore(str, str)        # app id, text (markup)
         tree = self.tree = Gtk.TreeView(model=self.list_store, headers_visible=False, fixed_height_mode=True,
                                         activate_on_single_click=True, enable_search=False)
@@ -2335,6 +4224,10 @@ class Software:
         self.list_empty = self.label("", dim=True)
         self.list_empty.set_no_show_all(True)
         box.pack_start(self.list_empty, False, False, 0)
+        # A search's answer about a Windows program (windows_answer).
+        self.windows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, no_show_all=True)
+        box.pack_start(self.windows_box, False, False, 0)
+        box.reorder_child(self.windows_box, 1)
         return box
 
     def draw_list_icon(self, _column, cell, model, it, _data):
@@ -2358,10 +4251,14 @@ class Software:
             empty = "None of the apps Software knows is installed."
         shown = apps[:SEARCH_LIMIT] if kind == "search" else apps
         self.list_title.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
+        note = CATEGORY_NOTES.get(argument) if kind == "category" else None
+        self.list_note.set_text(note or "")
+        self.list_note.set_visible(bool(note))
+        self.new_web_button.set_visible(kind == "category" and argument == "web")
         self.tree.set_model(None)       # filling a detached model is much faster
         self.list_store.clear()
         for app in shown:
-            status = self.status_word(app, kind == "installed")
+            status = self.row_note(app, kind == "installed")
             text = f"<b>{GLib.markup_escape_text(app['name'])}</b>"
             if status:
                 text += f"   <small>{GLib.markup_escape_text(status)}</small>"
@@ -2374,19 +4271,130 @@ class Software:
                                  f"{more} more. Type more words to narrow the search." if more > 0 else "")
         self.list_empty.set_visible(bool(self.list_empty.get_text()))
         self.list_scroll.get_vadjustment().set_value(0)
+        self.lookup_windows(argument if kind == "search" else None, {app["id"] for app in apps})
+
+    def lookup_windows(self, words, found):
+        """Ask flickos-switch which Windows program the search names and show
+        the answer above the results; nothing when it is missing, fails or
+        takes over LOOKUP_MS (PERF-2: a Gio.Subprocess, the one before it
+        stopped)."""
+        Gio, GLib = self.Gio, self.GLib
+        for child in self.windows_box.get_children():
+            child.destroy()
+        self.windows_box.hide()
+        if self.lookup is not None:
+            self.lookup.force_exit()
+            self.lookup = None
+        if not words:
+            return
+        try:
+            process = Gio.Subprocess.new([SWITCH, "lookup", "--json", "--", *words.split()],
+                                         Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            return                  # flickos-switch isn't installed
+        self.lookup = process
+
+        def late():
+            timer.clear()
+            process.force_exit()
+            return False
+
+        timer = [GLib.timeout_add(LOOKUP_MS, late)]
+
+        def finished(_process, result):
+            if timer:
+                GLib.source_remove(timer.pop())
+            if self.lookup is not process:
+                return              # a newer search
+            self.lookup = None
+            try:
+                _, stdout, _ = process.communicate_utf8_finish(result)
+            except GLib.Error:
+                return
+            if not process.get_successful():    # also when late() stopped it
+                return
+            try:
+                answer = windows_answer(json.loads(stdout or "[]"), self.catalog, found)
+            except (ValueError, TypeError, AttributeError, KeyError) as error:
+                warn(f"{SWITCH} lookup's answer wasn't understood: {error}")
+                return
+            if answer:
+                self.show_windows(*answer)
+
+        process.communicate_utf8_async(None, None, finished)
+
+    def show_windows(self, sentence, rows):
+        Gtk = self.Gtk
+        self.windows_box.pack_start(self.label(sentence), False, False, 0)
+        if rows:
+            actions = []
+            listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+            listbox.get_accessible().set_name("Instead of the Windows program")
+            listbox.connect("row-activated", lambda _l, row: actions[row.get_index()]())
+            for kind, what, text in rows:
+                image = Gtk.Image()
+                if kind == "app":
+                    def redraw(image=image, specs=what["icons"]):
+                        image.set_from_pixbuf(self.icon(specs, LIST_ICON, lambda: None))
+
+                    image.set_from_pixbuf(self.icon(what["icons"], LIST_ICON, redraw))
+                    name = what["name"]
+                    actions.append(lambda a=what["id"]: self.go("app", a))
+                else:
+                    image.set_from_icon_name("web-browser", Gtk.IconSize.DIALOG)
+                    image.set_pixel_size(LIST_ICON)
+                    name, url = what, text
+                    text = "Opens in the web browser. Nothing to install."
+                    actions.append(lambda u=url: self.open_web(u))
+                inner = Gtk.Box(spacing=12, margin=6)
+                inner.pack_start(image, False, False, 0)
+                words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.CENTER)
+                words.pack_start(self.label(f"<b>{self.GLib.markup_escape_text(name)}</b>", markup=True),
+                                 False, False, 0)
+                words.pack_start(self.label(text, dim=True), False, False, 0)
+                inner.pack_start(words, True, True, 0)
+                row = Gtk.ListBoxRow()
+                row.add(inner)
+                row.get_accessible().set_name(name)
+                listbox.add(row)
+            frame = Gtk.Frame()
+            frame.add(listbox)
+            self.windows_box.pack_start(frame, False, False, 0)
+        for child in self.windows_box.get_children():
+            child.show_all()
+        self.windows_box.show()
+
+    def open_web(self, url):
+        try:
+            self.Gtk.show_uri_on_window(self.win, url, self.Gtk.get_current_event_time())
+        except self.GLib.Error as error:
+            self.show_error(f"{url} couldn't be opened: {error.message}")
 
     def status_word(self, app, installed_list=False):
         """Next to a row's name: installed, from which source when the app has
         more than one, and a source other than Debian (Flathub's apps bring
         runtimes; community apps are other developers')."""
         installed = self.catalog.installed_from(app)
-        default = next(s for s in SOURCES if s in app["src"])
+        if WEB in app["src"]:
+            return "Installed" if installed and not installed_list else "Web app"
+        default = next(iter(self.catalog.sources(app)), "debian")
         if installed and installed != default:
             name = SOURCE_NAMES[installed]
             return f"From {name}" if installed_list else f"Installed from {name}"
         if installed:
             return "" if installed_list else "Installed"
         return "" if default == "debian" else SOURCE_NAMES[default]
+
+    def row_note(self, app, installed_list=False):
+        """status_word, and Paid · price for an app with a price that isn't installed."""
+        words = [self.status_word(app, installed_list)]
+        paid = app.get("paid")
+        if paid and paid["product"] and paid["product"] in self.catalog.bought and \
+                self.catalog.installed_from(app) is None:
+            words.append("Bought")
+        elif paid and not self.catalog.installed_from(app):
+            words.append(f"Paid · {paid['price']}")
+        return " · ".join(word for word in words if word)
 
     def on_row(self, _tree, path, _column):
         self.go("app", self.list_store[path][0])
@@ -2416,8 +4424,22 @@ class Software:
         self.open_button.connect("clicked", lambda _b: self.open_app())
         self.remove_button = Gtk.Button.new_with_mnemonic("_Remove")
         self.remove_button.connect("clicked", lambda _b: self.change("remove"))
+        # An installed kit: the Tool Kits window on its row (flickos-dev.md, ADR-002).
+        self.setup_button = Gtk.Button.new_with_mnemonic("_Set Up…")
+        self.setup_button.connect("clicked", lambda _b: self.set_up())
+        # An app installed without its other architecture's part (OTHER_ARCH): add it.
+        self.parts_button = Gtk.Button.new_with_mnemonic("")
+        self.parts_button.get_style_context().add_class("suggested-action")
+        self.parts_button.connect("clicked", lambda _b: self.change("install"))
         self.cancel_button = Gtk.Button.new_with_mnemonic("_Cancel")
         self.cancel_button.connect("clicked", lambda _b: self.cancel_change())
+        # An app with a price (featured.json): its buy address, in the browser.
+        self.buy_button = Gtk.Button.new_with_mnemonic("_Buy…")
+        self.buy_button.connect("clicked", lambda _b: self.buy())
+        # Bought on the website or another computer (phase 3c): its key.
+        self.key_button = Gtk.Button.new_with_mnemonic("Add _Key…")
+        self.key_button.set_tooltip_text("Bought it? Add the key from the page or the email of your purchase")
+        self.key_button.connect("clicked", lambda _b: self.add_key())
         # An installed style: Try (until logout) and Use (flickos-layout, ADR-012).
         self.try_button = Gtk.Button.new_with_mnemonic("_Try")
         self.try_button.set_tooltip_text("Use it until you log out")
@@ -2426,8 +4448,8 @@ class Software:
         self.use_button.get_style_context().add_class("suggested-action")
         self.use_button.connect("clicked", lambda _b: self.use_style("set"))
         self.style_in_use = None        # flickos-layout's style in use, read when a style's page shows
-        for button in (self.try_button, self.use_button, self.open_button, self.remove_button, self.install_button,
-                       self.cancel_button):
+        for button in (self.try_button, self.use_button, self.open_button, self.setup_button, self.remove_button,
+                       self.install_button, self.buy_button, self.key_button, self.parts_button, self.cancel_button):
             button.set_no_show_all(True)
             buttons.pack_start(button, False, False, 0)
         actions.pack_start(buttons, False, False, 0)
@@ -2456,6 +4478,9 @@ class Software:
         self.source_note = self.label("", dim=True, selectable=True)
         self.source_note.set_no_show_all(True)
         box.pack_start(self.source_note, False, False, 0)
+        self.paid_note = self.label("", dim=True, selectable=True)
+        self.paid_note.set_no_show_all(True)
+        box.pack_start(self.paid_note, False, False, 0)
         self.progress = Gtk.ProgressBar(show_text=True, no_show_all=True)
         box.pack_start(self.progress, False, False, 0)
 
@@ -2486,6 +4511,10 @@ class Software:
         self.shot_number = 0
         self.shots = []
 
+        # A security kit's permission sentence (kit_note), before its description.
+        self.kit_note = self.label("", selectable=True)
+        self.kit_note.set_no_show_all(True)
+        box.pack_start(self.kit_note, False, False, 0)
         self.description = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.pack_start(self.description, False, False, 0)
         box.pack_start(self.heading("Details"), False, False, 0)
@@ -2505,12 +4534,12 @@ class Software:
         self.page_summary.set_text(app["summary"])
         self.source_combo.handler_block_by_func(self.on_source)
         self.source_combo.remove_all()
-        for source in SOURCES:
-            if source in app["src"]:
-                self.source_combo.append(source, SOURCE_NAMES[source])
+        offered = self.catalog.sources(app)
+        for source in offered:
+            self.source_combo.append(source, SOURCE_NAMES[source])
         self.source_combo.set_active_id(self.page_source)
         self.source_combo.handler_unblock_by_func(self.on_source)
-        self.source_row.set_visible(len(app["src"]) > 1)
+        self.source_row.set_visible(len(offered) > 1)
         self.source_combo.set_sensitive(self.catalog.installed_from(app) is None)
         if not same or not keep_source:
             self.page_scroll.get_vadjustment().set_value(0)
@@ -2530,6 +4559,9 @@ class Software:
         """The parts of the page that depend on the source: text, pictures, plan, buttons."""
         Gtk, GLib = self.Gtk, self.GLib
         app, source = self.page_app, self.page_source
+        if source == WEB:
+            self.fill_web_page(app)
+            return
         page = self.catalog.page(app, source)
         self.page_developer.set_text(f"By {page['dev']}" if page["dev"] else "")
         self.page_developer.set_visible(bool(page["dev"]))
@@ -2559,6 +4591,8 @@ class Software:
             rows.append(("Released", time.strftime("%x", time.localtime(page["date"]))))
         if page["license"]:
             rows.append(("License", page["license"]))
+        if app.get("paid"):
+            rows.append(("Price", app["paid"]["price"]))
         for number, (key, value) in enumerate(rows):
             self.details.attach(self.label(key, dim=True, wrap=False), 0, number, 1, 1)
             self.details.attach(self.label(value, selectable=True), 1, number, 1, 1)
@@ -2571,6 +4605,11 @@ class Software:
         self.details.show_all()
         self.source_note.set_text(SOURCE_NOTES.get(source, ""))
         self.source_note.set_visible(source in SOURCE_NOTES)
+        self.paid_note.set_text(paid_words(app["paid"], self.catalog, live_session()) if app.get("paid") else "")
+        self.paid_note.set_visible(bool(app.get("paid")))
+        note = kit_note(app)
+        self.kit_note.set_text(note or "")
+        self.kit_note.set_visible(bool(note))
 
         # trixie's catalog names screenshots that appstream.debian.org has since
         # replaced (404, 2026-10): an app that is also on Flathub shows Flathub's.
@@ -2584,6 +4623,34 @@ class Software:
         self.plan()
         if app.get("style"):
             self.read_style_in_use()
+
+    def fill_web_page(self, app):
+        """A web app's page: what it is, its address, the buttons."""
+        Gtk = self.Gtk
+        self.page_developer.hide()
+        for child in self.description.get_children():
+            child.destroy()
+        label = self.label(WEB_ABOUT, selectable=True)
+        label.set_max_width_chars(90)
+        self.description.pack_start(label, False, False, 0)
+        self.description.show_all()
+        for child in self.details.get_children():
+            child.destroy()
+        url = app["src"][WEB]["url"]
+        self.details.attach(self.label("Source", dim=True, wrap=False), 0, 0, 1, 1)
+        self.details.attach(self.label(SOURCE_NAMES[WEB], selectable=True), 1, 0, 1, 1)
+        link = Gtk.LinkButton.new_with_label(url, urllib.parse.urlsplit(url).hostname or url)
+        link.set_halign(Gtk.Align.START)
+        self.details.attach(self.label("Address", dim=True, wrap=False), 0, 1, 1, 1)
+        self.details.attach(link, 1, 1, 1, 1)
+        self.details.show_all()
+        self.source_note.hide()
+        self.paid_note.hide()
+        self.kit_note.hide()
+        self.shots = []
+        self.shots_box.hide()
+        self.update_actions()
+        self.plan()
 
     def read_style_in_use(self):
         """flickos-layout's style in use, so a style's page can say it is in use."""
@@ -2661,24 +4728,53 @@ class Software:
         """The page's buttons for what is installed and what is running."""
         app, source = self.page_app, self.page_source
         installed = self.catalog.installed_from(app)
-        busy = self.child is not None
+        busy = self.child is not None and source != WEB     # Firefox doesn't wait for PackageKit
         mine = busy and self.child[1]["id"] == app["id"]
         package = app["src"][installed].get("pkg") if installed in APT_SOURCES else None
         removable = installed and not (package and self.catalog.is_protected(package))
-        self.install_button.set_visible(not installed and not mine)
+        paid = app.get("paid") if source != WEB else None
+        locked = bool(paid) and self.catalog.locked(app)
+        waiting = self.claim is not None and self.claim[1]["id"] == app["id"]
+        self.install_button.set_visible(not installed and not mine and not locked)
+        # Buy…: FlickOS's store's app until bought (in place of Install, or
+        # for the newer one next to an installed free version), and always
+        # another developer's (its key).
+        self.buy_button.set_visible(bool(paid) and not mine and not waiting and (locked or not paid["product"]))
+        # Add Key…: the store's app until bought, never in the live session.
+        self.key_button.set_visible(locked and bool(paid["product"]) and not mine and not waiting
+                                    and not live_session())
+        self.key_button.set_sensitive(not self.adding_key)
+        buy_style = self.buy_button.get_style_context()
+        if locked and not installed:
+            buy_style.add_class("suggested-action")
+        else:
+            buy_style.remove_class("suggested-action")
         style = app.get("style")
-        self.open_button.set_visible(bool(installed) and not mine and not style
-                                     and bool(self.launch_id(app, installed)))
+        self.open_button.set_visible(bool(installed) and not mine and not style and not app.get("kit")
+                                     and (bool(self.launch_id(app, installed)) or installed == WEB))
+        self.setup_button.set_visible(bool(installed) and not mine and bool(app.get("kit"))
+                                      and shutil.which(KITS) is not None)
         for button in (self.try_button, self.use_button):
             button.set_visible(bool(installed) and not mine and bool(style) and style != self.style_in_use)
         self.remove_button.set_visible(bool(removable) and not mine)
-        self.cancel_button.set_visible(mine)
-        self.cancel_button.set_sensitive(mine and self.child_can_cancel)
-        for button in (self.install_button, self.remove_button):
+        extra, missing = self.missing_parts(app, installed)
+        self.parts_button.set_visible(bool(missing) and not mine)
+        if extra:
+            self.parts_button.set_label(extra["button"])
+            self.parts_button.set_tooltip_text(f"Add {extra['what']} to {app['name']}")
+        self.cancel_button.set_visible(mine or waiting)
+        self.cancel_button.set_sensitive(waiting or (mine and self.child_can_cancel))
+        for button in (self.install_button, self.remove_button, self.parts_button):
             button.set_sensitive(not busy)
             button.set_tooltip_text(f"Wait until {self.child[1]['name']} is done." if busy and not mine else None)
         self.progress.set_visible(mine)
         self.source_combo.set_sensitive(not installed and not busy)
+
+    def missing_parts(self, app, installed):
+        """(OTHER_ARCH entry, its packages missing) for an app installed from an apt source."""
+        if installed not in APT_SOURCES:
+            return None, []
+        return other_parts(app["src"][installed]["pkg"], self.catalog.packages)
 
     def plan(self):
         """What installing (removing) would change, from `plan --json` in a child."""
@@ -2686,15 +4782,31 @@ class Software:
         if self.child is not None and self.child[1]["id"] == app["id"]:
             return
         installed = self.catalog.installed_from(app)
+        if source == WEB:
+            self.show_plan(WEB_REMOVE if installed else WEB_INSTALL)
+            return
+        if self.claim is not None and self.claim[1]["id"] == app["id"]:
+            self.plan_spinner.show()
+            self.plan_text.set_text("Waiting for your payment… Pay in your web browser; the key comes here by "
+                                    "itself, and adding it asks for your password.")
+            return
         if installed in APT_SOURCES and self.catalog.is_protected(app["src"][installed]["pkg"]):
             self.show_plan(f"{app['name']} is part of the FlickOS desktop, so it can't be removed here.")
             return
         if installed and installed != source:
-            self.show_plan(f"Installed from {SOURCE_NAMES[installed]}.")
+            if source == STORE and self.catalog.locked(app):
+                self.show_plan(f"The free version from {SOURCE_NAMES[installed]} is installed. Buy… gets the "
+                               "newest one, which updates with the rest.")
+            else:
+                self.show_plan(f"Installed from {SOURCE_NAMES[installed]}.")
             return
-        args = ["plan", "--json", "--source", source] + (["--remove"] if installed else []) + [app["id"]]
+        if not installed and app.get("paid") and self.catalog.locked(app):
+            self.show_plan("")          # the paid note says what Buy… does
+            return
+        removing = installed and not self.missing_parts(app, installed)[1]
+        args = ["plan", "--json", "--source", source] + (["--remove"] if removing else []) + [app["id"]]
         self.plan_spinner.show()
-        self.plan_text.set_text("Checking what it needs…" if not installed else "")
+        self.plan_text.set_text("" if removing else "Checking what it needs…")
         number = self.reads["plan"] = self.reads.get("plan", 0) + 1
 
         def done(ok, stdout, stderr):
@@ -2727,6 +4839,10 @@ class Software:
         installed = self.catalog.installed_from(app)
         desktop_id = self.launch_id(app, installed)
         info = self.Gio.DesktopAppInfo.new(desktop_id) if desktop_id else None
+        if info is None and installed == WEB:
+            # Its launcher is gone: add opens the web app Firefox has for the address.
+            self.run_web(["add", app["src"][WEB]["url"]], app["name"], f"{app['name']} is open in Firefox.")
+            return
         if info is None:
             self.show_error(f"{app['name']} couldn't be started from here. Open it from the menu.")
             return
@@ -2735,9 +4851,23 @@ class Software:
         except self.GLib.Error as error:
             self.show_error(f"{app['name']} couldn't be started: {error.message}")
 
+    def set_up(self):
+        """Open the Tool Kits window on this kit; it lives on after Software closes."""
+        app = self.page_app
+        try:
+            subprocess.Popen(kit_setup_argv(app), stdin=subprocess.DEVNULL, start_new_session=True)
+        except OSError as error:
+            self.show_error(f"Tool Kits couldn't be opened: {error}")
+
     def change(self, action):
         """Install or remove the page's app in a child (`install --json`)."""
         app, source = self.page_app, self.page_source
+        if source == WEB:
+            # The page and flickos-switch's notification say which button to press.
+            web = app["src"][WEB]
+            args = ["add", web["url"], "--name", app["name"]] if action == "install" else ["remove", web["webapp"]]
+            self.run_web(args, app["name"], f"{app['name']} is open in Firefox.")
+            return
         self.notice.hide()
         self.child_can_cancel = action == "install"
         self.progress.set_fraction(0)
@@ -2771,10 +4901,72 @@ class Software:
         if process is None:
             return
         self.child = (process, app, action)
-        self.set_status(f"Installing {app['name']}…" if action == "install" else f"Removing {app['name']}…")
+        extra, missing = self.missing_parts(app, self.catalog.installed_from(app))
+        if action == "install" and missing:
+            self.set_status(f"Adding {extra['what']} to {app['name']}…")
+        else:
+            self.set_status(f"Installing {app['name']}…" if action == "install" else f"Removing {app['name']}…")
         self.update_actions()
         self.progress.show()
         self.plan_text.set_text("")
+
+    def run_web(self, args, name, status):
+        """flickos-switch webapp ARGS, which opens Firefox and returns; then
+        the status line says status (what to press there)."""
+        Gio, GLib = self.Gio, self.GLib
+        self.notice.hide()
+        try:
+            process = Gio.Subprocess.new([SWITCH, "webapp", *args],
+                                         Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_PIPE)
+        except GLib.Error as error:
+            self.show_error(f"{name} couldn't be opened in Firefox: {error.message}")
+            return
+
+        def finished(_process, result):
+            try:
+                _, _, stderr = process.communicate_utf8_finish(result)
+            except GLib.Error as error:
+                stderr = error.message
+            if process.get_successful():
+                self.set_status(status)
+            else:
+                self.show_error(f"{name} couldn't be opened in Firefox: "
+                                + (last_line(stderr).removeprefix(f"{SWITCH}: ") or "flickos-switch failed."))
+
+        process.communicate_utf8_async(None, None, finished)
+
+    def new_web_app(self):
+        """The Web Apps category's New Web App…: an address, opened in Firefox."""
+        Gtk = self.Gtk
+        dialog = Gtk.Dialog(title="New Web App", transient_for=self.win, modal=True)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        ok = dialog.add_button("_Open in Firefox", Gtk.ResponseType.ACCEPT)
+        ok.get_style_context().add_class("suggested-action")
+        ok.set_sensitive(False)
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(18)
+        words = self.label("Firefox opens the website. To keep it as a web app, press the button at the right "
+                           "of its address bar, next to the star.")
+        words.set_max_width_chars(50)
+        box.pack_start(words, False, False, 0)
+        row = Gtk.Box(spacing=6)
+        label = Gtk.Label.new_with_mnemonic("_Address")
+        entry = Gtk.Entry(activates_default=True, placeholder_text="https://", width_chars=36)
+        label.set_mnemonic_widget(entry)
+        entry.connect("changed", lambda e: ok.set_sensitive(web_address(e.get_text()) is not None))
+        row.pack_start(label, False, False, 0)
+        row.pack_start(entry, True, True, 0)
+        box.pack_start(row, False, False, 0)
+        dialog.show_all()
+        answer = dialog.run()
+        url = web_address(entry.get_text())
+        dialog.destroy()
+        if answer == Gtk.ResponseType.ACCEPT and url:
+            host = urllib.parse.urlsplit(url).hostname
+            self.run_web(["add", url], host, f"{host} is open in Firefox. To keep it as a web app, press the "
+                         "button at the right of its address bar, next to the star.")
 
     def child_progress(self, app, event):
         status = event.get("status")
@@ -2792,22 +4984,438 @@ class Software:
             self.cancel_button.set_sensitive(self.child_can_cancel)
 
     def cancel_change(self):
+        if self.claim is not None and self.page_app is not None and self.claim[1]["id"] == self.page_app["id"]:
+            self.stop_claim()
+            return
         if self.child is not None:
             with contextlib.suppress(Exception):
                 self.child[0].send_signal(signal.SIGTERM)
             self.cancel_button.set_sensitive(False)
             self.progress.set_text("Cancelling…")
 
+    # --- Files: .deb, .flatpak, .flatpakref, .flatpakrepo (ADR-012) ---------------------
+
+    def build_files(self):
+        Gtk = self.Gtk
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin=24)
+        self.files_title = self.label("", markup=True)
+        box.pack_start(self.files_title, False, False, 0)
+        self.files_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        box.pack_start(self.files_rows, False, False, 0)
+        plan = Gtk.Box(spacing=8)
+        self.files_spinner = self.spinner()
+        self.files_spinner.set_no_show_all(True)
+        plan.pack_start(self.files_spinner, False, False, 0)
+        self.files_text = self.label("", dim=True, selectable=True)
+        plan.pack_start(self.files_text, True, True, 0)
+        box.pack_start(plan, False, False, 0)
+        self.files_progress = Gtk.ProgressBar(show_text=True, no_show_all=True)
+        box.pack_start(self.files_progress, False, False, 0)
+        buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        self.files_install = Gtk.Button.new_with_mnemonic("_Install")
+        self.files_install.get_style_context().add_class("suggested-action")
+        self.files_install.set_can_default(True)
+        self.files_install.connect("clicked", lambda _b: self.install_files())
+        self.files_cancel = Gtk.Button.new_with_mnemonic("_Cancel")
+        self.files_cancel.connect("clicked", lambda _b: self.cancel_change())
+        self.files_close = Gtk.Button.new_with_mnemonic("_Close")
+        self.files_close.connect("clicked", lambda _b: self.close_files())
+        for button in (self.files_install, self.files_cancel, self.files_close):
+            button.set_no_show_all(True)
+            buttons.pack_start(button, False, False, 0)
+        box.pack_start(buttons, False, False, 0)
+        return self.scrolled(box)
+
+    def watch_spool(self):
+        """Files opened while this window is open arrive as small files in a folder."""
+        try:
+            folder = spool_folder()
+            os.makedirs(folder, exist_ok=True)
+            self.spool_monitor = self.Gio.File.new_for_path(folder).monitor_directory(
+                self.Gio.FileMonitorFlags.NONE, None)
+        except (SoftwareError, OSError, self.GLib.Error) as error:
+            warn(f"files opened later won't reach this window ({error})")
+            return
+        self.spool_monitor.connect("changed", lambda *_args: self.take_files())
+        self.take_files()
+
+    def take_files(self):
+        paths = take_spool()
+        if paths:
+            self.queued_files += paths
+            self.open_queued_files()
+            self.win.present()
+
+    def open_queued_files(self):
+        """Open the queued files once the catalog is read and nothing installs."""
+        if not self.queued_files or not self.catalog_shown:
+            return
+        if self.child is not None or self.files_busy:
+            self.set_status("The files open as soon as this is done.")
+            return
+        paths, self.queued_files = self.queued_files, []
+        if self.view == ("files", None) and self.files and not self.file_status:
+            # More files while the page still waits for Install: one page for all of them.
+            paths = [i["path"] for i in self.files] + paths
+        self.open_files(paths)
+
+    def open_files(self, paths):
+        paths = [os.path.abspath(p) for p in dict.fromkeys(paths)]
+        self.notice.hide()
+        self.files = [new_item(p) for p in paths]
+        for item in self.files:
+            item["name"] = item["file"]
+        self.file_status = {}
+        self.files_plan = None
+        self.files_busy = True
+        self.fill_files()
+        self.files_title.set_markup("<big><b>Checking the files</b></big>")
+        self.files_text.set_text("")
+        self.files_spinner.show()
+        self.files_install.hide()
+        self.files_cancel.hide()
+        self.files_close.show()
+        self.files_progress.hide()
+        self.go("files", None)
+        args = ["plan", "--json"] + [a for p in paths for a in ("--file", p)]
+        number = self.reads["files"] = self.reads.get("files", 0) + 1
+
+        def done(ok, stdout, stderr):
+            if self.reads["files"] != number:
+                return
+            self.files_busy = False
+            self.files_spinner.hide()
+            self.set_status("")
+            try:
+                plan = json.loads(stdout)
+            except ValueError:
+                self.files_text.set_text(last_line(stderr) or "The files couldn't be checked.")
+                return
+            self.show_files_plan(plan)
+            self.open_queued_files()
+
+        process = self.run_child(args, done)
+        if process is not None:
+            self.GLib.timeout_add_seconds(PLAN_SECONDS, lambda: (process.force_exit(), False)[1])
+
+    def heading_text(self, plan):
+        items = plan["items"]
+        usable = [i for i in items if not i["refused"]]
+        kinds = {i["kind"] for i in usable}
+        if not usable:
+            words = "This file can't" if len(items) == 1 else "These files can't"
+            return f"<big><b>{words} be installed</b></big>"
+        if kinds == {"repo"} and len(usable) == 1:
+            return "<big><b>Add this source?</b></big>"
+        if len(usable) == 1:
+            return f"<big><b>Install this {'package' if 'deb' in kinds else 'app'}</b></big>"
+        if kinds <= {"ref", "bundle"}:
+            return f"<big><b>Install {len(usable)} apps</b></big>"
+        return f"<big><b>Install {len(usable)} files</b></big>"
+
+    def show_files_plan(self, plan):
+        self.files_plan = plan
+        self.files = plan["items"]
+        self.fill_files()
+        self.files_title.set_markup(self.heading_text(plan))
+        self.files_text.set_text(files_plan_words(plan, self.GLib.format_size))
+        usable = [i for i in plan["items"] if not i["refused"]]
+        self.files_install.set_visible(bool(usable))
+        if len(usable) == 1 and usable[0]["kind"] == "repo":
+            self.files_install.set_label("_Add Source")
+        else:
+            self.files_install.set_label("_Install anyway" if any(i["risky"] for i in usable) else "_Install")
+        self.files_install.set_use_underline(True)
+        self.files_install.grab_default()
+        self.files_install.grab_focus()
+
+    def fill_files(self):
+        Gtk = self.Gtk
+        for child in self.files_rows.get_children():
+            self.files_rows.remove(child)
+        for item in self.files:
+            row = Gtk.Box(spacing=14)
+            icon = Gtk.Image(valign=Gtk.Align.START)
+            icon.set_from_icon_name("package-x-generic" if self.theme.has_icon("package-x-generic")
+                                    else "application-x-executable", Gtk.IconSize.DIALOG)
+            icon.set_pixel_size(48)
+            row.pack_start(icon, False, False, 0)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            version = f" {item['version']}" if item["version"] and item["kind"] == "deb" else ""
+            text.pack_start(self.label(f"<b>{self.GLib.markup_escape_text(item['name'] + version)}</b>",
+                                       markup=True, selectable=True), False, False, 0)
+            sub = KIND_WORDS.get(item["kind"], "")
+            if item["summary"]:
+                sub = f"{item['summary']} · {sub}" if sub else item["summary"]
+            if sub:
+                text.pack_start(self.label(sub, dim=True, selectable=True), False, False, 0)
+            if item["refused"]:
+                text.pack_start(self.label(item["refused"], selectable=True), False, False, 0)
+            else:
+                for note in item["notes"]:
+                    text.pack_start(self.label(note, dim=True, selectable=True), False, False, 0)
+                if item["permissions"]:
+                    can = "It can: " + "; ".join(w[0].lower() + w[1:] for w in item["permissions"]) + "."
+                    text.pack_start(self.label(can, dim=True, selectable=True), False, False, 0)
+                elif item["kind"] == "bundle":
+                    text.pack_start(self.label("It asks for no access beyond the sandbox.", dim=True),
+                                    False, False, 0)
+            status = self.file_status.get(item["path"])
+            if status:
+                text.pack_start(self.label(status[1], selectable=True), False, False, 0)
+            row.pack_start(text, True, True, 0)
+            if item["catalog"] and not self.file_status.get(item["path"]):
+                button = Gtk.Button.new_with_label("Show in Software")
+                button.set_valign(Gtk.Align.START)
+                button.set_tooltip_text("Software has this app: it updates by itself")
+                button.connect("clicked", lambda _b, app_id=item["catalog"]: self.go("app", app_id))
+                row.pack_end(button, False, False, 0)
+            self.files_rows.pack_start(row, False, False, 0)
+        self.files_rows.show_all()
+
+    def install_files(self):
+        if self.child is not None or not self.files_plan:
+            return
+        usable = [i for i in self.files_plan["items"] if not i["refused"]]
+        if not usable:
+            return
+        self.notice.hide()
+        self.file_status = {}
+        args = ["install", "--json"] + [a for i in usable for a in ("--file", i["path"])]
+        outcome = {"event": None, "message": "", "failed": 0}
+        self.files_progress.set_fraction(0)
+        self.files_progress.set_text("Preparing…")
+
+        def line(text):
+            try:
+                event = json.loads(text)
+            except ValueError:
+                return
+            kind = event.get("event")
+            outcome["event"] = kind
+            if kind == "progress":
+                self.files_progress_event(event)
+            elif kind == "item":
+                self.file_status[event.get("path")] = (event.get("status"), event.get("message", ""))
+                self.fill_files()
+            elif kind == "error":
+                outcome["message"] = event.get("message", "")
+            elif kind == "done":
+                outcome["failed"] = event.get("failed", 0)
+
+        def done(ok, _stdout, stderr):
+            self.child = None
+            self.set_status("")
+            self.files_progress.hide()
+            self.files_cancel.hide()
+            self.files_close.show()
+            installed_any = any(s[0] == "done" for s in self.file_status.values())
+            if outcome["event"] == "cancelled":
+                self.files_text.set_text("Cancelled. What was already installed stays.")
+            elif outcome["event"] == "done" and not outcome["failed"]:
+                self.files_text.set_text("Done.")
+            elif not ok:
+                self.files_text.set_text(outcome["message"] or last_line(stderr) or "It wasn't installed.")
+            else:
+                self.files_text.set_text("Some of the files weren't installed.")
+            self.fill_files()
+            if installed_any:
+                self.background(self.read_installed, self.installed_read, key="installed")
+            self.open_queued_files()
+
+        process = self.run_child(args, done, lines=line)
+        if process is None:
+            return
+        self.child = (process, {"id": "files", "name": "the files"}, "install")
+        self.child_can_cancel = True
+        self.files_install.hide()
+        self.files_close.hide()
+        self.files_cancel.show()
+        self.files_cancel.set_sensitive(True)
+        self.files_progress.show()
+        self.files_text.set_text("")
+        self.set_status("Installing…")
+
+    def files_progress_event(self, event):
+        words = STATUS_TEXT.get(event.get("status"), "Preparing…")
+        if event.get("detail"):
+            words = f"{words[:-1]} {event['detail']}…"
+        percent = event.get("percent")
+        if percent is None:
+            self.files_progress.pulse()
+        else:
+            self.files_progress.set_fraction(percent / 100)
+        self.files_progress.set_text(words if percent is None else f"{words} {percent}%")
+        self.child_can_cancel = bool(event.get("cancel"))
+        self.files_cancel.set_sensitive(self.child_can_cancel)
+
+    def close_files(self):
+        self.files, self.files_plan, self.file_status = [], None, {}
+        if self.history:
+            self.go_back()
+        else:
+            self.go("explore", None, remember=False)
+
     def read_installed(self):
         packages, depends = installed_packages()
-        return packages, depends, installed_flatpaks()
+        return packages, depends, installed_flatpaks(), read_purchases()
 
     def installed_read(self, result, error):
         if error:
             self.show_error(error)
             return
-        self.catalog.packages, self.catalog.protected, self.catalog.flatpaks = result
+        self.catalog.packages, self.catalog.protected, self.catalog.flatpaks, purchases = result
+        self.catalog.bought, self.catalog.key_off = purchases
         self.refresh_view()
+
+    def installed_changed(self, result, error):
+        """installed_read, only when something differs (no page redrawn, no
+        plan asked again, for a window that merely got the focus back)."""
+        catalog = self.catalog
+        if error or result != (catalog.packages, catalog.protected, catalog.flatpaks,
+                               (catalog.bought, catalog.key_off)):
+            self.installed_read(result, error)
+
+    # --- Bought apps: Buy… with a claim code, Add Key… (phase 3c) ---------------------
+
+    def run_command(self, command, done, stdin=None):
+        """Run another program without blocking the window, text on its
+        standard input; then done(ok, stdout, stderr). Returns the process."""
+        Gio, GLib = self.Gio, self.GLib
+        flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE | Gio.SubprocessFlags.STDIN_PIPE
+        try:
+            process = Gio.Subprocess.new(list(command), flags)
+        except GLib.Error as error:
+            done(False, "", error.message)
+            return None
+
+        def finished(process, result):
+            try:
+                _, stdout, stderr = process.communicate_utf8_finish(result)
+                ok = process.get_successful()
+            except GLib.Error as error:
+                stdout, stderr, ok = "", error.message, False
+            done(ok, stdout or "", stderr or "")
+
+        process.communicate_utf8_async(stdin, None, finished)
+        return process
+
+    def buy(self):
+        """Buy…: for the store's app, a claim code in the checkout's address,
+        and `flickos-control purchases claim` waiting for the key (ADR-011);
+        another developer's, or in the live session, only the address."""
+        app = self.page_app
+        paid = app["paid"]
+        if not paid["product"] or live_session() or self.claim is not None or not shutil.which(CONTROL):
+            self.open_web(paid["buy"])
+            return
+        code = secrets.token_urlsafe(CLAIM_BYTES)
+        state = {"stopped": False}
+
+        def done(ok, stdout, stderr):
+            self.claim = None
+            messages = [line for line in output_lines(stdout, stderr) if not line.startswith("Waiting for ")]
+            if state["stopped"]:
+                self.set_status(f"Stopped waiting for the payment of {app['name']}. If you paid, the receipt "
+                                "email's order number gets the key from the store's page; then Add Key….")
+            elif ok:
+                self.set_status(" ".join(messages))
+                self.key_added()
+            else:
+                self.show_error(" ".join(messages) or f"The key of {app['name']} didn't come.")
+            if self.page_app is app:
+                self.update_actions()
+                self.plan()
+
+        process = self.run_command([CONTROL, "purchases", "claim", "--stdin"], done, code + "\n")
+        if process is None:
+            return
+        self.claim = (process, app, state)
+        self.notice.hide()
+        self.open_web(claim_address(paid["buy"], code))
+        self.update_actions()
+        self.plan()
+
+    def stop_claim(self):
+        """Stop waiting for the payment (Cancel, closing the window): the code is lost."""
+        if self.claim is None:
+            return
+        process, _app, state = self.claim
+        state["stopped"] = True
+        with contextlib.suppress(Exception):
+            process.send_signal(signal.SIGTERM)
+
+    def add_key(self):
+        """Add Key…: a key typed or pasted, given to `flickos-control purchases
+        add --stdin`, which checks it, asks for the password and adds it."""
+        Gtk = self.Gtk
+        dialog = Gtk.Dialog(title="Add Key", transient_for=self.win, modal=True)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        ok = dialog.add_button("_Add", Gtk.ResponseType.ACCEPT)
+        ok.get_style_context().add_class("suggested-action")
+        ok.set_sensitive(False)
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(18)
+        words = self.label("The key from the page or the email of your purchase. Adding it needs an "
+                           "administrator's password.")
+        words.set_max_width_chars(50)
+        box.pack_start(words, False, False, 0)
+        row = Gtk.Box(spacing=6)
+        label = Gtk.Label.new_with_mnemonic("_Key")
+        entry = Gtk.Entry(activates_default=True, width_chars=40)
+        label.set_mnemonic_widget(entry)
+        entry.connect("changed", lambda e: ok.set_sensitive(key_shaped(e.get_text())))
+        row.pack_start(label, False, False, 0)
+        row.pack_start(entry, True, True, 0)
+        box.pack_start(row, False, False, 0)
+        dialog.show_all()
+        answer = dialog.run()
+        key = entry.get_text().strip()
+        dialog.destroy()
+        if answer != Gtk.ResponseType.ACCEPT or not key_shaped(key):
+            return
+
+        def done(ok, stdout, stderr):
+            self.adding_key = False
+            messages = output_lines(stdout, stderr)
+            if ok:
+                self.set_status(" ".join(messages))
+                self.key_added()
+            else:
+                self.set_status("")
+                self.show_error(" ".join(messages) or "The key wasn't added.")
+            self.update_actions()
+
+        if self.run_command([CONTROL, "purchases", "add", "--stdin"], done, key + "\n") is not None:
+            self.adding_key = True
+            self.notice.hide()
+            self.set_status("Adding the key…")
+            self.update_actions()
+
+    def key_added(self):
+        """A key was added: the store's lists came through apt, so the index
+        and what is bought are read again, and the page shows Install."""
+        if self.update_catalogs() is None:
+            self.background(self.read_catalog, lambda c, e: self.catalog_read(c, e, updated=True), key="catalog")
+
+
+def paid_words(paid, catalog=None, live=False):
+    """The page's line about an app's price, and for the store's app what its
+    key bought (catalog.bought, catalog.key_off)."""
+    if paid["product"]:
+        if catalog is not None and paid["product"] in catalog.bought:
+            return f"Bought ({paid['price']}). It installs and updates like FlickOS's own apps."
+        words = f"{paid['price']}. Buy… opens the checkout in your web browser."
+        if catalog is not None and catalog.key_off:
+            words += (" The key on this computer was turned off, so the apps bought with it no longer update "
+                      "(Settings > Updates).")
+        if live:
+            return words + " Add your key after installing FlickOS: a key added in the live session is lost."
+        return words + " Bought it on the website or another computer? Add Key… adds its key."
+    return (f"Free to download; a key from the developer unlocks it ({paid['price']}). "
+            "Buy… opens the developer's page in your web browser.")
 
 
 def plan_words(plan, size=human_size):
@@ -2818,6 +5426,7 @@ def plan_words(plan, size=human_size):
         return (f"{name} can't be {'removed' if plan['action'] == 'remove' else 'installed'} here: "
                 f"it would remove part of the FlickOS desktop ({', '.join(plan['protected'])}).")
     others = [p for p in plan["packages"] if p != plan.get("package")]
+    adds = plan.get("adds")
     if plan["action"] == "remove":
         frees = f"Removing it frees {size(plan['size'])}." if plan["size"] else ""
         if plan["source"] == "flathub":
@@ -2825,7 +5434,19 @@ def plan_words(plan, size=human_size):
         also = ("" if not others else
                 f" It also removes {len(others)} package that only {name} used." if len(others) == 1 else
                 f" It also removes {len(others)} packages that only {name} used.")
-        return (frees + also + " Removing asks for your password.").strip()
+        password = (" Removing asks for your password, then again to turn off support for 32-bit programs."
+                    if plan.get("turns_off") else " Removing asks for your password.")
+        return (frees + also + password).strip()
+    if plan.get("only_parts"):
+        what = adds["what"] if adds else "the rest"
+        if adds and not adds["on"]:
+            return (f"{name} is installed without {what}, which most Windows programs need. Adding it needs "
+                    f"about {size(adds['size'])} of disk space ({size(adds['download'])} to download) and asks "
+                    f"for your password twice: once to allow 32-bit programs, once to install them.")
+        text = f"{name} is installed without {what}, which most Windows programs need. Adding it needs " \
+               f"{size(plan['size'])} of disk space"
+        text += f" ({size(plan['download'])} to download)." if plan["download"] else "."
+        return text + " It asks for your password."
     if plan["source"] in APT_SOURCES:
         if not others:
             text = f"Needs {size(plan['size'])} of disk space"
@@ -2836,6 +5457,12 @@ def plan_words(plan, size=human_size):
         text += f" ({size(plan['download'])} to download)." if plan["download"] else "."
         if plan["removes"]:
             text += f" Installing it removes {', '.join(plan['removes'])}."
+        if adds and not adds["on"]:
+            return text + (f" It comes with {adds['what']}, which most Windows programs need: about "
+                           f"{size(adds['size'])} more ({size(adds['download'])} to download). Installing it "
+                           f"asks for your password twice: once to allow 32-bit programs, once to install.")
+        if adds:
+            text += f" That includes {adds['what']}, which most Windows programs need."
         return text + f" {SOURCE_NAMES[plan['source']]} apps are installed for the whole system and need your password."
     brings = []
     for item in plan["items"]:
@@ -2848,11 +5475,62 @@ def plan_words(plan, size=human_size):
     return text + "."
 
 
+def windows_answer(entries, catalog, found):
+    """What a search shows above its results, from flickos-switch lookup's
+    entries: (sentence, rows) for the first entry with something to say, or
+    None. A row is ("app", app, why) or ("web", name, url). found: the IDs
+    of the apps the search found (an entry's Linux version among them needs
+    no word). Matches by the list's words count only when there are few
+    (WORD_MATCHES): "excel" names a program, "music" many."""
+    entries = [e for e in entries if isinstance(e, dict) and isinstance(e.get("name"), str)]
+    by_words = [e for e in entries if e.get("by") != "name"]
+    for entry in entries:
+        if entry.get("by") != "name" and len(by_words) > WORD_MATCHES:
+            continue
+        name = entry["name"]
+        linux = entry.get("linux")
+        if isinstance(linux, dict):
+            app = catalog.find(str(linux.get("app", "")))
+            if app is None or app["id"] in found:
+                continue
+            return f"{name} is made for FlickOS too.", [("app", app, app["summary"])]
+        rows = []
+        for similar in entry.get("similar") or []:
+            app = catalog.find(str(similar.get("app", ""))) if isinstance(similar, dict) else None
+            if app is not None and all(row[1] is not app for row in rows):
+                rows.append(("app", app, similar.get("why") or app["summary"]))
+        web = entry.get("web")
+        if isinstance(web, dict) and str(web.get("url", "")).startswith("https://"):
+            # Its web app's page while Software has web apps (phase 3b), else the browser.
+            webapp = catalog.find(f"web:{entry['id']}") if isinstance(entry.get("id"), str) else None
+            if webapp is not None and WEB in webapp["src"]:
+                rows.append(("app", webapp, WEB_WHY))
+            else:
+                rows.append(("web", web.get("name") or name, web["url"]))
+        note = entry.get("note") or ""
+        if entry.get("group"):
+            sentence = note or f"{name[:1].upper()}{name[1:]} for Windows doesn't work on FlickOS."
+        else:
+            sentence = f"{name} is a Windows program and isn't made for FlickOS. {note}".strip()
+        return sentence, rows
+    return None
+
+
 def join_words(words):
     """"a, b and c" (English only, like the rest of the window)."""
     if len(words) < 2:
         return "".join(words)
     return ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def output_lines(stdout, stderr):
+    """What a child printed, as lines to show, without the programs' names."""
+    lines = []
+    for line in ((stdout or "") + "\n" + (stderr or "")).splitlines():
+        line = re.sub(r"^(flickos-control|flickos-software|control-helper): ", "", line.strip())
+        if line and line not in lines:
+            lines.append(line)
+    return lines
 
 
 def last_line(text):

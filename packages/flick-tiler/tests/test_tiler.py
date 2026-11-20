@@ -28,6 +28,7 @@ _loader.exec_module(ft)
 _STATE = tempfile.TemporaryDirectory(prefix="flick-tiler-test-state-")
 os.environ["XDG_STATE_HOME"] = _STATE.name
 ft.HISTORY_CONF = os.path.join(_STATE.name, "history.conf")
+ft.HISTORY_SITE_CONF = os.path.join(_STATE.name, "site-history.conf")
 
 
 def covers_screen(rects):
@@ -83,6 +84,9 @@ class SettingsTest(unittest.TestCase):
         patcher = mock.patch.object(ft, "SYSTEM_CONF", os.path.join(self.tmp, "none.conf"))
         patcher.start()
         self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(ft, "SITE_CONF", os.path.join(self.tmp, "no-site.conf"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_parse_clamps_and_ignores_bad_values(self):
         with mock.patch.object(ft, "warn"):
@@ -100,7 +104,33 @@ class SettingsTest(unittest.TestCase):
             s = ft.load_settings()
         warn.assert_not_called()
         self.assertFalse(s.enabled)
+        self.assertFalse(s.tile_open)
         self.assertIn("pavucontrol", s.floating)
+
+    def write_conf(self, name, text):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_site_conf_goes_over_the_system_one_key_by_key(self):
+        system = self.write_conf("system.conf", "[Tiler]\nmode=grid\ngap=4\n")
+        site = self.write_conf("site.conf", "[Tiler]\ngap=12\nenabled=yes\n")
+        with mock.patch.object(ft, "SYSTEM_CONF", system), mock.patch.object(ft, "SITE_CONF", site):
+            s = ft.load_settings()
+            self.assertEqual((s.mode, s.gap, s.enabled), ("grid", 12, True))
+            # The user's own choice still wins, and `default` goes back to the site's.
+            ft.save_choice(gap=2)
+            self.assertEqual(ft.load_settings().gap, 2)
+            self.assertEqual(ft.system_settings().gap, 12)
+
+    def test_broken_site_conf_is_left_out(self):
+        system = self.write_conf("system.conf", "[Tiler]\ngap=4\n")
+        site = self.write_conf("site.conf", "no section here\n")
+        with mock.patch.object(ft, "SYSTEM_CONF", system), mock.patch.object(ft, "SITE_CONF", site), \
+             mock.patch.object(ft, "warn") as warn:
+            self.assertEqual(ft.load_settings().gap, 4)
+        warn.assert_called()
 
     def test_save_choice_keeps_other_keys(self):
         path = ft.user_conf()
@@ -267,6 +297,60 @@ class TilerTest(unittest.TestCase):
         self.assertEqual(keys["W-S-t"].find("action").get("region"), "ft2")
         self.assertEqual(keys["W-j"].findtext("action/command"), "flick-tiler focus next")
 
+    def open_windows_to_capture(self):
+        """Tiling off; 100 used, 101 focused, 102 minimized, 103 fullscreen,
+        104 floats by its app id, 105 a dialog."""
+        t = tiler(enabled=False)
+        t.commit()
+        for handle in range(100, 106):
+            open_window(t, handle, app_id="pavucontrol" if handle == 104 else "foot",
+                        parent=100 if handle == 105 else 0, new=False, focus=handle in (100, 101))
+        t.windows[102].states = frozenset({1})
+        t.windows[103].states = frozenset({3})
+        t.enable(True)
+        return t
+
+    def test_capture_gives_open_windows_a_region_and_a_key(self):
+        t = self.open_windows_to_capture()
+        steps = t.start_capture()
+        # The focused one is the main window, and is focused last.
+        self.assertEqual(steps, [(100, "XF86Macro2"), (101, "XF86Macro1")])
+        self.assertEqual(t.order, ["ft1", "ft2"])
+        self.assertEqual((t.windows[101].region, t.windows[100].region), ("ft1", "ft2"))
+        self.assertTrue(all(t.windows[h].region is None for h in (102, 103, 104, 105)))
+        t.commit()
+        self.assertEqual(t.rule_region, "ft3")
+        top = ET.fromstring(t.fragment())
+        keys = {bind.get("key"): bind for bind in top.iter("keybind")}
+        self.assertEqual(keys["XF86Macro1"].find("action").get("region"), "ft1")
+        self.assertEqual(keys["XF86Macro2"].findtext("action[@name='Execute']/command"), "flick-tiler snapped ft2")
+        self.assertEqual(top.find("windowRules/windowRule/action").get("region"), "ft3")
+
+    def test_capture_lets_go_of_windows_whose_key_didnt_run(self):
+        t = self.open_windows_to_capture()
+        t.start_capture()
+        del t.capture["ft1"]                # 101's keybind ran
+        t.end_capture()
+        self.assertEqual(t.order, ["ft1"])
+        self.assertIsNone(t.windows[100].region)
+        self.assertEqual(t.capture, {})
+        t.commit()
+        self.assertNotIn("XF86Macro2", t.fragment())
+
+    def test_capture_takes_as_many_windows_as_there_are_keys(self):
+        t = tiler(enabled=False)
+        for handle in range(len(ft.CAPTURE_KEYS) + 2):
+            open_window(t, handle, new=False)
+        t.enable(True)
+        self.assertEqual(len(t.start_capture()), len(ft.CAPTURE_KEYS))
+        self.assertEqual(len(t.untiled()), 2)
+
+    def test_turning_off_drops_the_capture(self):
+        t = self.open_windows_to_capture()
+        t.start_capture()
+        t.enable(False)
+        self.assertEqual((t.capture, t.order), ({}, []))
+
     def test_show_desktop_hides_and_restores_its_own_windows(self):
         for enabled in (True, False):
             t = tiler(enabled=enabled)
@@ -321,6 +405,32 @@ class TilerTest(unittest.TestCase):
         self.assertEqual(tiler(enabled=False).status()["alt"], "off")
 
 
+class FillsScreenTest(unittest.TestCase):
+    """What makes the floating panel full."""
+
+    def setUp(self):
+        self.t = tiler(enabled=False)
+        open_window(self.t, 1)
+
+    def test_a_plain_window_does_not(self):
+        self.assertFalse(self.t.fills_screen())
+
+    def test_maximized_or_fullscreen(self):
+        for state in (0, 3):
+            self.t.windows[1].states = frozenset({state})
+            self.assertTrue(self.t.fills_screen())
+
+    def test_minimized_does_not(self):
+        self.t.windows[1].states = frozenset({0, 1})
+        self.assertFalse(self.t.fills_screen())
+
+    def test_a_tiled_window_does(self):
+        t = tiler()
+        t.commit()
+        open_window(t, 1)
+        self.assertTrue(t.fills_screen())
+
+
 class DaemonTest(unittest.TestCase):
     """The daemon runs for the whole session, tiling on or off."""
 
@@ -338,6 +448,13 @@ class DaemonTest(unittest.TestCase):
             setattr(self, name, patcher.start())
             self.addCleanup(patcher.stop)
         patcher = mock.patch.object(ft, "SYSTEM_CONF", os.path.join(self.tmp, "none.conf"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(ft, "SITE_CONF", os.path.join(self.tmp, "no-site.conf"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # The build host may have wtype; CaptureTest has its own.
+        patcher = mock.patch.object(ft, "WTYPE", os.path.join(self.tmp, "no-wtype"))
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -359,6 +476,37 @@ class DaemonTest(unittest.TestCase):
             with mock.patch.object(ft, "serve", return_value=0) as serve:
                 self.assertEqual(ft.run_daemon(), 0)
             self.assertEqual(serve.call_args.args[0].enabled, enabled)
+
+    def panel_daemon(self):
+        daemon = ft.Daemon(ft.Settings(enabled=False))
+        open_window(daemon.tiler, 1)
+        return daemon
+
+    def test_panel_state_is_written_only_while_the_file_is_there(self):
+        daemon = self.panel_daemon()
+        daemon.tiler.windows[1].states = frozenset({0})
+        daemon.update_panel()
+        self.assertFalse(os.path.exists(ft.panel_state_path()))
+
+    def test_panel_state_follows_the_windows(self):
+        daemon = self.panel_daemon()
+        path = ft.panel_state_path()
+        ft.write_atomic(path, "")
+        daemon.tiler.windows[1].states = frozenset({0})
+        daemon.update_panel()
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), ft.PANEL_FILLED_CSS)
+        daemon.tiler.windows[1].states = frozenset({0, 1})
+        daemon.update_panel()
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "")
+
+    def test_panel_state_is_not_rewritten_without_a_change(self):
+        daemon = self.panel_daemon()
+        ft.write_atomic(ft.panel_state_path(), "")
+        with mock.patch.object(ft, "write_atomic") as write:
+            daemon.update_panel()
+        write.assert_not_called()
 
     def test_daemon_clears_a_stale_fragment_at_start(self):
         self.stale_fragment()
@@ -406,12 +554,27 @@ class DaemonTest(unittest.TestCase):
         daemon.command(["on"], toplevels=None)
         self.hint_untiled.assert_called_once_with(1)     # nothing floating: no second hint
 
+    def test_tile_open_is_off_until_chosen(self):
+        daemon = ft.Daemon(ft.load_settings())
+        daemon.ready = True
+        self.assertFalse(json.loads(daemon.command(["status"], toplevels=None))["tile_open"])
+        self.assertTrue(json.loads(daemon.command(["tile-open", "on"], toplevels=None))["tile_open"])
+        self.assertTrue(ft.load_settings().tile_open)
+        daemon.command(["tile-open", "default"], toplevels=None)
+        self.assertFalse(daemon.tiler.settings.tile_open)
+        self.assertNotIn("TileOpen", open(ft.user_conf()).read())
+        with self.assertRaises(ft.TilerError):
+            daemon.command(["tile-open", "maybe"], toplevels=None)
+        self.reconfigure.assert_not_called()            # nothing for labwc while tiling is off
+
     def test_settings_commands_without_a_daemon_are_saved(self):
         self.stale_fragment()
         with mock.patch.object(ft, "request", return_value=None), mock.patch("sys.stdout"):
             self.assertEqual(ft.main(["on"]), 0)
             self.assertEqual(ft.main(["mode", "grid"]), 0)
+            self.assertEqual(ft.main(["tile-open", "on"]), 0)
         settings = ft.load_settings()
+        self.assertTrue(settings.tile_open)
         self.assertTrue(settings.enabled)
         self.assertEqual(settings.mode, "grid")
         # A fragment left by a daemon that died is cleared.
@@ -491,6 +654,19 @@ class DaemonTest(unittest.TestCase):
         self.assertFalse(json.loads(daemon.command(["focus-app", "thunar"], toplevels))["found"])
         toplevels.activate.assert_not_called()
 
+    def test_open_apps_through_the_daemon(self):
+        daemon = ft.Daemon(ft.load_settings())
+        daemon.started()
+        daemon.apply()
+        open_window(daemon.tiler, 1, app_id="Geany")
+        open_window(daemon.tiler, 2, app_id="foot")
+        open_window(daemon.tiler, 3, app_id="foot")
+        toplevels = mock.Mock()
+        reply = json.loads(daemon.command(["open-apps"], toplevels))
+        self.assertEqual(reply["app_ids"], ["foot", "geany"])
+        toplevels.activate.assert_not_called()
+        toplevels.minimize.assert_not_called()
+
     def test_focus_app_exit_status(self):
         for reply, status in (({"found": True}, 0), ({"found": False}, 1), ({"error": "unknown"}, 1), (None, 1)):
             with mock.patch.object(ft, "request", return_value=reply) as request:
@@ -547,6 +723,132 @@ class DaemonTest(unittest.TestCase):
         ft.save_choice(enabled=True)
         with mock.patch.object(ft, "request", return_value=None):
             self.assertEqual(ft.offline_status()["alt"], "off")
+
+
+class FakeLabwc:
+    """Toplevels as the daemon's capture uses them: focus and sync, answered
+    when the test says so; a pressed key runs the fragment's keybind."""
+
+    def __init__(self, daemon):
+        self.daemon = daemon
+        self.syncs = []
+        self.activated = []
+        self.pressed = []
+
+    def activate(self, handle):
+        self.activated.append(handle)
+        for other, window in self.daemon.tiler.windows.items():
+            window.states = frozenset({2}) if other == handle else window.states - {2}
+
+    def sync(self, handler):
+        self.syncs.append(handler)
+
+    def answer(self):
+        syncs, self.syncs = self.syncs, []
+        for handler in syncs:
+            handler()
+        self.daemon.capture_step(self)
+
+    def press(self, key):
+        self.pressed.append(key)
+        tiler = self.daemon.tiler
+        region = next(region for region, bound in tiler.capture.items() if bound == key)
+        self.daemon.command(["snapped", region], toplevels=self)
+        return True
+
+
+def read_fragment():
+    with open(ft.fragment_path()) as f:
+        return f.read()
+
+
+class CaptureTest(unittest.TestCase):
+    """Turning tiling on tiles the windows open then (Daemon.capture_step)."""
+
+    def setUp(self):
+        DaemonTest.setUp(self)
+        tool = os.path.join(self.tmp, "wtype")
+        with open(tool, "w") as f:
+            f.write("#!/bin/sh\n")
+        os.chmod(tool, 0o755)
+        patcher = mock.patch.object(ft, "WTYPE", tool)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.daemon = ft.Daemon(ft.Settings(enabled=False, tile_open=True))
+        self.daemon.ready = True
+        self.labwc = FakeLabwc(self.daemon)
+        patcher = mock.patch.object(ft, "press", side_effect=self.labwc.press)
+        self.press = patcher.start()
+        self.addCleanup(patcher.stop)
+        windows = self.daemon.tiler.windows
+        windows[100] = ft.Window(app_id="foot", mapped=True, states=frozenset({2}))
+        windows[101] = ft.Window(app_id="mousepad", mapped=True)
+        windows[102] = ft.Window(app_id="thunar", mapped=True, states=frozenset({1}))
+
+    def test_open_windows_are_focused_and_tiled_one_by_one(self):
+        daemon = self.daemon
+        daemon.command(["on"], toplevels=self.labwc)
+        self.assertIn('key="XF86Macro1"', read_fragment())
+        self.assertEqual(self.reconfigure.call_count, 1)
+        daemon.capture_step(self.labwc)                 # waits for the reload
+        self.assertEqual(self.labwc.pressed, [])
+        self.labwc.answer()                             # reloaded: 101 is focused
+        self.assertEqual(self.labwc.activated, [101])
+        self.labwc.answer()                             # pressed; then 100
+        self.labwc.answer()                             # pressed; all replied
+        self.assertEqual(self.labwc.activated, [101, 100])
+        self.assertEqual(self.labwc.pressed, ["XF86Macro2", "XF86Macro1"])
+        self.assertIsNone(daemon.capture)
+        self.assertEqual(daemon.tiler.order, ["ft1", "ft2"])
+        self.assertIsNone(daemon.tiler.windows[102].region)     # minimized: left alone
+        daemon.apply()
+        self.assertNotIn("XF86Macro", read_fragment())
+        self.hint_untiled.assert_not_called()
+
+    def test_a_key_that_doesnt_reply_lets_the_window_go(self):
+        daemon = self.daemon
+        self.press.side_effect = None
+        self.press.return_value = True                  # pressed, but no keybind ran
+        daemon.command(["on"], toplevels=self.labwc)
+        for _ in range(3):
+            self.labwc.answer()
+        self.assertIsNotNone(daemon.capture)            # waiting for the replies
+        with mock.patch.object(ft.time, "monotonic", return_value=ft.time.monotonic() + ft.CAPTURE_SECONDS + 1):
+            daemon.capture_step(self.labwc)
+        self.assertIsNone(daemon.capture)
+        self.assertEqual(daemon.tiler.order, [])
+        self.hint_untiled.assert_called_once_with(2)
+
+    def test_a_window_that_lost_the_focus_gets_no_key(self):
+        daemon = self.daemon
+        daemon.command(["on"], toplevels=self.labwc)
+        self.labwc.answer()
+        daemon.tiler.windows[101].states = frozenset()  # something else took the focus
+        self.labwc.answer()
+        self.assertEqual(self.labwc.pressed, [])
+
+    def test_turning_off_stops_the_capture(self):
+        daemon = self.daemon
+        daemon.command(["on"], toplevels=self.labwc)
+        daemon.command(["off"], toplevels=self.labwc)
+        self.assertIsNone(daemon.capture)
+        self.labwc.answer()
+        self.assertEqual(self.labwc.activated, [])
+
+    def test_open_windows_stay_as_they_are_unless_chosen(self):
+        self.daemon.tiler.settings.tile_open = False
+        self.daemon.command(["on"], toplevels=self.labwc)
+        self.assertIsNone(self.daemon.capture)
+        self.assertNotIn("XF86Macro", read_fragment())
+        self.assertEqual(self.labwc.activated, [])
+        self.press.assert_not_called()
+        self.hint_untiled.assert_called_once_with(2)
+
+    def test_without_wtype_the_windows_stay_floating(self):
+        with mock.patch.object(ft, "WTYPE", os.path.join(self.tmp, "none")):
+            self.daemon.command(["on"], toplevels=self.labwc)
+        self.assertIsNone(self.daemon.capture)
+        self.hint_untiled.assert_called_once_with(2)
 
 
 def message(object_id, opcode, payload=b""):
@@ -681,12 +983,14 @@ class HistoryTest(unittest.TestCase):
         daemon.command(["ratio", "+5"], toplevels=None)
         daemon.command(["gap", "4"], toplevels=None)
         daemon.command(["floating", "add", "gimp*"], toplevels=None)
+        daemon.command(["tile-open", "on"], toplevels=None)
         self.assertEqual(self.entries(), [
             ("flick-tiler", "enabled", "off", "on"),
             ("flick-tiler", "mode", "default", "grid"),
             ("flick-tiler", "ratio", "default", "60"),
             ("flick-tiler", "gap", "default", "4"),
             ("flick-tiler", "floating", "", "gimp*"),
+            ("flick-tiler", "tile-open", "off", "on"),
         ])
 
     def test_default_removes_the_users_value(self):
@@ -715,6 +1019,13 @@ class HistoryTest(unittest.TestCase):
         with open(ft.HISTORY_CONF, "w") as f:
             f.write("[History]\nEnabled=no\n")
         self.addCleanup(os.unlink, ft.HISTORY_CONF)
+        ft.save_choice(enabled=True)
+        self.assertEqual(self.entries(), [])
+
+    def test_the_site_can_turn_it_off(self):
+        with open(ft.HISTORY_SITE_CONF, "w") as f:
+            f.write("[History]\nEnabled=no\n")
+        self.addCleanup(os.unlink, ft.HISTORY_SITE_CONF)
         ft.save_choice(enabled=True)
         self.assertEqual(self.entries(), [])
 

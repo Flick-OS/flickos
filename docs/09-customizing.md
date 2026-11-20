@@ -189,42 +189,81 @@ Tell users this in your release notes or user docs.
 
 ## Login screen
 
-Installed systems boot to a graphical login screen (`packages/flickos-greeter/`):
-**greetd** is the display manager, and its greeter is **gtkgreet** running in
-the **cage** kiosk compositor. After a successful login gtkgreet asks greetd to
-start `flickos-session`. The live session doesn't use it: it logs in
-automatically on tty1 (live-config), and the drop-in skips greetd with
-`boot=live`.
+Installed systems boot to a graphical login screen (`packages/flickos-greeter/`,
+design: `docs/design/flickos-greeter.md`): **greetd** is the display manager,
+and its greeter is FlickOS's own window, **`greeter-window`** (Python, GTK 3),
+running in the **cage** kiosk compositor. It lists the users, asks for a
+password and has greetd start the chosen session. greetd checks the password
+(PAM); the window runs as `_greetd` and never sees PAM. The live session
+doesn't use it: it logs in automatically on tty1 (live-config), and the
+drop-in skips greetd with `boot=live`.
 
 | File | Purpose |
 |---|---|
 | `usr/lib/systemd/system/greetd.service.d/flickos.conf` | Drop-in: `ConditionKernelCommandLine=!boot=live`, runs `greetd-config` before each start, `greetd --config /run/flickos-greetd/config.toml` |
 | `usr/libexec/flickos/greetd-config` | Writes that config: `vt = 7`, the greeter as `_greetd`, and the automatic login |
-| `usr/libexec/flickos/greeter` | Keyboard layout from `/etc/default/keyboard`, `GTK_THEME=Arc-Dark`, `exec cage -d -s -- gtkgreet …` |
-| `usr/share/flickos/greeter/gtkgreet.css` | Wallpaper and login box (Arc-Dark palette) |
+| `usr/libexec/flickos/greeter` | Keyboard layout from `/etc/default/keyboard` (with a switch key added when two layouts have none), `GTK_THEME=Arc-Dark`, then `cage -d -s` with `greeter-window`, and gtkgreet if that ends without a login; everything under `systemd-cat` |
+| `usr/libexec/flickos/greeter-window` | The login screen's window |
+| `usr/share/flickos/greeter/style.css` | Its card (theme colors only, like the lock screen's) |
+| `usr/share/flickos/greeter/gtkgreet.css`, `etc/greetd/environments` | The fallback gtkgreet's look and session list, until one release after 2.0 |
 
 greetd's own `/etc/greetd/config.toml` is ignored. Calamares doesn't run its
 `displaymanager` module, which would rewrite that file for its own setup.
 
+- **Users:** accounts with a UID from `UID_MIN` to `UID_MAX`
+  (`/etc/login.defs`) and a real shell, by full name. *Someone Else…* takes a
+  name typed by hand. The picture is the one each user chooses on *Settings →
+  Users* (or `flickos-control picture set FILE`), which accountsservice keeps in
+  `/var/lib/AccountsService/icons/USER` (home folders are closed to `_greetd`),
+  else the name's initial on a circle.
+- **Sessions:** the button at the bottom left: *FlickOS*, *FlickOS (Plain
+  Session)*, then every other session in `/usr/share/wayland-sessions/`
+  except bare labwc. Its name shows next to the button while it isn't
+  *FlickOS*.
+- **Remembered:** `/var/lib/greetd/flickos/state` (only `_greetd` reads it):
+  the last user, picked when the login screen opens, each user's last
+  session and the zoom. Written only after greetd accepted the session.
+- **Shut Down and Restart:** the button at the bottom right, each with a
+  second click, through logind. A program holding a block inhibitor stops
+  them, and the card names it.
+- **Keyboard layout:** a button next to it, only with more than one layout
+  in `/etc/default/keyboard`. It shows the layout and names the key that
+  changes it (`grp:` in `XKBOPTIONS`, *Alt+Shift* when there is none).
+- **Zoom:** Super+=, Super+-, Super+0 and Super+scroll, as on the lock screen.
+- **Background and box:** *Settings → Login Screen* chooses the picture
+  (FlickOS's wallpapers in `/usr/share/backgrounds/flickos/`, or a picture of
+  yours, which flickos-control shrinks to cover at most 3840×2160 and the
+  helper copies as a JPEG to
+  `/var/lib/flickos-control/login-screen/background.jpg`) and puts the box on
+  the left, in the middle or on the right of its screen. On the command line:
+  `flickos-control system login.background default|FILE` and
+  `flickos-control system login.position left|center|right|default`. They
+  are `Background=` and `Position=` in `/etc/flickos/greeter`, over the
+  package's conffile `/etc/xdg/flickos/greeter.conf`, where a custom build
+  sets its own defaults. The picture is always dimmed a little.
+- **Two screens:** the card goes on the built-in screen (its EDID size
+  matched to GTK's monitors), else the first one; cage moves the window when
+  screens come or go.
 - **VT 7:** the login screen runs on VT 7 (Debian's greetd default). tty1
   keeps its text login as a fallback (Ctrl+Alt+F1), which starts the same
   session through the profile.d script. greetd sources `/etc/profile` for its
-  sessions too, but the script only acts on tty1.
+  sessions too, but the script only acts on tty1. An **expired password** can
+  only be changed there: greetd never asks PAM for a new one.
 - **Automatic login:** `greetd-config` logs in the first member of the group
   `autologin` once per boot (greetd's `initial_session`). The installer's *Log
   in automatically* adds the user to that group (`autologinGroup` in
   `users.conf`); the package creates it (`debian/flickos-greeter.sysusers`).
   On a running system: `sudo gpasswd -a USER autologin` (or `-d` to stop).
   It applies at the next boot.
-- **Look:** gtkgreet's widgets come from the Arc-Dark GTK theme. The CSS sets
-  the wallpaper (`background-size: cover`; gtkgreet's own `--background`
-  draws the image unscaled) and styles `#body` (the login box) and `#clock`.
-  gtkgreet has no shutdown or restart buttons.
+- **Messages:** `journalctl -b -t flickos-greeter` (cage, the window,
+  gtkgreet). A window that can't start brings up gtkgreet instead.
 - **Back to the text login:** `sudo systemctl disable greetd` (the tty1 login
   starts FlickOS as before). `enable` brings the login screen back.
 - **Test:** `tools/test-iso.sh --install`, then boot the disk
-  (`tools/test-iso.sh --disk`). The boot test only checks that greetd is
-  enabled and not running in the live session.
+  (`tools/test-iso.sh --disk`). The boot test can't show the login screen (the
+  live session has none): it checks that greetd is enabled and not running
+  there, that `greeter-window --check` offers the FlickOS sessions, and that
+  it reads a background and box position.
 
 ---
 
@@ -261,8 +300,10 @@ without a tray.
   doesn't ellipsize their titles. So it shows icons only, and titles only in
   the tooltip: with titles, many open windows would push the tray, status and
   clock off the bar.
-- The dock has no magnification or drag-to-pin. Pinned apps are set in
-  `layout.ini`.
+- The dock has no magnification or drag-to-pin. Pinned apps are the
+  layout's (`layout.ini`) until a user chooses their own in *Settings →
+  Desktop Layout & Style → Pinned Apps* (`flickos-layout pinned`): a stopgap
+  while sfwbar, in beta, can't pin apps itself in a way that lasts.
 - The hidden dock reappears only when the pointer touches the bottom edge
   right below it: the strip that reacts is as wide as the dock.
 - The dock only knows whether the active window is maximized, not where windows
@@ -280,6 +321,7 @@ without a tray.
 | `usr/share/flickos/layouts/ID/waybar.jsonc`, `style.css` | The layout's bars and CSS |
 | `usr/share/flickos/layouts/cupertino/dock.config`, `dock.css` | Cupertino's dock: sfwbar config (see `sfwbar(1)`) and its CSS |
 | `usr/share/flickos/layouts/traditional/windowlist.config`, `windowlist.css` | Traditional's bottom panel (window list and desktop switcher): sfwbar config and its CSS |
+| `usr/share/flickos/layouts/redmond/floating.css`, `floating-full.css` | Redmond's floating panel: its look, and what turns it into the full panel ([design](design/flickos-floating-panel.md)); `FloatingDefault=on` in a layout's `layout.ini` floats it without a choice (Tortuga's) |
 | `usr/share/flickos/layouts/ID/preview.png` | 240×150 image shown in the chooser (`tools/make-layout-previews.sh`) |
 | `usr/share/flickos/styles/ID/wallpaper.png` | The style's [wallpaper](#wallpaper), shown with every layout |
 | `usr/share/backgrounds/flickos/ID.jpg` | The layouts' photos, their wallpapers until flickos-layouts 1.37; now only choices in waypaper |
@@ -289,7 +331,7 @@ without a tray.
 | `usr/share/flickos/layouts/common/modules.jsonc` | Module settings shared by all layouts: launcher, taskbar, clock, volume, battery, tray |
 | `usr/share/flickos/layouts/common/base.css` | CSS shared by all layouts (fonts, translucent bars, module padding, volume and battery icons, tooltips) |
 | `usr/share/flickos/styles/ID/waybar-colors.css` | The panel palette of each [style](#styles-darklight): `@define-color` with Arc-Dark or Arc values. The only CSS files with color values |
-| `etc/xdg/flickos/layouts.conf` | `[Defaults] Layout=`, `Style=`, `Clicks=`, `Launcher=`, `MenuStyle=`, `Clock=` and `QuickSettings=`: defaults for users who haven't chosen (conffile) |
+| `etc/xdg/flickos/layouts.conf` | `[Defaults] Layout=`, `Style=`, `Clicks=`, `Launcher=`, `MenuStyle=`, `Clock=`, `Buttons=` and `QuickSettings=`: defaults for users who haven't chosen (conffile) |
 | `tests/test_engine.py`, `tests/fixtures/rc.xml` | Unit tests for the engine |
 | `tests/test_layouts.py` | Unit tests for the shipped layouts and panel generation (see [Adding a layout](#adding-a-layout)) |
 | `tests/test_chooser.py` | Unit tests for `pick` (lock, fuzzel fallback, which command a selection runs), `first-run`, previews, the desktop file and the marker. GTK itself isn't started |
@@ -333,10 +375,20 @@ layouts have none: they show the style's wallpaper, so a layout switch keeps
 the picture. A layout of your own may bring one; it wins over the style's.
 
 `Menu` (optional) is `bottom-left` or `top-left`: where the [start
-menu](#start-menu) opens, in the corner of the bar with the apps button. A
+menu](#start-menu) opens, in the corner of the bar with the apps button; or
+`bottom-center` for an apps button in the middle (`modules-center`) of a
+bottom bar, which opens the menu above the middle of the screen (Eleven's). A
 layout without it keeps fuzzel even while the start menu is on. `MenuStyle`
-(optional) is its kind of menu: `classic` (default), `categories` or `grid`.
+(optional) is its kind of menu: `classic` (default), `categories`, `grid` or
+`prompt`.
 `tests/test_layouts.py` checks that the corner matches the bar's position.
+
+`MenuArrow` (optional) gives the `classic` and `categories` menus an arrow
+pointing at the apps button, with `Menu=bottom-left` or `top-left`. It is how
+far the middle of the logo is from the screen's left edge, in pixels, at least
+23. A layout with `Floating=` gives a second number, for while the panel floats
+(`MenuArrow=23 32`). Leave it out if the button moves, for example next to the
+windows of a taskbar in the middle of the bar.
 
 `Quick` (optional) is `bottom-right` or `top-right`: where [Quick
 Settings](#quick-settings) opens, at the end of the bar with the volume and
@@ -346,6 +398,7 @@ battery icons. A layout without it has no Quick Settings even while it is on.
 `Pinned` (optional) lists desktop file ids separated by `;`. They are shown
 where a bar in `waybar.jsonc` has the module name **`flickos/pinned`**, and in
 the dock where its config has the line **`pins = "flickos/pinned"`**.
+A user's own list for the layout (`flickos-layout pinned`, below) replaces it.
 
 `Dock` and `DockStyle` (optional, both or neither) are a bar run by
 [sfwbar](04-packages.md#sfwbar) next to waybar (Cupertino's dock,
@@ -452,6 +505,7 @@ A sibling that hangs costs a warning, never the panel.
 | `flickos-layout set [ID] [--style STYLE] [--clicks CLICKS]` | Saves the choice, regenerates the overlay and the panel files and, inside the session, runs `labwc --reconfigure`, restarts the FlickOS panel and, for a new layout, replaces a FlickOS wallpaper with the layout's. Outside a session (no `WAYLAND_DISPLAY`/`LABWC_PID`) it only saves: "applies at next login". `--style` and `--clicks` also set the style and the desktop clicks, with one panel restart. Without `ID` the layout stays |
 | `flickos-layout style list`, `style current`, `style set ID` | The same for [styles](#styles-darklight) |
 | `flickos-layout clicks list`, `clicks current`, `clicks set ID` | The same for [desktop clicks](#desktop-clicks) |
+| `flickos-layout pinned list\|set IDS\|add ID\|remove ID [--layout ID]` | The pinned apps of a layout whose dock or bar shows them (default: the one in use). `list`: the installed ones, desktop id and name. `set` takes desktop ids separated by `;` (empty: none) or `default` (the layout's `Pinned=` again); `add` pins last (`--first`: first). The user's lists are in `~/.config/flickos/pinned` (`[Pinned]` `LAYOUT=IDS`, deleted when none is left). Inside the session the panel and dock of the layout in use show the change at once (regenerated, then waybar started again, sfwbar `SIGHUP`); recorded for History. The plain session ignores the user's lists and refuses `set` |
 | `flickos-layout wallpaper` | Shows the [wallpaper](#wallpaper) (autostart): `waypaper --restore` if the user chose one there, else swaybg with `~/.config/flickos/wallpaper`, the layout's, the style's or the default wallpaper. If waypaper fails, the layout's or the style's |
 | `flickos-layout prepare` | Regenerates the overlay (`xdg/`). Run by the session script at login, before labwc starts |
 | `flickos-layout panel` | Starts mako with the generated notification config, generates the panel files, starts the layout's dock (sfwbar), then stays on as waybar's [supervisor](#keeping-the-panel-running) (autostart). If anything goes wrong it starts flickos-settings' default panel and notification config. A user's own waybar or mako config is used as is |
@@ -555,7 +609,7 @@ Updated FlickOS packages therefore reach every user at their next login.
 
 | Overlay file | Contents | Exists when |
 |---|---|---|
-| `xdg/labwc/rc.xml` | A copy of the first system `rc.xml` in `XDG_CONFIG_DIRS` (skipping the overlay itself), with `<theme><titlebar><layout>` and `<theme><name>` set | It differs from the system file: the layout has `TitlebarLayout`, or the style's window theme isn't the one in the system file |
+| `xdg/labwc/rc.xml` | A copy of the first system `rc.xml` in `XDG_CONFIG_DIRS` (skipping the overlay itself), with `<theme><titlebar><layout>` and `<theme><name>` set | It differs from the system file: the layout has `TitlebarLayout` or the user chose where the window buttons go, or the style's window theme isn't the one in the system file |
 | `xdg/foot/foot.ini`, `xdg/fuzzel/fuzzel.ini` | `include=` of flickos-settings' config, then of the style's palette ([Styles](#styles-darklight)) | The style isn't Dark |
 | `waybar/config.jsonc`, `waybar/style.css` | The generated panel ([above](#the-generated-panel)) | Once the panel has started |
 | `mako/config` | `include=` of `/usr/share/flickos/mako/config`, then of the style's `mako.conf` | Once notifications have started |
@@ -660,12 +714,13 @@ While it is off, none of these exist. Super+D and Alt+F3 stay fuzzel either way.
 | `classic` (default) | Redmond | Windows 7: pinned apps, All apps, search; user, folders, Settings, Software, power |
 | `categories` | Traditional | GNOME 2/Whisker: search on top, categories left (Favorites, All apps, sections, Folders), apps right as you point at a category, user and power buttons below |
 | `grid` | Cupertino | Launchpad: every app as a big icon, full screen and see-through, the power buttons top right while Quick Settings is off; click the background or press Escape to close |
+| `prompt` | none yet (ADR-022) | FlickOS's own: a search line, the first six pins on Ctrl+1–6, every app as icons A–Z (type a category, such as `games`, for its apps), folder chips, user, Settings, Software and power below |
 
 A user can pick one style for every layout instead, under *Start menu
 style* in the Settings page, or:
 
 ```sh
-flickos-layout menu-style list        # layout (each layout's own, the default), classic, categories, grid
+flickos-layout menu-style list        # layout (each layout's own, the default), classic, categories, grid, prompt
 flickos-layout menu-style set grid    # the grid in every layout, in the layout's corner
 flickos-layout menu-style set layout  # back to each layout's own
 ```
@@ -694,7 +749,29 @@ an app (right-click it, or `flickos-menu pin|unpin ID`) gets their own list in
 `SECTIONS` (All apps' categories), `TOOLS` and `POWER` (right column), `PLACES`
 (folders), `TAP_MS` (keep it below flickos-shortcuts' `HOLD_MS`), the sizes
 `WIDTH_LEFT`, `WIDTH_RIGHT`, `HEIGHT` (classic), `CategoriesView.WIDTH`/`HEIGHT`,
-`ICON_GRID`. The look is
+`ICON_GRID`, and the prompt style's `PROMPT_SIZE`, `PROMPT_COLUMNS`,
+`PROMPT_TILE_WIDTH` and `PROMPT_PINS`. In the prompt style an app's actions
+(right-click, the Menu key or Shift+F10) have Bring to Front, the desktop
+file's own actions, Pin/Unpin (Ctrl+P), Move Left/Right (Ctrl+← →), Hide from
+the Menu, Open in Software and Larger/Smaller Menu (Ctrl++ and Ctrl+−); apps
+are also pinned by dragging them onto the pinned row, and with six pins a
+seventh asks which one to replace. Typing shows the rest of the first app's
+name in grey, and → at the end of the line takes it; ↑ on an empty line
+brings back the last search of the session (kept in memory only, never one
+starting with `=`, `/`, `>` or `?`); a search that finds nothing offers
+Software, files of that name and the terminal. Results that aren't apps are
+providers, JSON files in `usr/share/flickos/menu/providers/` (format: the top
+of `usr/share/flickos/menu/providers.py`): add a desktop task to `tasks.json`
+(its text is translated through `po/extract`), or a package's own file with
+its own `domain`; `LIVE_PAUSE_MS`, `LIVE_MIN_CHARS` and `LIVE_LIMIT_MS` are
+how a live one (`files.json`) is held back from the keys. A drive the user plugs in gets a chip with an eject button, an app
+installed since the menu last looked says *New* (until it is started, at most
+three days; `~/.local/state/flickos/menu-seen.json`), and Restart gets a dot
+while a new kernel waits (`/run/reboot-required`). The user's
+`~/.config/flickos/menu` keeps
+`Pinned=`, `Size=COLUMNSxROWS` (5–8 columns; the
+corner away from the panel drags it) and `Hidden=` (apps left out of the grid,
+still found by a search). The look is
 `usr/share/flickos/menu/style.css`: GTK theme colors only (`@theme_bg_color`,
 …), so both styles recolor it.
 
@@ -747,6 +824,21 @@ flickos-desktop, and gives the backlight to the `video` group). The look is in
 `FLICKOS_MENU_PREFIX=$PWD usr/bin/flickos-menu quick`. The timing log has
 *quick settings shown in* and *values in* (every owner has answered).
 
+### Floating panel
+
+Redmond's panel can be a slimmer bar that floats above the bottom of the screen
+and fills it while a window is maximized, fullscreen or tiled. It is off by
+default; the switch is in *Settings → Desktop Layout & Style*, shown for
+Redmond and for Tortuga, whose top bar floats as three islands and is on by
+default. A maximized window on another desktop counts too
+([design/flickos-floating-panel.md](design/flickos-floating-panel.md)).
+
+```sh
+flickos-layout floating-panel list          # off, on
+flickos-layout floating-panel set on        # applies at once
+flickos-layout floating-panel set default   # back to the system default (off)
+```
+
 ### Adding a layout
 
 1. Copy a folder in `packages/flickos-layouts/usr/share/flickos/layouts/`, e.g.
@@ -765,7 +857,7 @@ flickos-desktop, and gives the backlight to the `video` group). The look is in
    `@error_color`), plus `transparent` and `alpha(@name, 0.8)`. The palette may
    change with a style, so color values like `#383c4a` are rejected by the tests.
 4. Set `Menu=` to the corner of the bar with the apps button (`bottom-left` or
-   `top-left`), and `MenuStyle=` if it shouldn't be `classic`, for the
+   `top-left`, or `bottom-center` for a button in the middle of a bottom bar), and `MenuStyle=` if it shouldn't be `classic`, for the
    [start menu](#start-menu).
 5. Add the id to `EXPECTED` in `tests/test_layouts.py`, and the CSS file (and a
    `DockStyle=` file) to `FILES` in `tools/check-palette.py`.
@@ -867,10 +959,14 @@ its icon theme), notifications, **new** terminal windows and the
 **What doesn't:**
 
 - Open foot windows keep their colors until they're closed.
-- Boot menus, boot splash, installer and the lock screen's color (`swaylock
-  -c`, unless *Settings → Power & Idle* shows the wallpaper there) are always
-  Arc-Dark, and so is the wallpaper's fill color. They run before or outside
-  the user session.
+- Boot menus, boot splash and installer are always Arc-Dark, and so is the
+  wallpaper's fill color. They run before or outside the user session.
+- The lock screen follows the style. FlickOS's lock screen (flickos-lock)
+  draws in the GTK theme's colors; swaylock (its fallback) takes the style's
+  colors from the next login on, or as soon as a style is set. With a swaylock
+  config of your own (`~/.config/swaylock/config`, `~/.swaylock/config` or
+  `/etc/swaylock/config`, even an empty one) the lock is plain swaylock with
+  yours: the way back to swaylock.
 - libadwaita apps always look like Adwaita
   ([GTK theme](#gtk-theme-icons-cursor-fonts-dark-mode)); with Light they at
   least follow `color-scheme`.
@@ -881,7 +977,7 @@ its icon theme), notifications, **new** terminal windows and the
 | File in `packages/flickos-layouts/usr/share/flickos/styles/ID/` | Purpose |
 |---|---|
 | `style.ini` | `[Style]` `Name`, `Comment`, `Order`, `GtkTheme`, `IconTheme`, `LabwcTheme`, `ColorScheme` (`default`, `prefer-dark` or `prefer-light`), and the palette files `Waybar`, `Foot`, `Fuzzel`, `Mako` (relative to the folder, or absolute); `Wallpaper` (optional) |
-| `wallpaper.png` | The style's [wallpaper](#wallpaper): the halo (FlickOS's logo, drawn large), dark or light |
+| `wallpaper.png` | The style's [wallpaper](#wallpaper): a wave on a sandy shore seen from above, the same in Dark and Light (two copies: `check` refuses a link out of the style's folder) |
 | `waybar-colors.css` | `@define-color` for the panel. Same names in every style; layout CSS uses only these names |
 | `foot.ini` | `[colors]`: `alpha`, background, foreground and the 16 ANSI colors |
 | `fuzzel.ini` | `[main] icon-theme` and `[colors]` |
@@ -943,6 +1039,14 @@ theme named like the window theme, finds none and shows only hicolor's icons
 one of the styles' icon themes is kept. labwc reads it when it reconfigures, so
 icons picked in nwg-look reach the title bars at the next style or layout change
 or login.
+
+**Window buttons.** *Settings → Desktop Layout & Style → Window buttons*
+(`flickos-layout buttons set left|right|split|default`, `Buttons=` in
+`layouts.conf`) puts the buttons in one place for every layout: `left` is
+`close,iconify,max:`, `right` is `:iconify,max,close`, `split` is
+`close:max`. The choice replaces the layout's `TitlebarLayout` in the overlay
+rc.xml and in `button-layout`, under the same rule (only while the key holds
+the default or one of these values); `default` follows the layout again.
 
 A layout change touches only `button-layout` (`org.gnome.desktop.wm.preferences`):
 the buttons of windows that draw their own title bar, like Firefox without
@@ -1077,6 +1181,9 @@ starts with `include=/run/user/1000/flickos/style/foot.ini` (foot and fuzzel
 take only absolute paths or `~/`, no variables: use your own user id) keeps
 following Dark and Light and can still change the font. There is no such file
 for mako: mako won't start when an included file is missing.
+`$XDG_RUNTIME_DIR/flickos/style/swaylock` is a whole swaylock config in the
+style's colors (from its panel palette), which `flickos-control lock` passes
+with `-C`.
 
 **Which file wins: `flickos-layout explain [PROGRAM]`.** For the style,
 labwc, the panel, the dock, foot, fuzzel, mako, the GTK and icon themes and
@@ -1092,8 +1199,9 @@ add-ons, `~/.config/labwc/` or your foot, fuzzel and mako configs is applied
 within about a second, with one line saying what was done (or `check`'s
 errors, and then nothing is applied). A palette file of the style in use or
 of one of its parents regenerates the panel, dock and notification files and
-has FlickOS's waybar (`SIGUSR2`), dock (`SIGHUP`) and mako (`makoctl
-reload`) read them again, without restarting them; its `style.ini` does what
+has FlickOS's dock (`SIGHUP`) and mako (`makoctl reload`) read them again,
+without restarting them, and waybar start again (its own reload would empty
+the clock's calendar, [07](07-troubleshooting.md)); its `style.ini` does what
 `style set` does, without saving a choice; another style of yours is only
 checked. An add-on reloads labwc and the panel; a labwc file reloads labwc
 and says when whether your files are merged changes at the next login; foot
@@ -1133,7 +1241,9 @@ flickos-layout style set nord              # or: flickos-layout try --end
 styles as packages, installed only by those who want them: *Software →
 Styles* lists them, and an installed style's page has *Try* (until you log
 out) and *Use*. The first is **Seven** (`flickos-style-seven`): light
-windows, see-through sky blue title bars and a see-through dark blue panel.
+windows, see-through sky blue title bars and a see-through dark blue panel,
+with a layout of the same name: a glass panel at the bottom with a round
+start button and large window icons.
 The second, **Aye3wm** (`flickos-style-aye3`), also brings a layout of the
 same name: its metainfo's `FlickOS::layout` makes *Use* set both, and the
 layout lives in `/usr/share/flickos/layouts/aye3/` next to FlickOS's (only
@@ -1144,7 +1254,18 @@ layout with a black top bar and a dock on the left edge. The fourth,
 grey with the elementary icons, and a layout with a thin see-through top bar
 ("Applications" on the left, the date and time in the middle), a light dock
 at the bottom, and close on the left of the title bar with maximize on the
-right.
+right. The fifth, **Experience** (`flickos-style-experience`), brings deep
+blue title bars with glossy buttons and a red close, and a layout with one
+blue panel at the bottom: a green Start button, the window list and a lighter
+blue notification area with the clock. The sixth, **Eleven**
+(`flickos-style-eleven`), brings dark grey title bars with wide flat buttons
+and a close that turns red, and a layout with one dark panel at the bottom
+whose apps button and window list are in the middle; its start menu opens
+above the middle of the panel. The seventh, **Tortuga**
+(`flickos-style-tortuga`), brings slate title bars with a lantern copper
+accent and a harbour at dusk, and a layout with three floating islands at the
+top that join into one panel under a full window, and a dock with the
+desktops as a 2×2 grid.
 A style package is an AppStream add-on of the layout chooser
 (`<extends>flickos-layout.desktop</extends>` and a `FlickOS::style` custom
 value naming its folder), which is how Software finds it; see
@@ -1211,6 +1332,13 @@ and rewrites the buttons' files in `$XDG_RUNTIME_DIR/flickos/desktops/`;
 doesn't tell other programs which desktop a window is on, so every desktop
 always has a button.
 
+**The weather** (flickos-layouts 1.69). `"flickos/weather"` in a bar's modules
+is where the weather button goes while the weather is on (*Settings →
+Weather*, flickos-weather); while it is off, it is left out. Without it, the
+button goes before the tiling button. `"custom/weather": { "format": "{alt}" }`
+in your bar shows the temperature with its unit over the sky in words
+(Eleven's), `#custom-weather` in CSS, with the sky as its class.
+
 **`flickos-layout check --layout ID`** reads only, one line per problem as for
 styles (exit status 1 with an error). Errors: a `layout.ini` without
 `Name=`/`Waybar=`/`Style=`, a waybar config that doesn't parse, an `include`
@@ -1220,8 +1348,12 @@ a `custom/` module used but defined nowhere, a color written out in the CSS
 (`custom/launcher`), no tray, no recording time (`custom/recording`), no Show
 Desktop (`custom/desktop`), `Menu=`/`Quick=` not the corner of the bar with
 the apps button or with `wireplumber` and `battery`, `Desktops=` without
-`flickos/desktops`, and a module of yours on a signal FlickOS's buttons use
-(8 tiling, 9 phone, 10 recording, 11 desktops). Since 1.58 it also names a
+`flickos/desktops`, a module of yours on a signal FlickOS's buttons use
+(8 tiling, 9 phone, 10 recording, 11 desktops, 12 media, 13 weather), and
+(1.73) a bar `"name"` that GTK themes style as a class, such as `panel`
+(waybar gives the bar's window its name as a class and the tray's menus
+inherit it: Arc's `.panel` makes their text white; a copy of Redmond made
+before 1.73 has it). Since 1.58 it also names a
 CSS mistake GTK can't read (line and column): the panel then uses FlickOS's
 `common/base.css` in place of your CSS, since waybar would stop (see
 [Panel tweaks](#panel-tweaks)). `check` without arguments includes the
@@ -1232,8 +1364,8 @@ reloads the panel (its `layout.ini`, or desktop buttons added or removed,
 apply it again); a change to another layout is checked.
 
 **What stays the same for your layout** (HIG VIS-11): the module names in
-`common/modules.jsonc`, `flickos/pinned` and `flickos/desktops`, the signals
-8–11, `group/quick` and the classes FlickOS's buttons set. A layout's own
+`common/modules.jsonc`, `flickos/pinned`, `flickos/desktops` and
+`flickos/weather`, the signals 8–13, `group/quick` and the classes FlickOS's buttons set. A layout's own
 modules run commands, like `~/.config/waybar` would: a layout is shared only
 as a reviewed package, never imported from a file (ADR-006).
 
@@ -1361,9 +1493,21 @@ Problems: [07 – Window tiling](07-troubleshooting.md#window-tiling-flick-tiler
 has the symptom-by-symptom guide, the runtime files and how to watch the
 daemon.
 
-**Limits:** windows that were already open when tiling was turned on stay
-floating until Super+Shift+T (labwc runs window rules only when a window
-opens); a notification says how many. A window dragged out of its place still counts
+Windows already open when tiling is turned on stay as they are, and
+Super+Shift+T tiles one. To have them tiled too, turn on *Tile open windows*
+in *Settings → Tiling* (`flick-tiler tile-open on`, or `TileOpen=yes` in
+`~/.config/flickos/tiler`). Then they are tiled, the focused one
+as the main window, except minimized and fullscreen ones. labwc runs window
+rules only when a window opens, so the daemon gives each one a region and,
+for that moment, a keybind of its own (`XF86Macro1`…`30`, keys no ordinary
+keyboard has), reloads labwc once, then focuses each window in turn and
+presses its key with `wtype`; the keybind snaps it and runs
+`flick-tiler snapped REGION`. A window whose keybind didn't answer within
+3 seconds is let go again, and a notification says how many stay floating
+(Super+Shift+T tiles one).
+
+**Limits:** turning tiling on briefly focuses each open window, which also
+switches to its desktop; at most 30 open windows are tiled that way. A window dragged out of its place still counts
 until it is tiled again or closed. All outputs use the same arrangement, and
 tiling doesn't know about desktops (Traditional's): labwc doesn't tell it which
 desktop a window is on, so it arranges the windows of all desktops together,
@@ -1383,10 +1527,10 @@ Two windows that open in the same instant can land in the same place.
 
 ## Wallpaper
 
-Each [style](#styles-darklight) has its own wallpaper (`Wallpaper=wallpaper.png`
-in `style.ini`): the halo, FlickOS's logo drawn large in the brand amber, on
-dark for Dark, on light for Light. Switching the style switches it; switching the layout keeps it. At
-login, autostart runs `flickos-layout wallpaper`, which shows the first of
+Each [style](#styles-darklight) names its wallpaper (`Wallpaper=wallpaper.png`
+in `style.ini`). Dark and Light show the same one, a wave on a sandy shore seen
+from above, no logo; the extra styles have their own. Switching to one of those switches it;
+switching the layout keeps it. At login, autostart runs `flickos-layout wallpaper`, which shows the first of
 these that exists:
 
 1. **The user's choice in waypaper** (*Settings → Wallpaper*, or the chooser's
@@ -1407,9 +1551,13 @@ in `~/.config/waypaper/config.ini` (or `~/.config/flickos/wallpaper`).
 **Older wallpapers:** until flickos-layouts 1.37 each layout showed its own
 Unsplash photo. They stay installed at `/usr/share/backgrounds/flickos/ID.jpg`
 (the paths waypaper always showed them at, so a user who picked one there keeps
-it), next to `flickos-dark.png` and `flickos-light.png` (links to the styles'
-wallpapers). Anyone can pick any of them in *Settings → Wallpaper*. A user who
-never picked one gets the new wallpaper at their next login after the upgrade.
+it). Dark's and Light's wallpapers until FlickOS 2.3, the halo (FlickOS's logo
+drawn large in the brand amber), stay the same way as `flickos-dark.png` and
+`flickos-light.png`, and so does the house at dusk that followed it, until
+flickos-layouts 1.81, as `flickos-home.png`. They sit next to
+`flickos-shore.png` (a link to the styles' wallpaper).
+Anyone can pick any of them in *Settings → Wallpaper*. A user who never picked
+one gets the new wallpaper at their next login after the upgrade.
 
 **Layout or style switch:** `flickos-layout set ID` and `style set ID` start
 `swaybg` with the new wallpaper, wait half a second so it is drawn, then stop
@@ -1422,9 +1570,11 @@ the old one. They only replace a `swaybg` whose image is under
 `packages/flickos-layouts/usr/share/flickos/styles/ID/wallpaper.png`, at least
 1920×1080, at most 3840 px wide (each one adds to the ISO). Make sure you have
 the right to redistribute it, and record its author and license in
-flickos-layouts' `debian/copyright` (the current ones are FlickOS's own work,
-rendered from `packages/flickos-layouts/artwork/wallpaper-ID.svg`, which isn't
-installed). Then run `tools/make-layout-previews.sh` (the previews show
+flickos-layouts' `debian/copyright` (the current one is an Unsplash photo, a
+PNG because flickos-greeter reads Dark's `wallpaper.png` by name; the older
+ones are FlickOS's own work, rendered from
+`packages/flickos-layouts/artwork/wallpaper-ID.svg`, which isn't installed).
+Then run `tools/make-layout-previews.sh` (the previews show
 Dark's) and bump flickos-layouts. `tests/test_styles.py` checks every style
 has one, linked into `/usr/share/backgrounds/flickos/`. To scale down a large
 photo, or drop a PNG's unused alpha channel:
@@ -1561,9 +1711,9 @@ agree. Mouse, touchpad and keyboard settings are flickos-control's own.
 | Mouse & Touchpad, Keyboard, Power & Idle | `flickos-control set KEY VALUE` (`flickos-control get` lists them); the system layout: `pkexec /usr/libexec/flickos/control-helper keyboard …` |
 | Default Applications | `xdg-mime default APP TYPES…`; the terminal: `~/.config/xdg-terminals.list` |
 | Date & Time | `timedatectl set-timezone`, `set-ntp` |
-| Login | `pkexec /usr/libexec/flickos/control-helper autologin-on`, `autologin-off` |
+| Login Screen | `pkexec /usr/libexec/flickos/control-helper autologin-on`, `autologin-off`; `flickos-control system login.background`, `login.position` (the helper's `login-background`, `login-position`); the language and layout as on *Language & Region* and *Keyboard* |
 | Firewall | `pkexec /usr/libexec/flickos/control-helper firewall-on`, `firewall-off` (`ufw --force enable`, `ufw disable`); state from `/etc/ufw/ufw.conf` |
-| About | `flickos-control about` (also `lspci`, `dpkg-query`); *Copy System Info*: `wl-copy` |
+| About | `flickos-control about` (also `lspci`, `dpkg-query`); *Copy System Info*: `wl-copy`; *Save Report…*: `flickos-control report` |
 | Tiling | `flick-tiler status/modes/on/off/mode/ratio/gap/floating` |
 | Keyboard Shortcuts | `flickos-shortcuts list`, `show` |
 | More Settings | the apps in `TILES` (the same as the Settings menu) |
@@ -1807,8 +1957,8 @@ bindings follow, and replace defaults that use the same key.
 | `Super+Shift+R` | Record the screen (the bar with Video chosen), or stop the recording; the panel shows the time and stops it too | FlickOS |
 | Play/pause, stop, next, previous keys | `playerctl` (any MPRIS player: VLC, Firefox, …) | FlickOS |
 | `Ctrl+Print` | Screenshot of an area, copied only | FlickOS |
-| Volume / mic mute keys | `wpctl` (PipeWire) | FlickOS |
-| Brightness keys | `brightnessctl` | FlickOS |
+| Volume / mic mute keys | `/usr/libexec/flickos/level`: `wpctl` (PipeWire), then a ring shows the level for a moment ([The level ring](#the-level-ring)) | FlickOS |
+| Brightness keys | `/usr/libexec/flickos/level`: `brightnessctl`, then the ring | FlickOS |
 | `Alt+Tab` / `Alt+Shift+Tab` | Next / previous window | labwc |
 | `Super+A` | Toggle maximize; [Quick Settings](#quick-settings) while that is on | labwc, FlickOS |
 | `Alt+Arrows` | Move window to screen edge | labwc |
@@ -1861,7 +2011,8 @@ says about a binding:
 
 Try it without building: `flickos-shortcuts list` prints what the sheet shows
 (`--file` for another rc.xml). The hold time is `HOLD_MS`, the look
-`usr/share/flickos/shortcuts/style.css` (the GTK theme's named colors only, so the Light style recolors it).
+`usr/share/flickos/shortcuts/style.css` (the GTK theme's named colors only, so the Light style recolors it). On a small screen it switches to more or fewer columns and then to the
+smaller `compact` look (`FITS`), so a long list of shortcuts still fits.
 
 It can't tell a long press of Super alone from Super held while pressing
 other keys (labwc sends it only the modifiers), so holding Super through
@@ -1975,8 +2126,16 @@ defaults are in `/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/thunar.xml`, not
 under `/etc/xdg/flickos` (no Debian package ships that file). It sets only what
 differs from Thunar's own defaults: the location bar as buttons
 (`last-location-bar` = `ThunarLocationButtons`; Thunar's default is the text
-entry, and Ctrl+L still types a path), and a larger window (960×600) with a
-wider side pane. xfconf reads the system file and then the user's
+entry, and Ctrl+L still types a path), a larger window (960×600) with a
+wider side pane, and one row for the title and the toolbar: a header bar
+(`misc-use-csd`) and no menu bar (`last-menubar-visible`), so the toolbar moves
+into the header; its first button is the menu, and Ctrl+M brings the menu bar
+back. `last-toolbar-items` picks the buttons, the status bar is off and folders
+show at 150 %. Leave `misc-symbolic-icons-in-sidepane` off while the icon theme
+is Numix-Circle: its symbolic icons come out too large for the rows. A header
+bar means Thunar draws its own frame, so labwc's border can't reach it: the
+frame's colors come from flickos-theme's `src/frame-*.css`, which must follow the
+`window.*.border.color` keys of the labwc themes (`tools/check-look.py` checks). xfconf reads the system file and then the user's
 `~/.config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml`, which Thunar writes
 when a setting changes; a property the user has is theirs from then on.
 
@@ -1990,8 +2149,12 @@ env -i HOME=/tmp/t PATH=/usr/bin:/bin XDG_CONFIG_HOME=/tmp/t \
 ```
 
 `etc/xdg/flickos/Thunar/uca.xml` holds the right-click custom actions: *Open
-Terminal Here* (`xdg-terminal-exec --dir=%f`, the user's default terminal)
-and *Send to Phone* (flickos-phone). It replaces Debian's
+Terminal Here* (`xdg-terminal-exec --dir=%f`, the user's default terminal),
+*Send to Phone* (flickos-phone) and *Set as Wallpaper* (`waypaper
+--wallpaper %f`, the same as choosing the picture in the Wallpaper app; for
+PNG and JPEG files, the types swaybg shows). Thunar's own wallpaper plugin,
+whose *Set as wallpaper* works only on Xfce and GNOME, is diverted out of its
+plugin folder by flickos-settings (1.56). The file replaces Debian's
 `/etc/xdg/Thunar/uca.xml`, whose terminal action needs Xfce's helpers. Thunar
 reads only the first `uca.xml` it finds, starting with `~/.config/Thunar/`,
 so the file has all of FlickOS's actions. Thunar writes its own copy there
@@ -2026,7 +2189,8 @@ Keep them working, but they aren't what users normally see.
   `usr/share/flickos/styles/ID/waybar-colors.css` (Arc's own names, e.g.
   `@wm_bg`, `@selected_bg_color`). Bars are translucent:
   `alpha(@wm_bg, 0.85)` in `common/base.css`; raise the value towards `1.0` for
-  solid bars.
+  solid bars. Redmond's own `style.css` makes its bar solid, and only its
+  floating bar is see-through (`floating.css`).
 - **Keep `"tray"`** in exactly one bar per layout: nm-applet and blueman live
   there. The unit tests enforce it.
 - **Status icons:** volume and battery are icon-only (value in the tooltip);
@@ -2059,14 +2223,52 @@ is used as is. mako runs under the same
 `$XDG_RUNTIME_DIR/flickos/panel.log` with it. Critical notifications have a red border and never time out. Test in a VM: `notify-send "Hello" "FlickOS"`, or
 `notify-send -u critical "Hello"`.
 
+### The level ring
+
+After a volume, microphone or brightness key a ring shows the new level for
+1.5 s above the bottom of the screen: the arc in the theme's selected color,
+the icon in the middle, dimmed while muted. It takes no keys or clicks.
+*Settings → Notifications → Show the level* turns it off for one user
+(`flickos-control set osd.enabled no`); `/etc/xdg/flickos/osd.conf` for
+everyone.
+
+| What | Where |
+|---|---|
+| What the keys run, the step (5 %) | `packages/flickos-settings/usr/libexec/flickos/level` and the six keybinds in `rc.xml` |
+| Whether it shows, how the level is read and sent | `packages/flickos-menu/usr/libexec/flickos/osd` (stdlib; reads `[Osd] Enabled=`) |
+| The look: size, place, time shown, icons, fades | `packages/flickos-menu/usr/share/flickos/menu/osd.py` (`SIZE`, `MARGIN`, `HIDE_MS`, `icon_names`, `Ring.draw`) |
+| Who draws it: the menu daemon, else a pop-up that lingers | `packages/flickos-menu/usr/bin/flickos-menu` (`OsdServer`, `osd_listen`, `osd-popup`, `OSD_LINGER_SECONDS`) |
+
+Try it without a key: `/usr/libexec/flickos/osd volume 40 muted`. Design:
+[design/flickos-osd.md](design/flickos-osd.md).
+
+### Sound: real-time priority
+
+PipeWire needs real-time priority to keep sound going while the computer is
+busy, and it gets that from `rtkit` (a Depends of flickos-desktop). One line in
+`packages/flickos-settings/usr/share/flickos/pipewire/realtime.conf` sends the
+request straight to rtkit, because Debian 13's portal refuses it:
+
+```
+module.rt.args = { rtportal.enabled = false }
+```
+
+`module.rt.args` must be a section of its own, not a key in
+`context.properties`, where PipeWire reads it without using it.
+`debian/links` puts this one file in each program's `conf.d` folder. A new
+program with its own PipeWire config needs a line there. WirePlumber reads no
+such section; it carries no sound, so it doesn't matter. Measured on a 2-core
+laptop under heavy load at a 2.7 ms buffer: 280 to 530 dropouts a minute without
+real-time priority, 0 to 6 with it.
+
 ### GTK theme, icons, cursor, fonts, dark mode
 
 GTK apps under Wayland read these from **GSettings**. FlickOS sets defaults with
 the schema override file. glib's package trigger recompiles the schemas when the
 package is installed.
 
-Current: **`Arc-Dark`** + `prefer-dark`, **`Numix-Circle`** icons, Adwaita cursor
-(size 24), DejaVu fonts at size 10, and the title bar buttons
+Current: **`Arc-Dark`** + `prefer-dark`, **`Numix-Circle`** icons, the
+`FlickOS-Bibata` cursor (size 24), the Inter font at size 10, and the title bar buttons
 `appmenu:minimize,maximize,close` (`org.gnome.desktop.wm.preferences
 button-layout`) for windows that draw their own title bar. The schema's default
 `appmenu:close` would give Firefox without *Title Bar* only a close button.
@@ -2172,6 +2374,14 @@ option).
   installed system.
 - **Users** override the layout in `~/.config/labwc/environment`, e.g.
   `XKB_DEFAULT_LAYOUT=us,de` and `XKB_DEFAULT_OPTIONS=grp:alt_shift_toggle`.
+- **Keys move with the layout.** FlickOS binds keys by their US symbol. On a
+  keyboard that can't type one without Shift or AltGr, flickos-layout moves
+  the keybind to the key in the same place, so Super+[ is Super+Å on a
+  Finnish keyboard and Super+1 is Super+& on a French one; `=` becomes `+`
+  where `+` needs no Shift. The shortcut sheet shows the moved keys,
+  `flickos-layout explain labwc` lists them, and `doctor` names any that
+  couldn't move ([design](design/flickos-keys.md)). A layout with `us` in it
+  (`us,ru`) moves nothing: labwc finds the key there whichever layout is active.
 
 ---
 
@@ -2203,9 +2413,8 @@ falls back to the normal menu.
   ([06 – The version number](06-ci-and-releases.md#the-version-number)).
   `tools/build-iso.sh` refuses to build if `version` doesn't match.
 - **Links on the welcome page:** `productUrl`, `supportUrl`, `knownIssuesUrl`,
-  `releaseNotesUrl` in `branding.desc`. Currently the SourceForge project, GitHub
-  issues and the SourceForge Files page. Switch `productUrl` to https://flickos.net
-  once the website is online. To hide a link, set its `show…Url` to `false` in
+  `releaseNotesUrl` in `branding.desc`. Currently the website, GitHub issues and
+  the website's release notes. To hide a link, set its `show…Url` to `false` in
   `modules/welcome.conf`.
 - **Slideshow text:** `show.qml`. Every `Slide { … }` is one slide.
 - **Installer images:** see [Artwork](#artwork).
@@ -2493,9 +2702,10 @@ logo's arc as an outline).
 
 The images are made by `tools/make-placeholder-art.sh` (ImageMagick, with the logo
 rendered from `flickos.svg` by `rsvg-convert`). Everything except the logo is still a
-**placeholder**. The wallpapers aren't made by it: the styles' are drawn from
-`packages/flickos-layouts/artwork/` ([Wallpaper](#wallpaper)), and flickos-settings'
-fallback `default.jpg` is an Unsplash photo (see its `debian/copyright`).
+**placeholder**. The wallpapers aren't made by it: Dark's and Light's and flickos-settings'
+fallback `default.jpg` are Unsplash photos (see each package's `debian/copyright`),
+and the older ones are drawn from `packages/flickos-layouts/artwork/`
+([Wallpaper](#wallpaper)).
 
 | File | Size | Used by |
 |---|---|---|

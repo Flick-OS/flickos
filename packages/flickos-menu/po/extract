@@ -1,0 +1,52 @@
+#!/usr/bin/python3
+"""Print template entries for the text of flickos-menu's own providers
+(tools/update-po.sh runs a package's po/extract and adds its output to the
+.pot; docs/12). Translated: a row's name, its search words and the line that
+asks for a second Enter. Commands and icons aren't.
+"""
+
+import glob
+import json
+import os
+import sys
+
+PROVIDERS = "usr/share/flickos/menu/providers"
+
+
+def strings(provider):
+    """(text, translators' comment) in the file's order."""
+    for row in provider.get("rows", []):
+        yield row["name"], "A task in the start menu's search, such as \"Restart Panel\"."
+        if row.get("keys"):
+            yield row["keys"], ("Words, separated by spaces, that find the task \"{name}\" in the start menu's "
+                                "search. Translate them as words people type; English ones keep working."
+                                ).format(name=row["name"])
+        if row.get("confirm"):
+            yield row["confirm"], "After the first Enter on a task that ends the session."
+
+
+def quote(text):
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def main():
+    package = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = ['msgid ""', 'msgstr ""', '"Content-Type: text/plain; charset=UTF-8\\n"', ""]
+    seen = set()
+    for path in sorted(glob.glob(os.path.join(package, PROVIDERS, "*.json"))):
+        with open(path, encoding="utf-8") as f:
+            provider = json.load(f)
+        if provider.get("domain") != "flickos-menu":
+            continue
+        where = os.path.relpath(path, package)
+        for text, comment in strings(provider):
+            if text in seen:
+                continue
+            seen.add(text)
+            out += [f"#. Translators: {comment}", f"#: {where}", f"msgid {quote(text)}", 'msgstr ""', ""]
+    sys.stdout.write("\n".join(out))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

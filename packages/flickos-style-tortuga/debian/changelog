@@ -1,0 +1,37 @@
+flickos-style-tortuga (1.1) trixie; urgency=medium
+
+  * Screenshots for Software: the style and layout with two windows, and
+    the start menu.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 21:14:14 +0800
+
+flickos-style-tortuga (1.0) trixie; urgency=medium
+
+  * Release of 1.0~test1 to 1.0~test3: the Tortuga style and layout,
+    floating islands at the top and a dock with the desktops as a 2x2
+    grid.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 21:07:56 +0800
+
+flickos-style-tortuga (1.0~test3) trixie; urgency=medium
+
+  * Needs flickos-layouts 1.83~test3, the first of main's to carry
+    FloatingDefault=.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 20:45:10 +0800
+
+flickos-style-tortuga (1.0~test2) trixie; urgency=medium
+
+  * Depends on flickos-layouts 1.82~: 1.80, in trixie, has no
+    FloatingDefault=.
+  * Window shadows: the keys every window theme has must match, so this
+    style sets them too.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 07 Nov 2026 14:15:32 +0800
+
+flickos-style-tortuga (1.0~test1) trixie; urgency=medium
+
+  * First version: the Tortuga style and its layout of floating islands
+    and a dock with the desktops as a 2x2 grid.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 05 Nov 2026 23:02:45 +0800

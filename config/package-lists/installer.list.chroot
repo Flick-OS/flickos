@@ -6,3 +6,9 @@ flickos-installer
 # removes) so it stays installed and is never autoremoved: restore points
 # need it on btrfs installs (docs/design/flickos-recovery.md, phase 1a).
 btrfs-progs
+
+# ntfsresize, for Calamares' Install alongside next to Windows: KPMcore shrinks
+# an NTFS partition only with it (docs/design/flickos-switch.md, phase 0 item
+# 6). About 2.3 MB; not removed after installing, where udisks2 still reads
+# NTFS with the kernel's ntfs3.
+ntfs-3g

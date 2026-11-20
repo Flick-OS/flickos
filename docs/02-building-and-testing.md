@@ -13,8 +13,9 @@ Install the tools once:
 ```sh
 sudo apt install live-build build-essential debhelper dpkg-dev devscripts reprepro rsync wget \
                  qemu-system-x86 qemu-utils ovmf xorriso \
-                 meson pkgconf gettext libgtk-3-dev \
-                 libgtk-layer-shell-dev libjson-c-dev libwayland-dev wayland-protocols
+                 meson pkgconf gettext libgtk-3-dev sassc libglib2.0-bin \
+                 libgtk-layer-shell-dev libjson-c-dev libwayland-dev wayland-protocols \
+                 libgnutls28-dev libaml-dev libdrm-dev libgbm-dev libpixman-1-dev libturbojpeg0-dev libxxhash-dev zlib1g-dev
 ```
 
 | Tool | Used for |
@@ -26,7 +27,7 @@ sudo apt install live-build build-essential debhelper dpkg-dev devscripts reprep
 | `wget` | Required by live-build's firmware step |
 | `qemu-system-x86`, `qemu-utils`, `ovmf` | Testing in a VM (`qemu-img` for disks, OVMF for UEFI) |
 | `xorriso` | Extracting the kernel from the ISO for the headless boot test |
-| `meson`, `pkgconf`, `gettext`, `lib…-dev`, `wayland-protocols` | Compiling `sfwbar`, the only FlickOS package with C code (its `Build-Depends`) |
+| `meson`, `pkgconf`, `gettext`, `lib…-dev`, `wayland-protocols` | Compiling `sfwbar` and `neatvnc`, the FlickOS packages with C code (their `Build-Depends`) |
 
 For KVM acceleration (much faster VMs), add yourself to the `kvm` group once:
 `sudo adduser $USER kvm`, then log out and back in.
@@ -94,8 +95,10 @@ sudo lb build             # 4.
 2. **`packages/build.sh`** builds every `packages/*/` source package with
    `dpkg-buildpackage` in a scratch copy (`packages/.build/`), then copies the
    `.deb` files into `config/packages.chroot/`. live-build turns that folder into
-   a temporary local apt repo during the build, so `flickos-desktop` can be
-   installed by name.
+   a temporary local apt repo during the build and installs every package in
+   it. The opt-in `flickos-style-*` packages go to `config/packages.opt-in/`
+   instead, so they stay out of the image
+   ([03](03-live-build-config.md#configpackageschroot-local-packages)).
 3. **`lb config`** runs `auto/config`, which calls `lb config noauto` with all
    of FlickOS's options. This writes `config/common`, `config/bootstrap`,
    `config/chroot`, `config/binary` and `config/source`.
@@ -233,6 +236,7 @@ you choose restart, the VM boots from the installed disk.
 - [ ] The graphical login screen appears (Arc-Dark, FlickOS wallpaper, clock), **no** autologin unless it was chosen in the installer
 - [ ] The keyboard layout chosen in the installer works in the password field
 - [ ] Logging in starts labwc; a wrong password shows an error and asks again
+- [ ] At the login screen, *Shut Down* and *Restart* (bottom right) work after a second click, and Super+= makes the card bigger
 - [ ] Ctrl+Alt+F1 shows a text login prompt, and logging in there also starts labwc
 - [ ] A second install with *Log in automatically* checked boots straight to the desktop (`getent group autologin` lists the user)
 - [ ] The first login opens *Desktop Layout & Style*; choosing Cupertino and Light applies right away. After logging out and in, the chooser doesn't open again and the choice is kept
@@ -241,7 +245,8 @@ you choose restart, the VM boots from the installed disk.
 - [ ] `dpkg -l 'live-*' flickos-installer calamares` shows they're gone (Calamares removed them)
 - [ ] Right-click menu has **no** *Install FlickOS* entry
 - [ ] The keyboard layout chosen in the installer works in foot
-- [ ] Leaving the VM idle for 5 minutes locks the screen
+- [ ] Leaving the VM idle for 5 minutes locks the screen with FlickOS's lock screen (clock, name, password box); a key or a mouse move within 5 seconds of it unlocks without the password, after that only the password does (a wrong one says so)
+- [ ] Super+L locks; the eye (Alt+V) shows the password; Caps Lock shows "Caps Lock is on"; the password unlocks
 - [ ] Boot shows the FlickOS splash; tty2 (Ctrl+Alt+F2) shows `FlickOS 2.0 (Debian 13)` above the login prompt
 - [ ] `sudo ufw status` shows `Status: active`
 

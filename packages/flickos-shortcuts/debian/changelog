@@ -1,3 +1,40 @@
+flickos-shortcuts (1.19) trixie; urgency=medium
+
+  * Release of 1.19~test1 and 1.19~test2: a Start menu section for the
+    Prompt style, and VIS-5's corners.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 12 Nov 2026 20:32:16 +0800
+
+flickos-shortcuts (1.19~test2) trixie; urgency=medium
+
+  * The sheet takes the surface corner (8 px) and the keycaps the inner
+    one (6 px) of VIS-5 (tools/check-look.py).
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 11 Nov 2026 08:18:44 +0800
+
+flickos-shortcuts (1.19~test1) trixie; urgency=medium
+
+  * A Start menu section with flickos-menu's own keys while its prompt
+    style is the start menu.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 10 Nov 2026 21:51:20 +0800
+
+flickos-shortcuts (1.18) trixie; urgency=medium
+
+  * The shortcut sheet fits small screens: more or fewer columns, then a
+    compact look, whichever fits the smallest screen first; Settings →
+    Keyboard Shortcuts scrolls when nothing fits.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 01 Nov 2026 01:08:27 +0800
+
+flickos-shortcuts (1.17) trixie; urgency=medium
+
+  * Keys flickos-layouts 1.71 moved for the keyboard layout show as the
+    keyboard labels them (Super + Å, not aring), and moved number keys
+    stay one row per desktop action. Depends libxkbcommon0.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 27 Oct 2026 16:09:55 +0800
+
 flickos-shortcuts (1.16) trixie; urgency=medium
 
   * The sheet reads labwc's config the way labwc does: in the plain

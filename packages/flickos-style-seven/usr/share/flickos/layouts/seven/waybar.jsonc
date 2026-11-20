@@ -1,0 +1,27 @@
+// Seven: one 40 px see-through panel at the bottom (style.css): the apps
+// button as a round glossy start button with the FlickOS halo, the window
+// list with large icons in glass boxes, then the tray, status, recording, a
+// two-line clock and Show Desktop. Installed next to flickos-layouts'
+// layouts, so ../common is FlickOS's shared modules; the settings here win
+// over them.
+//
+// The window list shows icons only, as Redmond's does: waybar 0.12 doesn't
+// shorten window titles, so buttons with titles would push the status and
+// clock off the bar once enough windows are open
+// (docs/07-troubleshooting.md). The title is in the tooltip. No pinned apps:
+// in waybar they are buttons of their own next to the window list, so an
+// open pinned app would show twice.
+{
+    "name": "seven",
+    "layer": "top",
+    "position": "bottom",
+    "height": 40,
+    "spacing": 4,
+    "include": "../common/modules.jsonc",
+
+    "modules-left": ["custom/launcher", "wlr/taskbar"],
+    "modules-right": ["custom/tiler", "tray", "wireplumber", "battery", "custom/recording", "clock", "custom/desktop"],
+
+    "wlr/taskbar": { "icon-size": 28 },
+    "clock": { "format": "{:%H:%M\n%d/%m/%Y}", "justify": "center" }
+}

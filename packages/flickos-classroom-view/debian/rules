@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+# The tests import usr/bin/flickos-classroom-view; no bytecode next to installed files.
+export PYTHONDONTWRITEBYTECODE = 1
+
+%:
+	dh $@
+
+# Skipped with DEB_BUILD_OPTIONS=nocheck. 127.0.0.1 only, no display.
+override_dh_auto_test:
+	python3 -m unittest discover -s tests -v
+
+# The lab service: `flickos-classroom-view lab on` enables it and `lab off`
+# disables it (ADR-011); installing the package enables nothing, so its start
+# does nothing either (deb-systemd-invoke starts only enabled units). No
+# --no-start: with it, the preinst stops the service at every upgrade and
+# nothing starts it again, and a lab computer is gone until it restarts.
+override_dh_installsystemd:
+	dh_installsystemd -pflickos-classroom-view --name=flickos-classroom-lab --no-enable

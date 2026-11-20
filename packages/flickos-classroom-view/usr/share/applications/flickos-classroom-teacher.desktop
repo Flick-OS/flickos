@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Classroom
+GenericName=Classroom Screens
+Comment=See and guide the screens of a class
+Keywords=classroom;students;teacher;screens;monitor;lock;
+Exec=flickos-classroom-view teacher
+Icon=video-display
+Terminal=false
+Categories=Education;
+StartupNotify=true

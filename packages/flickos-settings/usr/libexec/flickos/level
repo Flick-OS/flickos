@@ -1,0 +1,22 @@
+#!/bin/sh
+# The volume, microphone and brightness keys (rc.xml): change the level at
+# once, then show it in flickos-menu's ring (/usr/libexec/flickos/osd, which
+# shows nothing while Settings > Notifications turns it off). Without
+# flickos-menu the keys still work.
+#   level volume up|down|mute
+#   level mic mute
+#   level brightness up|down
+case "$1 $2" in
+    "volume up")       wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
+    "volume down")     wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
+    "volume mute")     wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+    "mic mute")        wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle ;;
+    "brightness up")   brightnessctl -q set 5%+ ;;
+    "brightness down") brightnessctl -q set 5%- ;;
+    *)
+        echo "usage: level volume up|down|mute | mic mute | brightness up|down" >&2
+        exit 2 ;;
+esac
+if [ -x /usr/libexec/flickos/osd ]; then
+    exec /usr/libexec/flickos/osd "$1"
+fi

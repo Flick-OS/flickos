@@ -1,0 +1,155 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the flickos-welcome package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: flickos-welcome\n"
+"Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
+"POT-Creation-Date: 2026-11-16 12:39+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: usr/bin/flickos-welcome
+msgid "Welcome to FlickOS"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Bring files from Windows"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Copy your documents, pictures and other files from a Windows disk."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Choose your desktop"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid ""
+"Pick a layout and a light or dark style. You can change it later in Settings."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "All settings"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid ""
+"Mouse, keyboard, tiling, default apps, date and time, and everything else."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Connect to Wi-Fi"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Join a wireless network or set up a wired connection."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Keyboard shortcuts"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "See every shortcut. Holding Super shows this sheet at any time."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Install software"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Add applications from Debian's archive and Flathub."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Tools for your work"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid ""
+"Install what you need to program: Python, Node.js, C and C++, containers."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Read the documentation"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "How FlickOS is put together, and how to change it."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Support FlickOS"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid ""
+"FlickOS is free and always will be. Starring the project, reporting a bug or "
+"telling someone about it all help."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Donate"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Help pay for the apt repository, the build machine and the downloads."
+msgstr ""
+
+#. Translators: {version} is the FlickOS version, such as 2.0.
+#: usr/bin/flickos-welcome
+#, python-brace-format
+msgid "Version {version}. Everything here can be changed later."
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Everything here can be changed later."
+msgstr ""
+
+#. Translators: "Welcome" is the window's name in the menu (its desktop file's Name).
+#: usr/bin/flickos-welcome
+msgid "Find this window again in the menu, under Welcome."
+msgstr ""
+
+#. Translators: the letter after the underscore is the Alt key shortcut.
+#: usr/bin/flickos-welcome
+msgid "_Do not show on startup"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid ""
+"Couldn't save whether this window opens at login. Check that your home "
+"folder isn't full or read-only."
+msgstr ""
+
+#. Translators: the letter after the underscore is the Alt key shortcut.
+#: usr/bin/flickos-welcome
+msgid "_Close"
+msgstr ""
+
+#: usr/bin/flickos-welcome
+msgid "Welcome is already open."
+msgstr ""
+
+#: usr/share/applications/flickos-welcome.desktop
+msgid "Welcome"
+msgstr ""
+
+#: usr/share/applications/flickos-welcome.desktop
+msgid "Set up your desktop, and where to go next"
+msgstr ""
+
+#. Translators: search words, each ended by a semicolon.
+#: usr/share/applications/flickos-welcome.desktop
+msgid "welcome;first;start;help;getting;started;"
+msgstr ""

@@ -46,3 +46,18 @@ application/x-tar=xarchiver.desktop
 application/x-compressed-tar=xarchiver.desktop
 application/x-xz-compressed-tar=xarchiver.desktop
 application/x-7z-compressed=xarchiver.desktop
+# Debian packages and Flatpak files: Software shows what they are and what they need,
+# then installs them (docs/design/flickos-software.md, ADR-012); xarchiver only listed a .deb's files.
+application/vnd.debian.binary-package=flickos-software-open.desktop
+application/vnd.flatpak=flickos-software-open.desktop
+application/vnd.flatpak.ref=flickos-software-open.desktop
+application/vnd.flatpak.repo=flickos-software-open.desktop
+# Windows programs: flickos-switch's window says what they are and what to use
+# instead, rather than Open With or Wine (docs/design/flickos-switch.md, ADR-001).
+application/x-msdownload=flickos-switch-open.desktop
+application/vnd.microsoft.portable-executable=flickos-switch-open.desktop
+application/x-ms-dos-executable=flickos-switch-open.desktop
+application/x-msi=flickos-switch-open.desktop
+application/msix=flickos-switch-open.desktop
+application/msixbundle=flickos-switch-open.desktop
+application/x-ms-shortcut=flickos-switch-open.desktop

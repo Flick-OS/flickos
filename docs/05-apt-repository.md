@@ -32,13 +32,14 @@ ISOs ([06](06-ci-and-releases.md)).
 
 | Path | In git? | What |
 |---|---|---|
-| `repo/conf/distributions` | yes | Repo definition: two distributions, `trixie` (FlickOS's packages, label *FlickOS*) and `trixie-community` (other developers' apps, label *FlickOS Community*), component `main`, arch `amd64`, the `SignWith:` key fingerprint, and the DEP-11 hook |
+| `repo/conf/distributions` | yes | Repo definition: three distributions, `trixie` (FlickOS's packages, label *FlickOS*), `trixie-community` (other developers' apps, label *FlickOS Community*) and `trixie-testing` (packages for testers, label *FlickOS Testing*, [below](#testing-packages-trixie-testing)), component `main`, arch `amd64`, the `SignWith:` key fingerprint, and the DEP-11 hook |
 | `repo/conf/dep11.py` | yes | reprepro `DebIndices` hook: writes `main/dep11/Components-amd64.yml(.gz)` (AppStream data for Software) from the metainfo files in the packages; needs `gir1.2-appstream-1.0` |
 | `repo/community/` | yes | The community apps' list (`apps/NAME`), checks, build and publish scripts ([its README](../repo/community/README.md)) |
 | `repo/conf/options` | yes | Tells reprepro to write output to `repo/public/` and its database to `repo/db/` |
 | `repo/new-key.sh` | yes | One-time key setup |
-| `repo/publish.sh` | yes | Build all packages and add them to the repo |
-| `repo/upload.sh` | yes | Push `repo/public/` to the `gh-pages` branch of `dvbondoy/flickos-apt` |
+| `repo/publish.sh` | yes | Build all packages and add them to the repo (`--testing`: only the `~test` versions, to `trixie-testing`) |
+| `repo/upload.sh` | yes | Push `repo/public/` and `repo/screenshots/` to the `gh-pages` branch of `dvbondoy/flickos-apt` |
+| `repo/screenshots/` | yes | The style packages' screenshots for Software, `NAME/1.png` and `2.png`, served at `https://dvbondoy.github.io/flickos-apt/screenshots/` (the addresses in their metainfo); taken by `tools/make-style-shots.sh` |
 | `repo/db/` | **no** | reprepro's database of what the repo contains |
 | `repo/public/` | **no** | The finished repository to upload |
 | `repo/.gh-pages/` | **no** | `repo/upload.sh`'s clone of the `gh-pages` branch |
@@ -46,8 +47,8 @@ ISOs ([06](06-ci-and-releases.md)).
 | `packages/flickos-archive-keyring/etc/apt/sources.list.d/flickos.sources` | yes | The apt source installed systems use (holds the **repo URL**) |
 
 The apt source is shipped **in a package**, not baked into the ISO. When the
-repository moves (e.g. to flickos.net), a new version of `flickos-archive-keyring`
-updates it on every installed system. See [Moving the repository](#moving-the-repository-eg-to-flickosnet).
+repository moves (e.g. to apt.flickos.org), a new version of `flickos-archive-keyring`
+updates it on every installed system. See [Moving the repository](#moving-the-repository-eg-to-aptflickosorg).
 
 ## One-time setup
 
@@ -128,8 +129,8 @@ repo/upload.sh       # upload to https://dvbondoy.github.io/flickos-apt/
 
 1. checks a signing key is configured,
 2. runs `packages/build.sh`,
-3. builds the apps in `EXTRAS` (Notes, Write, Phone Screen) from their
-   own repositories next to this one, in copies under `repo/.extras-build/`
+3. builds the apps in `EXTRAS` (none by default) from their own
+   repositories next to this one, in copies under `repo/.extras-build/`
    (see below),
 4. adds each `.deb` to the `trixie` distribution with `reprepro includedeb`,
    signing the index (gpg asks for your passphrase),
@@ -159,27 +160,37 @@ If the repository grows past GitHub's ~1 GB guidance, squash the history:
 
 ### Apps from other repositories (`EXTRAS`)
 
-Notes, Write and Phone Screen are proprietary and free of charge until
-the store opens ([store ADR-008](design/flickos-store.md#adr-008-free-of-charge-until-the-store-opens)).
-Trail is not in `EXTRAS`, so its newer versions aren't published; the last
-one published stays in the repo.
+`EXTRAS` lists the folders of proprietary apps that `publish.sh` builds from
+their own repositories and adds to the repo. **It is empty by default.**
+Notes, Write and Phone Screen were published free of charge until
+2026-11-11, when they were removed from the repo
+([store ADR-008](design/flickos-store.md#adr-008-free-of-charge-until-the-store-opens),
+amended that day). Trail was never put back after 0.6.
 Their source is in their own repositories, not under `packages/`, so they are
-never in the ISO. `publish.sh` expects them next to this checkout
-(`../flickos-notes` and so on) and stops if one is missing:
+never in the ISO. To publish one again, name it; `publish.sh` expects the
+folder next to this checkout (`../flickos-notes` and so on) and stops if it
+is missing:
 
 ```sh
-EXTRAS_DIR=~/src repo/publish.sh                   # they are somewhere else
-EXTRAS="flickos-notes" repo/publish.sh             # only some of them
-EXTRAS= repo/publish.sh                            # none of them
+EXTRAS="flickos-notes" repo/publish.sh             # one of them
+EXTRAS_DIR=~/src EXTRAS="flickos-notes flickos-write" repo/publish.sh
 ```
 
 It builds what is in each folder, committed or not, and warns about
 uncommitted changes. Bump an app's version (`dch -i -D trixie`) before
-publishing a change, as for FlickOS's own packages. When an app goes on sale,
-take it out of `EXTRAS` and leave its last free version in the repo.
-Taking an app out of `EXTRAS` only stops new versions; reprepro keeps the
-last one published until it is removed by hand (`reprepro -b repo remove
-trixie NAME`), which ADR-008 says not to do for a free version.
+publishing a change, as for FlickOS's own packages.
+
+Taking an app out of the repo takes three steps, and the last two are by hand
+(gpg asks for the passphrase in a terminal):
+
+```sh
+reprepro -b repo remove trixie flickos-notes       # from the index
+reprepro -b repo deleteunreferenced                # its .deb from the pool
+repo/upload.sh                                     # rsync --delete drops it from GitHub Pages
+```
+
+Computers that have the app keep it and get no updates; a reinstall fails
+once the pool file is gone.
 
 ### AppStream data (DEP-11)
 
@@ -230,6 +241,57 @@ Automatic updates install community apps (`label=FlickOS Community` in
 flickos-archive-keyring's `51flickos-origins` and flickos-control's
 `UPDATE_SCOPES`, design Q10).
 
+## Testing packages (`trixie-testing`)
+
+A package that testers should try before everyone gets it goes into its own
+distribution, which nobody has unless they add it by hand. Automatic updates
+never use it (it isn't in flickos-archive-keyring's `51flickos-origins`), so
+even testers get its updates when they run `apt upgrade`.
+
+1. **Give the package a test version:** `dch -v 1.0~test1 -D trixie "…"`
+   (a later fix: `~test2`). `~` sorts before everything, so `1.0~test1` is
+   older than `1.0`: when the package is released, testers move to the
+   release on their next upgrade without doing anything. A package that only
+   works with a newer version of another one says so with `Breaks:` on the
+   test version (`Breaks: flickos-control (<< 1.48~)`), so installing it
+   brings that one along. A branch that waits to be merged uses these
+   versions even when nobody tests it, so it never takes a number main
+   publishes ([06](06-ci-and-releases.md#package-versions-on-branches)).
+2. **Publish only the test versions:**
+
+   ```sh
+   repo/publish.sh --testing   # builds everything, adds only *~test* versions to trixie-testing
+   repo/upload.sh
+   ```
+
+   An ordinary `repo/publish.sh` never adds a `~test` version to `trixie`
+   (it says so and skips it), and `--testing` adds nothing else, not even
+   `EXTRAS`. So the testing packages can be published from a branch without
+   publishing the branch's other changes. `tools/build-iso.sh` warns when a
+   `~test` version would go into the ISO.
+3. **Testers add the suite once**, with the key their system already has:
+
+   ```sh
+   sudo tee /etc/apt/sources.list.d/flickos-testing.sources <<'EOF'
+   Types: deb
+   URIs: https://dvbondoy.github.io/flickos-apt
+   Suites: trixie-testing
+   Components: main
+   Signed-By: /usr/share/keyrings/flickos-archive-keyring.asc
+   EOF
+   sudo apt update && sudo apt install PACKAGE
+   ```
+
+   They get fixes with `sudo apt update && sudo apt upgrade`, and leave by
+   deleting that file (the package stays until its release replaces it).
+4. **Release:** `dch -v 1.0 -D trixie "…"` and an ordinary `repo/publish.sh`.
+   Take the test versions out of the suite when they are no longer needed:
+   `reprepro -b repo remove trixie-testing PACKAGE`.
+
+A test version installed by hand from a `.deb` (`1.0` built locally before it
+had `~test1`) sorts *above* the test versions; go back to them with
+`sudo apt install --allow-downgrades PACKAGE=1.0~test1`.
+
 ### Verifying the published repo
 
 From any machine:
@@ -269,7 +331,7 @@ reprepro -b repo check                               # consistency check
 
 After any change, run `repo/upload.sh` again.
 
-## Moving the repository (e.g. to flickos.net)
+## Moving the repository (e.g. to apt.flickos.org)
 
 Installed systems learn the repository address from
 `/etc/apt/sources.list.d/flickos.sources`, which comes from
@@ -277,13 +339,13 @@ Installed systems learn the repository address from
 one**, so the order matters:
 
 1. **Host the repository at the new address too.** Upload the same `repo/public/`
-   content there, e.g. to `https://flickos.net/apt/`. Check it with the `curl`
+   content there, e.g. to `https://apt.flickos.org/`. Check it with the `curl`
    command above.
 2. **Change the address** in
    `packages/flickos-archive-keyring/etc/apt/sources.list.d/flickos.sources`
    (`URIs:` line). Also update `repo/upload.sh` and this page.
 3. **Bump and publish** `flickos-archive-keyring`
-   (`dch -i -D trixie "Move repository to flickos.net."`), then upload to
+   (`dch -i -D trixie "Move repository to apt.flickos.org."`), then upload to
    **both** locations.
 4. **Keep uploading to both** for a transition period (e.g. 6–12 months), so
    systems that were offline for a while still receive the package with the new

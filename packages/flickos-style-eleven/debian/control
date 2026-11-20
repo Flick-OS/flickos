@@ -1,0 +1,41 @@
+Source: flickos-style-eleven
+Section: x11
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-style-eleven
+Architecture: all
+# flickos-layouts 1.67 and flickos-menu 1.22: Menu=bottom-center, the start
+# menu above the middle of the panel; flickos-layouts 1.68: Use replaces a
+# menu daemon still running the code from before the upgrade; 1.69: the
+# flickos/weather placeholder (the weather at the left end while it is on);
+# gnome-themes-extra-data, adwaita-icon-theme and fonts-open-sans: the GTK
+# theme (Adwaita-dark), the
+# icons and the panel's font Eleven names; adwaita-icon-theme-legacy:
+# Adwaita's full-color icons for apps that name an older icon, which
+# otherwise fall back to a dark grey symbolic one (Adwaita only recommends
+# it, and FlickOS installs no recommends).
+Depends: flickos-layouts (>= 1.69),
+         flickos-menu (>= 1.22),
+         gnome-themes-extra-data,
+         adwaita-icon-theme,
+         adwaita-icon-theme-legacy,
+         fonts-open-sans,
+         ${misc:Depends}
+Description: Eleven style and layout for the FlickOS desktop
+ A dark style for FlickOS: neutral dark grey windows and title bars with
+ wide, flat buttons in thin lines and a close button that turns red under
+ the pointer, a sky blue accent, a near-black terminal, and folds of blue
+ light on a deep blue wallpaper with FlickOS's halo.
+ .
+ Its layout has one see-through dark panel at the bottom with the apps
+ button and the open windows in the middle, and the status icons and a
+ two-line clock at the right. The start menu opens above the middle of the
+ panel.
+ .
+ Installing it adds Eleven to Desktop Layout & Style; Software's Use sets
+ the style and the layout together.

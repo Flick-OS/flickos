@@ -1,0 +1,3 @@
+usr/bin/flickos-media           usr/bin/
+usr/share/icons/*               usr/share/icons/
+etc/xdg/flickos/*               etc/xdg/flickos/

@@ -1,0 +1,2613 @@
+#!/usr/bin/python3
+"""Tool Kits: install the kits for your kind of work and set them up.
+
+A kit is a package `flickos-kit-NAME` whose Depends are what a kind of work
+needs (docs/design/flickos-dev.md, ADR-001): Python, Node.js, C and C++,
+containers, and the security kits (docs/design/flickos-security.md: network
+analysis, web testing, passwords, forensics, reverse engineering, wireless
+testing). Nothing is installed by default and this program runs nothing in
+the background. It owns no settings and no files of FlickOS's: it installs and
+removes kits through `flickos-software` (one installing path: PackageKit, its
+password prompt and the plan shown first), and its setup steps change the
+user's own files only through the programs that own them, when a button is
+pressed (ADR-003): `git config --global` for ~/.gitconfig, `ssh-keygen` for
+~/.ssh, `rustup` for ~/.rustup. It never writes those files itself. Four steps
+change the computer, not the user's files: the ports that devices on the
+network may reach (the firewall), podman's DHCP helper, capturing packets
+without root (the user joins Debian's wireshark group, flickos-security.md
+ADR-S02) and the wireless adapter NetworkManager leaves alone for monitor mode
+(ADR-S08). They are system settings of flickos-control (ADR-003, ADR-006),
+which asks for the administrator's password, records the change for History
+and owns the value: this program only runs `flickos-control system KEY VALUE`.
+
+Newer versions (flickos-dev.md ADR-007 to ADR-009; flickos-security.md
+ADR-S07): a maker's own repository (mise's, Rapid7's for Metasploit Framework)
+is flickos-control's system setting upstream.ID too, which adds it and installs
+its one package, or removes both. With mise installed, the tools of the
+installed kits (USER_TOOLS) get rows: *Use the Latest* runs `mise use --global`
+for this account only, so mise writes its own ~/.config/mise/config.toml and
+installs under ~/.local/share/mise; flickos-session puts mise's shims on PATH
+at login. Nothing is fetched until a button is pressed.
+
+The window lists the kits with a switch each, then the setup steps that apply
+to the kits that are installed (a step whose program isn't there is left out).
+The security kits are a list of their own under the permission sentence
+(ADR-S05), folded until one of them is installed or the window opens on one.
+A change shows its plan first (what comes with the kit, or what goes with it)
+and asks before it installs or removes. In the live session it says that what
+is installed is lost at restart.
+
+The window is a plain GTK 3 window (python3-gi); GTK is imported only when it
+opens, so every command works without a display. One window per session
+(kits.lock in $XDG_RUNTIME_DIR/flickos). Escape or Close closes it.
+
+Text people read in the window is translated with gettext (domain
+flickos-kits, /usr/share/locale; docs/12-translating.md). Output other
+programs read (`list`, `doctor`) and messages on stderr stay in English,
+except the titles in `list`.
+
+Commands:
+  (none), window [--kit NAME]
+                     open the window, on a kit's row
+  list [--json] [--category C]
+                     the kits: name, installed (yes or no), title, summary
+  plan [--remove] KIT
+                     what installing or removing a kit changes (flickos-software
+                     plan --json)
+  install KIT...     install kits (flickos-software install --json for each)
+  remove KIT...      remove kits
+  setup git [--name N --email E]
+                     print git's name and email, or set them
+  setup ssh [--copy] make an SSH key, or copy the public key of the one there
+  setup rust         install the stable Rust toolchain with rustup
+  setup ports [off|PORT...]
+                     print the ports devices on the network may reach, or set them
+                     (8000/tcp 3000/tcp 5000:5010/udp; from 1024 up)
+  setup dhcp [on|off]
+                     print whether podman's DHCP helper may run, or set it
+  setup capture [on|off]
+                     print whether you may capture packets without root, or set
+                     it (from your next login)
+  setup test-adapter [DEVICE|ADDRESS|off]
+                     print the wireless test adapter's address, or choose one by
+                     its device (wlx…) or permanent address, or none
+  env list [--json]  the environments: name, kind, kits, running, last updated
+  env plan --kit KIT... [--whole] [--extra exploitation] [--json]
+                     the sizes of an environment of those kits, asked of its
+                     distribution today
+  env new NAME --kit KIT... [--whole] [--extra exploitation] [--yes]
+                     make one: shows the sizes, asks, then installs
+  env update|stop|terminal|database NAME
+                     update everything inside, stop it, open a terminal in
+                     it, start Kali's Metasploit database in it
+  env remove NAME [--yes]
+                     remove it, with the commands and menu entries it exported
+  env export NAME COMMAND [--menu]
+                     make one of its commands yours (~/.local/bin), and put
+                     it in the menu
+  version list [--json]
+                     newer versions the installed kits offer: the makers'
+                     repositories (maker, id, on|off, version) and mise's tools
+                     (tool, mise's name, kit, yours|computer|none, version, check)
+  version maker mise|rapid7 [on|off]
+                     print, or add a maker's repository and install its program
+                     (mise, Metasploit Framework), or remove both (flickos-control
+                     system upstream.ID; asks for the administrator's password)
+  version use TOOL [VERSION|latest|system]
+                     your own version of a tool through mise (mise use --global):
+                     the latest by default, a version that stays, or system for
+                     the computer's again (mise unuse)
+  version update     mise upgrade: the newest release of the tools that follow
+                     the latest
+  doctor             what is set up and what is missing
+
+Exit codes: 0 ok, 1 error, 2 usage error.
+"""
+
+import argparse
+import contextlib
+import fcntl
+import gettext
+import grp
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import traceback
+
+NAME = "flickos-kits"
+APP_ID = "flickos-kits"             # Wayland app id, matches flickos-kits.desktop
+ICON = "applications-development"
+# Testing hooks (unit tests): the program that installs and removes, and a root
+# to read /proc below.
+SOFTWARE = os.environ.get("FLICKOS_KITS_SOFTWARE", "flickos-software")
+CONTROL = os.environ.get("FLICKOS_KITS_CONTROL", "flickos-control")
+PREFIX = os.environ.get("FLICKOS_KITS_PREFIX", "")
+PROC = PREFIX + "/proc"
+LOCALE_DIR = PREFIX + "/usr/share/locale"
+# In $XDG_RUNTIME_DIR/flickos: held while the window is open (one per session).
+LOCK = "kits.lock"
+# How long a program that can hang may take (git, dpkg-query), in seconds.
+COMMAND_SECONDS = 30
+# The package and the app id (Software's catalog) of a kit.
+PACKAGE = "flickos-kit-{}"
+APP = "io.github.dvbondoy.flickos.kits.{}"
+
+# Translations: English when there is none for the user's language.
+_translation = gettext.translation(NAME, LOCALE_DIR, fallback=True)
+_ = _translation.gettext
+ngettext = _translation.ngettext
+
+
+def N_(text):
+    """Marks text for the translation template; _() translates it where it is shown."""
+    return text
+
+
+TITLE = N_("Tool Kits")
+
+# The kit categories and the heading of each list in the window.
+CATEGORIES = [
+    ("development", N_("What do you develop?")),
+    ("classroom", N_("For learning and teaching")),
+    ("security", N_("Security work")),
+]
+# Under the security kits' heading (flickos-security.md, ADR-S05): Software's
+# PERMISSION, the same words (a test compares).
+PERMISSION = N_("Use these tools only on computers and networks you own or have permission to test.")
+# Lists folded until one of their kits is installed or the window opens on one
+# (flickos-security.md, phase 2: the window serves two audiences).
+FOLDED = ("security",)
+
+# The kits, in the order they are shown: name, category, title, summary. The
+# same words as each kit's metainfo (a test compares them), so the window
+# doesn't wait for Software's index, and shows the kits that aren't installed.
+KITS = [
+    ("base", "development", N_("Developer Basics"),
+     N_("Git, a compiler and the everyday command-line tools")),
+    ("python", "development", N_("Python"),
+     N_("Virtual environments, pip and pipx for Python projects")),
+    ("web", "development", N_("Node.js and npm"),
+     N_("Node.js and npm for web and JavaScript projects")),
+    ("c", "development", N_("C and C++"),
+     N_("CMake, Meson, Ninja, Clang and Valgrind")),
+    ("containers", "development", N_("Containers"),
+     N_("Podman and Distrobox, without a daemon running")),
+    ("classroom", "classroom", N_("Young Learners"),
+     N_("Learning apps for children, at school and at home")),
+    ("study", "classroom", N_("Study"),
+     N_("Notes, flashcards and graphs for students")),
+    ("network", "security", N_("Network Analysis"),
+     N_("Wireshark, Nmap and the tools for looking at a network")),
+    ("web-testing", "security", N_("Web Testing"),
+     N_("Fuzzers, sqlmap and TLS checks for testing web apps")),
+    ("passwords", "security", N_("Passwords"),
+     N_("John the Ripper, hashcat and Hydra for testing passwords")),
+    ("forensics", "security", N_("Forensics"),
+     N_("The Sleuth Kit, Autopsy and tools for disk images")),
+    ("reversing", "security", N_("Reverse Engineering"),
+     N_("Debuggers, tracers and hex editors for programs")),
+    ("wireless", "security", N_("Wireless Testing"),
+     N_("Aircrack-ng and the tools for testing Wi-Fi networks")),
+]
+
+# The setup steps, in the order they are shown: id, title, what it does (the
+# row's subtitle while it has nothing to show), the kit that brings its
+# program. A step shows only when its program is on this computer (WIN-9), so
+# a step doesn't need its kit listed in KITS.
+STEPS = [
+    ("git", N_("Your name and email for git"), N_("Git puts them on every commit you make."), "git"),
+    ("ssh", N_("SSH key"), N_("A key to sign in to GitHub and other code hosts."), "ssh-keygen"),
+    ("rust", N_("Rust"), N_("Rust's compiler and tools, from rust-lang.org (about 600 MB in your home folder)."),
+     "rustup"),
+    ("ports", N_("Devices on this network"),
+     N_("Let a phone or another computer on your home or office network reach a server you run."), "flickos-control"),
+    ("dhcp", N_("Container networks with DHCP"),
+     N_("Let containers get addresses from your router. Almost nobody needs this."), "flickos-control"),
+    ("capture", N_("Capture packets without administrator rights"),
+     N_("You can then record all network traffic on this computer, including other accounts'."), "dumpcap"),
+    # airmon-ng is in /usr/sbin, which isn't on a user's PATH: its package's aircrack-ng is.
+    ("test-adapter", N_("Wireless adapter for testing"),
+     N_("A second Wi-Fi adapter for monitor mode, which FlickOS then leaves alone."), "aircrack-ng"),
+]
+# Debian's group whose members may capture (flickos-control's packet-capture).
+WIRESHARK_GROUP = "wireshark"
+# NetworkManager's device states from prepare (40) to activated (100): the
+# adapter is on a network, or joining one, so it isn't offered for testing.
+ACTIVE_STATES = range(40, 101)
+HW_ADDRESS = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+
+# Environments (flickos-dev.md ADR-005, 8c; flickos-security.md ADR-S03,
+# ADR-S04): rootless distrobox containers, one image per kit category, each
+# named in full and from the project that makes the system inside (Q2 and
+# Q-S2, decided 2026-11-19). Never rootful (Q-S3, decided 2026-11-19).
+ENV_IMAGES = {"development": "docker.io/library/debian:testing",
+              "security": "docker.io/kalilinux/kali-rolling:latest"}
+# Run as root inside before the install. Kali's profile (kali-defaults'
+# kali-motd) warns of "a minimal installation" at every terminal while no
+# kali-linux-* metapackage is installed, which is always (Q-S9); its own hint,
+# ~/.hushlogin, would be the shared home's and hide the computer's console
+# login messages too, so the environment's admin switch instead.
+ENV_SETUP = {"security": "mkdir -p /etc/kali-motd && touch /etc/kali-motd/disable-minimal-warning"}
+ENV_SOURCES = {
+    "development": N_("It downloads from Docker Hub ({image}, Debian's own image), then from Debian's mirrors."),
+    "security": N_("It downloads from Docker Hub ({image}, Kali's own image), then from Kali's mirrors. "
+                   "Kali's packages run as you, with your home folder, like any program you run."),
+}
+# Kits with no environment: podman inside a container, and apps for learning.
+NO_ENV = ("containers",)
+# A security kit's environment list, the tools it lacks on the system, and
+# Kali's whole list for it (flickos-security.md section 4, Q-S9: checked in
+# phase 0 against Kali's archive; a name Kali drops fails the plan).
+ENV_LISTS = {
+    "network": (("netexec", "responder", "enum4linux"),
+                ("kali-tools-information-gathering", "kali-tools-sniffing-spoofing")),
+    "web-testing": (("burpsuite", "nikto"), ("kali-tools-web",)),
+    "passwords": (("wordlists", "seclists"), ("kali-tools-passwords",)),
+    "forensics": (("bulk-extractor",), ("kali-tools-forensics",)),
+    "reversing": (("ghidra", "radare2", "rizin", "jadx"), ("kali-tools-reverse-engineering",)),
+    "wireless": (("kismet",), ("kali-tools-wireless",)),
+}
+# Extras a security environment may add (section 8c): name -> (packages, what the window says).
+ENV_EXTRAS = {"exploitation": (("metasploit-framework", "exploitdb"),
+                               N_("Kali's Metasploit and Exploit-DB (about 2.4 GB)"))}
+# Where an environment's own commands are (never the shared ~/.local/bin).
+ENV_SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games"
+# Kali's GUI tools that ship no menu entry (kali-menu has them): command -> name.
+ENV_APPS = {"burpsuite": "Burp Suite", "ghidra": "Ghidra", "jadx-gui": "JADX"}
+# podman labels on the containers this program makes.
+ENV_LABEL = "io.github.dvbondoy.flickos.kits.env"
+ENV_KITS_LABEL = "io.github.dvbondoy.flickos.kits.env-kits"
+ENV_EXTRAS_LABEL = "io.github.dvbondoy.flickos.kits.env-extras"
+ENV_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+# What distrobox installs in a new environment, beyond the kits' lists
+# (flickos-security.md phase 0 S2: 0.85 GB in Kali's image, which is 126 MB).
+ENV_BASE_SIZE = 1_000_000_000
+# flickos-kit-containers with flickos-kit-base (flickos-security.md phase 0 S7).
+CONTAINERS_SIZE = 620_000_000
+# The kind of SSH key a step makes, and its file in ~/.ssh.
+SSH_KEY_TYPE = "ed25519"
+SSH_KEY_FILE = "id_ed25519"
+# One item of a ports value (flickos-control's LOCAL_PORT_ITEM): its helper
+# checks the numbers.
+PORT_ITEM = re.compile(r"^\d{1,5}(:\d{1,5})?/(tcp|udp)$")
+# What the plan lists before it says "and N more" (the dialog stays short).
+PLAN_LIST = 12
+
+# Newer versions (flickos-dev.md ADR-007 to ADR-009, 8a and 8b; Q8 decided
+# 2026-11-19: of the makers' repositories only mise's and Rapid7's).
+# A maker's repository is flickos-control's system setting upstream.ID, which
+# adds it and installs its one package, or removes both (ADR-008): id ->
+# (package, title, what the row says, the kit category it shows with, or None
+# for any kit with tools in USER_TOOLS; then the download and the size on
+# disk, phase 0's, said before the password).
+UPSTREAMS = {
+    "mise": ("mise", N_("Newer versions for you"),
+             N_("mise installs a tool's newest release for your account only, checked against what its maker "
+                "publishes. mise comes from its makers' repository (mise.jdx.dev); automatic updates keep it "
+                "current."), None, 61_000_000, 177_000_000),
+    "rapid7": ("metasploit-framework", N_("Metasploit Framework"),
+               N_("Rapid7's own build, made every night, from Rapid7's repository (apt.metasploit.com); "
+                  "automatic updates keep it current."), "security", 417_000_000, 1_100_000_000),
+}
+# Said before the password for a maker's repository (ADR-008).
+UPSTREAM_TRUST = N_("Its package's scripts run as root when it is installed and updated, like any package's. "
+                    "Nothing else is taken from that repository.")
+# The tools whose newest release mise installs for this account (ADR-009;
+# flickos-security.md ADR-S07): mise's name for it, the title, the kit whose
+# list shows it, what mise checks the download against (phase 0 item 10 and
+# S8), what "the latest" is ("lts" for Node: its newest is often not a
+# long-term release) and Debian's package of the same tool, if there is one.
+USER_TOOLS = [
+    ("node", "Node.js", "web", "signature", "lts", "nodejs"),
+    ("pnpm", "pnpm", "web", "attestation", "latest", None),
+    ("bun", "Bun", "web", "checksum", "latest", None),
+    ("deno", "Deno", "web", "checksum", "latest", None),
+    ("uv", "uv", "python", "attestation", "latest", None),
+    ("cmake", "CMake", "c", "digest", "latest", "cmake"),
+    ("aqua:projectdiscovery/nuclei", "nuclei", "web-testing", "checksum", "latest", None),
+    ("aqua:projectdiscovery/httpx", "httpx", "web-testing", "checksum", "latest", None),
+    ("aqua:projectdiscovery/subfinder", "subfinder", "web-testing", "checksum", "latest", None),
+    ("aqua:projectdiscovery/katana", "katana", "web-testing", "checksum", "latest", None),
+    ("aqua:ffuf/ffuf", "ffuf", "web-testing", "checksum", "latest", "ffuf"),
+    ("github:OJ/gobuster", "gobuster", "web-testing", "checksum", "latest", "gobuster"),
+    ("github:epi052/feroxbuster", "feroxbuster", "web-testing", "digest", "latest", None),
+    ("amass", "Amass", "web-testing", "checksum", "latest", None),
+    ("pipx:sqlmap", "sqlmap", "web-testing", "pypi", "latest", "sqlmap"),
+    ("pipx:impacket", "Impacket", "network", "pypi", "latest", None),
+    ("pipx:volatility3", "Volatility 3", "forensics", "pypi", "latest", None),
+]
+# The command of a USER_TOOLS row when it isn't the last part of mise's name
+# (None: a set of commands, none of them likely to be anyone else's).
+TOOL_COMMANDS = {"pipx:impacket": None, "pipx:volatility3": "vol"}
+# What each kind of check is, on the tool's row (ADR-009: the weaker ones say so).
+CHECKS = {
+    "signature": N_("Checked against its makers' signature."),
+    "attestation": N_("Checked against its makers' signed build record."),
+    "checksum": N_("Checked against its makers' checksum file."),
+    "digest": N_("Checked only against GitHub's digest of the file, which catches a bad download but not a "
+                 "replaced release."),
+    "pypi": N_("Checked against PyPI's digest of the file."),
+}
+# mise's pipx backend installs with pipx, or uv when it is there.
+PIPX_PROGRAMS = ("pipx", "uv")
+# How long `mise use` and `mise upgrade` may take (downloads), in seconds.
+MISE_SECONDS = 1800
+# A version the user names for `version use` (mise's own syntax, no options).
+TOOL_VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,40}$")
+
+
+def run_program(args, **kwargs):
+    """subprocess.run, looked up when it is called: the functions below take it
+    as a default argument, and the tests replace subprocess.run."""
+    return subprocess.run(args, **kwargs)
+
+
+def start_program(args, **kwargs):
+    """subprocess.Popen, looked up when it is called."""
+    return subprocess.Popen(args, **kwargs)
+
+
+class KitsError(Exception):
+    """An expected failure: it becomes a message for the user."""
+
+
+def warn(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+
+
+def kit_names():
+    return [kit[0] for kit in KITS]
+
+
+def kit_of(name):
+    kit = next((k for k in KITS if k[0] == name), None)
+    if kit is None:
+        raise KitsError(f"no kit named {name} (try: {', '.join(kit_names())})")
+    return kit
+
+
+def live_system():
+    """True in the live session, where what is installed is lost at restart (INT-7)."""
+    try:
+        with open(PROC + "/cmdline", encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    except OSError:
+        return False
+
+
+@contextlib.contextmanager
+def single_instance():
+    """Yields True for the first window of the session, False while one is open.
+    Without XDG_RUNTIME_DIR there is nothing to share, so always True."""
+    base = os.environ.get("XDG_RUNTIME_DIR")
+    if not base:
+        yield True
+        return
+    folder = os.path.join(base, "flickos")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, LOCK), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+# --- What is installed -----------------------------------------------------------------
+
+def installed_packages(packages, run=run_program):
+    """The subset of packages that dpkg has installed."""
+    if not packages:
+        return set()
+    try:
+        done = run(["dpkg-query", "-W", "-f", "${db:Status-Abbrev}\t${Package}\n", *packages],
+                   capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise KitsError(f"couldn't read what is installed: {error}") from None
+    found = set()
+    for line in done.stdout.splitlines():
+        state, _tab, package = line.partition("\t")
+        if state.startswith("ii"):
+            found.add(package)
+    return found
+
+
+def kit_rows(run=run_program):
+    """[(name, category, title, summary, installed)] for KITS."""
+    have = installed_packages([PACKAGE.format(k[0]) for k in KITS], run)
+    return [(name, category, _(title), _(summary), PACKAGE.format(name) in have)
+            for name, category, title, summary in KITS]
+
+
+# --- Plans and changes, through flickos-software ---------------------------------------
+
+def software_error(stderr, fallback):
+    """The last line of a FlickOS program's stderr without its name, or fallback."""
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    if not lines:
+        return fallback
+    return re.sub(r"^((flickos-[a-z-]+|control-helper): )+", "", lines[-1])
+
+
+def get_plan(name, remove=False, run=run_program):
+    """flickos-software's plan for a kit as a dict (see its plan --json). Raises
+    KitsError with its message when there is no plan."""
+    kit_of(name)
+    args = [SOFTWARE, "plan", "--json"] + (["--remove"] if remove else []) + [APP.format(name)]
+    try:
+        done = run(args, capture_output=True, text=True, timeout=120)
+    except OSError as error:
+        raise KitsError(f"{SOFTWARE} can't run: {error}") from None
+    except subprocess.TimeoutExpired:
+        raise KitsError("the plan took too long") from None
+    if done.returncode != 0:
+        raise KitsError(software_error(done.stderr, f"no plan for {name}"))
+    try:
+        return json.loads(done.stdout)
+    except ValueError:
+        raise KitsError("flickos-software printed a plan that can't be read") from None
+
+
+def change(name, remove, on_event, popen=start_program):
+    """Install or remove a kit through flickos-software --json, calling
+    on_event(dict) for each line it prints. Returns 0, or the exit code."""
+    kit_of(name)
+    args = [SOFTWARE, "remove" if remove else "install", "--json", APP.format(name)]
+    try:
+        process = popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as error:
+        raise KitsError(f"{SOFTWARE} can't run: {error}") from None
+    errors = []
+    reader = threading.Thread(target=lambda: errors.append(process.stderr.read()), daemon=True)
+    reader.start()
+    for line in process.stdout:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        on_event(event)
+    code = process.wait()
+    reader.join(5)
+    if code != 0:
+        # A cancelled change prints its event; an error prints its message too.
+        on_event({"event": "failed", "message": software_error("".join(errors), "")})
+    return code
+
+
+def plan_words(plan, remove, size=None):
+    """A plan in sentences for the dialog: (summary, [package names])."""
+    size = size or human_size
+    names = plan.get("removes" if remove else "packages") or []
+    count = len(names)
+    if remove:
+        summary = ngettext("This removes {count} package and frees {size}.",
+                           "This removes {count} packages and frees {size}.", count).format(
+            count=count, size=size(plan.get("size", 0)))
+    else:
+        summary = ngettext("This adds {count} package, which takes {size}. About {download} is downloaded.",
+                           "This adds {count} packages, which take {size}. About {download} is downloaded.",
+                           count).format(count=count, size=size(plan.get("size", 0)),
+                                         download=size(plan.get("download", 0)))
+    return summary, sorted(names)
+
+
+def human_size(number):
+    """Bytes as 12 MB, 1.4 GB (powers of 1000, as Software shows them)."""
+    number = float(number or 0)
+    for unit in ("B", "kB", "MB", "GB"):
+        if number < 1000 or unit == "GB":
+            return f"{number:.0f} {unit}" if unit in ("B", "kB") or number >= 100 else f"{number:.1f} {unit}"
+        number /= 1000
+    return f"{number:.0f} GB"
+
+
+# --- Setup steps (ADR-003): the user's own programs, when asked ------------------------
+
+def git_values(run=run_program):
+    """(name, email) of ~/.gitconfig through git, "" for one that isn't set."""
+    values = []
+    for key in ("user.name", "user.email"):
+        try:
+            done = run(["git", "config", "--global", "--get", key], capture_output=True, text=True,
+                       timeout=COMMAND_SECONDS)
+        except (OSError, subprocess.TimeoutExpired):
+            values.append("")
+            continue
+        values.append(done.stdout.strip() if done.returncode == 0 else "")
+    return tuple(values)
+
+
+def set_git(name, email, run=run_program):
+    """Sets git's name and email through `git config --global`. Both are checked
+    before either is written, so a refused value changes nothing."""
+    values = (("user.name", name), ("user.email", email))
+    for key, value in values:
+        if not value or any(c in value for c in "\n\r"):
+            raise KitsError(f"{key} can't be empty or span lines")
+    for key, value in values:
+        try:
+            done = run(["git", "config", "--global", key, value], capture_output=True, text=True,
+                       timeout=COMMAND_SECONDS)
+        except OSError as error:
+            raise KitsError(f"git can't run: {error}") from None
+        except subprocess.TimeoutExpired:
+            raise KitsError("git took too long") from None
+        if done.returncode != 0:
+            raise KitsError(software_error(done.stderr, f"git couldn't set {key}"))
+
+
+def ssh_folder():
+    return os.path.join(os.path.expanduser("~"), ".ssh")
+
+
+def public_key_path():
+    """The SSH public key that is there, or None: the one this program makes, else any ssh-keygen's."""
+    folder = ssh_folder()
+    for name in (SSH_KEY_FILE, "id_rsa", "id_ecdsa", "id_ed25519_sk"):
+        path = os.path.join(folder, name + ".pub")
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def rust_toolchain(run=run_program):
+    """The default toolchain rustup reports, or "" when there is none."""
+    try:
+        done = run(["rustup", "show", "active-toolchain"], capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return done.stdout.split()[0] if done.returncode == 0 and done.stdout.strip() else ""
+
+
+def step_available(step, which=shutil.which):
+    return which(step[3]) is not None
+
+
+def control_value(key, run=run_program):
+    """flickos-control's system setting KEY as it prints it, or None when it
+    can't say (ufw or podman isn't there, or no flickos-control)."""
+    try:
+        done = run([CONTROL, "system", key], capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def run_control(key, value, run=run_program):
+    """Changes a system setting through its owner. It asks for the
+    administrator's password (pkexec), so there is no timeout: the user may
+    take a while. Raises KitsError with the owner's message."""
+    try:
+        done = run([CONTROL, "system", key, value], capture_output=True, text=True)
+    except OSError as error:
+        raise KitsError(f"{CONTROL} can't run: {error}") from None
+    if done.returncode != 0:
+        raise KitsError(software_error(done.stderr, f"{key} wasn't changed"))
+
+
+def ports_value(text):
+    """A ports field as `system firewall.local-ports` takes it: "off" for an
+    empty one, else the items joined by commas. Raises KitsError."""
+    items = text.replace(",", " ").split()
+    for item in items:
+        if not PORT_ITEM.match(item):
+            raise KitsError(_("'{item}' isn't a port: give ports like 8000/tcp or 5000:5010/udp.").format(item=item))
+    return ",".join(items) or "off"
+
+
+def capture_active(groups=None):
+    """Whether this session may capture now: its groups were read at login."""
+    try:
+        gid = grp.getgrnam(WIRESHARK_GROUP).gr_gid
+    except KeyError:
+        return False
+    return gid in (os.getgroups() if groups is None else groups)
+
+
+def nm_unescape(value):
+    """A value of nmcli -t: backslash escapes its colons and backslashes."""
+    return re.sub(r"\\(.)", r"\1", value)
+
+
+def wifi_adapters(run=run_program):
+    """[{device, address, label, active}] of NetworkManager's Wi-Fi adapters:
+    address is the permanent one (PermHwAddress; NetworkManager scans with
+    random ones), label the maker's first word and the model, short enough
+    for a drop-down ("Qualcomm AR9271 802.11n, USB"), active whether it is on
+    a network. [] when NetworkManager doesn't answer."""
+    fields = "GENERAL.DEVICE,GENERAL.TYPE,GENERAL.STATE,GENERAL.DBUS-PATH,GENERAL.VENDOR,GENERAL.PRODUCT,GENERAL.PATH"
+    try:
+        done = run(["nmcli", "-t", "-f", fields, "device", "show"], capture_output=True, text=True,
+                   timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if done.returncode != 0:
+        return []
+    devices, current = [], {}
+    for line in done.stdout.splitlines() + [""]:
+        key, sep, value = line.partition(":")
+        if not sep:
+            if current.get("GENERAL.TYPE") == "wifi":
+                devices.append(current)
+            current = {}
+            continue
+        current[key] = nm_unescape(value)
+    found = []
+    for device in devices:
+        try:
+            got = run(["busctl", "-j", "get-property", "org.freedesktop.NetworkManager",
+                       device.get("GENERAL.DBUS-PATH", ""), "org.freedesktop.NetworkManager.Device.Wireless",
+                       "PermHwAddress"], capture_output=True, text=True, timeout=COMMAND_SECONDS)
+            address = json.loads(got.stdout)["data"].upper() if got.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, AttributeError):
+            address = ""
+        if not HW_ADDRESS.match(address):
+            continue
+        state = device.get("GENERAL.STATE", "").split(" ")[0]
+        maker = (device.get("GENERAL.VENDOR", "").split() or [""])[0]
+        label = " ".join(part for part in (maker, device.get("GENERAL.PRODUCT", "")) if part) \
+            or device.get("GENERAL.DEVICE", "")
+        if "-usb-" in device.get("GENERAL.PATH", ""):
+            label += ", USB"
+        found.append({"device": device.get("GENERAL.DEVICE", ""), "address": address, "label": label,
+                      "active": state.isdigit() and int(state) in ACTIVE_STATES})
+    return found
+
+
+def adapter_address(text, adapters):
+    """The permanent address for a test-adapter argument: a device's name or an
+    address. Raises KitsError."""
+    if HW_ADDRESS.match(text):
+        return text.upper()
+    for adapter in adapters:
+        if adapter["device"] == text:
+            return adapter["address"]
+    raise KitsError(f"no Wi-Fi adapter named {text} (try: {', '.join(a['device'] for a in adapters) or 'none'})")
+
+
+def snapshot(run=run_program, which=shutil.which):
+    """Everything the page shows, read in one go (it runs git and rustup, so
+    never on the main loop): {"kits": kit_rows(), "steps": {step id: value}}. A
+    step's value is git's (name, email), the SSH public key's path or None, or
+    the Rust toolchain's name or "", the ports devices may reach ("off" or
+    "8000/tcp,..."), "on" or "off" for podman's DHCP helper, (value, active now)
+    for packet capture, or {"set": address or "off", "adapters": wifi_adapters()}
+    for the test adapter; only steps that apply, and only once a kit is
+    installed."""
+    rows = kit_rows(run)
+    steps = {}
+    if any(r[4] for r in rows):
+        for step in STEPS:
+            if not step_available(step, which):
+                continue
+            if step[0] == "git":
+                steps["git"] = git_values(run)
+            elif step[0] == "ssh":
+                steps["ssh"] = public_key_path()
+            elif step[0] == "rust":
+                steps["rust"] = rust_toolchain(run)
+            elif step[0] == "ports":
+                value = control_value("firewall.local-ports", run)
+                if value is not None:
+                    steps["ports"] = value
+            elif step[0] == "dhcp":
+                # Only with the containers kit, whose drop-ins keep the helper off.
+                value = control_value("containers.dhcp", run) if any(r[0] == "containers" and r[4] for r in rows) \
+                    else None
+                if value is not None:
+                    steps["dhcp"] = value
+            elif step[0] == "capture":
+                value = control_value("packet-capture", run)
+                if value is not None:
+                    steps["capture"] = (value, capture_active())
+            elif step[0] == "test-adapter":
+                value = control_value("wireless.test-adapter", run)
+                if value is not None:
+                    steps["test-adapter"] = {"set": value, "adapters": wifi_adapters(run)}
+    # Environments (8c): None without distrobox and podman (the window offers
+    # the Containers kit); shown once any kit is installed, like the steps.
+    envs = None
+    if any(r[4] for r in rows) and environments_available(which):
+        try:
+            envs = environments(run)
+        except KitsError as error:
+            envs = str(error)
+    # Newer versions (8a, 8b): the makers' repositories and mise's tools the
+    # installed kits offer; None without a kit.
+    installed = {r[0] for r in rows if r[4]}
+    return {"kits": rows, "steps": steps, "envs": envs, "versions": versions(installed, run, which) if installed
+            else None}
+
+
+def copy_public_key(which=shutil.which, run=run_program):
+    """Copies the SSH public key to the clipboard (wl-copy: GTK's clipboard
+    forgets it when the window closes)."""
+    path = public_key_path()
+    if path is None:
+        raise KitsError("there is no SSH key yet")
+    if which("wl-copy") is None:
+        raise KitsError("wl-copy isn't installed; the key is in " + path)
+    with open(path, "rb") as f:
+        run(["wl-copy"], input=f.read(), check=True, timeout=COMMAND_SECONDS)
+    return path
+
+
+def terminal_command(argv, which=shutil.which):
+    """argv inside the user's terminal (xdg-terminal-exec: the terminal they chose)."""
+    if which("xdg-terminal-exec") is None:
+        raise KitsError("no terminal to run it in: xdg-terminal-exec isn't installed")
+    return ["xdg-terminal-exec", *argv]
+
+
+def start_in_terminal(argv):
+    """Starts a command in a terminal that lives on after the window closes (CODE-7)."""
+    try:
+        subprocess.Popen(terminal_command(argv), stdin=subprocess.DEVNULL, start_new_session=True)
+    except OSError as error:
+        raise KitsError(f"couldn't start a terminal: {error}") from None
+
+
+# --- Environments (flickos-dev.md ADR-005 and 8c; flickos-security.md ADR-S03, ADR-S04) --
+
+def state_path(name="environments.json"):
+    """This program's own records: when each environment was last updated
+    (environments.json), and the account's mise versions (versions.json)."""
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local/state")
+    return os.path.join(base, "flickos", "kits", name)
+
+
+def read_state(name="environments.json"):
+    try:
+        with open(state_path(name), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(data, name="environments.json"):
+    path = state_path(name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+
+
+def mark_updated(name, when=None):
+    data = read_state()
+    data[name] = {"updated": int(time.time() if when is None else when)}
+    write_state(data)
+
+
+def forget(name):
+    data = read_state()
+    if data.pop(name, None) is not None:
+        write_state(data)
+
+
+def environments_available(which=shutil.which):
+    """Environments need distrobox and podman (flickos-kit-containers, ADR-S01)."""
+    return which("distrobox") is not None and which("podman") is not None
+
+
+def env_category(kits):
+    """The one category of these kits that has environments. Raises KitsError."""
+    if not kits:
+        raise KitsError("name at least one kit with --kit")
+    categories = set()
+    for name in kits:
+        kit = kit_of(name)
+        if kit[1] not in ENV_IMAGES or name in NO_ENV:
+            raise KitsError(f"{name} has no environment")
+        categories.add(kit[1])
+    if len(categories) > 1:
+        raise KitsError("security kits and developer kits need different environments (Kali, Debian)")
+    return categories.pop()
+
+
+def kit_depends(name, run=run_program, seen=None):
+    """A developer kit's Depends from apt's lists, other kits' expanded (an
+    environment gets the same lists as the system, flickos-dev.md 8c)."""
+    seen = set() if seen is None else seen
+    package = PACKAGE.format(name)
+    if package in seen:
+        return []
+    seen.add(package)
+    try:
+        done = run(["apt-cache", "show", "--no-all-versions", package], capture_output=True, text=True,
+                   timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise KitsError(f"couldn't read {package}'s list: {error}") from None
+    match = re.search(r"(?m)^Depends: (.*)$", done.stdout if done.returncode == 0 else "")
+    if not match:
+        raise KitsError(f"apt doesn't know {package}; run sudo apt update")
+    found = []
+    for item in match.group(1).split(","):
+        first = re.sub(r"\(.*?\)", "", item.split("|")[0]).strip()
+        if first.startswith("flickos-kit-"):
+            found += kit_depends(first[len("flickos-kit-"):], run, seen)
+        elif first and not first.startswith(("flickos-", "$")):
+            found.append(first)
+    return found
+
+
+def env_packages(kits, whole=False, extras=(), run=run_program):
+    """What goes into an environment of these kits: a security kit's
+    environment list (or Kali's whole list, Q-S9), a developer kit's Depends;
+    then the extras (Kali's Metasploit, section 8c)."""
+    category = env_category(kits)
+    packages = []
+    for name in kits:
+        if category == "security":
+            packages += ENV_LISTS[name][1 if whole else 0]
+        else:
+            packages += kit_depends(name, run)
+    for extra in extras:
+        if category != "security" or extra not in ENV_EXTRAS:
+            raise KitsError(f"no extra named {extra} for these kits")
+        packages += ENV_EXTRAS[extra][0]
+    return list(dict.fromkeys(packages))
+
+
+def apt_size(text):
+    """(download, disk) in bytes from apt-get's plan in the C locale; None for one it doesn't say."""
+    units = {"B": 1, "kB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3}
+
+    def number(match):
+        if not match:
+            return None
+        return int(float(match.group(1).replace(",", "")) * units[match.group(2)])
+    download = re.search(r"Need to get (?:[\d.,]+ [kMG]?B/)?([\d.,]+) ([kMG]?B)", text)
+    disk = re.search(r"After this operation, ([\d.,]+) ([kMG]?B) of additional disk space", text)
+    return number(download), number(disk)
+
+
+def env_plan(kits, whole=False, extras=(), run=run_program):
+    """The sizes of what an environment of these kits would install, asked of
+    its own distribution today: apt-get --trivial-only in a throwaway container
+    of the image (which stays for distrobox to use). Returns {image, packages,
+    download, disk}. Raises KitsError (a name the distribution dropped, too)."""
+    category = env_category(kits)
+    packages = env_packages(kits, whole, extras, run)
+    image = ENV_IMAGES[category]
+    script = ("export DEBIAN_FRONTEND=noninteractive LC_ALL=C; apt-get update -qq >/dev/null "
+              "&& apt-get install --trivial-only --no-install-recommends \"$@\"")
+    try:
+        done = run(["podman", "run", "--rm", "--pull=missing", image, "sh", "-c", script, "plan", *packages],
+                   capture_output=True, text=True, timeout=1800)
+    except OSError as error:
+        raise KitsError(f"podman can't run: {error}") from None
+    except subprocess.TimeoutExpired:
+        raise KitsError("asking for the sizes took too long") from None
+    missing = re.findall(r"Unable to locate package (\S+)", done.stderr + done.stdout)
+    if missing:
+        raise KitsError(f"{image} has no package {', '.join(missing)}")
+    download, disk = apt_size(done.stdout)
+    if disk is None and download is None:
+        raise KitsError(software_error(done.stderr, "the image's apt didn't say what it would install"))
+    return {"image": image, "packages": packages, "download": download or 0, "disk": disk or 0}
+
+
+def check_env_name(name):
+    if not ENV_NAME.fullmatch(name or ""):
+        raise KitsError(f"'{name}' can't name an environment: lowercase letters, digits, - and _, "
+                        "starting with a letter or digit, at most 40")
+    return name
+
+
+def environments(run=run_program):
+    """[{name, category, kits, extras, running, created, updated, image}] of the
+    environments this program made (podman's labels say which), by name."""
+    try:
+        done = run(["podman", "ps", "--all", "--filter", f"label={ENV_LABEL}", "--format", "json"],
+                   capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise KitsError(f"couldn't list the environments: {error}") from None
+    if done.returncode != 0:
+        raise KitsError(software_error(done.stderr, "podman couldn't list the environments"))
+    try:
+        containers = json.loads(done.stdout or "[]")
+    except ValueError:
+        raise KitsError("podman printed a list that can't be read") from None
+    updated = read_state()
+    found = []
+    for container in containers or []:
+        labels = container.get("Labels") or {}
+        names = container.get("Names") or []
+        if not names or labels.get(ENV_LABEL) not in ENV_IMAGES:
+            continue
+        name = names[0]
+        found.append({"name": name, "category": labels[ENV_LABEL],
+                      "kits": [k for k in labels.get(ENV_KITS_LABEL, "").split(",") if k],
+                      "extras": [e for e in labels.get(ENV_EXTRAS_LABEL, "").split(",") if e],
+                      "running": container.get("State") == "running",
+                      "created": container.get("Created") or 0,
+                      "image": container.get("ImageID") or "",
+                      "updated": (updated.get(name) or {}).get("updated") or container.get("Created") or 0})
+    return sorted(found, key=lambda env: env["name"])
+
+
+def environment(name, run=run_program):
+    env = next((e for e in environments(run) if e["name"] == name), None)
+    if env is None:
+        raise KitsError(f"no environment named {name} (flickos-kits env list)")
+    return env
+
+
+def inside(name, script, run=run_program, **kwargs):
+    """Runs sh -c SCRIPT in the environment as the user (distrobox enter
+    reads stdin, so it gets none). Output goes where the caller's goes."""
+    try:
+        return run(["distrobox", "enter", name, "--", "sh", "-c", script], stdin=subprocess.DEVNULL, **kwargs)
+    except OSError as error:
+        raise KitsError(f"distrobox can't run: {error}") from None
+
+
+def run_steps(steps, run=run_program):
+    """Runs each argv in turn, its output on the terminal; KitsError at the first that fails."""
+    for argv in steps:
+        try:
+            code = run(argv, stdin=subprocess.DEVNULL).returncode
+        except OSError as error:
+            raise KitsError(f"{argv[0]} can't run: {error}") from None
+        if code != 0:
+            raise KitsError(f"{' '.join(argv[:3])} failed (exit code {code})")
+
+
+def create_environment(name, kits, whole=False, extras=(), packages=None, run=run_program):
+    """distrobox create (rootless, no menu entry of its own: the window opens
+    and removes it), the list installed inside with apt, then stopped, since
+    a large install once left distrobox enter unable to find the user until
+    the environment restarted (flickos-security.md phase 0)."""
+    category = env_category(kits)
+    packages = env_packages(kits, whole, extras, run) if packages is None else packages
+    labels = {ENV_LABEL: category, ENV_KITS_LABEL: ",".join(kits), ENV_EXTRAS_LABEL: ",".join(extras)}
+    flags = " ".join(f"--label {key}={value}" for key, value in labels.items() if value)
+    setup = f"sudo sh -c '{ENV_SETUP[category]}' && " if category in ENV_SETUP else ""
+    install = ("export DEBIAN_FRONTEND=noninteractive; " + setup + "sudo -E apt-get update "
+               "&& sudo -E apt-get install -y --no-install-recommends " + " ".join(packages))
+    run_steps([["distrobox", "create", "--yes", "--no-entry", "--name", name, "--image", ENV_IMAGES[category],
+                "--additional-flags", flags],
+               ["distrobox", "enter", name, "--", "sh", "-c", install],
+               ["distrobox", "stop", "--yes", name]], run)
+    mark_updated(name)
+
+
+def update_environment(name, run=run_program):
+    environment(name, run)
+    run_steps([["distrobox", "enter", name, "--", "sh", "-c",
+                "export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get update && sudo -E apt-get full-upgrade -y"],
+               ["distrobox", "stop", "--yes", name]], run)
+    mark_updated(name)
+
+
+def stop_environment(name, run=run_program):
+    environment(name, run)
+    done = run(["distrobox", "stop", "--yes", name], capture_output=True, text=True, timeout=120)
+    if done.returncode != 0:
+        raise KitsError(software_error(done.stderr, f"{name} couldn't be stopped"))
+
+
+def remove_environment(name, run=run_program):
+    """distrobox rm also deletes the commands and menu entries exported from it
+    (export_command names its own entries so that it finds them). The image
+    goes too once no container uses it, the user's own included (Kali's is
+    252 MB; a new environment downloads the current one anyway)."""
+    env = environment(name, run)
+    done = run(["distrobox", "rm", "--force", "--yes", name], capture_output=True, text=True, timeout=300)
+    if done.returncode != 0:
+        raise KitsError(software_error(done.stderr, f"{name} couldn't be removed"))
+    forget(name)
+    if env["image"]:
+        remove_unused_image(env["image"], run)
+
+
+def remove_unused_image(image, run=run_program):
+    """podman rmi IMAGE when no container is made from it. Quietly kept when
+    podman can't say or refuses (another name for it, say): the environment
+    is gone, which is what was asked."""
+    try:
+        users = run(["podman", "ps", "--all", "--quiet", "--filter", f"ancestor={image}"],
+                    capture_output=True, text=True, timeout=COMMAND_SECONDS)
+        if users.returncode == 0 and not users.stdout.strip():
+            run(["podman", "rmi", image], capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def applications_folder():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local/share")
+    return os.path.join(base, "applications")
+
+
+def app_entry_path(name, command):
+    """Named after the environment first: distrobox rm deletes such entries."""
+    return os.path.join(applications_folder(), f"{name}-{command}.desktop")
+
+
+def app_entry(name, command, title):
+    """A menu entry for a Kali GUI tool that ships none (they are kali-menu's,
+    flickos-security.md ADR-S03), named like distrobox's own ("… (on NAME)")."""
+    return ("[Desktop Entry]\nType=Application\n"
+            f"Name={title} (on {name})\n"
+            f"Comment=From the environment {name} (Tool Kits)\n"
+            f"Exec=distrobox-enter -n {name} -- {command}\n"
+            "Icon=utilities-terminal\nTerminal=false\nCategories=Development;\n")
+
+
+def export_command(name, command, menu=False, run=run_program, which=shutil.which):
+    """Makes COMMAND of the environment a command of the user's
+    (distrobox-export --bin into ~/.local/bin) and, with menu, an entry in the
+    menu: the app's own through distrobox-export --app, or for Kali's GUI
+    tools (ENV_APPS) one this program writes. A command the system has too is
+    refused: two versions under one name confuse (flickos-dev.md, Risks)."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", command):
+        raise KitsError(f"'{command}' isn't a command's name")
+    environment(name, run)
+    local_bin = os.path.join(os.path.expanduser("~"), ".local/bin")
+    there = which(command)
+    if there and os.path.dirname(there) != local_bin:
+        raise KitsError(f"this computer has {command} too ({there}); run it inside the environment instead")
+    # Looked up in the environment's system folders only: the home folder (and
+    # its PATH) is shared, so a second export would find ~/.local/bin's
+    # wrapper and make one that runs itself forever (found on a real computer).
+    script = (f"p=$(PATH={ENV_SYSTEM_PATH} command -v {command}) || "
+              f"{{ echo '{command} is not in {name}' >&2; exit 3; }}; "
+              f"distrobox-export --bin \"$p\" --export-path \"$HOME/.local/bin\"")
+    if menu and command not in ENV_APPS:
+        # A terminal program (msfconsole) has no entry: distrobox's own error
+        # says only "a non-installed application", after the command was made.
+        script += (f" && {{ distrobox-export --app {command} >/dev/null 2>&1 || "
+                   f"{{ echo '{command} is available as a command, but {name} has no menu entry for it: "
+                   f"run it in a terminal' >&2; exit 4; }}; }}")
+    done = inside(name, script, run, capture_output=True, text=True, timeout=300)
+    if done.returncode != 0:
+        raise KitsError(software_error(done.stderr, f"{command} couldn't be made available"))
+    if menu and command in ENV_APPS:
+        path = app_entry_path(name, command)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(app_entry(name, command, ENV_APPS[command]))
+
+
+def start_database(name, run=run_program):
+    """Kali's Metasploit database: PostgreSQL started by hand (no init in a
+    container) and, the first time, msfdb init, both as the environment's
+    root (msfdb refuses the user; flickos-security.md phase 0 S2). It stops
+    with the environment."""
+    env = environment(name, run)
+    if "exploitation" not in env["extras"]:
+        raise KitsError(f"{name} has no Metasploit (make one with --extra exploitation)")
+    run_steps([["distrobox", "enter", name, "--", "sh", "-c",
+                "v=$(ls /etc/postgresql | sort -V | tail -n 1) && sudo pg_ctlcluster \"$v\" main start; "
+                "test -e /usr/share/metasploit-framework/config/database.yml || sudo msfdb init"]], run)
+
+
+def free_name(base, taken):
+    """base, or base-2, base-3… when an environment has it."""
+    name, number = base, 1
+    while name in taken:
+        number += 1
+        name = f"{base}-{number}"
+    return name
+
+
+# --- Newer versions (flickos-dev.md ADR-007 to ADR-009, 8a and 8b) -------------------------
+
+def plain_version(version):
+    """Debian's version without epoch and revision: 20.19.2 of 20.19.2+dfsg-1."""
+    version = version.split(":", 1)[-1]
+    if "-" in version:
+        version = version.rsplit("-", 1)[0]
+    return re.split(r"[+~]", version)[0]
+
+
+def package_versions(packages, run=run_program):
+    """{package: plain version} of the installed ones."""
+    if not packages:
+        return {}
+    try:
+        done = run(["dpkg-query", "-W", "-f", "${db:Status-Abbrev}\t${Package}\t${Version}\n", *packages],
+                   capture_output=True, text=True, timeout=COMMAND_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise KitsError(f"couldn't read what is installed: {error}") from None
+    found = {}
+    for line in done.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].startswith("ii"):
+            found[parts[1]] = plain_version(parts[2])
+    return found
+
+
+def mise_tools(run=run_program):
+    """{mise's name: (version, what was asked: "latest", "lts" or a version)} of
+    the account's own mise list (`mise ls --global`, offline: nothing is
+    fetched to read it). Raises KitsError."""
+    try:
+        done = run(["mise", "ls", "--global", "--json"], capture_output=True, text=True, timeout=COMMAND_SECONDS,
+                   stdin=subprocess.DEVNULL, env=dict(os.environ, MISE_OFFLINE="1"))
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise KitsError(f"mise can't say: {error}") from None
+    if done.returncode != 0:
+        raise KitsError(mise_error(done.stderr, done.returncode))
+    try:
+        data = json.loads(done.stdout or "{}")
+    except ValueError:
+        raise KitsError("mise printed a list that can't be read") from None
+    found = {}
+    for name, entries in (data.items() if isinstance(data, dict) else ()):
+        for entry in entries if isinstance(entries, list) else ():
+            if isinstance(entry, dict) and entry.get("version") and entry.get("installed", True):
+                found[name] = (str(entry["version"]), str(entry.get("requested_version") or ""))
+                break
+    return found
+
+
+def shims_folder():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local/share")
+    return os.path.join(base, "mise", "shims")
+
+
+def shims_on_path():
+    """flickos-session puts mise's shims on PATH at login (ADR-009): not yet
+    in a session that started before mise was installed."""
+    return shims_folder() in os.environ.get("PATH", "").split(os.pathsep)
+
+
+def tool_command(tool):
+    return TOOL_COMMANDS.get(tool[0], re.split(r"[:/]", tool[0])[-1])
+
+
+def comes_first(tool, which=shutil.which):
+    """The other copy that runs instead of the user's mise version on this
+    process's PATH (a shell startup file's nvm or ~/.local/bin, say), or None.
+    Only for a shim that exists: without one there is nothing to hide."""
+    command = tool_command(tool)
+    if not command:
+        return None
+    shim = os.path.join(shims_folder(), command)
+    if not os.path.exists(shim):
+        return None
+    found = which(command)
+    return found if found and os.path.abspath(found) != shim else None
+
+
+def tool_rows(installed_kits, which=shutil.which):
+    """USER_TOOLS of the installed kits (pipx's only with pipx or uv)."""
+    pipx = any(which(p) for p in PIPX_PROGRAMS)
+    return [t for t in USER_TOOLS if t[2] in installed_kits and (pipx or not t[0].startswith("pipx:"))]
+
+
+def shown_upstreams(installed_kits):
+    """The makers' repositories the installed kits offer."""
+    tool_kits = {t[2] for t in USER_TOOLS}
+    categories = {kit_of(k)[1] for k in installed_kits}
+    return [entry_id for entry_id, entry in UPSTREAMS.items()
+            if (entry[3] is None and installed_kits & tool_kits) or entry[3] in categories]
+
+
+def versions(installed_kits, run=run_program, which=shutil.which):
+    """What the Newer versions rows show: {"upstreams": {id: "on", "off" or
+    None (can't say)}, "packages": {package: version} of the makers' and
+    Debian's, "tools": [USER_TOOLS rows], "mine": mise_tools() or None
+    without mise, "error": mise's error or None, "on_path", "updated"}."""
+    upstreams = {entry_id: control_value(f"upstream.{entry_id}", run) for entry_id in shown_upstreams(installed_kits)}
+    tools = tool_rows(installed_kits, which) if "mise" in upstreams else []
+    packages = [UPSTREAMS[e][0] for e in upstreams] + [t[5] for t in tools if t[5]]
+    try:
+        found = package_versions(packages, run)
+    except KitsError:
+        found = {}
+    mine, error = None, None
+    if "mise" in upstreams and which("mise"):
+        try:
+            mine = mise_tools(run)
+        except KitsError as failure:
+            mine, error = {}, str(failure)
+    return {"upstreams": upstreams, "packages": found, "tools": tools, "mine": mine, "error": error,
+            "on_path": shims_on_path(), "updated": read_state("versions.json").get("updated")}
+
+
+def user_tool(name):
+    """A USER_TOOLS row by mise's name, its title or its last part (nuclei). Raises KitsError."""
+    wanted = name.lower()
+    for tool in USER_TOOLS:
+        if wanted in (tool[0].lower(), tool[1].lower(), tool[0].rsplit("/", 1)[-1].split(":")[-1].lower()):
+            return tool
+    raise KitsError(f"mise isn't offered for {name} (try: {', '.join(t[1] for t in USER_TOOLS)})")
+
+
+def mise_error(stderr, code):
+    """mise's last line, said as mise's."""
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    line = lines[-1] if lines else f"exit code {code}"
+    return line if line.startswith("mise") else f"mise: {line}"
+
+
+def run_mise(args, run=run_program):
+    """mise for this account, without questions; it downloads, so it may take a while."""
+    try:
+        done = run(["mise", *args], capture_output=True, text=True, timeout=MISE_SECONDS, stdin=subprocess.DEVNULL,
+                   env=dict(os.environ, MISE_YES="1"))
+    except FileNotFoundError:
+        raise KitsError("mise isn't installed: flickos-kits version maker mise on") from None
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise KitsError(f"mise: {error}") from None
+    if done.returncode != 0:
+        raise KitsError(mise_error(done.stderr, done.returncode))
+
+
+def mark_versions_updated(when=None):
+    write_state({"updated": int(time.time() if when is None else when)}, "versions.json")
+
+
+def use_tool(tool, version=None, run=run_program):
+    """Your own version of a tool through mise (ADR-009): the latest (a tool's
+    "latest", Node's "lts", which mise upgrade then follows), a version that
+    stays (Keep This Version), or "system": back to the computer's, which
+    takes mise's copy away (mise unuse)."""
+    if version == "system":
+        run_mise(["unuse", "--global", tool[0]], run)
+        return
+    if version not in (None, "latest") and not TOOL_VERSION.fullmatch(version):
+        raise KitsError(f"'{version}' isn't a version")
+    run_mise(["use", "--global", f"{tool[0]}@{tool[4] if version in (None, 'latest') else version}"], run)
+    mark_versions_updated()
+
+
+def update_tools(run=run_program):
+    """mise upgrade: the newest release of each tool that follows the latest."""
+    run_mise(["upgrade"], run)
+    mark_versions_updated()
+
+
+def plan_text(plan, category, kits, extras):
+    """What env new says before anything is installed (ADR-S03: the sizes and the source)."""
+    titles = ", ".join(_(kit_of(k)[2]) for k in kits)
+    lines = [_("Environment of {kits}: {count} packages, {download} to download, {disk} on disk.").format(
+        kits=titles, count=len(plan["packages"]), download=human_size(plan["download"]),
+        disk=human_size(plan["disk"])),
+        _("The environment itself (distrobox's tools inside it) takes about {size} more.").format(
+            size=human_size(ENV_BASE_SIZE)),
+        _(ENV_SOURCES[category]).format(image=plan["image"]),
+        _("It shares your home folder: it is for other software, not for keeping anything apart."),
+        _("Automatic updates don't reach it: update it from Tool Kits.")]
+    return "\n".join(lines)
+
+
+# --- Commands --------------------------------------------------------------------------
+
+def cmd_list(opts):
+    rows = [r for r in kit_rows() if opts.category in (None, r[1])]
+    if opts.json:
+        print(json.dumps([{"id": n, "package": PACKAGE.format(n), "category": c, "title": t, "summary": s,
+                           "installed": i} for n, c, t, s, i in rows]))
+        return 0
+    for name, _category, title, summary, installed in rows:
+        print("\t".join((name, "yes" if installed else "no", title, summary)))
+    return 0
+
+
+def cmd_plan(opts):
+    plan = get_plan(opts.kit, opts.remove)
+    print(json.dumps(plan))
+    return 0
+
+
+def cmd_change(opts):
+    code = 0
+    for name in opts.kits:
+        kit_of(name)
+    for name in opts.kits:
+        def show(event):
+            if event.get("event") == "failed" and event.get("message"):
+                warn(event["message"])
+        code = change(name, opts.command == "remove", show) or code
+    return code
+
+
+def cmd_setup_git(opts):
+    if opts.name is None and opts.email is None:
+        name, email = git_values()
+        print(f"{name}\t{email}")
+        return 0
+    current = git_values()
+    set_git(opts.name if opts.name is not None else current[0], opts.email if opts.email is not None else current[1])
+    return 0
+
+
+def cmd_setup_ssh(opts):
+    if opts.copy:
+        print(copy_public_key())
+        return 0
+    if public_key_path() is not None:
+        raise KitsError(f"there is a key already ({public_key_path()}); --copy copies its public half")
+    os.makedirs(ssh_folder(), mode=0o700, exist_ok=True)
+    # ssh-keygen asks for the passphrase itself: a passphrase in an argument shows in ps (CODE-7).
+    return subprocess.call(["ssh-keygen", "-t", SSH_KEY_TYPE, "-f", os.path.join(ssh_folder(), SSH_KEY_FILE)])
+
+
+def cmd_setup_rust(_opts):
+    if shutil.which("rustup") is None:
+        raise KitsError("rustup isn't installed")
+    return subprocess.call(["rustup", "default", "stable"])
+
+
+def cmd_setup_ports(opts):
+    if not opts.ports:
+        value = control_value("firewall.local-ports")
+        if value is None:
+            raise KitsError("the firewall (ufw) isn't installed")
+        print(value)
+        return 0
+    value = "off" if opts.ports == ["off"] else ports_value(" ".join(opts.ports))
+    run_control("firewall.local-ports", value)
+    return 0
+
+
+def cmd_setup_dhcp(opts):
+    if opts.value is None:
+        value = control_value("containers.dhcp")
+        if value is None:
+            raise KitsError("podman's DHCP helper (netavark) isn't installed")
+        print(value)
+        return 0
+    run_control("containers.dhcp", opts.value)
+    return 0
+
+
+def cmd_setup_capture(opts):
+    if opts.value is None:
+        value = control_value("packet-capture")
+        if value is None:
+            raise KitsError("Wireshark isn't installed")
+        print(value)
+        return 0
+    run_control("packet-capture", opts.value)
+    return 0
+
+
+def cmd_setup_test_adapter(opts):
+    if opts.adapter is None:
+        value = control_value("wireless.test-adapter")
+        if value is None:
+            raise KitsError("flickos-control can't say")
+        print(value)
+        return 0
+    value = "off" if opts.adapter == "off" else adapter_address(opts.adapter, wifi_adapters())
+    run_control("wireless.test-adapter", value)
+    return 0
+
+
+def tool_line(tool, mine, packages):
+    """version list's and doctor's words for one tool: whose version runs."""
+    computer = packages.get(tool[5]) if tool[5] else None
+    if tool[0] in mine:
+        version, asked = mine[tool[0]]
+        return "yours", f"{version} ({asked})" + (f", over the computer's {computer}" if computer else "")
+    return ("computer", computer) if computer else ("none", "")
+
+
+def cmd_version_list(opts):
+    installed = {r[0] for r in kit_rows() if r[4]}
+    state = versions(installed)
+    if opts.json:
+        print(json.dumps(state))
+        return 0
+    for entry_id, value in state["upstreams"].items():
+        print("\t".join(("maker", entry_id, value or "unknown", state["packages"].get(UPSTREAMS[entry_id][0], ""))))
+    for tool in state["tools"]:
+        whose, detail = tool_line(tool, state["mine"] or {}, state["packages"])
+        print("\t".join(("tool", tool[0], tool[2], whose, detail, tool[3])))
+    if state["error"]:
+        warn(state["error"])
+    return 0
+
+
+def cmd_version_maker(opts):
+    if opts.value is None:
+        value = control_value(f"upstream.{opts.id}")
+        if value is None:
+            raise KitsError("flickos-control can't say")
+        print(value)
+        return 0
+    run_control(f"upstream.{opts.id}", opts.value)
+    return 0
+
+
+def cmd_version_use(opts):
+    tool = user_tool(opts.tool)
+    use_tool(tool, opts.version)
+    if opts.version == "system":
+        print(f"{tool[1]}: the computer's version again.")
+    else:
+        print(f"{tool[1]}: your own version, from mise.")
+        if not shims_on_path():
+            print("Programs started from the menu and new terminals use it from your next login.")
+    return 0
+
+
+def cmd_version_update(_opts):
+    update_tools()
+    return 0
+
+
+def need_environments():
+    if not environments_available():
+        raise KitsError(f"environments need the Containers kit (about {human_size(CONTAINERS_SIZE)} with "
+                        "Developer Basics): flickos-kits install containers")
+
+
+def cmd_env_list(opts):
+    need_environments()
+    envs = environments()
+    if opts.json:
+        print(json.dumps(envs))
+        return 0
+    for env in envs:
+        print("\t".join((env["name"], env["category"], ",".join(env["kits"]), "running" if env["running"] else "stopped",
+                         time.strftime("%Y-%m-%d", time.localtime(env["updated"])))))
+    return 0
+
+
+def cmd_env_plan(opts):
+    need_environments()
+    category = env_category(opts.kit)
+    plan = env_plan(opts.kit, opts.whole, opts.extra or ())
+    if opts.json:
+        print(json.dumps(plan))
+    else:
+        print(plan_text(plan, category, opts.kit, opts.extra or ()))
+    return 0
+
+
+def cmd_env_new(opts):
+    need_environments()
+    name = check_env_name(opts.name)
+    if any(env["name"] == name for env in environments()):
+        raise KitsError(f"there is an environment named {name} already")
+    category = env_category(opts.kit)
+    extras = opts.extra or ()
+    print(_("Asking for today's sizes (this downloads the image and its package lists)…"), flush=True)
+    plan = env_plan(opts.kit, opts.whole, extras)
+    print(plan_text(plan, category, opts.kit, extras), flush=True)
+    if not opts.yes:
+        if not sys.stdin.isatty():
+            raise KitsError("give --yes to make it without asking")
+        if input(_("Make the environment {name}? [y/N] ").format(name=name)).strip().lower() not in ("y", "yes"):
+            print(_("Nothing was made."))
+            return 1
+    create_environment(name, opts.kit, opts.whole, extras, plan["packages"])
+    print(_("The environment {name} is ready. Open it from Tool Kits, or with: distrobox enter {name}").format(
+        name=name))
+    return 0
+
+
+def cmd_env_update(opts):
+    need_environments()
+    update_environment(opts.name)
+    return 0
+
+
+def cmd_env_stop(opts):
+    need_environments()
+    stop_environment(opts.name)
+    return 0
+
+
+def cmd_env_remove(opts):
+    need_environments()
+    environment(opts.name)
+    if not opts.yes:
+        if not sys.stdin.isatty():
+            raise KitsError("give --yes to remove it without asking")
+        answer = input(_("Remove the environment {name}, everything installed in it and its image when "
+                         "nothing else uses it? Your home folder stays. [y/N] ").format(name=opts.name))
+        if answer.strip().lower() not in ("y", "yes"):
+            return 1
+    remove_environment(opts.name)
+    return 0
+
+
+def cmd_env_terminal(opts):
+    need_environments()
+    environment(opts.name)
+    start_in_terminal(["distrobox", "enter", opts.name])
+    return 0
+
+
+def cmd_env_export(opts):
+    need_environments()
+    export_command(opts.name, opts.command, opts.menu)
+    return 0
+
+
+def cmd_env_database(opts):
+    need_environments()
+    start_database(opts.name)
+    return 0
+
+
+def cmd_doctor(_opts, which=shutil.which):
+    state = snapshot()
+    for name, _category, _title, _summary, installed in state["kits"]:
+        print("\t".join((f"kit {name}", "ok" if installed else "not installed", "")))
+    for step_id, value in state["steps"].items():
+        if step_id == "git":
+            name, email = value
+            print("\t".join(("git", "ok" if name and email else "missing", f"{name} <{email}>" if name else "")))
+        elif step_id == "ssh":
+            print("\t".join(("ssh", "ok" if value else "missing", value or "")))
+        elif step_id == "ports":
+            print("\t".join(("ports", "ok" if value != "off" else "none", "" if value == "off" else value)))
+        elif step_id == "dhcp":
+            print("\t".join(("dhcp", "ok" if value == "on" else "off", "")))
+        elif step_id == "capture":
+            setting, active = value
+            if setting == "on" and not active:
+                print("\t".join(("capture", "next login", f"until then: sg {WIRESHARK_GROUP} -c wireshark")))
+            else:
+                print("\t".join(("capture", "ok" if setting == "on" else "off", "")))
+        elif step_id == "test-adapter":
+            print(test_adapter_line(value["set"], value["adapters"], True))
+        else:
+            print("\t".join((step_id, "ok" if value else "missing", value)))
+    if "test-adapter" not in state["steps"]:
+        # A system setting stays when its kit goes (ADR-S08): say so.
+        value = control_value("wireless.test-adapter")
+        if value not in (None, "off"):
+            print(test_adapter_line(value, wifi_adapters(), False))
+    vers = state.get("versions") or {}
+    for entry_id, value in vers.get("upstreams", {}).items():
+        print("\t".join((f"maker {entry_id}", value or "unknown", vers["packages"].get(UPSTREAMS[entry_id][0], ""))))
+    mine = vers.get("mine") or {}
+    for tool in vers.get("tools", ()):
+        if tool[0] in mine:
+            print("\t".join((f"version {tool[1]}", *tool_line(tool, mine, vers["packages"]))))
+            other = comes_first(tool, which) if vers["on_path"] else None
+            if other:       # doctor runs in the terminal, with its shell's PATH
+                print("\t".join((f"version {tool[1]}", "not first",
+                                  f"{other} comes before yours on this PATH (a shell startup file?)")))
+    if mine and not vers["on_path"]:
+        print("\t".join(("version path", "next login", f"{shims_folder()} is on PATH from your next login")))
+    if vers.get("error"):
+        print("\t".join(("version mise", "error", vers["error"])))
+    return 0
+
+
+def test_adapter_line(address, adapters, kit):
+    """doctor's line for the test adapter: none, ok, absent, or without the wireless kit."""
+    if address == "off":
+        return "\t".join(("test-adapter", "none", ""))
+    if not kit:
+        return "\t".join(("test-adapter", "set without the wireless kit", address))
+    device = next((a["device"] for a in adapters if a["address"] == address), None)
+    if device is None:
+        return "\t".join(("test-adapter", "absent", address))
+    return "\t".join(("test-adapter", "ok", f"{address} {device}"))
+
+
+# --- The window ------------------------------------------------------------------------
+
+def window(select=None):
+    """Build and show the window. Returns 0 when it is closed. Anything that
+    runs a program does it in a thread, and the result comes back on the main
+    loop (PERF-2)."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import GLib
+        GLib.set_prgname(APP_ID)
+        from gi.repository import Gdk, Gtk, Pango
+    except (ImportError, ValueError) as error:
+        warn(f"can't open the window ({error}); python3-gi and gir1.2-gtk-3.0 are needed")
+        return 1
+    if not Gtk.init_check(sys.argv[:1])[0]:
+        warn("cannot open a window (no display)")
+        return 1
+
+    win = Gtk.Window(title=_(TITLE), icon_name=ICON)
+    win.set_default_size(760, 680)
+    win.connect("destroy", Gtk.main_quit)
+    busy = {"kit": None}            # the kit being changed, or None
+
+    def key_pressed(_window, event):
+        """Escape closes the window (A11Y-2) unless a change is running."""
+        if event.keyval == Gdk.KEY_Escape and busy["kit"] is None:
+            win.destroy()
+            return True
+        return False
+
+    win.connect("key-press-event", key_pressed)
+
+    def background(work, done):
+        """Runs work() in a thread; done(result, error) on the main loop. An
+        unexpected exception prints its traceback and reaches done too (CODE-6)."""
+        def target():
+            try:
+                result, error = work(), None
+            except KitsError as failure:
+                result, error = None, str(failure)
+            except Exception as failure:     # a bug: loud, and the window says so
+                traceback.print_exc()
+                result, error = None, f"{type(failure).__name__}: {failure}"
+            GLib.idle_add(lambda: done(result, error) and False)
+        threading.Thread(target=target, daemon=True).start()
+
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    outer.set_border_width(24)
+    win.add(outer)
+
+    # A warning bar for errors (WIN-10), with selectable text.
+    notice = Gtk.InfoBar(message_type=Gtk.MessageType.WARNING, show_close_button=True, revealed=False)
+    notice_label = Gtk.Label(selectable=True, wrap=True, xalign=0)
+    notice.get_content_area().add(notice_label)
+    notice.connect("response", lambda bar, _r: bar.set_revealed(False))
+    notice.set_no_show_all(True)        # an empty bar draws a line: show it only with a message
+
+    def show_notice(text, kind=Gtk.MessageType.WARNING):
+        notice.set_message_type(kind)
+        notice_label.set_text(text)
+        notice.show_all()
+        notice.set_revealed(True)
+
+    outer.pack_start(notice, False, False, 0)
+    if live_system():
+        show_notice(_("This is the live session: what you install here is gone when you restart."),
+                    Gtk.MessageType.INFO)
+
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    outer.pack_start(scroller, True, True, 0)
+    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+    scroller.add(content)
+
+    status = Gtk.Label(xalign=0, wrap=True, selectable=True)
+    status.get_style_context().add_class("dim-label")
+    progress = Gtk.ProgressBar(show_text=False)
+
+    def heading(text):
+        label = Gtk.Label(xalign=0)
+        label.set_markup("<b>{}</b>".format(GLib.markup_escape_text(text)))
+        return label
+
+    def framed(rows):
+        frame = Gtk.Frame()
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        for row in rows:
+            listbox.add(row)
+        frame.add(listbox)
+        return frame
+
+    def row_of(title, subtitle, control):
+        """A row (WIN-6): title and dimmed subtitle on the left, the control on the right."""
+        row = Gtk.ListBoxRow(activatable=False)
+        box = Gtk.Box(spacing=12)
+        box.set_border_width(10)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        name = Gtk.Label(xalign=0)
+        name.set_markup("<b>{}</b>".format(GLib.markup_escape_text(title)))
+        text.pack_start(name, False, False, 0)
+        sub = Gtk.Label(label=subtitle, xalign=0, wrap=True, max_width_chars=60)
+        sub.get_style_context().add_class("dim-label")
+        text.pack_start(sub, False, False, 0)
+        box.pack_start(text, True, True, 0)
+        control.set_valign(Gtk.Align.CENTER)
+        box.pack_end(control, False, False, 0)
+        row.add(box)
+        row.sub = sub
+        return row
+
+    switches = {}
+
+    # --- Installing and removing --------------------------------------------------------
+
+    def set_switch(name, state):
+        switch = switches[name]
+        switch.handler_block_by_func(toggled)
+        switch.set_active(state)
+        switch.set_state(state)
+        switch.handler_unblock_by_func(toggled)
+
+    def set_sensitive_all(sensitive):
+        for switch in switches.values():
+            switch.set_sensitive(sensitive)
+
+    def finish(name, message=None):
+        busy["kit"] = None
+        progress.hide()
+        status.set_text("")
+        set_sensitive_all(True)
+        if message:
+            show_notice(message)
+        shown["state"] = None       # whatever happened, build the page from what is installed now
+        refresh()
+
+    def ask(title_text, question, body, names, verb, destructive):
+        """The plan's dialog (WIN-13, WIN-14): Cancel and a verb. True to go on."""
+        status.set_text("")
+        dialog = Gtk.Dialog(title=title_text, transient_for=win, modal=True)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        go = dialog.add_button(verb, Gtk.ResponseType.ACCEPT)
+        go.get_style_context().add_class("destructive-action" if destructive else "suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.CANCEL if destructive else Gtk.ResponseType.ACCEPT)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(18)
+        asking = Gtk.Label(xalign=0, wrap=True, max_width_chars=56)
+        asking.set_markup("<b>{}</b>".format(GLib.markup_escape_text(question)))
+        box.pack_start(asking, False, False, 0)
+        words = Gtk.Label(label=body, xalign=0, wrap=True, max_width_chars=56, selectable=True)
+        box.pack_start(words, False, False, 0)
+        if names:
+            shown = names[:PLAN_LIST]
+            more = len(names) - len(shown)
+            text = ", ".join(shown) + (_(" and {count} more").format(count=more) if more else "")
+            listing = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=56, selectable=True)
+            listing.get_style_context().add_class("dim-label")
+            box.pack_start(listing, False, False, 0)
+        dialog.show_all()
+        answer = dialog.run()
+        dialog.destroy()
+        return answer == Gtk.ResponseType.ACCEPT
+
+    def toggled(switch, _param):
+        name = switch.kit
+        want = switch.get_active()
+        if busy["kit"] is not None:
+            return
+        busy["kit"] = name
+        set_sensitive_all(False)
+        title = next(_(k[2]) for k in KITS if k[0] == name)
+        status.set_text(_("Loading…"))
+        progress.hide()
+
+        def planned(plan, error):
+            if error:
+                set_switch(name, not want)
+                return finish(name, _("{kit} can't be changed: {error}").format(kit=title, error=error))
+            summary, names = plan_words(plan, not want)
+            if plan.get("protected"):
+                set_switch(name, not want)
+                return finish(name, _("{kit} can't be removed: {names} are part of the FlickOS desktop.").format(
+                    kit=title, names=", ".join(plan["protected"])))
+            if want:
+                go = ask(_("Install Tool Kit"), _("Install {kit}?").format(kit=title), summary,
+                         names, _("_Install"), False)
+            else:
+                go = ask(_("Remove Tool Kit"), _("Remove {kit}?").format(kit=title),
+                         summary + " " + _("Your own files and projects are not touched."), names,
+                         _("_Remove"), True)
+            if not go:
+                set_switch(name, not want)
+                return finish(name)
+            apply(name, want, title)
+
+        background(lambda: get_plan(name, not want), planned)
+
+    def apply(name, want, title):
+        status.set_text(_("Installing {kit}…").format(kit=title) if want else _("Removing {kit}…").format(kit=title))
+        progress.set_fraction(0)
+        progress.show()
+        problem = []
+
+        def on_event(event):
+            if event.get("event") == "progress" and event.get("percent") is not None:
+                GLib.idle_add(lambda p=event["percent"]: progress.set_fraction(max(0, min(100, p)) / 100) and False)
+            elif event.get("event") == "error":
+                problem.append(event.get("message", ""))
+            elif event.get("event") == "failed" and event.get("message"):
+                problem.append(event["message"])
+
+        def applied(code, error):
+            if error or code:
+                set_switch(name, not want)
+                what = _("{kit} couldn't be installed.") if want else _("{kit} couldn't be removed.")
+                text = what.format(kit=title)
+                detail = error or (problem[-1] if problem else "")
+                return finish(name, f"{text}\n{detail}" if detail else text)
+            finish(name)
+
+        background(lambda: change(name, not want, on_event), applied)
+
+    # --- The page -------------------------------------------------------------------------
+
+    shown = {"state": None}         # what the page was built from
+    # A folded list's state once the user opened or closed it, kept across rebuilds.
+    unfolded = {}
+
+    def refresh():
+        """Reads what is installed and set up, and builds the page again when it changed."""
+        def read(state, error):
+            if error:
+                return show_notice(_("Couldn't read which kits are installed: {error}").format(error=error))
+            if state != shown["state"]:
+                shown["state"] = state
+                build(state)
+        background(snapshot, read)
+
+    def build(state):
+        rows = state["kits"]
+        for child in content.get_children():
+            content.remove(child)
+        switches.clear()
+        for category, title in CATEGORIES:
+            in_category = [r for r in rows if r[1] == category]
+            rows_here = []
+            for name, kit_category, kit_title, summary, installed in rows:
+                if kit_category != category:
+                    continue
+                switch = Gtk.Switch()
+                switch.kit = name
+                switch.set_active(installed)
+                switch.get_accessible().set_name(kit_title)
+                switch.connect("notify::active", toggled)
+                switches[name] = switch
+                rows_here.append(row_of(kit_title, summary, switch))
+            if category not in FOLDED:
+                content.pack_start(heading(_(title)), False, False, 0)
+                content.pack_start(framed(rows_here), False, False, 0)
+                continue
+            # Folded until one of its kits is installed or the window opens on one;
+            # then as the user leaves it.
+            opened = unfolded.get(category, any(r[4] or r[0] == select for r in in_category))
+            expander = Gtk.Expander(expanded=opened)
+            expander.set_label_widget(heading(_(title)))
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            inner.set_margin_top(12)
+            note = Gtk.Label(label=_(PERMISSION), xalign=0, wrap=True, max_width_chars=70, selectable=True)
+            inner.pack_start(note, False, False, 0)
+            inner.pack_start(framed(rows_here), False, False, 0)
+            expander.add(inner)
+            expander.connect("notify::expanded", lambda e, _p, c=category: unfolded.__setitem__(c, e.get_expanded()))
+            content.pack_start(expander, False, False, 0)
+        steps = [s for s in STEPS if s[0] in state["steps"]]
+        if steps:
+            content.pack_start(heading(_("Set up")), False, False, 0)
+            content.pack_start(framed([step_row(s, state["steps"][s[0]]) for s in steps]), False, False, 0)
+        if state.get("versions") and state["versions"]["upstreams"]:
+            versions_section(state["versions"])
+        if any(r[4] for r in rows):
+            env_section(state["envs"])
+        content.show_all()
+        if select in switches:
+            switches[select].grab_focus()
+
+    def step_row(step, value):
+        step_id, title, idle, _program = step
+        button = Gtk.Button()
+        if step_id == "git":
+            name, email = value
+            if name and email:
+                subtitle = f"{name} <{email}>"
+            elif name or email:
+                subtitle = _("Git needs both a name and an email.")
+            else:
+                subtitle = _(idle)
+            button.set_label(_("Change…"))
+            button.connect("clicked", lambda _b: git_dialog())
+        elif step_id == "ssh":
+            path = value
+            subtitle = path or _(idle)
+            if path:
+                button.set_label(_("Copy Public Key"))
+                button.connect("clicked", lambda _b: copy_key(button))
+            else:
+                button.set_label(_("Make a Key…"))
+                button.connect("clicked", lambda _b: make_key())
+        elif step_id == "ports":
+            if value == "off":
+                subtitle = _(idle)
+            else:
+                subtitle = _("Open to devices on this network: {ports}").format(ports=value.replace(",", ", "))
+            button.set_label(_("Change…"))
+            button.connect("clicked", lambda _b: ports_dialog(value))
+        elif step_id == "dhcp":
+            subtitle = _(idle)
+            switch = Gtk.Switch()
+            switch.set_active(value == "on")
+            switch.get_accessible().set_name(_(title))
+            switch.connect("notify::active", lambda s, _p: system_step("containers.dhcp",
+                                                                       "on" if s.get_active() else "off"))
+            return row_of(_(title), subtitle, switch)
+        elif step_id == "capture":
+            setting, active = value
+            # A group is read at login: until then the change waits (ADR-S02).
+            subtitle = _("Applies when you log in again.") if (setting == "on") != active else _(idle)
+            switch = Gtk.Switch()
+            switch.set_active(setting == "on")
+            switch.get_accessible().set_name(_(title))
+            switch.connect("notify::active", lambda s, _p: system_step("packet-capture",
+                                                                       "on" if s.get_active() else "off"))
+            return row_of(_(title), subtitle, switch)
+        elif step_id == "test-adapter":
+            return adapter_row(title, idle, value)
+        else:                       # rust
+            toolchain = value
+            subtitle = toolchain or _(idle)
+            button.set_label(_("Install Rust…") if not toolchain else _("Update Rust…"))
+            button.connect("clicked", lambda _b: rust_step(bool(toolchain)))
+        button.get_accessible().set_name(_(title))
+        return row_of(_(title), subtitle, button)
+
+    def adapter_row(title, idle, value):
+        """The Wi-Fi adapters other than the one online, and None (ADR-S08)."""
+        chosen, adapters = value["set"], value["adapters"]
+        combo = Gtk.ComboBoxText()
+        combo.append("off", _("None"))
+        present = None
+        for adapter in adapters:
+            if adapter["address"] == chosen:
+                present = adapter
+            elif adapter["active"]:
+                continue
+            combo.append(adapter["address"], adapter["label"])
+        if chosen != "off" and present is None:
+            combo.append(chosen, _("{address} (not plugged in)").format(address=chosen))
+        combo.set_active_id(chosen)
+        combo.set_sensitive(len(combo.get_model()) > 1)
+        for cell in combo.get_cells():      # a long model name mustn't squeeze the row's sentence
+            cell.set_property("ellipsize", Pango.EllipsizeMode.END)
+            cell.set_property("max-width-chars", 30)
+        if present is not None:
+            # Two lines: beside the drop-down a one-line sentence wraps in the middle of the command.
+            subtitle = (_("FlickOS won't connect to networks with it.") + "\n"
+                        + _("Monitor mode: sudo airmon-ng start {device} (never with check kill)").format(
+                            device=present["device"]))
+        elif chosen != "off":
+            subtitle = _("It isn't plugged in. FlickOS leaves it alone when it is.")
+        elif len(combo.get_model()) > 1:
+            subtitle = _(idle)
+        else:
+            subtitle = _("Plug in a second Wi-Fi adapter that can do monitor mode.")
+        combo.get_accessible().set_name(_(title))
+        combo.connect("changed", lambda c: c.get_active_id() not in (None, chosen)
+                      and system_step("wireless.test-adapter", c.get_active_id()))
+        return row_of(_(title), subtitle, combo)
+
+    # --- Newer versions (flickos-dev.md ADR-007 to ADR-009) -------------------------------
+
+    def versions_section(vers):
+        content.pack_start(heading(_("Newer versions")), False, False, 0)
+        rows = [upstream_row(entry_id, value, vers) for entry_id, value in vers["upstreams"].items()
+                if not (entry_id == "mise" and value == "on")]
+        if vers["upstreams"].get("mise") == "on":
+            rows += [tool_row(tool, vers) for tool in vers["tools"]]
+            rows.append(mise_row(vers))
+        if vers["error"]:
+            show_notice(_("mise can't say which versions are yours: {error}").format(error=vers["error"]))
+        content.pack_start(framed(rows), False, False, 0)
+
+    def upstream_name(entry_id):
+        return "mise" if entry_id == "mise" else _(UPSTREAMS[entry_id][1])
+
+    def upstream_row(entry_id, value, vers):
+        package, title, about, _category, _download, _size = UPSTREAMS[entry_id]
+        button = Gtk.Button(label=_("Install…"))
+        if value == "on":
+            subtitle = _("Version {version}, from Rapid7. Automatic updates keep it current. "
+                         "Set up its database with msfdb init.").format(
+                version=vers["packages"].get(package, "?"))
+            button.set_label(_("Remove…"))
+            button.connect("clicked", lambda _b: upstream_change(entry_id, False))
+        else:
+            subtitle = _(about)
+            if value is None:
+                subtitle = _("Settings (flickos-control) can't say whether it is installed.")
+                button.set_sensitive(False)
+            button.connect("clicked", lambda _b: upstream_change(entry_id, True))
+        button.get_accessible().set_name(_(title))
+        return row_of(_(title), subtitle, button)
+
+    def tool_row(tool, vers):
+        name, title, _kit, check, spec, debian = tool
+        mine = (vers["mine"] or {}).get(name)
+        computer = vers["packages"].get(debian) if debian else None
+        has = _("The computer has {version} from Debian.").format(version=computer) if computer else ""
+        if mine:
+            version, asked = mine
+            follows = {"latest": _("It follows the newest release."),
+                       "lts": _("It follows the newest long-term release.")}.get(asked, _("It stays at this version."))
+            words = [_("Yours: {version}, from mise.").format(version=version), follows, has]
+        else:
+            words = [has or _("Not on this computer.")]
+        subtitle = " ".join(w for w in words if w) + "\n" + _(CHECKS[check])
+        box = Gtk.Box(spacing=6)
+        if not mine:
+            button = Gtk.Button(label=_("Use the Latest"))
+            button.connect("clicked", lambda _b: mise_work(lambda: use_tool(tool),
+                                                           _("Installing {tool} for you…").format(tool=title),
+                                                           _("{tool} is yours now.").format(tool=title)))
+            button.get_accessible().set_name(_("Use the latest {tool}").format(tool=title))
+            box.pack_start(button, False, False, 0)
+            return row_of(title, subtitle, box)
+        version, asked = mine
+        if asked in ("latest", "lts"):
+            button = Gtk.Button(label=_("Keep This Version"))
+            button.connect("clicked", lambda _b: mise_work(lambda: use_tool(tool, version), "",
+                                                           _("{tool} stays at {version}.").format(tool=title,
+                                                                                                 version=version)))
+        else:
+            button = Gtk.Button(label=_("Follow the Latest"))
+            button.connect("clicked", lambda _b: mise_work(lambda: use_tool(tool),
+                                                           _("Installing {tool} for you…").format(tool=title),
+                                                           _("{tool} follows the newest release.").format(
+                                                               tool=title)))
+        box.pack_start(button, False, False, 0)
+        menu = Gtk.Menu()
+        back = Gtk.MenuItem(label=_("Back to the Computer's Version") if computer else _("Remove Your Version"))
+        back.connect("activate", lambda _i: mise_work(lambda: use_tool(tool, "system"), "",
+                                                      _("{tool}: the computer's version again.").format(tool=title)
+                                                      if computer else _("{tool} was removed.").format(tool=title)))
+        menu.append(back)
+        menu.show_all()
+        more = Gtk.MenuButton(popup=menu)
+        more.add(Gtk.Image.new_from_icon_name("view-more-symbolic", Gtk.IconSize.BUTTON))
+        more.set_tooltip_text(_("More"))
+        more.get_accessible().set_name(_("More for {tool}").format(tool=title))
+        box.pack_start(more, False, False, 0)
+        return row_of(title, subtitle, box)
+
+    def mise_row(vers):
+        words = []
+        if vers["packages"].get("mise"):
+            words.append(_("mise {version}.").format(version=vers["packages"]["mise"]))
+        if vers["updated"]:
+            words.append(_("Your versions were last updated {date}.").format(
+                date=GLib.DateTime.new_from_unix_local(int(vers["updated"])).format("%x")))
+        words.append(_("They get no restore points, History or automatic updates: update them here."))
+        if vers["mine"] and not vers["on_path"]:
+            words.append(_("Programs use them from your next login."))
+        box = Gtk.Box(spacing=6)
+        update = Gtk.Button(label=_("Update All"))
+        update.set_sensitive(bool(vers["mine"]))
+        update.connect("clicked", lambda _b: mise_work(update_tools, _("Updating your versions…"),
+                                                       _("Your versions are up to date.")))
+        box.pack_start(update, False, False, 0)
+        menu = Gtk.Menu()
+        remove = Gtk.MenuItem(label=_("Remove mise…"))
+        remove.connect("activate", lambda _i: upstream_change("mise", False))
+        menu.append(remove)
+        menu.show_all()
+        more = Gtk.MenuButton(popup=menu)
+        more.add(Gtk.Image.new_from_icon_name("view-more-symbolic", Gtk.IconSize.BUTTON))
+        more.set_tooltip_text(_("More"))
+        more.get_accessible().set_name(_("More for mise"))
+        box.pack_start(more, False, False, 0)
+        return row_of(_("Your versions (mise)"), " ".join(words), box)
+
+    def mise_work(work, busy_words, done_words):
+        """mise as the user, in a thread: no password, a download."""
+        status.set_text(busy_words)
+        env_background(work, done_words)
+
+    def upstream_change(entry_id, want):
+        """A maker's repository: its sizes and what it may do first (ADR-008), then
+        flickos-control asks for the password and installs or removes it."""
+        _package, _title, about, _category, download, size = UPSTREAMS[entry_id]
+        name = upstream_name(entry_id)
+        mine = [t for t in USER_TOOLS if t[0] in (shown["state"]["versions"]["mine"] or {})] \
+            if entry_id == "mise" else []
+        if want:
+            body = " ".join((_(about), _("About {download} is downloaded, and it takes {size}.").format(
+                download=human_size(download), size=human_size(size)), _(UPSTREAM_TRUST)))
+            if not ask(_("Add a Maker's Repository"), _("Install {name}?").format(name=name), body, [],
+                       _("_Install"), False):
+                return
+            status.set_text(_("Installing {name}. The password comes first, then the download, which takes a "
+                              "while.").format(name=name))
+        else:
+            body = _("It goes with its repository. Your own files are not touched.")
+            if mine:
+                body += " " + _("The tools you installed with it go back to the computer's versions first.")
+            if not ask(_("Remove"), _("Remove {name}?").format(name=name), body, [t[1] for t in mine],
+                       _("_Remove"), True):
+                return
+            status.set_text(_("Removing {name}…").format(name=name))
+
+        def work():
+            for tool in mine:
+                use_tool(tool, "system")
+            run_control(f"upstream.{entry_id}", "on" if want else "off")
+
+        env_background(work, _("{name} is installed.").format(name=name) if want
+                       else _("{name} was removed.").format(name=name))
+
+    # --- Environments (flickos-dev.md 8c, flickos-security.md ADR-S03) ---------------------
+
+    def env_section(envs):
+        content.pack_start(heading(_("Environments")), False, False, 0)
+        about = Gtk.Label(label=_("Newer or other software in a container that shares your home folder: "
+                                  "for other software, not for keeping anything apart."),
+                          xalign=0, wrap=True, max_width_chars=70)
+        about.get_style_context().add_class("dim-label")
+        content.pack_start(about, False, False, 0)
+        if envs is None:
+            button = Gtk.Button(label=_("Install Containers Kit…"))
+            button.connect("clicked", lambda _b: switches["containers"].set_active(True)
+                           if "containers" in switches else None)
+            content.pack_start(framed([row_of(_("Environments need the Containers kit"),
+                                              _("Podman and Distrobox, about {size} with Developer Basics.").format(
+                                                  size=human_size(CONTAINERS_SIZE)), button)]), False, False, 0)
+            return
+        if isinstance(envs, str):
+            show_notice(_("Couldn't list the environments: {error}").format(error=envs))
+            envs = []
+        rows = [env_row(env) for env in envs]
+        new = Gtk.Button(label=_("New Environment…"))
+        new.connect("clicked", lambda _b: new_env_dialog())
+        if rows:
+            content.pack_start(framed(rows), False, False, 0)
+        line = Gtk.Box()
+        line.pack_end(new, False, False, 0)
+        content.pack_start(line, False, False, 0)
+
+    def env_row(env):
+        name = env["name"]
+        kind = _("Kali Linux") if env["category"] == "security" else _("Debian testing")
+        titles = ", ".join(_(k[2]) for k in KITS if k[0] in env["kits"])
+        when = GLib.DateTime.new_from_unix_local(int(env["updated"])).format("%x") if env["updated"] else ""
+        subtitle = " · ".join(part for part in (
+            kind, titles, _("Running") if env["running"] else _("Stopped"),
+            _("Updated {date}").format(date=when) if when else "") if part)
+        subtitle += "\n" + _("Automatic updates don't reach it.")
+        box = Gtk.Box(spacing=6)
+        terminal = Gtk.Button(label=_("Open Terminal"))
+        terminal.get_accessible().set_name(_("Open a terminal in {name}").format(name=name))
+        terminal.connect("clicked", lambda _b: env_terminal(name))
+        box.pack_start(terminal, False, False, 0)
+        menu = Gtk.Menu()
+        items = [(_("Update…"), lambda: env_in_terminal(["env", "update", name], _("{name} updates in the "
+                                                                                   "terminal.").format(name=name)))]
+        if env["running"]:
+            items.append((_("Stop"), lambda: env_background(lambda: stop_environment(name))))
+        items.append((_("Make a Command Available…"), lambda: export_dialog(name)))
+        if "exploitation" in env["extras"]:
+            items.append((_("Start Database"), lambda: env_in_terminal(["env", "database", name],
+                                                                       _("The database starts in the terminal."))))
+        items.append((None, None))
+        items.append((_("Remove…"), lambda: remove_env(name)))
+        for label, action in items:
+            item = Gtk.SeparatorMenuItem() if label is None else Gtk.MenuItem(label=label)
+            if action is not None:
+                item.connect("activate", lambda _i, a=action: a())
+            menu.append(item)
+        menu.show_all()
+        more = Gtk.MenuButton(popup=menu)
+        more.add(Gtk.Image.new_from_icon_name("view-more-symbolic", Gtk.IconSize.BUTTON))
+        more.set_tooltip_text(_("More"))
+        more.get_accessible().set_name(_("More for {name}").format(name=name))
+        box.pack_start(more, False, False, 0)
+        return row_of(name, subtitle, box)
+
+    def env_terminal(name):
+        try:
+            start_in_terminal(["distrobox", "enter", name])
+        except KitsError as error:
+            return show_notice(str(error))
+        status.set_text(_("{name} opens in the terminal (its first start takes a while).").format(name=name))
+
+    def env_in_terminal(args, words):
+        try:
+            start_in_terminal([NAME, *args])
+        except KitsError as error:
+            return show_notice(str(error))
+        status.set_text(words)
+
+    def env_background(work, done_words=None):
+        def done(_result, error):
+            if error:
+                show_notice(error)
+            elif done_words:
+                status.set_text(done_words)
+            shown["state"] = None
+            refresh()
+        background(work, done)
+
+    def remove_env(name):
+        if not ask(_("Remove Environment"), _("Remove {name}?").format(name=name),
+                   _("Everything installed in it goes, with the commands and menu entries it made available, "
+                     "and its downloaded image when nothing else uses it. Your home folder stays."),
+                   [], _("_Remove"), True):
+            return
+        status.set_text(_("Removing {name}…").format(name=name))
+        env_background(lambda: remove_environment(name), _("{name} was removed.").format(name=name))
+
+    def export_dialog(name):
+        dialog = Gtk.Dialog(title=_("Make a Command Available"), transient_for=win, modal=True)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        go = dialog.add_button(_("_Make Available"), Gtk.ResponseType.ACCEPT)
+        go.get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(18)
+        line = Gtk.Box(spacing=6)
+        label = Gtk.Label.new_with_mnemonic(_("_Command"))
+        entry = Gtk.Entry(activates_default=True, width_chars=24, placeholder_text="burpsuite")
+        label.set_mnemonic_widget(entry)
+        line.pack_start(label, False, False, 0)
+        line.pack_start(entry, True, True, 0)
+        box.pack_start(line, False, False, 0)
+        menu = Gtk.CheckButton.new_with_mnemonic(_("Also add it to the _menu"))
+        box.pack_start(menu, False, False, 0)
+        hint = Gtk.Label(label=_("You can then run it like any command, and it runs in {name}.").format(name=name),
+                         xalign=0, wrap=True, max_width_chars=48)
+        hint.get_style_context().add_class("dim-label")
+        box.pack_start(hint, False, False, 0)
+        entry.connect("changed", lambda e: go.set_sensitive(bool(e.get_text().strip())))
+        go.set_sensitive(False)
+        dialog.show_all()
+        answer = dialog.run()
+        command, with_menu = entry.get_text().strip(), menu.get_active()
+        dialog.destroy()
+        if answer == Gtk.ResponseType.ACCEPT:
+            status.set_text(_("Starting {name}…").format(name=name))
+            env_background(lambda: export_command(name, command, with_menu),
+                           _("{command} is available.").format(command=command))
+
+    def new_env_dialog():
+        installed = {r[0] for r in shown["state"]["kits"] if r[4]}
+        taken = {e["name"] for e in shown["state"]["envs"] or [] if isinstance(e, dict)}
+        dialog = Gtk.Dialog(title=_("New Environment"), transient_for=win, modal=True)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        go = dialog.add_button(_("_Make…"), Gtk.ResponseType.ACCEPT)
+        go.get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(18)
+        security_first = any(kit_of(k)[1] == "security" for k in installed)
+        line = Gtk.Box(spacing=6)
+        label = Gtk.Label.new_with_mnemonic(_("_Name"))
+        entry = Gtk.Entry(text=free_name("kali" if security_first else "testing", taken), activates_default=True,
+                          width_chars=24)
+        label.set_mnemonic_widget(entry)
+        line.pack_start(label, False, False, 0)
+        line.pack_start(entry, True, True, 0)
+        box.pack_start(line, False, False, 0)
+        kinds = {}
+        first = None
+        for category, words in (("security", _("Security work: Kali Linux")),
+                                ("development", _("Development: Debian testing"))):
+            radio = Gtk.RadioButton.new_with_label_from_widget(first, words)
+            first = first or radio
+            kinds[category] = radio
+            box.pack_start(radio, False, False, 0)
+        kits_label = Gtk.Label(xalign=0)
+        kits_label.set_markup("<b>{}</b>".format(GLib.markup_escape_text(_("Kits"))))
+        box.pack_start(kits_label, False, False, 0)
+        kits_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.pack_start(kits_box, False, False, 0)
+        whole = Gtk.CheckButton.new_with_mnemonic(_("Add Kali's _whole list for these kits"))
+        extras = {key: Gtk.CheckButton(label=_(value[1])) for key, value in ENV_EXTRAS.items()}
+        for widget in (whole, *extras.values()):
+            box.pack_start(widget, False, False, 0)
+        source = Gtk.Label(xalign=0, wrap=True, max_width_chars=56)
+        source.get_style_context().add_class("dim-label")
+        box.pack_start(source, False, False, 0)
+        hint = Gtk.Label(xalign=0, wrap=True, max_width_chars=56)
+        box.pack_start(hint, False, False, 0)
+        checks = {}
+
+        def category():
+            return next(c for c, radio in kinds.items() if radio.get_active())
+
+        def fill(_widget=None):
+            for child in kits_box.get_children():
+                kits_box.remove(child)
+            checks.clear()
+            for kit in KITS:
+                if kit[1] == category() and kit[0] not in NO_ENV:
+                    check = Gtk.CheckButton(label=_(kit[2]))
+                    check.set_active(kit[0] in installed)
+                    check.connect("toggled", validate)
+                    checks[kit[0]] = check
+                    kits_box.pack_start(check, False, False, 0)
+            for widget in (whole, *extras.values()):
+                widget.set_visible(category() == "security")
+            source.set_text(_(ENV_SOURCES[category()]).format(image=ENV_IMAGES[category()]))
+            kits_box.show_all()
+            validate()
+
+        def validate(_widget=None):
+            name = entry.get_text().strip()
+            problem = None
+            if not ENV_NAME.fullmatch(name):
+                problem = _("A name has lowercase letters, digits, - and _.")
+            elif name in taken:
+                problem = _("There is an environment named {name} already.").format(name=name)
+            elif not any(c.get_active() for c in checks.values()):
+                problem = _("Choose at least one kit.")
+            go.set_sensitive(problem is None)
+            hint.set_text(problem or _("A terminal shows the sizes and asks before anything is installed."))
+
+        kinds["security" if security_first else "development"].set_active(True)
+        for radio in kinds.values():
+            radio.connect("toggled", fill)
+        entry.connect("changed", validate)
+        dialog.show_all()
+        fill()
+        answer = dialog.run()
+        args = ["env", "new", entry.get_text().strip()]
+        for kit, check in checks.items():
+            if check.get_active():
+                args += ["--kit", kit]
+        if category() == "security":
+            args += ["--whole"] if whole.get_active() else []
+            for key, check in extras.items():
+                args += ["--extra", key] if check.get_active() else []
+        dialog.destroy()
+        if answer == Gtk.ResponseType.ACCEPT:
+            env_in_terminal(args, _("The terminal shows the sizes and asks first. Come back here when it is done."))
+
+    def git_dialog():
+        name, email = shown["state"]["steps"].get("git", ("", ""))
+        dialog = Gtk.Dialog(title=_("Git Name and Email"), transient_for=win, modal=True)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        save = dialog.add_button(_("_Save"), Gtk.ResponseType.ACCEPT)
+        save.get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(18)
+        entries = []
+        for label_text, value in ((_("_Name"), name), (_("_Email"), email)):
+            line = Gtk.Box(spacing=6)
+            label = Gtk.Label.new_with_mnemonic(label_text)
+            label.set_width_chars(8)
+            label.set_xalign(0)
+            entry = Gtk.Entry(text=value, activates_default=True, width_chars=34)
+            label.set_mnemonic_widget(entry)
+            line.pack_start(label, False, False, 0)
+            line.pack_start(entry, True, True, 0)
+            box.pack_start(line, False, False, 0)
+            entries.append(entry)
+        hint = Gtk.Label(xalign=0, wrap=True)
+        hint.get_style_context().add_class("dim-label")
+        box.pack_start(hint, False, False, 0)
+
+        def check(_entry=None):
+            valid = all(e.get_text().strip() for e in entries)
+            save.set_sensitive(valid)
+            hint.set_text("" if valid else _("Both a name and an email are needed."))
+
+        for entry in entries:
+            entry.connect("changed", check)
+        check()
+        dialog.show_all()
+        answer = dialog.run()
+        values = [e.get_text().strip() for e in entries]
+        dialog.destroy()
+        if answer != Gtk.ResponseType.ACCEPT:
+            return
+        background(lambda: set_git(*values),
+                   lambda _r, error: show_notice(_("Git's name and email couldn't be saved: {error}").format(
+                       error=error)) if error else refresh())
+
+    def system_step(key, value):
+        """A step that changes the computer: flickos-control asks for the password. The
+        page is read again afterwards, so a refused change puts the control back."""
+        status.set_text(_("Waiting for the password…"))
+
+        def changed(_result, error):
+            status.set_text("")
+            if error:
+                show_notice(_("Not changed: {error}").format(error=error))
+            shown["state"] = None
+            refresh()
+
+        background(lambda: run_control(key, value), changed)
+
+    def ports_dialog(current):
+        dialog = Gtk.Dialog(title=_("Open Ports"), transient_for=win, modal=True)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        save = dialog.add_button(_("_Save"), Gtk.ResponseType.ACCEPT)
+        save.get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.ACCEPT)
+        box = dialog.get_content_area()
+        box.set_spacing(12)
+        box.set_border_width(18)
+        line = Gtk.Box(spacing=6)
+        label = Gtk.Label.new_with_mnemonic(_("_Ports"))
+        entry = Gtk.Entry(text="" if current == "off" else current.replace(",", ", "), activates_default=True,
+                          width_chars=34, placeholder_text="8000/tcp")
+        label.set_mnemonic_widget(entry)
+        line.pack_start(label, False, False, 0)
+        line.pack_start(entry, True, True, 0)
+        box.pack_start(line, False, False, 0)
+        hint = Gtk.Label(xalign=0, wrap=True, max_width_chars=48)
+        hint.get_style_context().add_class("dim-label")
+        box.pack_start(hint, False, False, 0)
+        normal = _("Ports like 8000/tcp, separated by commas, from 1024 up. Leave it empty to close them "
+                   "again. Needs an administrator's password.")
+
+        def check(_entry=None):
+            try:
+                ports_value(entry.get_text())
+            except KitsError as error:
+                save.set_sensitive(False)
+                hint.set_text(str(error))
+            else:
+                save.set_sensitive(True)
+                hint.set_text(normal)
+
+        entry.connect("changed", check)
+        check()
+        dialog.show_all()
+        answer = dialog.run()
+        text = entry.get_text()
+        dialog.destroy()
+        if answer == Gtk.ResponseType.ACCEPT:
+            system_step("firewall.local-ports", ports_value(text))
+
+    def copy_key(button):
+        def copied(path, error):
+            if error:
+                return show_notice(error)
+            status.set_text(_("The public key is copied. Paste it where the code host asks for one."))
+        background(copy_public_key, copied)
+
+    def make_key():
+        try:
+            os.makedirs(ssh_folder(), mode=0o700, exist_ok=True)
+            start_in_terminal(["ssh-keygen", "-t", SSH_KEY_TYPE, "-f", os.path.join(ssh_folder(), SSH_KEY_FILE)])
+        except (KitsError, OSError) as error:
+            return show_notice(str(error))
+        status.set_text(_("Answer in the terminal, then come back here."))
+
+    def rust_step(update):
+        try:
+            start_in_terminal(["rustup", "update"] if update else ["rustup", "default", "stable"])
+        except KitsError as error:
+            return show_notice(str(error))
+        status.set_text(_("Rust downloads in the terminal."))
+
+    def focused(_window, _event):
+        """Back from a terminal: read the steps again."""
+        if busy["kit"] is None and switches:
+            refresh()
+        return False
+
+    win.connect("focus-in-event", focused)
+
+    footer = Gtk.Box(spacing=12)
+    footer.pack_start(status, True, True, 0)
+    close = Gtk.Button.new_with_mnemonic(_("_Close"))
+    close.connect("clicked", lambda _b: win.destroy())
+    footer.pack_end(close, False, False, 0)
+    outer.pack_start(progress, False, False, 0)
+    outer.pack_start(footer, False, False, 0)
+
+    win.show_all()
+    progress.hide()
+    refresh()
+    Gtk.main()
+    return 0
+
+
+def cmd_window(opts):
+    with single_instance() as first:
+        if not first:
+            print(_("Tool Kits is already open."))
+            return 0
+        return window(opts.kit)
+
+
+# --- Entry point -----------------------------------------------------------------------
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog=NAME, description="Install the kits for your kind of work and set them up.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    show = commands.add_parser("window", help="open the window")
+    show.add_argument("--kit", metavar="NAME", help="start on a kit's row")
+    show.set_defaults(func=cmd_window)
+    listing = commands.add_parser("list", help="print the kits: name, installed, title, summary")
+    listing.add_argument("--json", action="store_true", help="print JSON")
+    listing.add_argument("--category", choices=[c[0] for c in CATEGORIES])
+    listing.set_defaults(func=cmd_list)
+    plan = commands.add_parser("plan", help="print what installing or removing a kit changes, as JSON")
+    plan.add_argument("--remove", action="store_true")
+    plan.add_argument("kit", metavar="KIT", choices=kit_names())
+    plan.set_defaults(func=cmd_plan)
+    for verb in ("install", "remove"):
+        sub = commands.add_parser(verb, help=f"{verb} kits")
+        sub.add_argument("kits", metavar="KIT", nargs="+", choices=kit_names())
+        sub.set_defaults(func=cmd_change)
+    setup = commands.add_parser("setup", help="set up what an installed kit needs")
+    steps = setup.add_subparsers(dest="step", metavar="STEP", required=True)
+    git = steps.add_parser("git", help="print git's name and email, or set them")
+    git.add_argument("--name")
+    git.add_argument("--email")
+    git.set_defaults(func=cmd_setup_git)
+    ssh = steps.add_parser("ssh", help="make an SSH key, or copy its public half")
+    ssh.add_argument("--copy", action="store_true", help="copy the public key to the clipboard")
+    ssh.set_defaults(func=cmd_setup_ssh)
+    steps.add_parser("rust", help="install the stable Rust toolchain with rustup").set_defaults(func=cmd_setup_rust)
+    ports = steps.add_parser("ports", help="print or set the ports devices on the network may reach")
+    ports.add_argument("ports", metavar="PORT", nargs="*", help="8000/tcp, 5000:5010/udp, or off")
+    ports.set_defaults(func=cmd_setup_ports)
+    dhcp = steps.add_parser("dhcp", help="print or set whether podman's DHCP helper may run")
+    dhcp.add_argument("value", nargs="?", choices=("on", "off"))
+    dhcp.set_defaults(func=cmd_setup_dhcp)
+    capture = steps.add_parser("capture", help="print or set whether you may capture packets without root")
+    capture.add_argument("value", nargs="?", choices=("on", "off"))
+    capture.set_defaults(func=cmd_setup_capture)
+    adapter = steps.add_parser("test-adapter", help="print or choose the Wi-Fi adapter NetworkManager leaves alone")
+    adapter.add_argument("adapter", nargs="?", metavar="DEVICE|ADDRESS|off")
+    adapter.set_defaults(func=cmd_setup_test_adapter)
+    env = commands.add_parser("env", help="environments: newer or other software in a container")
+    envs = env.add_subparsers(dest="verb", metavar="VERB", required=True)
+    sub = envs.add_parser("list", help="the environments: name, kind, kits, running or stopped, last updated")
+    sub.add_argument("--json", action="store_true")
+    sub.set_defaults(func=cmd_env_list)
+    env_kits = [k[0] for k in KITS if k[1] in ENV_IMAGES and k[0] not in NO_ENV]
+    for verb, func in (("plan", cmd_env_plan), ("new", cmd_env_new)):
+        sub = envs.add_parser(verb, help="print the sizes of an environment of these kits" if verb == "plan"
+                              else "make an environment of these kits (shows the sizes and asks first)")
+        if verb == "new":
+            sub.add_argument("name", metavar="NAME")
+            sub.add_argument("--yes", action="store_true", help="don't ask")
+        sub.add_argument("--kit", action="append", required=True, choices=env_kits)
+        sub.add_argument("--whole", action="store_true", help="Kali's whole list for each security kit")
+        sub.add_argument("--extra", action="append", choices=list(ENV_EXTRAS))
+        if verb == "plan":
+            sub.add_argument("--json", action="store_true")
+        sub.set_defaults(func=func)
+    for verb, func, words in (("update", cmd_env_update, "update everything inside (apt full-upgrade)"),
+                              ("stop", cmd_env_stop, "stop it"),
+                              ("remove", cmd_env_remove, "remove it and what is installed in it"),
+                              ("terminal", cmd_env_terminal, "open a terminal in it"),
+                              ("database", cmd_env_database, "start Kali's Metasploit database in it")):
+        sub = envs.add_parser(verb, help=words)
+        sub.add_argument("name", metavar="NAME")
+        if verb == "remove":
+            sub.add_argument("--yes", action="store_true", help="don't ask")
+        sub.set_defaults(func=func)
+    sub = envs.add_parser("export", help="make a command of the environment yours (~/.local/bin)")
+    sub.add_argument("name", metavar="NAME")
+    sub.add_argument("command", metavar="COMMAND")
+    sub.add_argument("--menu", action="store_true", help="also add it to the menu")
+    sub.set_defaults(func=cmd_env_export)
+    version = commands.add_parser("version", help="newer versions: makers' repositories and your own (mise)")
+    verbs = version.add_subparsers(dest="verb", metavar="VERB", required=True)
+    sub = verbs.add_parser("list", help="what the installed kits offer: the makers' repositories, mise's tools")
+    sub.add_argument("--json", action="store_true")
+    sub.set_defaults(func=cmd_version_list)
+    sub = verbs.add_parser("maker", help="print, or add (on) or remove (off) a maker's repository and its program")
+    sub.add_argument("id", metavar="ID", choices=list(UPSTREAMS))
+    sub.add_argument("value", nargs="?", choices=("on", "off"))
+    sub.set_defaults(func=cmd_version_maker)
+    sub = verbs.add_parser("use", help="your own version of a tool through mise: latest (default), a version, "
+                                       "or system for the computer's again")
+    sub.add_argument("tool", metavar="TOOL")
+    sub.add_argument("version", nargs="?", metavar="VERSION|latest|system")
+    sub.set_defaults(func=cmd_version_use)
+    verbs.add_parser("update", help="mise upgrade: the newest release of the tools that follow the latest") \
+        .set_defaults(func=cmd_version_update)
+    commands.add_parser("doctor", help="print what is set up and what is missing").set_defaults(func=cmd_doctor)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # No command, or only window's options: window.
+    if not argv or argv[0].startswith("--") and argv[0] not in ("-h", "--help"):
+        argv.insert(0, "window")
+    opts = parser.parse_args(argv)
+    if opts.command is None:
+        opts.command = "window"
+    try:
+        return opts.func(opts)
+    except KitsError as error:
+        warn(str(error))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

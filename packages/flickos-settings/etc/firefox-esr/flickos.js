@@ -5,3 +5,9 @@
 // Vertical tabs (Settings > General > Browser layout).
 pref("sidebar.revamp", true);
 pref("sidebar.verticalTabs", true);
+
+// Web apps (Firefox's Taskbar Tabs, off by default on Linux): the button at
+// the right of the address bar keeps a site as a window of its own with a
+// start menu entry, and the same button in that window removes it.
+// flickos-switch's webapp commands and Software point to it.
+pref("browser.taskbarTabs.enabled", true);

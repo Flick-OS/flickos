@@ -1,0 +1,39 @@
+Source: flickos-kit-forensics
+Section: utils
+Priority: optional
+Maintainer: Jon <dvbondoy@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: flickos-kit-forensics
+Architecture: all
+Depends: sleuthkit,
+         autopsy,
+         binwalk,
+         foremost,
+         scalpel,
+         testdisk,
+         dc3dd,
+         ewf-tools,
+         hashdeep,
+         yara,
+         libimage-exiftool-perl,
+         steghide,
+         ${misc:Depends}
+Description: FlickOS security kit: forensics
+ The Sleuth Kit and Autopsy, binwalk, foremost, scalpel, TestDisk, dc3dd,
+ the EWF tools, hashdeep, YARA, ExifTool and steghide from Debian.
+ .
+ Autopsy is the older web version: it listens on this computer only, while
+ it runs. dc3dd and ewfacquire image disks from the command line. Guymager
+ isn't part of the kit, because the disk tools it brings start a service;
+ Software installs it on its own.
+ .
+ Use these tools only on computers and networks you own or have permission
+ to test.
+ .
+ A kit is installed from Software's Security Tools and removed there too.
+ Nothing it installs runs until it is used
+ (docs/design/flickos-security.md).

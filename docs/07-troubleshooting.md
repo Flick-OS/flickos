@@ -22,9 +22,9 @@ the key already exists in your `~/.gnupg`, re-export it instead:
 Recommends, so it's missing after `apt-get install --no-install-recommends`
 (as in CI).
 
-**`dpkg-checkbuilddeps: error: unmet build dependencies: meson … libgtk-layer-shell-dev …`** (while building `sfwbar`)
-The build host lacks `sfwbar`'s compilers and headers, the only FlickOS
-package with C code. Install the last group of the tool list in
+**`dpkg-checkbuilddeps: error: unmet build dependencies: meson … libgtk-layer-shell-dev …`** (while building `sfwbar`, or `libaml-dev …` while building `neatvnc`)
+The build host lacks the compilers and headers of `sfwbar` or `neatvnc`, the
+FlickOS packages with C code. Install the last group of the tool list in
 [02](02-building-and-testing.md), or `sudo apt install` exactly what the error
 names.
 
@@ -294,10 +294,44 @@ the desktop as before, then check in foot:
   --force greetd` switches back.
 - `cat /run/flickos-greetd/config.toml`: written by `greetd-config` before each
   start. Missing means the drop-in didn't run (`systemctl cat greetd` shows it).
-- The greeter's own errors (cage, gtkgreet) are in the journal too. For a
-  GPU/renderer error, try `WLR_RENDERER=pixman` in the `greeter` script.
+- The login screen's own messages (cage, `greeter-window`, gtkgreet) are in
+  `journalctl -b -t flickos-greeter` (flickos-greeter 2.0 on; before it they
+  went to tty7, where nobody saw them). For a GPU/renderer error, try
+  `WLR_RENDERER=pixman` in the `greeter` script.
 - Upgraded systems switch to the login screen only after a reboot.
 
+**Installed system: the old login screen (type the user name) instead of the new one**
+That is gtkgreet, the fallback the `greeter` script runs when FlickOS's login
+screen (`greeter-window`) ends without logging anyone in. Its reason is the
+last lines of `journalctl -b -t flickos-greeter` before gtkgreet's (a Python
+traceback, or a missing package: `python3-gi`, `python3-gi-cairo`,
+`gir1.2-gtk-3.0`). `sudo -u _greetd /usr/libexec/flickos/greeter-window --check`
+lists the users and sessions it would offer. Please report it: gtkgreet stays
+only until no one needs it.
+
+**Installed system: the login screen shows the Dark wallpaper, not the chosen picture**
+`journalctl -b -t flickos-greeter` says why: the file in `Background=` of
+`/etc/flickos/greeter` is gone, can't be read by `_greetd`, or isn't a PNG or
+JPEG. `sudo -u _greetd /usr/libexec/flickos/greeter-window --check` prints the
+background and box position it would use. Choose the picture again on
+*Settings → Login Screen*, or `flickos-control system login.background
+default` for the Dark wallpaper.
+
+**Installed system: "Your password has expired" at the login screen**
+greetd can't ask for a new password. Press Ctrl+Alt+F1 and log in on the text
+screen: it asks for the current password and a new one twice, then starts the
+desktop. The login screen takes the new password from then on.
+
+**Installed system: Shut Down at the login screen says a program is keeping the computer on**
+A program holds a block inhibitor, and the login screen may not override it.
+Log in and shut down from there, or see who holds it with
+`systemd-inhibit --list`.
+
+**Installed system: a restore point started by itself after updating the login screen**
+flickos-recovery counts a start as one that worked once the login screen is up.
+Before flickos-recovery 1.6 it knew only gtkgreet, so every start that ended at
+the new login screen looked failed; flickos-greeter 2.0 refuses to install next
+to it (`Breaks`), so apt brings the newer one along.
 **Installed system: logging in at the login screen returns to it**
 The session exited right away. Log in on tty1 (Ctrl+Alt+F1) to see
 `flickos-session`'s errors, or run `flickos-session` from a text console.
@@ -345,10 +379,21 @@ icons), and waybar's config must include `"tray"`. Check `pgrep -a nm-applet`.
 waybar 0.12 adds a second bar to a screen that is turned on while it runs and
 was off when waybar started or last reloaded (a laptop's own screen turned on
 next to an external one). Since flickos-layouts 1.54 the panel's supervisor
-watches the screens and reloads waybar once they have been still for 1.5 s,
-which leaves one bar per screen; `panel.log` says `the screens changed:
-reloading waybar`. With an older flickos-layouts, or if it happens anyway:
-`pkill -USR2 -x waybar` (waybar's own reload).
+watches the screens and, once they have been still for 1.5 s, starts waybar
+again (1.75; it reloaded it before), which leaves one bar per screen;
+`panel.log` says `the screens changed: restarting waybar`. If it happens
+anyway: `flickos-layout reload-panel`.
+
+**The clock's calendar is a small empty box**
+waybar 0.12 to 0.15 shows an empty calendar after its own reload
+(`SIGUSR2`) until the month changes: its month cache is never set, and the
+reloaded clock finds the old one's month in the memory it reuses. Scrolling
+the calendar to another month and back shows it again. Before
+flickos-layouts 1.75 FlickOS reloaded waybar when a screen was turned on or
+off (wdisplays, Settings' *Displays*) and when `watch`, `try` or `pinned`
+changed the panel; since 1.75 it starts waybar again
+instead, and since 1.80 that holds for the panel started at login too. Fix it now with `flickos-layout reload-panel`; never use
+`pkill -USR2 waybar`.
 
 **No panel at all (no bar, but the wallpaper and the menu are there)**
 The panel, notifications and the dock run under a supervisor
@@ -387,8 +432,9 @@ change. It takes effect at the next login
 ([09 – Your own labwc files](09-customizing.md#your-own-labwc-files)).
 
 **Something looks or acts wrong, and you have changed your own config**
-Log out and pick **flickos-session-plain** in the login screen's session list
-(on a text login, run `flickos-session-plain`). It is FlickOS without your own
+Log out and pick **FlickOS (Plain Session)** in the login screen's session menu
+(the button at its bottom left; on a text login, run `flickos-session-plain`).
+It is FlickOS without your own
 changes: labwc reads only FlickOS's files (`labwc -C` on
 `$XDG_RUNTIME_DIR/flickos/plain/labwc`), and flickos-layout leaves out your own
 styles, add-ons, `~/.config/waybar` and `~/.config/mako`. Nothing of yours is
@@ -438,6 +484,13 @@ theme chosen in *Settings → Appearance* (nwg-look) is kept. `flickos-layout do
 names it. Pick Arc or Arc-Dark in Appearance (or
 `gsettings set org.gnome.desktop.interface gtk-theme Arc-Dark`), then choose the
 style again. Already open GTK apps usually update live; restart one that doesn't.
+
+**Light style, but windows stay dark**
+GSettings says `Arc`, yet GTK apps draw dark: `~/.config/gtk-3.0/settings.ini`
+(or `gtk-4.0`'s) has `gtk-application-prefer-dark-theme=1`, which nwg-look
+writes. GTK on Wayland takes the theme's name from GSettings but that key from
+the file, and Arc's dark variant is Arc-Dark. FlickOS never edits the file;
+`flickos-layout doctor` names it. Delete the line and restart the apps.
 
 **Window title bars show labwc's icon instead of the app's**
 labwc takes window icons from `<theme><icon>` in rc.xml; unset, it looks for an
@@ -538,6 +591,35 @@ of flickos-desktop since 1.24). Check:
 swayidle only runs on installed systems (not in the live session). In a test
 VM, stop it with `pkill swayidle`.
 
+**A folder opens in Firefox instead of Thunar** (*Show in Folder*, Settings'
+folder buttons)
+`xdg-open` doesn't know labwc, so it asks the `file` program for a path's
+type. Without it the type is empty and `xdg-open` gives the path to the web
+browser. `xdg-mime query filetype ~` should print `inode/directory`; if it
+prints nothing, `sudo apt install file` (a Depends of flickos-desktop since
+1.35, so an update brings it).
+
+**Sound crackles or breaks up while the computer is busy**
+PipeWire's audio thread should have real-time priority. Check it while logged
+in:
+
+```sh
+for t in /proc/$(pgrep -nx pipewire-pulse)/task/*; do
+    grep -qx data-loop.0 $t/comm && chrt -p ${t##*/}
+done
+```
+
+The policy should be `SCHED_RR`. `SCHED_OTHER` means one of two things, and
+nothing logs an error for either:
+
+- `rtkit` isn't installed (a Depends of flickos-desktop since 1.37).
+- PipeWire went through the portal, which refuses every request on Debian 13
+  while PipeWire logs success. `journalctl --user -u xdg-desktop-portal` shows
+  `Realtime error: Could not get pidns`. flickos-settings' `realtime.conf`
+  turns that route off; see [09 – Customizing](09-customizing.md#sound-real-time-priority).
+  WirePlumber still takes it and logs this error, which does no harm: it
+  carries no sound.
+
 ## Window tiling (flick-tiler)
 
 ### How it works, in one paragraph
@@ -579,11 +661,14 @@ half-finished upgrade can still leave you with only one of them.
 
 ### Symptoms
 
-**Turning tiling on does nothing to the windows already open**
-By design: labwc applies window rules only when a window *opens*, so
-flick-tiler cannot capture windows that are already there. A notification says
-so. Press **Super+Shift+T** in each window you want tiled, or just open a new
-window. `flick-tiler status` shows how many windows it manages.
+**Turning tiling on leaves windows already open floating**
+Minimized and fullscreen windows are left as they are by design. For the
+others flick-tiler focuses each one and presses a key of its own with `wtype`
+(labwc applies window rules only when a window *opens*); a notification says
+how many stay floating. Check that `wtype` is installed (`command -v wtype`;
+without it every open window stays floating), and that clicking elsewhere
+while it runs didn't take the focus. Press **Super+Shift+T** in a window to
+tile it. `flick-tiler status` shows how many windows it manages.
 
 **New windows don't tile at all**
 Work down the chain:
@@ -609,8 +694,8 @@ tr '\0' '\n' < /proc/$(pgrep -x labwc)/environ | grep XDG_CONFIG_DIRS
 - No daemon at all: autostart didn't start it (`grep -n flick-tiler
   /usr/libexec/flickos/autostart`), or it stopped. Start one with
   `flick-tiler daemon &` and read its messages; they normally go to the
-  session's output (tty1 in the live session, `journalctl -b -u greetd` on an
-  installed system).
+  session's output (tty1 in the live session; tty7, where nobody sees them,
+  after the login screen, so start it by hand there).
 
 **The panel button is missing**
 - It appears a second or two after login, once waybar has run
@@ -792,7 +877,8 @@ from a script, replace its `CHECKS` and let it take screenshots for you.
 
 ### Limits that are not bugs
 
-- Windows open before tiling was turned on stay floating (Super+Shift+T).
+- Minimized and fullscreen windows open when tiling is turned on stay
+  floating (Super+Shift+T).
 - No gaps (see above).
 - One arrangement for all outputs, and none per desktop: in Traditional, which
   has 4 desktops, tiling arranges the windows of all of them together (labwc
@@ -824,6 +910,25 @@ flickos-shortcuts list                 # what it would show
 - A shortcut with a vague description (*Run …*, under *Other*) is a command
   `COMMANDS` doesn't know ([09](09-customizing.md#shortcut-sheet-hold-super)).
 
+## Lock screen (flickos-lock)
+
+What happened at the last locks: `$XDG_RUNTIME_DIR/flickos/lock/lock.log`
+(the guard and the lock screen write there; "swaylock takes over" means the
+lock screen failed and swaylock held the lock instead).
+
+- **A black screen that takes no keys** (the lock screen and its guard both
+  gone): labwc keeps the session locked. Switch to a text console
+  (Ctrl+Alt+F2), log in, and lock again from there with the session's
+  display: `WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/$(id -u)
+  flickos-lock lock` (or `swaylock`), then go back (Ctrl+Alt+F7) and unlock.
+  A new locker takes over a lock nobody holds.
+- **The old ring (swaylock) instead of the lock screen:** flickos-lock isn't
+  installed, or swaylock has a config of yours (`~/.config/swaylock/config`,
+  `~/.swaylock/config`, `/etc/swaylock/config`), which keeps swaylock on
+  purpose; or the log says why it took over.
+- **The screen stays dark when the lid opens:** some laptops don't wake on
+  the lid; press a key. Not the lock screen's doing (swaylock does the same).
+
 ## Settings window (flickos-control)
 
 A mouse, touchpad or keyboard setting doesn't apply:
@@ -849,6 +954,12 @@ flickos-layout doctor                                # user files that hide the 
   agent (mate-polkit, started by autostart) to ask for the password. Try
   `pkexec /usr/libexec/flickos/control-helper keyboard pc105 us "" ""` in a
   terminal to see its message.
+- *Use for the Whole System…* (Language & Region, or *Language* on Login
+  Screen) says "Failed to issue method call: Access denied" without asking
+  for a password: flickos-control before 1.76 used `localectl set-locale`,
+  which Debian's D-Bus policy refuses to everyone (the journal shows
+  `Rejected send message … member="SetLocale"`). Upgrade flickos-control;
+  1.76 writes `/etc/locale.conf` through its helper.
 
 Other pages:
 
@@ -866,14 +977,20 @@ Other pages:
 - **"Set the time automatically" is greyed out:** `timedatectl show -p
   CanNTP` is `no` without `systemd-timesyncd` (a Depends of flickos-desktop
   since 1.16).
-- **Login page missing:** it shows only on installed systems with
+- **Login Screen page missing:** it shows only on installed systems with
   flickos-greeter (group `autologin`), never with `boot=live`.
+- **Login Screen: *Choose Picture…* says the file can't be used:** it is
+  read as you (GdkPixbuf) and sent to the helper as a JPEG; a file GdkPixbuf
+  can't open, or one whose JPEG is over 10 MB, is refused before the
+  password is asked.
 
 ## Getting more information
 
 - **For a bug report:** *Settings → All Settings → About → Copy System Info*,
   or `flickos-control about` in a terminal, gives the FlickOS, Debian and
   Linux versions, the hardware and the versions of FlickOS's packages.
+  *Save Report…* (or `flickos-control report`) adds `flickos-layout doctor` and
+  the panel's and lock screen's logs, in one file to attach. Nothing is sent.
 - `man lb_config`, `man lb_build`, `man live-build`, `man live-boot`, `man live-config`
 - `man dh`, `man dh_install`, `man deb-control`, `man deb-changelog`, `man dch`
 - `man reprepro`

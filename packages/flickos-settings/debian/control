@@ -21,7 +21,14 @@ Depends: labwc,
          gsettings-desktop-schemas,
          dconf-gsettings-backend,
          arc-theme,
+         flickos-theme (>= 1.0~test1),
          numix-icon-theme-circle,
+# The system font (GSettings override, rc.xml, mako, fuzzel). 1.7 MB, not
+# fonts-inter's 21 MB of static files. fonts-dejavu-core stays for the terminal
+# and the boot splash (flickos-desktop, flickos-branding).
+         fonts-inter-variable,
+# The cursor of the GSettings override and labwc's environment.
+         flickos-cursor,
 # flickos-screenshot: the Print keys, Super+Shift+S and Super+Shift+R (bar
 # --video, since 1.1) run it. A Depends, not a Recommends like the other keys'
 # programs, because they worked before it existed: this keeps

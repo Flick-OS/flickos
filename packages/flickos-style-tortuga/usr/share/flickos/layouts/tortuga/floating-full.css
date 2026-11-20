@@ -1,0 +1,21 @@
+/* Tortuga's islands while a window fills the screen: one full panel, as in
+ * style.css, over floating.css. flick-tiler turns this file on and off. */
+
+window#waybar.tortuga {
+    background: alpha(@wm_bg, 0.85);
+}
+
+window#waybar.tortuga .modules-left,
+window#waybar.tortuga .modules-center,
+window#waybar.tortuga .modules-right {
+    margin: 0;
+    border-color: transparent;
+    border-radius: 0;
+    background: transparent;
+}
+
+/* The pointer pushed into the corner hits the strip, as in the other layouts. */
+window#waybar.tortuga #custom-desktop {
+    margin: 0;
+    border-radius: 0;
+}

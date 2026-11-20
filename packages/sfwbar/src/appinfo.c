@@ -3,6 +3,7 @@
 #include <gtk/gtk.h>
 #include <sys/stat.h>
 #include "appinfo.h"
+#include "util/file.h"
 
 static GHashTable *app_info_wm_class_map;
 static GHashTable *icon_map;
@@ -203,7 +204,14 @@ gchar *app_info_icon_get ( const gchar *app_id, gboolean symbolic_pref )
   else
   {
     icon_name = g_desktop_app_info_get_string(app, "Icon");
-    icon = app_info_icon_test(icon_name, symbolic_pref);
+    /* FlickOS: a desktop file's Icon= may be a file's full path (Firefox's
+     * web apps write one); return it, and scale_image_set() draws it as a
+     * file. The icon theme only knows names, so upstream fell back to the
+     * default icon. */
+    if(icon_name && *icon_name == '/' && file_test_read(icon_name))
+      icon = g_strdup(icon_name);
+    else
+      icon = app_info_icon_test(icon_name, symbolic_pref);
     g_free(icon_name);
   }
 

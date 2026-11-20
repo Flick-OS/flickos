@@ -1,3 +1,36 @@
+flickos-style-seven (1.4) trixie; urgency=medium
+
+  * Screenshots for Software: the style and layout with two windows, and
+    the start menu.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 13 Nov 2026 21:14:14 +0800
+
+flickos-style-seven (1.3) trixie; urgency=medium
+
+  * Release of 1.3~test2: window shadows.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:31:38 +0800
+
+flickos-style-seven (1.3~test2) trixie; urgency=medium
+
+  * Window shadows: the keys every window theme has must match, so this
+    style sets them too.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 06 Nov 2026 17:19:38 +0800
+
+flickos-style-seven (1.2) trixie; urgency=medium
+
+  * Homepage is github.com/Flick-OS/flickos.
+  * Seven's own layout (ricing ADR-013, amended): one see-through panel
+    at the bottom with a round glossy start button, large window icons
+    in glass boxes, the status, a two-line clock and a wider Show
+    Desktop strip. Software's Use sets the style and the layout
+    together.
+  * Homepage is flickos.org, and debian/copyright's Source the public
+    repository.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 16 Oct 2026 12:47:25 +0800
+
 flickos-style-seven (1.1) trixie; urgency=medium
 
   * Tests: Seven is listed after Dark and Light, not last (Aye3 may

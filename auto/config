@@ -1,11 +1,11 @@
 #!/bin/sh
 set -e
 
-# FLICKOS_NAME, FLICKOS_VERSION (lb config runs this from the repository root).
+# FLICKOS_NAME, FLICKOS_VERSION, FLICKOS_DEBIAN (lb config runs this from the repository root).
 . ./packages/flickos-branding/usr/lib/flickos-release
 
 lb config noauto \
-    --distribution           trixie \
+    --distribution           "${FLICKOS_DEBIAN}" \
     --architectures          amd64 \
     --archive-areas          "main contrib non-free non-free-firmware" \
     --mirror-bootstrap       "http://deb.debian.org/debian/" \

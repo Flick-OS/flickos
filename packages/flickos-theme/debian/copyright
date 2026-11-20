@@ -1,0 +1,37 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: flickos-theme
+Upstream-Contact: Jon <dvbondoy@gmail.com>
+Source: https://github.com/Flick-OS/flickos
+
+Files: *
+Copyright: 2026 Jon <dvbondoy@gmail.com>
+License: GPL-3+
+
+Files: src/*
+Copyright: 2013-2022 Sam Hewitt and the arc-theme authors (src/AUTHORS)
+Comment: arc-theme 20221218 (https://github.com/jnsh/arc-theme): the Sass of
+ its GTK 3 and GTK 4 themes and the PNG assets rendered from it, as in Debian's
+ arc-theme 20221218-1. FlickOS's changes to the Sass are marked "FlickOS:" in
+ the files and listed in debian/README.source.
+License: GPL-3
+
+Files: src/frame-dark.css src/frame-light.css
+Copyright: 2026 Jon <dvbondoy@gmail.com>
+License: GPL-3+
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".

@@ -1,3 +1,27 @@
+sfwbar (1.0~beta17+git20260910+flickos9) trixie; urgency=medium
+
+  * Right click: a taskbar group (group = popup) always runs the
+    taskbar's RightClick action, also for a pin without a window and a
+    group of several windows. WindowInfo() on such a button answers
+    "appid" (the group's app) and "pinned" (whether it is pinned). The
+    Footprint dock's Pin to Dock / Unpin from Dock menu uses them.
+
+ -- Jon <dvbondoy@gmail.com>  Tue, 17 Nov 2026 07:42:41 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos8) trixie; urgency=medium
+
+  * Phase 3a merged: an absolute Icon= loads as a file.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 18:25:47 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos8~test1) trixie; urgency=medium
+
+  * FlickOS patch: a desktop file's Icon= that is a full path is drawn
+    as that file, so Firefox's web apps show their own icons in the dock
+    and window list.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 04 Nov 2026 17:48:27 +0800
+
 sfwbar (1.0~beta17+git20260910+flickos7) trixie; urgency=medium
 
   * FlickOS patch: a full-length bar takes the length the compositor

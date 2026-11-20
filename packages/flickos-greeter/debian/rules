@@ -1,4 +1,25 @@
 #!/usr/bin/make -f
 
+# The tests import usr/libexec/flickos/greeter-window; no bytecode next to installed files.
+export PYTHONDONTWRITEBYTECODE = 1
+
+# Translations (docs/12-translating.md): every po/LANG.po in po/LINGUAS.
+LANGS := $(shell sed 's/\#.*//' po/LINGUAS)
+
 %:
 	dh $@
+
+# --check: a translation with a broken {placeholder} fails the build.
+override_dh_auto_build:
+	set -e; for lang in $(LANGS); do \
+		mkdir -p debian/locale/$$lang/LC_MESSAGES; \
+		msgfmt --check --output-file=debian/locale/$$lang/LC_MESSAGES/flickos-greeter.mo po/$$lang.po; \
+	done
+
+override_dh_install:
+	dh_install
+	if [ -d debian/locale ]; then cp -r debian/locale debian/flickos-greeter/usr/share/; fi
+
+# Skipped with DEB_BUILD_OPTIONS=nocheck.
+override_dh_auto_test:
+	python3 -m unittest discover -s tests -v

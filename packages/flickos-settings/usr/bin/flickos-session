@@ -5,7 +5,11 @@
 
 # FlickOS defaults in /etc/xdg/flickos and /usr/share/flickos take priority
 # over Debian's defaults. User config in ~/.config still wins.
-XDG_CONFIG_DIRS="/etc/xdg/flickos:${XDG_CONFIG_DIRS:-/etc/xdg}"
+# /etc/xdg/flickos-site (nothing of FlickOS's is installed there) is the site's:
+# a variant package or flickos-fleet puts defaults in it, over FlickOS's. It is
+# added even while it doesn't exist, so a session that started before the site
+# folder was made still finds the files later.
+XDG_CONFIG_DIRS="/etc/xdg/flickos-site:/etc/xdg/flickos:${XDG_CONFIG_DIRS:-/etc/xdg}"
 XDG_DATA_DIRS="/usr/share/flickos:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 
 # Live session only: flickos-installer adds a menu with "Install FlickOS".
@@ -31,6 +35,19 @@ if command -v flickos-layout >/dev/null && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
     fi
 fi
 export XDG_CONFIG_DIRS XDG_DATA_DIRS
+
+# Per-user versions of tools (mise, from Tool Kits; flickos-dev.md ADR-009):
+# its shims come before the system's programs, so a version the user chose
+# runs in terminals and in apps started from the menu. Only while mise is
+# installed (a shim runs mise; without it one would hide the system's
+# program); no line in ~/.bashrc, no `mise activate`. A shim runs nothing
+# until its tool is run, and a folder not made yet is harmless on PATH.
+MISE_SHIMS="${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims"
+if command -v mise >/dev/null; then
+    PATH="$MISE_SHIMS:${PATH:-/usr/local/bin:/usr/bin:/bin}"
+    export PATH
+fi
+unset MISE_SHIMS
 
 # Programs that exist only while a feature is on: flickos-phone keeps
 # flickos-phone-on there while the phone connection runs, and

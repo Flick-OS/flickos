@@ -1,0 +1,104 @@
+/* Eleven's panel: FlickOS's shared rules (the bar's see-through background
+ * included), then Open Sans, a faint line along the top edge, and square
+ * buttons with round corners that light up faintly under the pointer: the
+ * weather, the halo, window icons with a short line under each (a longer one
+ * in a light accent blue under the focused window), the status icons and the
+ * clock.
+ * Named colors only, so the layout follows any style. */
+@import url("../common/base.css");
+
+window#waybar.eleven {
+    box-shadow: inset 0 1px alpha(@fg_color, 0.1);
+}
+
+window#waybar.eleven * {
+    font-family: "Open Sans", sans-serif;
+}
+
+/* The halo alone, larger. It keeps the brand amber under the pointer, where
+ * base.css would turn it to the accent: the button lights up instead. */
+window#waybar.eleven #custom-launcher {
+    min-width: 40px;
+    margin: 4px 2px;
+    padding: 0;
+    border-radius: 4px;
+    background-size: 24px 24px;
+}
+
+window#waybar.eleven #custom-launcher:hover {
+    color: @fg_color;
+    -gtk-icon-palette: warning @brand_color;
+    background-color: alpha(@fg_color, 0.08);
+}
+
+/* Window buttons: the line under the icon is a background image, so it
+ * stays in the middle at any width. The padding makes them square: a
+ * min-width would leave the icon at the left of a wider button. */
+window#waybar.eleven #taskbar button {
+    margin: 4px 2px;
+    padding: 0 8px;
+    border-radius: 4px;
+    background-image: linear-gradient(alpha(@fg_color, 0.55), alpha(@fg_color, 0.55));
+    background-repeat: no-repeat;
+    background-size: 6px 3px;
+    background-position: 50% 95%;
+}
+
+window#waybar.eleven #taskbar button:hover {
+    background-color: alpha(@fg_color, 0.08);
+}
+
+window#waybar.eleven #taskbar button.active {
+    border-bottom: none;
+    background-color: alpha(@fg_color, 0.06);
+    background-image: linear-gradient(shade(@selected_bg_color, 1.5), shade(@selected_bg_color, 1.5));
+    background-size: 16px 3px;
+}
+
+window#waybar.eleven #taskbar button.active:hover {
+    background-color: alpha(@fg_color, 0.1);
+}
+
+/* The weather at the left end: the sky's icon larger, then the temperature
+ * over the sky in words (base.css draws the icon by class). */
+window#waybar.eleven #custom-weather {
+    margin: 4px 0 4px 4px;
+    padding: 0 12px 0 42px;
+    border-radius: 4px;
+    background-position: 10px center;
+    background-size: 24px 24px;
+}
+
+window#waybar.eleven #custom-weather:hover {
+    background-color: alpha(@fg_color, 0.08);
+}
+
+/* The right end: each status icon and the clock light up the same way. */
+window#waybar.eleven #tray,
+window#waybar.eleven #custom-tiler,
+window#waybar.eleven #custom-phone,
+window#waybar.eleven #custom-recording,
+window#waybar.eleven #wireplumber,
+window#waybar.eleven #battery,
+window#waybar.eleven #quick,
+window#waybar.eleven #clock {
+    margin: 4px 0;
+    border-radius: 4px;
+}
+
+window#waybar.eleven #custom-tiler:hover,
+window#waybar.eleven #custom-phone:hover,
+window#waybar.eleven #custom-recording:hover,
+window#waybar.eleven #wireplumber:hover,
+window#waybar.eleven #battery:hover,
+window#waybar.eleven #quick:hover,
+window#waybar.eleven #clock:hover {
+    background-color: alpha(@fg_color, 0.08);
+}
+
+/* Two lines, time over date. Only #clock: a tweak of the bars' text size
+ * must still win (flickos-layout tweaks new). */
+#clock {
+    padding: 0 10px;
+    font-size: 12px;
+}

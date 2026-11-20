@@ -1,0 +1,23 @@
+[Unit]
+Description=FlickOS Classroom: this lab computer's connection to its teacher
+Documentation=file:/usr/share/doc/flickos-classroom-view/
+# Only on a lab computer (`flickos-classroom-view lab on` enables it,
+# docs/design/flickos-classroom-view.md ADR-011); the package enables nothing.
+ConditionPathExists=/etc/flickos/classroom/lab
+After=network.target systemd-logind.service
+
+[Service]
+ExecStart=/usr/bin/flickos-classroom-view lab run
+RuntimeDirectory=flickos-classroom
+RuntimeDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+# It holds the computer's key, listens and passes messages; it never reads
+# the screen or runs anything it is sent.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/flickos/classroom
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

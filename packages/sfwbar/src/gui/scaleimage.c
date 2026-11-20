@@ -494,7 +494,9 @@ static gboolean scale_image_set ( GtkWidget *self )
   g_free(priv->fname);
   if( (priv->fname = app_info_icon_lookup(priv->file, priv->symbolic_pref)) )
   {
-    priv->ftype = SI_ICON;
+    /* FlickOS: app_info_icon_get() gives a desktop file's Icon= path as it
+     * is: a file, not a name in the icon theme. */
+    priv->ftype = *priv->fname == '/' ? SI_FILE : SI_ICON;
     priv->aspect = 0.0;
     priv->symbolic = g_str_has_suffix(priv->fname, "-symbolic");
     return TRUE;

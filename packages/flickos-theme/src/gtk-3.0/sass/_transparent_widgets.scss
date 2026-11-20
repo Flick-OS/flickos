@@ -1,0 +1,223 @@
+//.nemo-window GtkEventBox { background-color: $bg_color; } // fixes nemo statusbar
+
+//.nemo-window,
+.nautilus-window {
+  paned > separator {
+    background-image: _solid($side_border);
+
+    @if $variant=='light' or $variant=='darker' {
+      &:dir(ltr) { margin-left: -1px; }
+      &:dir(rtl) { margin-right: -1px; }
+    }
+  }
+}
+
+filechooser paned > separator { background-image: _solid($side_border); }
+
+// Dark transparent sidebars
+filechooser,
+.nautilus-window {
+
+  &.csd.background, placessidebar list { background-color: transparent; }
+
+  placessidebar.sidebar {
+
+    background-color: $side_bg;
+
+    row.sidebar-row {
+      border: none;
+      color: $side_fg;
+
+      .sidebar-icon { color: transparentize($side_fg, 0.4); }
+
+      &.has-open-popup,
+      &:hover { background-color: transparentize($side_fg, 0.85); }
+
+      &:disabled {
+        &, label, image { color: transparentize($side_fg, 0.6); }
+      }
+
+      &:selected.has-open-popup,
+      &:selected, &:selected:hover, &:active:hover {
+        @extend %selected_items;
+
+        .sidebar-icon { color: inherit; }
+      }
+
+      &:not(:selected) button.sidebar-button {
+        color: $side_fg;
+
+        &:hover { @include button(osd-hover); }
+        &:active { @include button(active); }
+
+        &:not(:hover):not(:active) > image { opacity: 0.5 };
+      }
+
+      &.sidebar-new-bookmark-row {
+        color: $selected_bg_color;
+
+        .sidebar-icon { color: inherit; }
+      }
+
+      &:drop(active):not(:disabled) {
+        &, label, .sidebar-icon { color: $drop_target_color; }
+
+        &:selected {
+          &, label, .sidebar-icon { color: $selected_fg_color; }
+          background-color: $drop_target_color;
+        }
+      }
+    }
+
+    separator { background-color: transparent; }
+
+    scrollbar { @extend %dark_sidebar_scrollbar }
+  }
+
+  &.maximized placessidebar.sidebar { background-color: opacify($side_bg, 1); }
+}
+
+.nemo-window {
+  .sidebar {
+    color: $side_fg;
+    background-color: $side_bg;
+
+    .view, row {
+      background-color: transparent;
+      color: $side_fg;
+
+      &.cell:selected {
+        background-color: $selected_bg_color;
+        color: $selected_fg_color;
+      }
+
+      &.expander {
+        color: mix($side_fg, $side_bg, 50%);
+
+        &:hover { color: $side_fg; }
+      }
+    }
+
+    separator { background-color: transparent; }
+
+    scrollbar { @extend %dark_sidebar_scrollbar }
+  }
+}
+
+.caja-side-pane {
+
+  &,
+  > notebook > stack > widget > box,
+  text,
+  treeview {
+    color: $side_fg;
+    caret-color: $side_fg;
+    background-color: opacify($side_bg, 1);
+  }
+
+  > box button {
+    &:not(:active):not(:checked) { color: $side_fg; }
+    &:hover:not(:active) { @extend %dark_sidebar_button_hover; }
+  }
+
+  .frame { border-color: darken(opacify($side_bg, 1), 5%); }
+
+  scrollbar { @extend %dark_sidebar_scrollbar; }
+  junction { background-color: darken($side_bg, 5%); }
+}
+
+filechooser {
+
+  actionbar > revealer > box {
+    color: $side_fg;
+    background-color: $side_bg;
+    border-color: if($variant != 'dark', darken($side_bg, 7%), darken($side_bg, 15%));
+
+    // FlickOS: in Light the bar takes the window's colors ($side_bg), so what
+    // is in it keeps its normal look. Arc's see-through dark-sidebar buttons
+    // were pale on pale there (xarchiver's Archive type and the file filter
+    // showed neither text nor arrow).
+    @if $variant != 'light' {
+      button { @extend %dark_sidebar_button; }
+      entry { @extend %dark_sidebar_entry; }
+
+      @extend %osd_check_radio;
+
+      label, combobox { color: $side_fg; }
+    }
+  }
+}
+
+// Gedit
+.gedit-bottom-panel-paned { background-color: $base_color; }
+
+.gedit-side-panel-paned > separator { background-image: _solid($side_border); }
+.gedit-bottom-panel-paned > separator { background-image: _solid($borders_color); }
+
+.gedit-document-panel {
+  background-color: $side_bg;
+
+  .maximized & { background-color: opacify($side_bg, 1); }
+
+  row {
+    color: $side_fg;
+    background-color: transparentize($side_fg, 1);
+
+    &:hover {
+      background-color: transparentize($side_fg, 0.85);
+    }
+    &:active {
+      color: $selected_fg_color;
+      background-color: $selected_bg_color;
+
+      button { color: $selected_fg_color; }
+    }
+    &:selected, &:selected:hover {
+      color: $selected_fg_color;
+      background-color: $selected_bg_color;
+    }
+    &:hover:not(:selected) button:active {
+      color: $side_fg;
+    }
+  }
+}
+
+%dark_sidebar_button {
+  @include button(osd);
+
+  @at-root %dark_sidebar_button_hover,
+  &:hover { @include button(osd-hover); }
+  &:active, &:checked { @include button(osd-active); }
+  &:disabled { @include button(osd-insensitive); }
+}
+
+%dark_sidebar_entry {
+  @include entry(osd);
+
+  &:focus { @include entry(osd-focus); }
+  &:disabled { @include entry(osd-insensitive); }
+}
+
+%dark_sidebar_scrollbar {
+
+  border-color: darken($side_bg, 5%);
+
+  &.overlay-indicator:not(.dragging):not(.hovering) slider {
+    background-color: lighten($side_fg, 15%);
+    border: 1px solid transparentize(black, 0.7);
+  }
+  slider {
+    background-color: transparentize(lighten($side_fg, 15%), 0.3);
+
+    &:hover { background-color: lighten($side_fg, 20%); }
+
+    &:hover:active { background-color: $selected_bg_color; }
+
+    &:disabled {
+      background-color: transparent;
+    }
+  }
+  trough {
+    background-color: darken($side_bg, 5%);
+  }
+}

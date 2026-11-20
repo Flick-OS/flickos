@@ -1,5 +1,19 @@
-/* Redmond layout. Shared rules: ../common/base.css. Named colors only. */
+/* Redmond layout. Shared rules: ../common/base.css and buttons.css. Named
+ * colors only. */
 @import url("../common/base.css");
+@import url("../common/buttons.css");
+
+/* Solid while it fills the bottom of the screen: nothing but the wallpaper is
+ * ever behind it, and only the floating bar (floating.css) is see-through. */
+window#waybar {
+    background: @wm_bg;
+}
+
+/* A faint line along the top edge, on the bar and not the window, which is
+ * see-through while the panel floats. */
+window#waybar > box {
+    box-shadow: inset 0 1px alpha(@fg_color, 0.1);
+}
 
 #custom-launcher {
     min-width: 24px;
@@ -9,16 +23,11 @@
 /* Icon-only buttons (waybar.jsonc), all the same width: 46 px. */
 #taskbar button {
     min-width: 24px;
-    margin: 4px 1px;
     padding: 0 10px;
-    border-radius: 4px;
 }
 
-#taskbar button.active {
-    border-bottom: none;
-    box-shadow: inset 0 -2px @selected_bg_color;
-}
-
+/* Two lines in the 40 px bar: 12 px fits with room to spare (13 px just
+ * fits, 14 px makes the bar taller). The time's weight is in waybar.jsonc. */
 #clock {
-    font-size: 11px;
+    font-size: 12px;
 }

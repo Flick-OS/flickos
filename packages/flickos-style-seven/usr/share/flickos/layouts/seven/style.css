@@ -1,0 +1,84 @@
+/* Seven's panel: FlickOS's shared rules (the see-through panel color), then
+ * glass: a light line along the top edge and a shade darker towards the
+ * bottom, a round glossy start button in the style's accent with the halo,
+ * and large window icons in glass boxes that glow under the pointer. Named
+ * colors only, so the layout follows any style. */
+@import url("../common/base.css");
+
+/* Never lighter than base.css draws it, which is what check tests
+ * (PANEL_ALPHA): the glass only darkens towards the bottom. */
+window#waybar.seven {
+    background-image: linear-gradient(to bottom, transparent 35%, alpha(@wm_bg, 0.5));
+    box-shadow: inset 0 1px alpha(@fg_color, 0.3);
+}
+
+/* The start button: a glossy ball in the accent color, lit from above, with
+ * the halo in it. The halo keeps the brand amber under the pointer: the ball
+ * glows instead of the logo turning blue (base.css's hover). */
+window#waybar.seven #custom-launcher {
+    min-width: 34px;
+    margin: 3px 10px 3px 8px;
+    padding: 0;
+    border-radius: 50%;
+    background-color: transparent;
+    background-image: -gtk-icontheme("flickos-symbolic"),
+                      radial-gradient(circle farthest-side at 50% 30%, shade(@selected_bg_color, 1.7),
+                                      @selected_bg_color 60%, shade(@selected_bg_color, 0.5));
+    background-repeat: no-repeat, no-repeat;
+    background-position: center, center;
+    background-size: 20px 20px, 100% 100%;
+    box-shadow: inset 0 0 0 1px alpha(@borders, 0.9), inset 0 1px 1px alpha(@fg_color, 0.5);
+}
+
+window#waybar.seven #custom-launcher:hover {
+    color: @fg_color;
+    -gtk-icon-palette: warning @brand_color;
+    background-color: transparent;
+    background-image: -gtk-icontheme("flickos-symbolic"),
+                      radial-gradient(circle farthest-side at 50% 30%, shade(@selected_bg_color, 1.9),
+                                      shade(@selected_bg_color, 1.25) 60%, shade(@selected_bg_color, 0.7));
+    box-shadow: inset 0 0 0 1px alpha(@borders, 0.9), inset 0 1px 1px alpha(@fg_color, 0.6),
+                0 0 6px alpha(@selected_bg_color, 0.9);
+}
+
+/* Each open window: its icon in a glass box, lighter above the middle; the
+ * active one brighter, a blue glow from below under the pointer. */
+window#waybar.seven #taskbar button {
+    min-width: 28px;
+    margin: 2px 1px;
+    padding: 0 14px;
+    border-radius: 4px;
+    background-color: transparent;
+    background-image: linear-gradient(to bottom, alpha(@fg_color, 0.16), alpha(@fg_color, 0.06) 50%,
+                                      alpha(@fg_color, 0.02) 51%, alpha(@fg_color, 0.08));
+    box-shadow: inset 0 0 0 1px alpha(@borders, 0.7), inset 0 1px alpha(@fg_color, 0.25);
+}
+
+window#waybar.seven #taskbar button:hover {
+    background-color: transparent;
+    background-image: radial-gradient(ellipse farthest-side at 50% 100%, alpha(@selected_bg_color, 0.8), transparent),
+                      linear-gradient(to bottom, alpha(@fg_color, 0.22), alpha(@fg_color, 0.1) 50%,
+                                      alpha(@fg_color, 0.04) 51%, alpha(@fg_color, 0.12));
+    box-shadow: inset 0 0 0 1px alpha(@fg_color, 0.35), inset 0 1px alpha(@fg_color, 0.4);
+}
+
+window#waybar.seven #taskbar button.active {
+    border-bottom: none;
+    background-color: transparent;
+    background-image: linear-gradient(to bottom, alpha(@fg_color, 0.32), alpha(@fg_color, 0.14) 50%,
+                                      alpha(@fg_color, 0.08) 51%, alpha(@fg_color, 0.2));
+    box-shadow: inset 0 0 0 1px alpha(@fg_color, 0.4), inset 0 1px alpha(@fg_color, 0.5);
+}
+
+/* Two lines, time over date, as Redmond's. Only #clock: a tweak of the
+ * bars' text size must still win (flickos-layout tweaks new). */
+#clock {
+    font-size: 11px;
+}
+
+/* Show Desktop: a wider glass strip at the right end. */
+window#waybar.seven #custom-desktop {
+    min-width: 12px;
+    margin-left: 4px;
+    box-shadow: inset 1px 0 alpha(@fg_color, 0.2);
+}

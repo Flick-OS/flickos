@@ -620,6 +620,20 @@ End-Date: 2026-10-10  13:01:00
         self.assertEqual(entries[1]["upgrade"], ["libreoffice-core", "vlc"])
         self.assertEqual(entries[1]["remove"], ["cowsay"])
 
+    def test_the_transaction_a_restore_point_was_taken_in_is_listed(self):
+        # apt-hook takes the point after apt wrote Start-Date (whole seconds).
+        path = os.path.join(self.tmp.name, "history.log")
+        with open(path, "w") as f:
+            f.write(self.HISTORY + "\nStart-Date: 2026-10-10  14:00:00\nCommandline: apt remove sl\n"
+                                   "Remove: sl:amd64 (5.02-1+b1)\n")
+        import datetime
+        with mock.patch.object(rp, "HISTORY", path):
+            during_sl = rp.history_entries(datetime.datetime(2026, 10, 10, 12, 0, 0, 400000).timestamp())
+            running = rp.history_entries(datetime.datetime(2026, 10, 10, 14, 0, 0, 300000).timestamp())
+        self.assertEqual([e["command"] for e in during_sl],
+                         ["apt install sl", "/usr/bin/unattended-upgrade", "apt remove sl"])
+        self.assertEqual([e["command"] for e in running], ["apt remove sl"])   # no End-Date yet
+
     def test_plan_names_the_restore_point(self):
         name = rp.create("apt install sl")
         with mock.patch.object(rp, "HISTORY", os.path.join(self.tmp.name, "none")):
@@ -825,6 +839,17 @@ class Counter(Tree):
             rp.start_good_watch(sleep=lambda s: None)
         state = rp.load_state()
         self.assertEqual((state["failed"], state["good_boot"]), (0, "b2"))
+
+    def test_each_login_screen_counts_as_up(self):
+        """flickos-greeter 2's greeter-window, its fallback gtkgreet, or the desktop."""
+        for comm, up in (("greeter-window", True), ("gtkgreet", True), ("labwc", True),
+                         ("cage", False), ("greetd", False)):
+            with tempfile.TemporaryDirectory() as proc:
+                os.makedirs(os.path.join(proc, "4242"))
+                with open(os.path.join(proc, "4242", "comm"), "w") as f:
+                    f.write(comm + "\n")
+                with mock.patch.object(rp, "PROC", proc):
+                    self.assertEqual(rp.running(rp.GOOD_PROCESSES), up, comm)
 
     def test_only_good_restore_points_are_candidates(self):
         good = self.good_point()

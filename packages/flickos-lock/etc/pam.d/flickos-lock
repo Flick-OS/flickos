@@ -1,0 +1,7 @@
+#
+# PAM configuration for flickos-lock, the FlickOS lock screen. Only the
+# password check: not login's stack, whose pam_nologin would refuse to
+# unlock while a shutdown is scheduled (docs/design/flickos-lock.md, ADR-005).
+#
+
+@include common-auth
