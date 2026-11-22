@@ -1,9 +1,38 @@
+flickos-kits (1.5) trixie; urgency=medium
+
+  * Release of 1.5~test2: a page per kit category in the window.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 12:40:33 +0800
+
+flickos-kits (1.5~test2) trixie; urgency=medium
+
+  * The window draws the kits at once and the rest when it is read, and
+    reads the settings at the same time: its first page took about 6
+    seconds (six flickos-control reads one after another), the kits now
+    show at once and the rest in about 1.5 seconds.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 09:27:27 +0800
+
+flickos-kits (1.5~test1) trixie; urgency=medium
+
+  * The window has a page per kit category in a sidebar, like Settings
+    (flickos-dev.md ADR-010): each page shows its kits, then its own
+    setup steps, newer versions and environments. A kit with many tools
+    opens them on a page of their own. Setup steps are records, pages
+    are drawn from a model and rebuilt only when it changed, and a test
+    keeps every page within a row budget. New: window --page CATEGORY.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 08:29:08 +0800
+
 flickos-kits (1.4) trixie; urgency=medium
 
   * Release of 1.4~test4: the Security work list, security environments,
     makers' repositories and per-user versions (flickos-security.md).
   * env remove also removes the environment's image once no container
     uses it.
+  * Tool Kits: the Capture packets row no longer disappears once it is
+    on (it looked for dumpcap, which this session can't run until the
+    next login).
 
  -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 22:27:09 +0800
 

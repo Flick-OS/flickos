@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1909,6 +1910,78 @@ class FakeTimers:
             if length == ms and timer in self.timers:
                 del self.timers[timer]
                 callback()
+
+
+class CaretTest(unittest.TestCase):
+    """The prompt style's underscore blinks as GTK's cursor does: on two
+    thirds of the blink time, off one third, solid after the timeout, and
+    not at all without gtk-cursor-blink."""
+
+    def caret(self, blink=True, time_ms=1200, timeout_s=3):
+        self.bar = mock.Mock()
+        self.timers = FakeTimers()
+        settings = mock.Mock(props=mock.Mock(gtk_cursor_blink=blink, gtk_cursor_blink_time=time_ms,
+                                             gtk_cursor_blink_timeout=timeout_s))
+        return fm.Caret(self.bar, settings, self.timers.add, self.timers.remove)
+
+    def opacity(self):
+        return self.bar.set_opacity.call_args[0][0]
+
+    def test_blinks_then_stays_on(self):
+        caret = self.caret()
+        caret.restart()
+        self.assertEqual(self.opacity(), 1.0)
+        for _blink in range(3):         # 3 s of 1.2 s blinks
+            self.timers.fire(800)
+            self.assertEqual(self.opacity(), 0.0)
+            self.timers.fire(400)
+            self.assertEqual(self.opacity(), 1.0)
+        self.timers.fire(800)           # past the timeout: no more timers
+        self.assertEqual(self.opacity(), 1.0)
+        self.assertEqual(self.timers.timers, {})
+
+    def test_a_key_shows_it_and_starts_again(self):
+        caret = self.caret()
+        caret.restart()
+        self.timers.fire(800)
+        self.assertEqual(self.opacity(), 0.0)
+        caret.restart()
+        self.assertEqual(self.opacity(), 1.0)
+        self.assertEqual([ms for ms, _callback in self.timers.timers.values()], [800])
+
+    def test_no_blinking(self):
+        caret = self.caret(blink=False)
+        caret.restart()
+        self.assertEqual(self.opacity(), 1.0)
+        self.assertEqual(self.timers.timers, {})
+
+    def test_stop(self):
+        caret = self.caret()
+        caret.restart()
+        caret.stop()
+        caret.stop()
+        self.assertEqual(self.timers.timers, {})
+
+
+class PromptHoverTest(unittest.TestCase):
+    """Only the tile under the pointer is lit, and leaving it unlights it."""
+
+    def tile(self):
+        classes = set()
+        context = SimpleNamespace(add_class=classes.add, remove_class=classes.discard)
+        return SimpleNamespace(classes=classes, get_style_context=lambda: context)
+
+    def test_one_at_a_time(self):
+        view = SimpleNamespace(hovered=None)
+        a, b = self.tile(), self.tile()
+        fm.PromptView.hover(view, a, True)
+        self.assertEqual((a.classes, view.hovered), ({"hover"}, a))
+        fm.PromptView.hover(view, b, True)     # entered b before a's leave
+        self.assertEqual((a.classes, b.classes), (set(), {"hover"}))
+        fm.PromptView.hover(view, a, False)    # a's late leave keeps b lit
+        self.assertEqual((b.classes, view.hovered), ({"hover"}, b))
+        fm.PromptView.hover(view, b, False)
+        self.assertEqual((b.classes, view.hovered), (set(), None))
 
 
 class FakeProcess:

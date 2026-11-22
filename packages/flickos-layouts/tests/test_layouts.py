@@ -15,7 +15,8 @@ from test_engine import PACKAGE, EngineTest, fl, read
 
 LAYOUTS = os.path.join(PACKAGE, "usr/share/flickos/layouts")
 STYLES = os.path.join(PACKAGE, "usr/share/flickos/styles")
-EXPECTED = ["redmond", "cupertino", "traditional"]
+EXPECTED = ["redmond", "redmond-plus", "cupertino", "traditional"]
+DOCK_PANELS = ["redmond-plus"]          # the panel is the dock (sfwbar), waybar draws nothing
 BAR_MODULE_KEYS = ("modules-left", "modules-center", "modules-right")
 LAUNCHER = "custom/launcher"
 TASKBAR = "wlr/taskbar"
@@ -28,6 +29,12 @@ def shipped_layouts():
             contextlib.redirect_stderr(io.StringIO()) as err:
         found = fl.layouts()
     return found, err.getvalue()
+
+
+def waybar_panels(layouts):
+    """The layouts whose panel waybar draws: all but DOCK_PANELS, whose
+    panel.config DockPanelTest checks for the same things."""
+    return [layout for layout in layouts.values() if not fl.dock_is_panel(layout)]
 
 
 def bar_modules(bar):
@@ -94,7 +101,7 @@ class ShippedLayoutsTest(unittest.TestCase):
     def test_start_menu_corner_matches_the_apps_button(self):
         """Every layout has a start menu corner, on the side of the bar with the
         apps button (a bottom bar opens it bottom-left, a top bar top-left)."""
-        for layout in self.layouts.values():
+        for layout in waybar_panels(self.layouts):
             with self.subTest(layout=layout.id):
                 bar = next(b for b in fl.load_bars(layout) if LAUNCHER in bar_modules(b))
                 self.assertIn(LAUNCHER, bar.get("modules-left", []))
@@ -110,7 +117,7 @@ class ShippedLayoutsTest(unittest.TestCase):
     def test_quick_settings_corner_matches_the_status_icons(self):
         """Every layout has a Quick Settings corner, at the right end of the
         bar with the volume and battery icons."""
-        for layout in self.layouts.values():
+        for layout in waybar_panels(self.layouts):
             with self.subTest(layout=layout.id):
                 bar = next(b for b in fl.load_bars(layout) if "wireplumber" in bar_modules(b))
                 for module in fl.QUICK_MODULES:
@@ -121,12 +128,13 @@ class ShippedLayoutsTest(unittest.TestCase):
         """Only where the apps button stays put and has been measured."""
         self.assertEqual({layout.id: layout.menu_arrow for layout in self.layouts.values()
                           if layout.menu_arrow is not None},
-                         {"redmond": "23 32", "traditional": "23"})
+                         {"redmond": "23 32", "redmond-plus": "23 32", "traditional": "23"})
 
     def test_start_menu_styles(self):
         """Each layout has its own kind of start menu."""
         self.assertEqual({layout.id: layout.menu_style for layout in self.layouts.values()},
-                         {"redmond": "classic", "traditional": "categories", "cupertino": "grid"})
+                         {"redmond": "classic", "redmond-plus": "prompt", "traditional": "categories",
+                          "cupertino": "grid"})
         self.assertEqual(self.warnings, "")
 
     def test_layouts_show_the_style_wallpaper(self):
@@ -134,6 +142,9 @@ class ShippedLayoutsTest(unittest.TestCase):
         the paths it has always shown them."""
         for layout in self.layouts.values():
             self.assertIsNone(layout.wallpaper, layout.id)
+        for layout in self.layouts.values():
+            if layout.id in DOCK_PANELS:        # newer than 1.37: no photo of its own
+                continue
             path = os.path.join(PACKAGE, f"usr/share/backgrounds/flickos/{layout.id}.jpg")
             with open(path, "rb") as f:
                 self.assertEqual(f.read(3), b"\xff\xd8\xff", f"{path}: not a JPEG")
@@ -160,7 +171,7 @@ class ShippedLayoutsTest(unittest.TestCase):
                     self.assertNotIn(bar.get("name"), fl.THEMED_CLASSES)
 
     def test_one_tray_and_one_launcher(self):
-        for layout in self.layouts.values():
+        for layout in waybar_panels(self.layouts):
             modules = [m for bar in fl.load_bars(layout) for m in bar_modules(bar)]
             with self.subTest(layout=layout.id):
                 self.assertEqual(modules.count("tray"), 1)
@@ -169,7 +180,7 @@ class ShippedLayoutsTest(unittest.TestCase):
     def test_show_desktop_is_at_the_right_edge(self):
         """Last in modules-right of one bar: the pointer pushed into the
         corner hits it."""
-        for layout in self.layouts.values():
+        for layout in waybar_panels(self.layouts):
             with self.subTest(layout=layout.id):
                 bars = fl.load_bars(layout)
                 self.assertEqual(sum(bar_modules(bar).count(SHOW_DESKTOP) for bar in bars), 1)
@@ -195,7 +206,7 @@ class ShippedLayoutsTest(unittest.TestCase):
     def test_recording_next_to_the_clock(self):
         """flickos-screenshot's recording button is in every layout, once, in
         the bar that holds the clock, and hidden while nothing records."""
-        for layout in self.layouts.values():
+        for layout in waybar_panels(self.layouts):
             with self.subTest(layout=layout.id):
                 bars = fl.load_bars(layout)
                 self.assertEqual(sum(bar_modules(bar).count(RECORDING) for bar in bars), 1)
@@ -222,17 +233,51 @@ class ShippedLayoutsTest(unittest.TestCase):
         for layout in self.layouts.values():
             uses = any(fl.PINNED_MODULE in bar_modules(bar) for bar in fl.load_bars(layout))
             uses |= bool(layout.dock and fl.DOCK_PINS.search(read(layout.dock)))
+            if layout.id in DOCK_PANELS:        # shows the user's pins; pins none itself
+                self.assertTrue(uses, layout.id)
+                self.assertEqual(layout.pinned, [], layout.id)
+                continue
             self.assertEqual(uses, bool(layout.pinned), layout.id)
 
     def test_docks(self):
         docks = [layout for layout in self.layouts.values() if layout.dock]
-        self.assertEqual([layout.id for layout in docks], ["cupertino", "traditional"])
+        self.assertEqual([layout.id for layout in docks], ["redmond-plus", "cupertino", "traditional"])
+        self.assertEqual([layout.id for layout in docks if fl.dock_is_panel(layout)], DOCK_PANELS)
         for layout in docks:
             with self.subTest(layout=layout.id):
                 config = read(layout.dock)
                 self.assertTrue(config.startswith("#Api2\n"))
                 self.assertNotRegex(config, r"(?m)^#CSS")
                 self.assertTrue(os.path.isfile(layout.dock_style))
+
+    def test_right_click_menus_of_pinning_taskbars(self):
+        """Every sfwbar taskbar that shows pinned apps opens a right-click menu
+        (Q2b of docs/design/flickos-panel.md): a window's items by its state,
+        and pin or unpin on an app's button. Each menu the function names
+        exists, and pinning runs flickos-layout pinned with the app's id."""
+        for layout in self.layouts.values():
+            config = read(layout.dock) if layout.dock else ""
+            if not fl.DOCK_PINS.search(config):
+                continue
+            with self.subTest(layout=layout.id):
+                function = re.search(r"\n +action\[RightClick\] = (\w+)\(\)\n", config).group(1)
+                body = re.search(r"\nFunction %s\(\) \{\n(.*?)\n\}\n" % function, config, re.DOTALL).group(1)
+                menus = dict(re.findall(r'\nmenu "(\w+)" \{\n(.*?)\n\}\n', config, re.DOTALL))
+                states = re.findall(r'Menu\("(\w+)" \+ pin\)', body)
+                self.assertEqual([state.rsplit("_", 1)[1] for state in states],
+                                 ["app", "minimized", "maximized", "window"])
+                for state in states:
+                    for suffix in ("_pin", "_unpin") if state.endswith("_app") else ("", "_pin", "_unpin"):
+                        items = menus[state + suffix]
+                        verb = {"": None, "_pin": "add", "_unpin": "remove"}[suffix]
+                        if verb:
+                            self.assertIn("Exec(\"flickos-layout pinned %s '\" + WindowInfo(\"appid\") + \"'\")"
+                                          % verb, items, state + suffix)
+                        if not state.endswith("_app"):
+                            self.assertIn("action = Close()", items, state + suffix)
+                self.assertIn("UnMinimize()", menus[states[1]])
+                self.assertIn("UnMaximize()", menus[states[2]])
+                self.assertIn("Maximize()", menus[states[3]])
 
     def test_desktops_only_with_a_switcher(self):
         """More than one desktop only where something shows them: a pager in
@@ -540,6 +585,111 @@ class DockTest(EngineTest):
             fl.update_dock(self.root, self.layout("sf"), self.style(), menu=True)
         self.assertNotIn("Exec", read(f"{self.root}/dock/sfwbar.config"))
 
+    def dock_config(self, text, **options):
+        """The generated dock's config (before #CSS) for a dock.config of text."""
+        self.make_sfwbar_layout()
+        self.write("layouts/sf/dock.config", text)
+        with self.quiet():
+            fl.update_dock(self.root, self.layout("sf"), self.style(), **options)
+        return read(f"{self.root}/dock/sfwbar.config").split("\n#CSS\n")[0]
+
+    def test_dock_feature_lines(self):
+        """#if NAME / #if !NAME, #else, #endif keep lines by the settings, nested,
+        and leave no trace; the menu follows menu=."""
+        text = ("#Api2\n#if media\nA\n#if weather\nB\n#else\nC\n#endif\n#else\nD\n#endif\n"
+                "  #if !clock-12h\nE\n  #endif\n#if menu\nF\n#endif\n")
+        config = self.dock_config(text, features={"media": True, "weather": lambda: False})
+        self.assertEqual(config.strip().split("\n")[2:], ["A", "C", "E"])
+        config = self.dock_config(text, menu=True, features={"clock-12h": True})
+        self.assertEqual(config.strip().split("\n")[2:], ["D", "F"])
+
+    def test_dock_feature_values_asked_only_when_used(self):
+        """A dock without #if never runs the programs that know the settings."""
+        asked = []
+        features = {name: (lambda name=name: asked.append(name) or True) for name in fl.DOCK_FEATURES}
+        self.dock_config("#Api2\nbar {}\n", features=features)
+        self.assertEqual(asked, [])
+        self.dock_config("#Api2\n#if weather\nW\n#endif\n#if weather\nW\n#endif\n", features=features)
+        self.assertEqual(asked, ["weather"])
+
+    def test_dock_feature_lines_errors(self):
+        self.make_sfwbar_layout()
+        for text in ("#if nonsense\n#endif\n", "#if media\n", "#endif\n", "#else\n", "#if media\n#else\n#else\n#endif\n"):
+            self.write("layouts/sf/dock.config", text)
+            with self.subTest(text=text), self.assertRaises(fl.LayoutError):
+                fl.update_dock(self.root, self.layout("sf"), self.style())
+
+    def test_dock_runtime_and_battery(self):
+        supply = os.path.join(self.tmp, "power_supply")
+        for name, kind, scope in (("AC", "Mains", None), ("hid-mouse", "Battery", "Device"), ("BAT1", "Battery", None)):
+            self.write(os.path.join(supply, name, "type"), kind + "\n")
+            if scope:
+                self.write(os.path.join(supply, name, "scope"), scope + "\n")
+        text = '#Api2\nFile("@flickos:runtime@/x")\n#if battery\nFile("@flickos:battery@/capacity")\n#endif\n'
+        with mock.patch.object(fl, "POWER_SUPPLY", supply):
+            self.assertEqual(fl.battery_path(), os.path.join(supply, "BAT1"))
+            config = self.dock_config(text, features={"battery": True})
+        self.assertIn(f'File("{self.root}/x")', config)
+        self.assertIn(f'File("{supply}/BAT1/capacity")', config)
+        with mock.patch.object(fl, "POWER_SUPPLY", os.path.join(self.tmp, "none")):
+            self.assertIsNone(fl.battery_path())
+
+    def make_addon(self, name, waybar, css=None):
+        folder = os.path.join(self.tmp, "addons", name)
+        self.write(os.path.join(folder, "waybar.jsonc"), waybar)
+        if css is not None:
+            self.write(os.path.join(folder, "style.css"), css)
+        return folder
+
+    def test_dock_addon_buttons(self):
+        """An add-on's custom module becomes a source and a button named like
+        waybar's (custom-NAME) with its JSON class, its signal as the trigger
+        and its clicks; its CSS follows the dock's, as written."""
+        folder = self.make_addon("trail", json.dumps({"custom/trail": {
+            "exec": "trail status --panel", "return-type": "json", "interval": "once", "signal": 11,
+            "format": " ", "on-click": "trail pause --toggle", "on-click-right": "a || b 'c'"}}),
+            "#custom-trail.paused { color: @fg_color; }\n")
+        text = ("#Api2\n#flickos/addons-sources\nbar {\n  grid {\n    #flickos/addons\n  }\n}\n")
+        config = self.dock_config(text, found={"trail": folder})
+        self.assertIn("Function FlickosAddonJson(line, path) {", config)
+        source = re.search(r'Exec\("((?:[^"\\]|\\.)*)"\) \{\n  FlickosAddon1Line = RegEx\("\^\(\.\*\)\$"\)\n\}', config)
+        self.assertIsNotNone(source, config)
+        self.assertEqual(shlex.split(re.sub(r"\\(.)", r"\1", source.group(1))),
+                         ["sh", "-c", 'out=$(trail status --panel); printf "%s\\n" "$out"'])
+        self.assertIn('    button "flickos_addon_1" {\n      type = label\n', config)
+        self.assertIn('      value = " "\n', config)
+        # A constant label: the style is first to read the line, so it runs the program.
+        self.assertIn('style = If(FlickosAddonJson($FlickosAddon1Line, ".text") = "", "hidden", '
+                      '"custom-trail.flickos-addon" + FlickosAddonClasses(Cached($FlickosAddon1Line)))', config)
+        self.assertIn('tooltip = FlickosAddonJson(Cached($FlickosAddon1Line), ".tooltip")', config)
+        self.assertIn('trigger = "sigrtmin+11"', config)
+        right = re.search(r'action\[RightClick\] = Exec\("((?:[^"\\]|\\.)*)"\)', config)
+        self.assertEqual(shlex.split(re.sub(r"\\(.)", r"\1", right.group(1))), ["sh", "-c", "a || b 'c'"])
+        css = read(f"{self.root}/dock/sfwbar.config").split("\n#CSS\n")[1]
+        self.assertIn("#custom-trail.paused { color: @fg_color; }", css)
+
+    def test_dock_addon_formats_and_polling(self):
+        folder = self.make_addon("x", json.dumps({
+            "custom/a": {"exec": "a", "format": "<{}>", "interval": 30},
+            "custom/b": {"exec": "b", "format": "{icon} {}", "tooltip": False},
+            "waybar-module": {"exec": "c"}, "custom/no-exec": {}}))
+        config = self.dock_config("#Api2\n#flickos/addons-sources\n#flickos/addons\n", found={"x": folder})
+        # The value shows the text: it reads the line first, the style the cached one.
+        self.assertIn('value = "<" + $FlickosAddon1Line + ">"', config)
+        self.assertIn("interval = 30000", config)
+        self.assertIn('style = If(Cached($FlickosAddon1Line) = "", "hidden", "custom-a.flickos-addon")', config)
+        self.assertIn("value = $FlickosAddon2Line", config.replace('"" + ', "").replace(' + ""', ""))
+        self.assertIn('trigger = "flickos-once"', config)
+        self.assertNotIn("tooltip = Cached($FlickosAddon2", config)
+        self.assertNotIn("FlickosAddon3", config)
+
+    def test_dock_without_addon_lines_takes_no_addon(self):
+        folder = self.make_addon("trail", '{"custom/trail": {"exec": "t"}}', "#custom-trail { color: red; }\n")
+        self.dock_config("#Api2\nbar {}\n", found={"trail": folder})
+        generated = read(f"{self.root}/dock/sfwbar.config")
+        self.assertNotIn("custom-trail", generated)
+        self.assertNotIn("flickos_addon", generated)
+
     def pinned(self, *args):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -664,7 +814,7 @@ class ShippedPanelTest(EngineTest):
         layout, and only with phone (HIG INT-9: nothing points at it while off)."""
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 for phone in (False, True):
                     fl.update_waybar(self.root, layout, self.style(), phone=phone)
                     bars = fl.load_jsonc(f"{self.root}/waybar/config.jsonc")
@@ -678,7 +828,7 @@ class ShippedPanelTest(EngineTest):
         and keeps the fuzzel menu while it isn't (HIG INT-9)."""
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 self.assertIn(layout.quick, fl.QUICK_ANCHORS, layout.id)
                 fl.update_waybar(self.root, layout, self.style(), phone=True, popup=True)
                 bars = fl.load_jsonc(f"{self.root}/waybar/config.jsonc")
@@ -697,7 +847,7 @@ class ShippedPanelTest(EngineTest):
         is as it was (HIG INT-9)."""
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 with self.subTest(layout=layout.id):
                     fl.update_waybar(self.root, layout, self.style())
                     before = read(f"{self.root}/waybar/config.jsonc")
@@ -724,7 +874,7 @@ class ShippedPanelTest(EngineTest):
         """An add-on's button goes after the phone's, before the tiling button."""
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 bars = fl.load_bars(layout)
                 fl.use_phone(bars)
                 self.assertIsNotNone(fl.insert_module(bars, "custom/addon"), layout.id)
@@ -739,7 +889,7 @@ class ShippedPanelTest(EngineTest):
             "custom/tiler": {"exec": "mine"}, fl.PHONE_MODULE: {"exec": "mine"}, "custom/mine": {"exec": "ok"}}))
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 bars = fl.load_bars(layout)
                 fl.use_addons(bars, {"greedy": folder})
                 self.assertNotIn("mine", json.dumps([bar.get("custom/tiler") for bar in bars]), layout.id)
@@ -761,7 +911,7 @@ class ShippedPanelTest(EngineTest):
         modules = fl.load_jsonc(os.path.join(LAYOUTS, "common", "modules.jsonc"))
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 bars = fl.load_bars(layout)
                 self.assertIsNotNone(fl.use_media(bars), layout.id)
                 fl.use_phone(bars)
@@ -820,7 +970,7 @@ class ShippedPanelTest(EngineTest):
         self.assertEqual(modules[fl.WEATHER_MODULE]["exec"], "flickos-weather panel")
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 for weather in (False, True):
                     fl.update_waybar(self.root, layout, self.style(), weather=weather)
                     config = read(f"{self.root}/waybar/config.jsonc")
@@ -860,7 +1010,7 @@ class ShippedPanelTest(EngineTest):
         self.assertEqual(modules[fl.CLASSROOM_MODULE]["exec"], "flickos-classroom-view student panel")
         with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
                 mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
-            for layout in fl.layouts().values():
+            for layout in waybar_panels(fl.layouts()):
                 for on in (False, True):
                     fl.update_waybar(self.root, layout, self.style(), classroom=on)
                     config = read(f"{self.root}/waybar/config.jsonc")
@@ -935,3 +1085,73 @@ class InterfaceTest(unittest.TestCase):
         css = read(os.path.join(LAYOUTS, "common/base.css"))
         for selector in self.CLASSES + ("#quick",):
             self.assertIn(selector, css, "VIS-11: base.css styles it")
+
+
+class DockPanelTest(EngineTest):
+    """Redmond+'s panel is its dock (sfwbar): the same rules as the waybar
+    panels' tests above, checked in the generated sfwbar config."""
+
+    FEATURES = {"phone": "flickos-phone status --panel", "weather": "flickos-weather panel",
+                "classroom": "flickos-classroom-view student panel", "media": "flickos-media follow",
+                "quick": "flickos-menu quick"}
+
+    def dock(self, layout, **features):
+        with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
+                mock.patch.object(fl, "current_icon_theme", return_value=None), self.quiet():
+            self.assertIsNotNone(fl.update_dock(self.root, layout, self.style(), menu=True, features=features))
+        return read(f"{self.root}/dock/sfwbar.config")
+
+    def layouts(self):
+        layouts, _warnings = shipped_layouts()
+        return [layouts[layout_id] for layout_id in DOCK_PANELS]
+
+    def test_waybar_draws_nothing(self):
+        for layout in self.layouts():
+            self.assertTrue(fl.dock_is_panel(layout), layout.id)
+            with mock.patch.object(fl, "STYLES_DIR", STYLES), mock.patch.object(fl, "style_dirs",
+                                                                                lambda users=True: [STYLES]):
+                self.assertEqual(fl.layout_problems(layout.id, {layout.id: layout.folder}), [], layout.id)
+
+    def test_one_tray_launcher_recording_and_show_desktop(self):
+        for layout in self.layouts():
+            config = self.dock(layout)
+            self.assertEqual(len(fl.DOCK_TRAY.findall(config)), 1, layout.id)
+            code = [line for line in read(layout.dock).splitlines() if not line.lstrip().startswith("#")]
+            self.assertEqual(len(fl.DOCK_LAUNCHER_EXEC.findall("\n".join(code))), 1, layout.id)
+            self.assertEqual(config.count('Exec("flickos-screenshot stop")'), 1, layout.id)
+            self.assertEqual(config.count('Exec("flick-tiler show-desktop")'), 1, layout.id)
+
+    def test_buttons_only_while_on(self):
+        """Phone, weather, classroom, media and Quick Settings run nothing
+        while off (HIG INT-9), and are there while on."""
+        for layout in self.layouts():
+            off = self.dock(layout)
+            on = self.dock(layout, **{name: True for name in self.FEATURES})
+            for name, command in self.FEATURES.items():
+                self.assertNotIn(command, off, (layout.id, name))
+                self.assertIn(command, on, (layout.id, name))
+
+    def test_phone_popup_only_with_popup(self):
+        for layout in self.layouts():
+            self.assertNotIn("flickos-menu phone", self.dock(layout, phone=True))
+            self.assertIn("flickos-menu phone", self.dock(layout, phone=True, **{"phone-popup": True}))
+
+    def test_addons_go_to_the_dock_not_waybar(self):
+        self.write("addons/mine/waybar.jsonc", json.dumps({"custom/mine": {"exec": "echo mine"}}))
+        found = {"mine": self.path("addons/mine")}
+        with mock.patch.object(fl, "LAYOUTS_DIR", LAYOUTS), mock.patch.object(fl, "STYLES_DIR", STYLES), \
+                mock.patch.object(fl, "current_icon_theme", return_value=None), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            for layout in self.layouts():
+                fl.update_waybar(self.root, layout, self.style(), found=found)
+                self.assertNotIn("custom/mine", read(f"{self.root}/waybar/config.jsonc"), layout.id)
+                fl.update_dock(self.root, layout, self.style(), menu=True, found=found)
+                self.assertIn("echo mine", read(f"{self.root}/dock/sfwbar.config"), layout.id)
+        self.assertNotIn("no place", err.getvalue())
+
+    def test_prompt_menu_and_the_default_style(self):
+        """The prompt start menu, and FlickOS's default style like every
+        layout (Redmond+ was Light until 1.92)."""
+        for layout in self.layouts():
+            self.assertEqual(layout.menu_style, "prompt", layout.id)
+            self.assertIsNone(layout.default_style, layout.id)

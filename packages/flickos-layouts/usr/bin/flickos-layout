@@ -360,6 +360,28 @@ APP_ID = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+-]*$")   # a window's app id, as
 DOCK_LAUNCHER = "flickos/launcher"
 DOCK_LAUNCHER_EXEC = re.compile(r'\bExec\(\s*"' + re.escape(DOCK_LAUNCHER) + r'"\s*\)')
 DOCK_PAGER = re.compile(r"^[^#\n]*\bpager\s*\{", re.MULTILINE)     # a desktop switcher in a dock's sfwbar config
+DOCK_TRAY = re.compile(r"^[^#\n]*\btray\s*\{", re.MULTILINE)       # apps' status icons in a dock's sfwbar config
+# A dock that is a whole panel (Redmond+, docs/design/flickos-panel.md: its waybar
+# bars show no module, dock_is_panel)
+# follows the same settings as the waybar panel: "#if NAME" or "#if !NAME", then
+# "#else" and "#endif", each on a line of its own, keep the lines between them only
+# while DOCK_FEATURES' NAME is on (or off); they nest. DOCK_ADDON_SOURCES and
+# DOCK_ADDON_BUTTONS, each a line of its own, become the add-ons' panel buttons
+# (dock_addons); DOCK_RUNTIME becomes the overlay folder and DOCK_BATTERY the
+# battery's sysfs folder (battery_path).
+DOCK_IF = re.compile(r"^[ \t]*#if[ \t]+(!?)([a-z0-9-]+)[ \t]*$")
+DOCK_ELSE = re.compile(r"^[ \t]*#else[ \t]*$")
+DOCK_ENDIF = re.compile(r"^[ \t]*#endif[ \t]*$")
+DOCK_FEATURES = ("menu", "quick", "phone", "phone-popup", "media", "weather", "classroom", "floating",
+                 "clock-12h", "battery")
+DOCK_ADDON_SOURCES = "#flickos/addons-sources"
+DOCK_ADDON_BUTTONS = "#flickos/addons"
+DOCK_RUNTIME = "@flickos:runtime@"
+DOCK_BATTERY = "@flickos:battery@"
+POWER_SUPPLY = PREFIX + "/sys/class/power_supply"
+# A waybar module's mouse actions, as sfwbar names them.
+DOCK_ACTIONS = (("on-click", "LeftClick"), ("on-click-middle", "MiddleClick"), ("on-click-right", "RightClick"),
+                ("on-scroll-up", "ScrollUp"), ("on-scroll-down", "ScrollDown"))
 PIN_MODULE = "custom/pin"
 # Desktop buttons in waybar, which has no desktop switcher for labwc
 # (docs/design/flickos-ricing.md, phase 5 step 5a): DESKTOPS_MODULE in a
@@ -808,6 +830,7 @@ class Layout:
     floating: str | None = None
     floating_full: str | None = None
     floating_default: bool = False      # FloatingDefault=on: floats until the user says otherwise
+    default_style: str | None = None    # DefaultStyle=: the style unless the user or the site chose one
     wallpaper: str | None = None
     dock: str | None = None
     dock_style: str | None = None
@@ -913,6 +936,10 @@ def load_layout(folder, user=False):
     if menu_arrow is not None and not re.fullmatch(r"[0-9]+( [0-9]+)?", menu_arrow):
         warn(f"{path}: ignoring invalid MenuArrow={menu_arrow} (use pixels, and pixels while floating)")
         menu_arrow = None
+    default_style = section.get("DefaultStyle") or None
+    if default_style is not None and not re.fullmatch(r"[a-z0-9][a-z0-9-]*", default_style):
+        warn(f"{path}: ignoring invalid DefaultStyle={default_style} (use a style's id)")
+        default_style = None
     try:
         desktops = int(section.get("Desktops") or 1)
     except ValueError:
@@ -933,6 +960,7 @@ def load_layout(folder, user=False):
         floating=os.path.join(folder, floating) if floating else None,
         floating_full=os.path.join(folder, floating_full) if floating_full else None,
         floating_default=bool(floating) and section.get("FloatingDefault") == "on",
+        default_style=default_style,
         wallpaper=os.path.join(folder, section["Wallpaper"]) if section.get("Wallpaper") else None,
         dock=os.path.join(folder, dock) if dock else None,
         dock_style=os.path.join(folder, dock_style) if dock else None,
@@ -1224,13 +1252,20 @@ def system_default(key="Layout", with_source=False):
     return found[0] if found else None
 
 
-def resolve(available, kind, default, directory, key=None):
+def resolve(available, kind, default, directory, key=None, layout_default=None):
     """The layout or style in use: user choice, system default (key in
-    [Defaults], else the kind in title case), built-in default."""
+    [Defaults], else the kind in title case), built-in default.
+    layout_default: a function giving the layout's default (DefaultStyle=),
+    which comes after the site's default and before FlickOS's."""
     default_id, default_file = system_default(key or kind.title(), with_source=True)
-    for source, item_id in ((choice_path(kind), read_first_line(choice_path(kind))),
-                            (default_file, default_id),
-                            (None, default)):
+
+    def candidates():
+        yield choice_path(kind), read_first_line(choice_path(kind))
+        if layout_default is not None and default_file != SITE_CONF:
+            yield None, layout_default()
+        yield default_file, default_id
+        yield None, default
+    for source, item_id in candidates():
         if item_id in available:
             return available[item_id]
         if item_id and source:
@@ -1244,7 +1279,9 @@ def resolve_layout(available):
     return resolve(available, "layout", DEFAULT_LAYOUT, LAYOUTS_DIR)
 
 
-def resolve_style(available):
+def resolve_style(available, layout=None):
+    """The style in use. layout: the layout in use, when the caller has it
+    (its DefaultStyle= counts while the user and the site chose no style)."""
     if plain_session():
         # A user's style in use becomes its nearest FlickOS ancestor.
         chosen, raw = read_first_line(choice_path("style")), None
@@ -1260,7 +1297,19 @@ def resolve_style(available):
         tried = tried_style_id()
         if tried in available:
             return available[tried]
-    return resolve(available, "style", DEFAULT_STYLE, STYLES_DIR)
+    return resolve(available, "style", DEFAULT_STYLE, STYLES_DIR, layout_default=lambda: layout_default_style(layout))
+
+
+def layout_default_style(layout=None):
+    """DefaultStyle= of layout, else of the layout in use, or None. Quiet: the
+    caller that resolves the layout itself warns about it."""
+    if layout is None:
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                layout = resolve_layout(layouts())
+        except LayoutError:
+            return None
+    return layout.default_style
 
 
 def try_path():
@@ -2364,6 +2413,9 @@ def explain_style(ctx):
              f"from {shown_path(style.folder)}"]
     if tried_style_id() == style.id:
         lines.append("trying it until you log out (flickos-layout try --end, or style set to keep it)")
+    elif ctx["layout"].default_style == style.id and user_choice("style") == DEFAULT_CHOICE \
+            and system_default("Style", with_source=True)[1] != SITE_CONF:
+        lines.append(f"the {ctx['layout'].name} layout's own style while you choose none")
     lines += style_fallback_messages(style)
     if plain_session():
         lines.append("plain session: your own styles are left out")
@@ -2510,8 +2562,8 @@ def explain_wallpaper(ctx):
 def explain(program=None):
     """[line] of explain's output, every program or one."""
     with contextlib.redirect_stderr(io.StringIO()):
-        available = styles()
-        ctx = {"styles": available, "style": resolve_style(available), "layout": resolve_layout(layouts()),
+        available, layout = styles(), resolve_layout(layouts())
+        ctx = {"styles": available, "style": resolve_style(available, layout), "layout": layout,
                "root": runtime_root(), "addons": addons()}
     makers = {"style": explain_style, "labwc": explain_labwc, "panel": explain_panel, "dock": explain_dock,
               "foot": lambda c: explain_config(os.path.join("foot", "foot.ini"), c, "foot"),
@@ -4479,7 +4531,8 @@ def update_waybar(root, layout, style, menu=False, phone=False, found=None, quic
         insert_module(bars, CLASSROOM_MODULE)
     if phone:
         use_phone(bars, popup=popup)
-    addon_styles = use_addons(bars, found or {})
+    # A dock that is the whole panel draws the add-ons' buttons (dock_addons).
+    addon_styles = use_addons(bars, {} if dock_is_panel(layout, bars) else found or {})
     use_clock(bars, resolve_clock(), calendar_today(style))
     if floating_css:
         for bar in bars:
@@ -4525,10 +4578,204 @@ def update_waybar(root, layout, style, menu=False, phone=False, found=None, quic
 
 # --- Dock (sfwbar) -------------------------------------------------------------
 
-def update_dock(root, layout, style, menu=False):
+def battery_path():
+    """The first system battery's folder in POWER_SUPPLY (type Battery, not a
+    device's such as a mouse's), or None. waybar's battery module finds it the
+    same way."""
+    try:
+        names = sorted(os.listdir(POWER_SUPPLY))
+    except OSError:
+        return None
+    for name in names:
+        folder = os.path.join(POWER_SUPPLY, name)
+        if read_first_line(os.path.join(folder, "type")) == "Battery" and \
+                read_first_line(os.path.join(folder, "scope")) != "Device":
+            return folder
+    return None
+
+
+def dock_feature_values(root, layout, menu):
+    """DOCK_FEATURES' values for layout's dock, each worked out only when a
+    dock asks for it (dock_lines): several run another program."""
+    return {
+        "menu": menu,
+        "quick": lambda: quick_running_on(root),
+        "phone": phone_on,
+        "phone-popup": lambda: phone_popup_on(root),
+        "media": media_on,
+        "weather": weather_on,
+        "classroom": classroom_on,
+        "floating": lambda: layout.floating is not None and resolve_floating_panel(layout).id == "on",
+        "clock-12h": lambda: resolve_clock().id == "12h",
+        "battery": lambda: battery_path() is not None,
+    }
+
+
+def dock_lines(config, features, where):
+    """config with its "#if NAME" sections resolved by features ({name: bool or
+    a function giving it}, DOCK_FEATURES). Raises LayoutError for an unknown
+    name or unbalanced lines; where names the file in the message."""
+    known = {}
+
+    def value(name):
+        if name not in known:
+            if name not in features:
+                raise LayoutError(f"{where}: unknown #if {name} (known: {', '.join(DOCK_FEATURES)})")
+            found = features[name]
+            known[name] = bool(found() if callable(found) else found)
+        return known[name]
+
+    kept, stack = [], []          # stack: [keeping before it, keeping in it, in #else]
+    keeping = True
+    for number, line in enumerate(config.split("\n"), 1):
+        test = DOCK_IF.match(line)
+        if test:
+            stack.append([keeping, None, False])
+            stack[-1][1] = (value(test.group(2)) != bool(test.group(1))) if keeping else False
+            keeping = keeping and stack[-1][1]
+        elif DOCK_ELSE.match(line):
+            if not stack or stack[-1][2]:
+                raise LayoutError(f"{where}: line {number}: #else without #if")
+            stack[-1][2] = True
+            keeping = stack[-1][0] and not stack[-1][1]
+        elif DOCK_ENDIF.match(line):
+            if not stack:
+                raise LayoutError(f"{where}: line {number}: #endif without #if")
+            keeping = stack.pop()[0]
+        elif keeping:
+            kept.append(line)
+    if stack:
+        raise LayoutError(f"{where}: #if without #endif")
+    return "\n".join(kept)
+
+
+def sfwbar_string(text):
+    """text as an sfwbar config string."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+
+
+def sfwbar_command(command):
+    """An sfwbar Exec() string that runs command in a shell, as waybar does:
+    sfwbar splits its command like a shell but runs none."""
+    return sfwbar_string("sh -c " + shlex.quote(command))
+
+
+# The add-ons' buttons read their program's whole output line: an sfwbar
+# Json() variable keeps its old value when a key is missing or nothing is
+# printed, so these pick the JSON apart in the expression instead.
+DOCK_ADDON_FUNCTIONS = """\
+Function FlickosAddonJson(line, path) {
+  Var found;
+  found = ExtractJson(line, path);
+  If ArraySize(found) > 0
+    Return ArrayIndex(found, 0);
+  Return "";
+}
+
+Function FlickosAddonClasses(line) {
+  Var found, i, classes;
+  found = ExtractJson(line, ".class.[]");
+  classes = "";
+  for(i = 0; i < ArraySize(found); i = i + 1)
+    classes = classes + "." + ArrayIndex(found, i);
+  Return classes;
+}"""
+
+
+def dock_addons(found, taken=()):
+    """The add-ons' panel buttons for a dock that is a whole panel: (sources,
+    buttons, stylesheets). Each custom/NAME module of an add-on's
+    ADDON_WAYBAR (the waybar format, docs/09) becomes an Exec source and a
+    button named custom-NAME with its JSON class and flickos-addon as CSS
+    classes, so the add-on's ADDON_STYLE applies as written and the dock's
+    CSS can give every add-on button its shape. Its signal is the button's
+    trigger, as waybar's; "interval" in seconds polls; text "" hides it
+    (style "hidden"). Only "{}" (or "{text}") in format is filled in; a
+    module whose format has other fields shows its text. taken: modules the
+    dock has already."""
+    sources, buttons, styles = [], [], []
+    number = 0
+    for name, folder in found.items():
+        path = os.path.join(folder, ADDON_WAYBAR)
+        if os.path.isfile(path):
+            try:
+                modules = load_jsonc(path)
+                if not isinstance(modules, dict):
+                    raise LayoutError(f"{path}: not an object of modules")
+            except LayoutError as error:
+                warn(f"{error}; add-on {name} has no panel button")
+                modules = {}
+            for module, settings in modules.items():
+                if not module.startswith(ADDON_MODULE_PREFIX) or not isinstance(settings, dict) or \
+                        not re.fullmatch(r"[A-Za-z0-9_-]+", module[len(ADDON_MODULE_PREFIX):]):
+                    warn(f"{path}: {module} left out (only {ADDON_MODULE_PREFIX}NAME modules with settings)")
+                    continue
+                if module in taken:
+                    warn(f"{path}: {module} left out: the panel already has it")
+                    continue
+                if not isinstance(settings.get("exec"), str):
+                    warn(f"{path}: {module} left out: no exec")
+                    continue
+                number += 1
+                line = f"FlickosAddon{number}Line"
+                css_name = module.replace("/", "-")
+                # One line always, empty when the program prints nothing.
+                command = f'out=$({settings["exec"]}); printf "%s\\n" "$out"'
+                sources.append(f"Exec({sfwbar_command(command)}) {{\n"
+                               f'  {line} = RegEx("^(.*)$")\n}}')
+                fmt = settings.get("format", "{}")
+                fmt = fmt.replace("{text}", "{}") if isinstance(fmt, str) else "{}"
+                if re.search(r"\{(?!\})", fmt.replace("{}", "")):
+                    fmt = "{}"
+                # sfwbar works out a widget's value, then its style: the first
+                # to read the line runs the program, the other reads Cached().
+                fresh, cached = f"${line}", f"Cached(${line})"
+                value_line, style_line = (fresh, cached) if "{}" in fmt else (cached, fresh)
+                classes = ""
+                if settings.get("return-type") == "json":
+                    shown, text = (f'FlickosAddonJson({value_line}, ".text")',
+                                   f'FlickosAddonJson({style_line}, ".text")')
+                    classes = f" + FlickosAddonClasses({cached})"
+                    tooltip = f'FlickosAddonJson({cached}, ".tooltip")'
+                else:
+                    shown, text, tooltip = value_line, style_line, cached
+                style = f'If({text} = "", "hidden", {sfwbar_string(css_name + ".flickos-addon")}{classes})'
+                value = f" + {shown} + ".join(sfwbar_string(part) for part in fmt.split("{}"))
+                lines = [f'button "flickos_addon_{number}" {{', "  type = label", f"  style = {style}",
+                         f"  value = {value}"]
+                signal_number = settings.get("signal")
+                interval = settings.get("interval")
+                if isinstance(signal_number, int) and not isinstance(signal_number, bool):
+                    lines.append(f'  trigger = "sigrtmin+{signal_number}"')
+                elif isinstance(interval, (int, float)) and not isinstance(interval, bool) and interval > 0:
+                    lines.append(f"  interval = {int(interval * 1000)}")
+                else:
+                    lines.append('  trigger = "flickos-once"')
+                if settings.get("tooltip", True) is not False:
+                    lines.append(f"  tooltip = {tooltip}")
+                for key, action in DOCK_ACTIONS:
+                    if isinstance(settings.get(key), str):
+                        lines.append(f"  action[{action}] = Exec({sfwbar_command(settings[key])})")
+                buttons.append("\n".join(lines) + "\n}")
+        style_path = os.path.join(folder, ADDON_STYLE)
+        if os.path.isfile(style_path):
+            styles.append(style_path)
+    if sources:
+        sources.insert(0, DOCK_ADDON_FUNCTIONS)
+    return "\n\n".join(sources), "\n".join(buttons), styles
+
+
+def indented(text, indent):
+    return "\n".join(indent + line if line else line for line in text.split("\n"))
+
+
+def update_dock(root, layout, style, menu=False, features=None, found=None):
     """Generate root/dock/sfwbar.config, or delete it when the layout has no
     dock. Returns the sfwbar command, or None. With menu, DOCK_LAUNCHER opens
-    the start menu, else fuzzel.
+    the start menu, else fuzzel. features: {name: bool or a function giving
+    it} for the dock's "#if NAME" lines (DOCK_FEATURES; menu by default
+    follows menu, the others are off); found (addons()) fills
+    DOCK_ADDON_SOURCES and DOCK_ADDON_BUTTONS.
 
     sfwbar reads the CSS after a #CSS line from a string, so the palette and
     the layout's CSS are copied in (an @import couldn't find them). Pins are
@@ -4549,6 +4796,19 @@ def update_dock(root, layout, style, menu=False):
     palette = "\n".join(text.rstrip() for text in palettes)
     if re.search(r"^#CSS", config, re.MULTILINE):
         raise LayoutError(f"{layout.dock}: has a #CSS section; the dock's CSS belongs in DockStyle=")
+    values = {name: False for name in DOCK_FEATURES}
+    values["menu"] = menu
+    values.update(features or {})
+    config = dock_lines(config, values, layout.dock)
+    has_addons = any(re.search(r"^[ \t]*" + re.escape(placeholder) + r"[ \t]*$", config, re.MULTILINE)
+                     for placeholder in (DOCK_ADDON_SOURCES, DOCK_ADDON_BUTTONS))
+    sources, buttons, addon_styles = dock_addons(found or {}) if has_addons else ("", "", [])
+    for placeholder, text in ((DOCK_ADDON_SOURCES, sources), (DOCK_ADDON_BUTTONS, buttons)):
+        config = re.sub(r"^([ \t]*)" + re.escape(placeholder) + r"[ \t]*$",
+                        lambda m, text=text: indented(text, m.group(1)), config, flags=re.MULTILINE)
+    if DOCK_BATTERY in config:
+        config = config.replace(DOCK_BATTERY, battery_path() or "")
+    config = config.replace(DOCK_RUNTIME, root)
     pins = layout_pins(layout)
     apps = installed_apps(pins) if pins else []
     pins = ", ".join(css_string(desktop_id.removesuffix(".desktop")) for desktop_id, _path, _entry in apps)
@@ -4558,7 +4818,15 @@ def update_dock(root, layout, style, menu=False):
     # "#Api2" must be the first line: the config syntax used by sfwbar 1.0beta17 and later.
     config = re.sub(r"\A#api2[ \t]*\n", "", config, flags=re.IGNORECASE)
     tweaks = tweaks_css()
-    if tweaks and not css_errors([tweaks]):
+    broken = css_errors(addon_styles + ([tweaks] if tweaks else []))
+    for path in addon_styles:
+        if path in broken:
+            warn(f"{css_error_text(path, broken[path])}: {shown_path(path)} is left out of the dock")
+            continue
+        text = text_of(path)
+        if text is not None:
+            css = f"{css.rstrip()}\n/* Add-on: {path} */\n{absolute_urls(text, os.path.dirname(path))}"
+    if tweaks and tweaks not in broken:
         # sfwbar reads its CSS from a string: the tweaks' own imports and pictures need absolute paths.
         text = text_of(tweaks)
         if text is not None:
@@ -4588,9 +4856,12 @@ def waybar_command(layout, style):
 
 
 def dock_command(layout, style):
-    """Generate the dock; its apps button opens the start menu while prepare wrote MENU_ANCHOR."""
+    """Generate the dock; its apps button opens the start menu while prepare wrote MENU_ANCHOR,
+    and its "#if" lines follow the same settings as the panel (waybar_command)."""
     root = required_root("dock")
-    return update_dock(root, layout, style, menu=menu_running_on(root))
+    menu = menu_running_on(root)
+    return update_dock(root, layout, style, menu=menu, features=dock_feature_values(root, layout, menu),
+                       found=addons())
 
 
 def mako_command(style):
@@ -5204,15 +5475,17 @@ def set_messages(stdout, stderr):
     return lines
 
 
-def apply_command(chosen, current):
+def apply_command(chosen, current, layout_style=None):
     """The command that applies a chooser selection, or None if nothing changed.
 
     chosen and current are (layout, style, clicks) ids. Only what changed is
     passed, because setting a style also resets GTK settings, and an
-    unchanged layout isn't saved as a choice."""
+    unchanged layout isn't saved as a choice. layout_style: the style a new
+    layout gives without a style choice (chooser_style); a chosen style that
+    is the same isn't saved either, so it keeps following the layout."""
     layout_id, style_id, clicks_id = chosen
     args = [layout_id] if layout_id != current[0] else []
-    if style_id != current[1]:
+    if style_id != (layout_style if args and layout_style is not None else current[1]):
         args += ["--style", style_id]
     if clicks_id != current[2]:
         args += ["--clicks", clicks_id]
@@ -5307,7 +5580,10 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
         warn("cannot open a GTK window (no display)")
         return None
 
-    state = {"layout": current, "style": current_style, "clicks": current_clicks, "busy": False}
+    # style_touched: a style picked by hand; until then the style follows the
+    # selected layout (its DefaultStyle=), and "moving" marks that change.
+    state = {"layout": current, "style": current_style, "clicks": current_clicks, "busy": False,
+             "style_touched": False, "moving": False}
     rows = {}
     radios = {}
     click_radios = {}
@@ -5500,6 +5776,23 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
     def current_state():
         return state["layout"], state["style"], state["clicks"]
 
+    def selected_layout_style():
+        row = listbox.get_selected_row()
+        return chooser_style(available, available_styles, row.item_id) if row else None
+
+    def layout_selected(*_args):
+        wanted = selected_layout_style()
+        if not state["style_touched"] and wanted in radios and not radios[wanted].get_active():
+            state["moving"] = True
+            radios[wanted].set_active(True)
+            state["moving"] = False
+        refresh()
+
+    def style_toggled(radio):
+        if radio.get_active() and not state["moving"]:
+            state["style_touched"] = True
+        refresh()
+
     def refresh(*_args):
         for layout_id, row in rows.items():
             row.badge.set_visible(layout_id == state["layout"])
@@ -5507,7 +5800,7 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
             radio.badge.set_visible(style_id == state["style"])
         for clicks_id, radio in click_radios.items():
             radio.badge.set_visible(clicks_id == state["clicks"])
-        pending = apply_command(selection(), current_state())
+        pending = apply_command(selection(), current_state(), selected_layout_style())
         apply.set_sensitive(not state["busy"] and pending is not None)
         for widget in (listbox, style_box, clicks_box):
             widget.set_sensitive(not state["busy"])
@@ -5524,6 +5817,7 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
         messages = set_messages(stdout or "", stderr or "")
         if ok:
             state["layout"], state["style"], state["clicks"] = chosen
+            state["style_touched"] = False
         elif not messages:
             messages = ["Could not apply the change."]
         # doctor warnings are shown above the list, not twice.
@@ -5534,7 +5828,7 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
 
     def apply_selected(*_args):
         chosen = selection()
-        command = apply_command(chosen, current_state())
+        command = apply_command(chosen, current_state(), selected_layout_style())
         if state["busy"] or command is None:
             return
         state["busy"] = True
@@ -5549,15 +5843,18 @@ def pick_gtk(available, current, available_styles, current_style, current_clicks
             return
         process.communicate_utf8_async(None, None, finished, chosen)
 
-    listbox.connect("row-selected", refresh)
+    listbox.connect("row-selected", layout_selected)
     listbox.connect("row-activated", apply_selected)
-    for radio in [*radios.values(), *click_radios.values()]:
+    for radio in radios.values():
+        radio.connect("toggled", style_toggled)
+    for radio in click_radios.values():
         radio.connect("toggled", refresh)
     apply.connect("clicked", apply_selected)
     listbox.select_row(rows.get(current))
     for selected, group_radios in ((current_style, radios), (current_clicks, click_radios)):
         if selected in group_radios:
             group_radios[selected].set_active(True)
+    state["style_touched"] = False
     refresh()
     window.show_all()
     if current in rows:
@@ -5608,6 +5905,13 @@ def fuzzel_menu(prompt, items, current):
         return None
 
 
+def chooser_style(available, available_styles, layout_id):
+    """The style the account gets with layout_id while it chooses no new one:
+    its own choice, else the layout's DefaultStyle=, else the default."""
+    layout = available.get(layout_id)
+    return resolve_style(available_styles, layout).id if layout else None
+
+
 def pick_fuzzel(available, current, available_styles, current_style, current_clicks=None):
     """Chooser without GTK: fuzzel --dmenu, first the layout, then the style
     (desktop clicks stay). Returns an exit code, or None without fuzzel."""
@@ -5615,13 +5919,15 @@ def pick_fuzzel(available, current, available_styles, current_style, current_cli
         return None
     try:
         layout = fuzzel_menu("Desktop Layout", available.values(), current)
-        style = layout and fuzzel_menu("Style", available_styles.values(), current_style)
+        layout_style = layout and chooser_style(available, available_styles, layout.id)
+        style = layout and fuzzel_menu("Style", available_styles.values(), layout_style or current_style)
     except OSError as error:
         warn(f"fuzzel: {error}")
         return None
     if layout is None or style is None:
         return 0  # cancelled
-    command = apply_command((layout.id, style.id, current_clicks), (current, current_style, current_clicks))
+    command = apply_command((layout.id, style.id, current_clicks), (current, current_style, current_clicks),
+                            layout_style)
     if command is None:
         return 0
     done = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -6475,6 +6781,12 @@ def layout_problems(layout_id, folders=None):
         message = line.removeprefix("flickos-layout: ").removeprefix(f"{path}: ")
         if "waybar only" not in message:
             problems.append(Problem(path, None, "warning", message))
+    if layout.default_style is not None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            known = layout.default_style in styles()
+        if not known:
+            problems.append(Problem(path, None, "warning", f"DefaultStyle={layout.default_style}: no such style "
+                                                           "is installed, so the usual default is used"))
     try:
         bars = load_bars(layout)
     except LayoutError as error:
@@ -6519,6 +6831,8 @@ def layout_problems(layout_id, folders=None):
 
     def lacks(message):
         problems.append(Problem(layout.waybar, None, "warning", message))
+    if dock_is_panel(layout, bars):
+        return problems + dock_panel_problems(layout)
     launcher = where.get(LAUNCHER_MODULE)
     if not launcher and not dock_opens_apps(layout):
         lacks(f"no {LAUNCHER_MODULE}: there is no apps button, and the start menu and Super have no corner to "
@@ -6543,6 +6857,29 @@ def layout_problems(layout_id, folders=None):
         lacks(f"Desktops={layout.desktops} without {DESKTOPS_MODULE} in a bar: nothing shows the desktops "
               f"(Super+1 to Super+{layout.desktops} still switch)")
     return problems
+
+
+def dock_is_panel(layout, bars=None):
+    """Is the layout's dock its whole panel (Redmond+)? It has a dock, and its
+    waybar bars show no module (waybar runs for supervision only)."""
+    if layout.dock is None:
+        return False
+    bars = load_bars(layout) if bars is None else bars
+    return not any(isinstance(bar.get(key), list) and bar[key]
+                   for bar in bars for key in ("modules-left", "modules-center", "modules-right"))
+
+
+def dock_panel_problems(layout):
+    """layout_problems' panel checks for a dock that is the whole panel."""
+    config = text_of(layout.dock) or ""
+    return [Problem(layout.dock, None, "warning", message) for found, message in (
+        (dock_opens_apps(layout), f'no Exec("{DOCK_LAUNCHER}"): there is no apps button, and the start menu and '
+                                  "Super have no corner to open from"),
+        (DOCK_TRAY.search(config), "no tray: apps' status icons have nowhere to show"),
+        ("flickos-screenshot stop" in config, "no recording button: a screen recording shows no time and no stop "
+                                              "button (Super+Shift+R still stops it)"),
+        ("flick-tiler show-desktop" in config, "no Show Desktop button (Super+Shift+D still works)"))
+        if not found]
 
 
 def launcher_corner(position, modules):
@@ -6685,7 +7022,9 @@ def state():
     # The defaults without the user's choice (Settings' Back to FlickOS's Look).
     found["floating-panel"]["offered"] = resolve_layout(installed_layouts).floating is not None
     found["layout"]["default"] = default_choice(installed_layouts, "Layout", DEFAULT_LAYOUT)
-    found["style"]["default"] = default_choice(installed_styles, "Style", DEFAULT_STYLE)
+    default_layout = installed_layouts.get(found["layout"]["default"])
+    found["style"]["default"] = default_choice(installed_styles, "Style", DEFAULT_STYLE,
+                                               default_layout.default_style if default_layout else None)
     found["plain"] = plain_session()
     found["trying"] = found["style"]["current"] if tried_style_id() == found["style"]["current"] else None
     found["tweaks"] = tweaks_css() is not None
@@ -6694,9 +7033,13 @@ def state():
     return found
 
 
-def default_choice(available, key, builtin):
-    """The id in use when the user chose nothing: [Defaults] KEY=, else builtin."""
-    for item_id in (system_default(key), builtin):
+def default_choice(available, key, builtin, layout_default=None):
+    """The id in use when the user chose nothing: [Defaults] KEY=, else builtin.
+    layout_default (the default layout's DefaultStyle=) comes after the site's
+    [Defaults] and before FlickOS's."""
+    default_id, default_file = system_default(key, with_source=True)
+    site_default = default_file == SITE_CONF
+    for item_id in (default_id if site_default else None, layout_default, default_id, builtin):
         if item_id in available:
             return item_id
     return next(iter(available), None)
@@ -6770,6 +7113,7 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
     with locked():
         # For the history: the saved choice and the one in use before.
         before = {kind: (user_choice(kind), resolvers[kind]().id) for kind in chosen}
+        style_before = resolve_style(available_styles).id
         for kind, item_id in chosen.items():
             if item_id == DEFAULT_CHOICE:
                 remove(choice_path(kind))
@@ -6779,7 +7123,8 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
             # Only a change that shows: saving the default as a choice isn't one.
             if resolvers[kind]().id != before[kind][1]:
                 record(kind, before[kind][0], item_id)
-        layout, style, clicks = resolve_layout(available), resolve_style(available_styles), resolve_clicks()
+        layout = resolve_layout(available)
+        style, clicks = resolve_style(available_styles, layout), resolve_clicks()
         if style_id is not None:
             warn_style_fallbacks(style)
         launcher, style_choice, quick = resolve_launcher(), resolve_menu_style(), resolve_quick_settings()
@@ -6794,6 +7139,10 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
             layout_gsettings(layout, available, buttons)
         if defaults:
             restyled = sync_default_look(layout, style, buttons, available, available_styles)
+        elif style.id != style_before:
+            # A layout with DefaultStyle= changed the style the account never chose.
+            sync_default_look(layout, style, buttons, available, available_styles)
+            restyled = True
         if prepare(layout, style, labwc_themes(available_styles), clicks, launcher, style_choice, quick, buttons):
             try:
                 command = waybar_command(layout, style)
@@ -6812,7 +7161,7 @@ def apply_choice(layout_id=None, style_id=None, clicks_id=None, launcher_id=None
                 status = 1
         if live:
             run_quiet(["labwc", "--reconfigure"])
-            if style_id is not None or defaults:
+            if style_id is not None or defaults or restyled:
                 run_quiet(["makoctl", "reload"])
             if command:
                 restart_panel(layout, style, command, dock)
@@ -7030,9 +7379,9 @@ def cmd_prepare(opts):
         end_try()               # every login ends a try (ADR-012)
     available_styles = styles()
     with locked():
-        style = resolve_style(available_styles)
-        warn_style_fallbacks(style)
         layout, buttons = resolve_layout(layouts()), resolve_buttons()
+        style = resolve_style(available_styles, layout)
+        warn_style_fallbacks(style)
         if not in_session() and not plain_session():
             move_retired_gtk_theme(style)   # before prepare, which reads gsettings
             sync_default_look(layout, style, buttons, layouts(), available_styles)

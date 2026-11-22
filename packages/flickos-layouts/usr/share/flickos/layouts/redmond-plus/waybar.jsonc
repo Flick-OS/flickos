@@ -1,0 +1,10 @@
+// No waybar bar on any screen. waybar runs (flickos-layout
+// supervises it and restarts it on screen changes) but draws nothing and
+// starts no module; the panel is sfwbar (panel.config).
+{
+    "name": "hidden",
+    "output": "FLICKOS-NO-SCREEN",
+    "modules-left": [],
+    "modules-center": [],
+    "modules-right": []
+}

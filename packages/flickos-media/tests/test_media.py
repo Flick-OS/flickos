@@ -372,7 +372,7 @@ class PanelTest(TempHome):
     def test_follower_writes_files_and_prints_the_title(self):
         folder = fm.runtime_dir()
         follower = fm.Follower(folder)
-        follower.waybar = None
+        follower.panel = None
         out = io.StringIO()
         with mock.patch.object(follower, "want_strip") as strip, contextlib.redirect_stdout(out):
             follower.on_line(fm.SEP.join(("vlc", "Playing", "Artist", "Song", "")) + "\n")
@@ -386,7 +386,7 @@ class PanelTest(TempHome):
 
     def test_long_title_scrolls_through_once_per_track(self):
         follower = fm.Follower(fm.runtime_dir())
-        follower.waybar = None
+        follower.panel = None
         song = "A rather long song title that goes on"
         through = fm.SCROLL_HOLD + len(song + fm.SCROLL_GAP)     # steps back to the start
         out = io.StringIO()
@@ -438,7 +438,7 @@ class PanelTest(TempHome):
     def test_spectrum_starts_while_playing_and_stops_after_a_pause(self):
         folder = fm.runtime_dir()
         follower = fm.Follower(folder)
-        follower.waybar = None
+        follower.panel = None
         self.write(fm.user_conf(), "[Media]\nSpectrum=on\n")
         process = mock.Mock()
         process.poll.return_value = None
@@ -460,7 +460,7 @@ class PanelTest(TempHome):
     def test_a_player_without_sound_goes_away(self):
         """Firefox says Playing for a video Discord took off the page."""
         follower = fm.Follower(fm.runtime_dir())
-        follower.waybar = None
+        follower.panel = None
         self.addCleanup(lambda: follower.leader and follower.leader.close())
         self.write(fm.user_conf(), "[Media]\nSpectrum=on\n")
         audio = mock.Mock(ready=True)
@@ -495,7 +495,7 @@ class PanelTest(TempHome):
 
     def test_pw_dump_runs_only_while_a_player_says_playing(self):
         follower = fm.Follower(fm.runtime_dir())
-        follower.waybar = None
+        follower.panel = None
         self.addCleanup(lambda: follower.leader and follower.leader.close())
         watch = mock.Mock(ready=False)
         with mock.patch.object(fm.shutil, "which", return_value="/usr/bin/pw-dump"), \
@@ -514,13 +514,41 @@ class PanelTest(TempHome):
 
     def test_without_pw_dump_every_player_is_believed(self):
         follower = fm.Follower(fm.runtime_dir())
-        follower.waybar = None
+        follower.panel = None
         self.addCleanup(lambda: follower.leader and follower.leader.close())
         out = io.StringIO()
         with mock.patch.object(follower, "want_strip"), contextlib.redirect_stdout(out):
             follower.on_line(fm.SEP.join(("vlc", "Playing", "", "Song", "")) + "\n")
         self.assertTrue(follower.audio_broken)
         self.assertEqual(json.loads(out.getvalue())["text"], "Song")
+
+    def fake_process(self, proc, pid, comm, ppid, pgrp):
+        os.makedirs(os.path.join(proc, str(pid)))
+        with open(os.path.join(proc, str(pid), "comm"), "w") as f:
+            f.write(comm + "\n")
+        with open(os.path.join(proc, str(pid), "stat"), "w") as f:
+            f.write(f"{pid} ({comm}) S {ppid} {pgrp} {pgrp} 0 -1\n")
+
+    def test_panel_ancestor(self):
+        """waybar runs the follower through sh -c; sfwbar's double fork leaves
+        it to PID 1 in the supervisor's process group, which sfwbar is in."""
+        with tempfile.TemporaryDirectory() as proc:
+            self.fake_process(proc, 1, "systemd", 0, 1)
+            self.fake_process(proc, 50, "flickos-layout", 1, 50)
+            self.fake_process(proc, 60, "waybar", 50, 50)
+            self.fake_process(proc, 61, "sh", 60, 50)
+            self.fake_process(proc, 70, "flickos-layout", 1, 70)
+            self.fake_process(proc, 80, "sfwbar", 70, 70)
+            with mock.patch.object(fm, "PROC", proc):
+                with mock.patch.object(fm.os, "getppid", return_value=61), \
+                        mock.patch.object(fm.os, "getpgrp", return_value=50):
+                    self.assertEqual(fm.panel_ancestor(), 60)
+                with mock.patch.object(fm.os, "getppid", return_value=1), \
+                        mock.patch.object(fm.os, "getpgrp", return_value=70):
+                    self.assertEqual(fm.panel_ancestor(), 80)
+                with mock.patch.object(fm.os, "getppid", return_value=1), \
+                        mock.patch.object(fm.os, "getpgrp", return_value=99):
+                    self.assertIsNone(fm.panel_ancestor())
 
     def test_catches_signal(self):
         old = signal.signal(signal.SIGUSR2, lambda *_: None)

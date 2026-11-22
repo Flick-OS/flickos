@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 08/18] Bar: a full-length bar asks for no length
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/bar.c | 17 ++++++++++++++---
+ 1 file changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/src/gui/bar.c b/src/gui/bar.c
+index ff3fe92..344312b 100644
+--- a/src/gui/bar.c
++++ b/src/gui/bar.c
+@@ -427,7 +427,7 @@ static gboolean bar_resize ( GtkWidget *self )
+   BarPrivate *priv;
+   GtkAlign halign, valign;
+   GdkRectangle rect;
+-  gint dir, size, msize;
++  gint dir, size, msize, request;
+   gboolean horizontal, full_size;
+   gchar *end;
+ 
+@@ -469,10 +469,17 @@ static gboolean bar_resize ( GtkWidget *self )
+         size = (horizontal?  rect.width : rect.height) * size / 100;
+     }
+     size = MIN(size, horizontal? rect.width : rect.height) - priv->margin * 2;
++    /* FlickOS: a full-length bar is anchored to both ends, so it takes the
++     * length the compositor gives it and asks for none. Asking for the
++     * monitor's length made a left dock below a top bar's exclusive zone run
++     * past the screen edge (a window is never smaller than it asks for).
++     * The window's grid (ebox) is homogeneous, so the bar's content still
++     * fills it (bar_new). */
++    request = (size == (horizontal? rect.width : rect.height))? 1 : size;
+     gtk_widget_set_size_request(GTK_WIDGET(priv->revealer),
+-        horizontal? size : 1, horizontal? 1 : size);
++        horizontal? request : 1, horizontal? 1 : request);
+     gtk_widget_set_size_request(self,
+-        horizontal? size : 1, horizontal? 1 : size);
++        horizontal? request : 1, horizontal? 1 : request);
+   }
+   full_size = !priv->current_monitor ||
+     (size == (horizontal? rect.width : rect.height));
+@@ -1250,6 +1257,10 @@ GtkWidget *bar_new ( gchar *name )
+   priv->dir = -1;
+   priv->box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+   priv->ebox = gtk_grid_new();
++  /* FlickOS: the one cell fills the window, also where the window is longer
++   * than its content asks for (a full-length bar, bar_resize). */
++  gtk_grid_set_row_homogeneous(GTK_GRID(priv->ebox), TRUE);
++  gtk_grid_set_column_homogeneous(GTK_GRID(priv->ebox), TRUE);
+   priv->revealer = GTK_REVEALER(gtk_revealer_new());
+   gtk_widget_set_name(priv->ebox, "ebox");
+   gtk_widget_set_name(GTK_WIDGET(priv->revealer), "revealer");

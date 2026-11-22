@@ -57,7 +57,7 @@ fragmented MP4, so a crash keeps all but the last second. It is written
 straight into ~/Videos/Screen Recordings under its final name. The panel's
 recording button (custom/recording, flickos-layouts) counts down, then shows
 the time and stops it when clicked: the recorder writes panel.json and sends
-waybar SIGRTMIN+PANEL_SIGNAL. The area is chosen by a short-lived child (the
+the panel (waybar or sfwbar) SIGRTMIN+PANEL_SIGNAL. The area is chosen by a short-lived child (the
 `area` command, the frozen screen), and another one (`outline`) draws a line
 around it, outside what is recorded. FlickOS's portal-wlr config runs
 /usr/libexec/flickos/screencast-chooser, which answers the portal's question
@@ -265,7 +265,10 @@ REQUEST = "screencast-request"      # in RUNTIME: the screen screencast-chooser 
 COUNTDOWN = 3                       # seconds before a recording starts, unless --delay says
 # waybar's custom/recording has "signal": 10 (flick-tiler uses 8, flickos-phone 9).
 PANEL_SIGNAL = 10
-PROC = "/proc"                      # where waybar is looked for (tests use a fake one)
+PROC = "/proc"                      # where the panel is looked for (tests use a fake one)
+# The programs that draw a panel: waybar, and sfwbar (Cupertino's dock, and
+# Redmond's whole panel in the sfwbar trial, docs/design/flickos-panel.md).
+PANEL_PROGRAMS = ("waybar", "sfwbar")
 FRAMERATE = 30
 MIN_AREA = 16                       # the smallest area recorded, in the stream's pixels
 # portal-wlr sometimes sends one CORRUPTED buffer and then nothing (its "out
@@ -3055,11 +3058,26 @@ def write_panel(runtime, status):
     signal_panel()
 
 
+def catches_signal(pid, signum):
+    """Whether pid has a handler for signum (SigCgt): a panel still starting
+    would die of SIGRTMIN+PANEL_SIGNAL."""
+    try:
+        with open(os.path.join(PROC, str(pid), "status"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16) >> (signum - 1) & 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    return False
+
+
 def signal_panel():
-    """Send the user's waybars SIGRTMIN+PANEL_SIGNAL, so custom/recording
-    reads panel.json again. Every waybar handles every realtime signal, so
-    one without the module ignores it. PIDs from PROC, never pkill -x."""
+    """Send the user's panels (PANEL_PROGRAMS) SIGRTMIN+PANEL_SIGNAL, so
+    custom/recording reads panel.json again. waybar and sfwbar handle every
+    realtime signal once started, so one without the button ignores it.
+    PIDs from PROC, never pkill -x."""
     uid = os.getuid()
+    signum = signal.SIGRTMIN + PANEL_SIGNAL
     try:
         entries = os.listdir(PROC)
     except OSError:
@@ -3069,11 +3087,11 @@ def signal_panel():
             continue
         try:
             with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
-                if f.read().strip() != "waybar":
+                if f.read().strip() not in PANEL_PROGRAMS:
                     continue
-            if os.stat(os.path.join(PROC, entry)).st_uid != uid:
+            if os.stat(os.path.join(PROC, entry)).st_uid != uid or not catches_signal(entry, signum):
                 continue
-            os.kill(int(entry), signal.SIGRTMIN + PANEL_SIGNAL)
+            os.kill(int(entry), signum)
         except (OSError, ValueError):
             continue
 

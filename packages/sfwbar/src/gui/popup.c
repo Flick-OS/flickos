@@ -67,7 +67,7 @@ void popup_get_gravity ( GtkWidget *widget, GdkGravity *wanchor,
   }
 }
 
-static void popup_popdown ( GtkWidget *popup )
+void popup_popdown ( GtkWidget *popup )
 {
   GdkSeat *seat;
   GtkWidget *window;

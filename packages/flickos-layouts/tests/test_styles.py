@@ -10,6 +10,7 @@ import dataclasses
 import io
 import os
 import re
+import shutil
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -125,6 +126,66 @@ class StyleLoadingTest(EngineTest):
             self.assertEqual(fl.resolve_style(fl.styles()).id, "dark")
             self.set_user_choice("nonexistent", kind="style")
             self.assertEqual(fl.resolve_style(fl.styles()).id, "light")
+
+    def test_layout_default_style(self):
+        """DefaultStyle= (a layout's own style): after the user's choice and the
+        site's Style=, before FlickOS's own."""
+        self.make_light_style()
+        self.make_layout("plus", extra="DefaultStyle=light\n")
+        self.make_layout("plain")
+        self.set_system_default("dark", key="Style")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.set_user_choice("plain")
+            self.assertEqual(fl.resolve_style(fl.styles()).id, "dark")
+            self.set_user_choice("plus")
+            self.assertEqual(fl.resolve_style(fl.styles()).id, "light")
+            self.assertEqual(fl.resolve_style(fl.styles(), self.layout("plain")).id, "dark")
+            self.set_user_choice("dark", kind="style")
+            self.assertEqual(fl.resolve_style(fl.styles()).id, "dark")
+            os.remove(fl.choice_path("style"))
+            self.write("site/flickos/layouts.conf", "[Defaults]\nStyle=dark\n")
+            self.assertEqual(fl.resolve_style(fl.styles()).id, "dark")
+            self.assertEqual(fl.default_choice(fl.styles(), "Style", "dark", "light"), "dark")
+            os.remove(self.path("site/flickos/layouts.conf"))
+            self.assertEqual(fl.default_choice(fl.styles(), "Style", "dark", "light"), "light")
+        self.assertEqual(err.getvalue(), "")
+
+    def test_layout_default_style_unknown_or_no_layouts(self):
+        self.make_layout("plus", extra="DefaultStyle=nonexistent\n")
+        self.set_user_choice("plus")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(fl.resolve_style(fl.styles()).id, "dark")
+            self.assertEqual(self.layout("plus").default_style, "nonexistent")
+            self.assertIn("DefaultStyle=nonexistent: no such style is installed, so the usual default is used",
+                          [p.message for p in fl.layout_problems("plus")])
+        self.assertEqual(err.getvalue(), "")
+        self.make_layout("bad", extra="DefaultStyle=Not A Style\n")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertIsNone(self.layout("bad").default_style)
+        self.assertIn("ignoring invalid DefaultStyle=", err.getvalue())
+        shutil.rmtree(self.layouts_dir)
+        os.makedirs(self.layouts_dir)
+        self.assertEqual(fl.resolve_style(fl.styles()).id, "dark")      # no layouts: no crash
+
+    def test_layout_change_carries_its_style_to_gtk(self):
+        """set LAYOUT with DefaultStyle= changes the style the account never
+        chose, and GTK follows; back again, and GTK follows back."""
+        self.make_light_style()
+        self.make_layout("plus", extra="DefaultStyle=light\n")
+        self.make_layout("plain")
+        self.set_user_choice("plain")
+        self.gsettings.update({"gtk-theme": "Arc-Dark", "icon-theme": "Numix-Circle", "color-scheme": "prefer-dark"})
+        with self.quiet():
+            fl.apply_choice(layout_id="plus")
+            self.assertEqual(self.gsettings["gtk-theme"], "Arc")
+            self.assertEqual(fl.resolve_style(fl.styles()).id, "light")
+            fl.apply_choice(layout_id="plain")
+            self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
+            # A style of the user's own stays.
+            fl.apply_choice(style_id="dark")
+            fl.apply_choice(layout_id="plus")
+        self.assertEqual(fl.resolve_style(fl.styles()).id, "dark")
+        self.assertEqual(self.gsettings["gtk-theme"], "Arc-Dark")
 
     def test_broken_styles_skipped(self):
         self.make_light_style()

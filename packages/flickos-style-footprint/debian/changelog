@@ -1,3 +1,11 @@
+flickos-style-footprint (1.10) trixie; urgency=medium
+
+  * Dock: the right-click menu has Redmond+'s window items (Minimize,
+    Maximize or Unmaximize, Restore, Close) above Pin to Dock or Unpin
+    from Dock, with icons, drawn like the hover list.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 19:50:36 +0800
+
 flickos-style-footprint (1.9) trixie; urgency=medium
 
   * Dock: right-click an app for Pin to Dock or Unpin from Dock (saved

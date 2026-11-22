@@ -10,7 +10,14 @@ This folder is upstream's source tree at git commit d40912d (main,
 2026-09-10), without .github/, packaging/, .gitattributes and
 doc/sfwbar.rst.bak.
 
-Changes to upstream (marked "FlickOS:" in the code):
+Changes to upstream (marked "FlickOS:" in the code). Each one is also kept
+as a patch against d40912d in debian/flickos-patches/, in the order of this
+list (series names them). They are a record for updating, not applied at
+build (a native package's source is already patched): applied in order to
+upstream d40912d, they give exactly this tree. A new change adds a patch
+there (its diff, made with git format-patch or diff -u from the tree root,
+paths a/src/...) and a line to series, as well as an entry here.
+
   - src/gui/taskbarpopup.c: taskbar_popup_update() sets the CSS class
     "running" on an app's button while it has a window, not only its pin.
     flickos-layouts' Cupertino dock.css draws the open-app line with it.
@@ -65,6 +72,69 @@ Changes to upstream (marked "FlickOS:" in the code):
     action[RightClick] = Menu(If(WindowInfo("pinned"), ...)), and a menu
     item's WindowInfo("appid") reads the clicked button, as a menu runs with
     its caller's widget.
+  - src/gui/flowgrid.c, flowgrid.h, taskbarshell.c/.h, tray.c/.h,
+    pager.c/.h: no 100 ms poll. Upstream's taskbars, trays and pagers each
+    ran flow_grid_update() every 100 ms, which did nothing unless the grid
+    was invalid (~600 wakeups a minute per grid on an idle desktop). They
+    call flow_grid_set_auto_update() instead, and flow_grid_invalidate()
+    starts a one-shot 100 ms timeout on such a grid, so changes are still
+    batched and shown within 100 ms.
+  - src/vm/vm.c, vm.h, src/gui/basewidget.c: vm_code_is_constant(), and
+    base_widget_update_list() doesn't poll a widget whose value and style
+    are constant (only immediate values and operators). Upstream
+    re-evaluated them every second (the default interval), including the
+    "layout" style of every bar's grid, so every bar woke its scanner
+    thread once a second. Widgets with variables, functions or If() still
+    poll as before.
+  - src/gui/basewidget.c: base_widget_style() names each mirror's child,
+    as it names its own. Upstream named the mirror widget itself, which CSS
+    doesn't match, so a bar's copies on other screens (mirror = "*") kept
+    the style a widget had when the copy was made: a tiler button never
+    dimmed there, and a bar ":end" section declared before the bar lost its
+    styles on the copies.
+  - src/appinfo.c: app_info_lookup_id() tries the app's own desktop file
+    (exactly APP_ID.desktop) before an icon named like the app id, as
+    waybar does; the fuzzy desktop file search stays after the icon name.
+    Upstream tried the icon name first, so Thunar (app id "thunar",
+    Icon=org.xfce.thunar) got Papirus' old "thunar" icon in the Cupertino
+    dock and Traditional's window list.
+  - src/gui/basewidget.c: base_widget_scanner_thread() skips a widget
+    whose interval is 0. base_widget_set_trigger() sets interval 0 before
+    base_widget_update_list() takes widget_mutex to remove the widget; in
+    between, upstream polled it with next_poll always "now", so the thread
+    never slept, kept retaking the mutex and starved the main thread: the
+    config parse hung at 100% CPU and no bar was drawn (a polled widget
+    given a trigger, such as Redmond sfwbar's weather grid).
+  - src/gui/basewidget.c: base_widget_style_apply() reads a style
+    "name.class1.class2" as the widget's name plus CSS classes, and takes
+    off the classes the style set last time. Upstream's "class" property is
+    one fixed string, so a state (paused, stale, recording) needed a style
+    name per state; with this the config can say
+    style = "media_title." + $Class, the way waybar's JSON class works,
+    and add-ons' CSS (#custom-trail.paused) applies as written. When the
+    classes change it emits style-updated on the widget's children, since
+    GTK emits it only where CSS values changed, and a ScaleImage colored
+    by a style property alone (-ScaleImage-color) kept its old color.
+  - src/gui/basewidget.c: a base widget sets the prelight state on its
+    child while the pointer is inside it (enter/leave events, crossings
+    to a widget inside ignored, cleared on unmap), unless the child is a
+    button, which does that itself. GTK 3 sets prelight only where a
+    widget does so itself, so CSS :hover on a grid, label or image
+    (grid#weather:hover in Redmond sfwbar) never matched upstream.
+  - src/gui/flowgrid.c, flowgrid.h, popup.c, popup.h: flow grid property
+    overflow (boolean, one-row grids only, bound on mirrors). The items
+    that fit the width the bar gives stay in it; the rest go to a pop-up
+    list (window#taskbar_more, grid#taskbar_more_grid: one row, wrapped at
+    the screen's width) that a more button after the last item
+    (button#taskbar_more, the view-more-horizontal-symbolic icon, in an
+    event box so the list opens at it) opens and closes on a click. The
+    list closes on Escape, a click outside it (it grabs, popup_popdown()
+    is no longer static), and a left or middle click on one of its items.
+    The grid asks for no minimum width and for all its items' natural
+    width, and size_allocate works out how many fit in the width the bar
+    gives it (not the inner grid's, which halign start keeps as narrow as
+    its items). Upstream's grid grew
+    with every item and pushed the rest of the bar off the screen.
 
 Why a git commit and not a release: the latest release, 1.0_beta17, lacks
 taskbar pins (documented but only implemented for the pager) and its
@@ -77,8 +147,13 @@ Updating to upstream commit or release REF:
   2. Replace everything here except debian/ with
      git archive REF | tar -x --exclude=.github --exclude=packaging \
          --exclude=.gitattributes --exclude=doc/sfwbar.rst.bak
-  3. Make the changes above again (git diff d40912d before replacing shows
-     them).
+  3. Apply debian/flickos-patches/ in series order
+     (while read p; do patch -p1 < debian/flickos-patches/$p; done
+     < debian/flickos-patches/series), fix any rejects, and leave out a
+     patch that upstream made unneeded (such as the scanner thread one past
+     88c83b9). Then make the patches again against REF (commit each one in
+     a scratch git repo of REF and git format-patch them), rewrite series,
+     and change "d40912d" in their messages.
   4. Compare meson.build's dependency() lines and meson_options.txt with
      debian/control's Build-Depends and debian/rules' feature options.
   5. Update the commit above, and debian/copyright if protocols/ changed.

@@ -1,0 +1,4 @@
+/* waybar draws no bar in this layout (waybar.jsonc); sfwbar draws the panel. */
+window#waybar {
+    background: @wm_bg;
+}

@@ -3,7 +3,7 @@
  * window#sfwbar is the dock's window, grid#dock the box of apps,
  * button#taskbar_popup an app (.focused, and .running while it has a window,
  * a FlickOS patch to sfwbar), button#showapps Show Apps, window#taskbar_popup
- * the list of an app's windows, shown on hover. */
+ * the list of an app's windows, shown on hover, menu the right-click menu. */
 
 window#sfwbar {
     background-color: alpha(@wm_bg, 0.9);
@@ -113,4 +113,54 @@ window#taskbar_popup button#taskbar_item:hover {
 
 window#taskbar_popup button#taskbar_item.focused {
     background-color: alpha(@selected_bg_color, 0.3);
+}
+
+/* The right-click menu (dock.config's DockMenu), drawn like the hover list:
+ * a pop-up surface (12 px corners, a border, no shadow) with rows lit
+ * like the apps on hover. :hover is also the row chosen with the arrow keys,
+ * and the GTK theme's white hover colors are put back to the text color.
+ * sfwbar adds its CSS above the GTK theme, and the dock has no other menus.
+ * sfwbar places the menu against the dock: CSS margins don't move it. */
+window.popup {
+    background-color: transparent;
+}
+
+window.popup decoration {
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+menu {
+    background-color: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 12px;
+    padding: 6px;
+}
+
+menu menuitem {
+    min-height: 0;
+    padding: 6px 16px 6px 8px;
+    border-radius: 8px;
+    color: @fg_color;
+}
+
+menu menuitem:hover {
+    background-color: alpha(@fg_color, 0.08);
+    color: @fg_color;
+}
+
+menu menuitem label,
+menu menuitem:hover label {
+    color: @fg_color;
+}
+
+menu menuitem image {
+    margin-right: 10px;
+    color: alpha(@fg_color, 0.8);
+}
+
+menu separator {
+    min-height: 1px;
+    margin: 4px 8px;
+    background-color: alpha(@fg_color, 0.1);
 }

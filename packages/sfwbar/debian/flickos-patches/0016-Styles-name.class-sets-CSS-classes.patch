@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:19 +0800
+Subject: [PATCH 16/18] Styles: "name.class" sets CSS classes
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/basewidget.c | 54 ++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 52 insertions(+), 2 deletions(-)
+
+diff --git a/src/gui/basewidget.c b/src/gui/basewidget.c
+index 17ba0c6..6031c58 100644
+--- a/src/gui/basewidget.c
++++ b/src/gui/basewidget.c
+@@ -106,6 +106,56 @@ static gboolean base_widget_update_value ( GtkWidget *self )
+   return FALSE;
+ }
+ 
++/* FlickOS: a style "name.class1.class2" names the widget "name" and gives it
++ * those CSS classes, so an expression can set a state class the way waybar's
++ * JSON "class" does (style = "media_title." + $Class). The classes a style
++ * set last time are taken off first; other classes stay. Empty parts are
++ * skipped, so "name." is just the name. */
++#define STYLE_CLASSES_KEY "flickos-style-classes"
++
++/* GTK emits style-updated only on widgets whose CSS values changed, so a
++ * child whose look comes from a style property alone (ScaleImage's
++ * -ScaleImage-color in button#tiler.off image) never re-reads it when an
++ * ancestor's class changes. */
++static void base_widget_style_restyle ( GtkWidget *widget, gpointer data )
++{
++  g_signal_emit_by_name(widget, "style-updated");
++  if(GTK_IS_CONTAINER(widget))
++    gtk_container_forall(GTK_CONTAINER(widget), base_widget_style_restyle,
++        NULL);
++}
++
++static void base_widget_style_apply ( GtkWidget *child, const gchar *style )
++{
++  GtkStyleContext *context;
++  gchar **parts, **old;
++  gboolean changed = FALSE;
++  gint i;
++
++  parts = g_strsplit(style, ".", -1);
++  context = gtk_widget_get_style_context(child);
++  old = g_object_get_data(G_OBJECT(child), STYLE_CLASSES_KEY);
++  for(i=0; old && old[i]; i++)
++    if(!parts[0] || !g_strv_contains((const gchar * const *)parts+1, old[i]))
++    {
++      gtk_style_context_remove_class(context, old[i]);
++      changed = TRUE;
++    }
++  for(i=1; parts[0] && parts[i]; i++)
++    if(*parts[i] && !gtk_style_context_has_class(context, parts[i]))
++    {
++      gtk_style_context_add_class(context, parts[i]);
++      changed = TRUE;
++    }
++  g_object_set_data_full(G_OBJECT(child), STYLE_CLASSES_KEY,
++      parts[0]? g_strdupv(parts+1) : NULL, (GDestroyNotify)g_strfreev);
++  gtk_widget_set_name(child, parts[0]? parts[0] : "");
++  g_strfreev(parts);
++  if(changed && GTK_IS_CONTAINER(child))
++    gtk_container_forall(GTK_CONTAINER(child), base_widget_style_restyle,
++        NULL);
++}
++
+ static gboolean base_widget_style ( GtkWidget *self )
+ {
+   BaseWidgetPrivate *priv;
+@@ -119,7 +169,7 @@ static gboolean base_widget_style ( GtkWidget *self )
+     return FALSE;
+ 
+   g_mutex_lock(&priv->style->mutex);
+-  gtk_widget_set_name(base_widget_get_child(self),
++  base_widget_style_apply(base_widget_get_child(self),
+       value_get_string(priv->style->cache));
+   /* FlickOS: name each mirror's child, as above. Upstream named the
+    * mirror widget itself, which CSS doesn't match, so a copy on another
+@@ -127,7 +177,7 @@ static gboolean base_widget_style ( GtkWidget *self )
+    * dimmed, or never dimmed; the start button stayed grey). */
+   if(!priv->local_state)
+     for(iter=priv->mirror_children; iter; iter=g_list_next(iter))
+-      gtk_widget_set_name(base_widget_get_child(iter->data),
++      base_widget_style_apply(base_widget_get_child(iter->data),
+           value_get_string(priv->style->cache));
+   g_mutex_unlock(&priv->style->mutex);
+   css_widget_cascade(self, NULL);

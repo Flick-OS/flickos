@@ -31,7 +31,8 @@ The daemon runs for the whole session: autostart starts it at login and it
 keeps following the windows whether tiling is on or off, so turning tiling on
 takes effect at once. While tiling is off it writes no fragment, and labwc
 runs with the plain FlickOS config. The panel button runs `flick-tiler status`
-once per change: flick-tiler sends waybar SIGRTMIN+8 (the module's "signal").
+once per change: flick-tiler sends the panel (waybar or sfwbar) SIGRTMIN+8
+(the module's "signal").
 
 `show-desktop` (the panel's Show Desktop button) minimizes every window that
 is shown, and when none is, gives back the ones it minimized, the focused one
@@ -1292,14 +1293,49 @@ def clear_stale_fragment():
     return True
 
 
-def signal_panel():
-    """Make waybar show the new state (custom/tiler's "signal"). waybar ignores
-    real-time signals no module uses, so a user's own panel is unaffected."""
+# The programs that draw a panel: waybar, and sfwbar (Cupertino's dock, and
+# Redmond's whole panel in the sfwbar trial, docs/design/flickos-panel.md).
+PANEL_PROGRAMS = ("waybar", "sfwbar")
+PROC = "/proc"                      # where the panel is looked for
+
+
+def catches_signal(pid, signum):
+    """Whether pid has a handler for signum (SigCgt): a panel still starting
+    would die of the signal."""
     try:
-        subprocess.run(["pkill", f"-RTMIN+{PANEL_SIGNAL}", "-u", str(os.getuid()), "-x", "waybar"],
-                       check=False, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired):
+        with open(os.path.join(PROC, str(pid), "status"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16) >> (signum - 1) & 1)
+    except (OSError, ValueError, IndexError):
         pass
+    return False
+
+
+def signal_panel():
+    """Make the panel show the new state (custom/tiler's "signal"): this user's
+    waybars and sfwbars that catch SIGRTMIN+PANEL_SIGNAL get it. Both ignore
+    real-time signals no button uses, so a user's own panel is unaffected.
+    PIDs from PROC, never pkill -x."""
+    signum = signal.SIGRTMIN + PANEL_SIGNAL
+    try:
+        entries = os.listdir(PROC)
+    except OSError:
+        return
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            if os.stat(os.path.join(PROC, entry)).st_uid != os.getuid():
+                continue
+            with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
+                if f.read().strip() not in PANEL_PROGRAMS:
+                    continue
+        except OSError:
+            continue
+        if catches_signal(entry, signum):
+            with contextlib.suppress(OSError):
+                os.kill(int(entry), signum)
 
 
 def serve_control(path):

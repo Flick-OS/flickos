@@ -1,3 +1,18 @@
+flickos-phone (1.33) trixie; urgency=medium
+
+  * Release of 1.33~test1: the panel's signal reaches sfwbar too
+    (Redmond+, flickos-layouts 1.90).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 18:14:50 +0800
+
+flickos-phone (1.33~test1) trixie; urgency=medium
+
+  * The panel's signal reaches sfwbar too (the sfwbar panel trial,
+    docs/design/flickos-panel.md), and only a panel that already catches
+    it; found from /proc, no longer pkill -x.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 16:01:13 +0800
+
 flickos-phone (1.32) trixie; urgency=medium
 
   * Release of 1.32~test1: phone-connected, phone-disconnected and

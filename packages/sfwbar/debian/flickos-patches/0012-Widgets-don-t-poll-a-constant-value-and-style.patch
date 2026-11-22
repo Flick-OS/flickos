@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:19 +0800
+Subject: [PATCH 12/18] Widgets: don't poll a constant value and style
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/basewidget.c |  8 +++++++-
+ src/vm/vm.c          | 32 ++++++++++++++++++++++++++++++++
+ src/vm/vm.h          |  1 +
+ 3 files changed, 40 insertions(+), 1 deletion(-)
+
+diff --git a/src/gui/basewidget.c b/src/gui/basewidget.c
+index 9b23d36..6aacf69 100644
+--- a/src/gui/basewidget.c
++++ b/src/gui/basewidget.c
+@@ -460,7 +460,13 @@ static void base_widget_update_list ( GtkWidget *self )
+   priv = base_widget_get_instance_private(BASE_WIDGET(self));
+ 
+   g_mutex_lock(&widget_mutex);
+-  if(!priv->interval || (!priv->value->code && !priv->style->code))
++  /* FlickOS: a constant value and style (value = "icon-name", and the
++   * "layout" style every bar grid gets) were re-evaluated every second
++   * (the default interval), waking the scanner thread for nothing. They
++   * are evaluated once when set (base_widget_set_value/_style) and copied
++   * to mirrors (base_widget_mirror_impl), so they aren't polled. */
++  if(!priv->interval || (vm_code_is_constant(priv->value->code) &&
++        vm_code_is_constant(priv->style->code)))
+     widgets_scan = g_list_remove(widgets_scan, self);
+   else if(!g_list_find(widgets_scan, self))
+   {
+diff --git a/src/vm/vm.c b/src/vm/vm.c
+index 556f237..a8aa433 100644
+--- a/src/vm/vm.c
++++ b/src/vm/vm.c
+@@ -366,6 +366,38 @@ static void vm_immediate ( vm_t *vm )
+   vm_push(vm, v1);
+ }
+ 
++/* FlickOS: TRUE when the code gives the same value every time: nothing but
++ * immediate values and operators, so no variable, function, cached value,
++ * local or jump. Steps through the code as vm_run() does. A widget whose
++ * value and style are constant needn't be polled (basewidget.c). */
++gboolean vm_code_is_constant ( GBytes *bytes )
++{
++  guint8 *code, *ip;
++  gsize len;
++
++  if(!bytes)
++    return TRUE;
++  code = (guint8 *)g_bytes_get_data(bytes, &len);
++
++  for(ip = code+1; (ip-code)<(gssize)len; ip++)
++  {
++    if(*ip >= EXPR_OP_LAST || *ip == EXPR_OP_DISCARD)
++      continue;
++    if(*ip != EXPR_OP_IMMEDIATE || code+len-ip < 2)
++      return FALSE;
++    if(*(ip+1) != EXPR_TYPE_STRING)
++    {
++      if(code+len-ip < (gssize)sizeof(value_t)+1)
++        return FALSE;
++      ip += sizeof(value_t);
++    }
++    else
++      ip += strnlen((gchar *)ip+2, code+len-ip-2)+2;
++  }
++
++  return TRUE;
++}
++
+ value_t vm_run ( vm_t *vm )
+ {
+   GtkWidget *widget;
+diff --git a/src/vm/vm.h b/src/vm/vm.h
+index 9c70d68..4ddfc45 100644
+--- a/src/vm/vm.h
++++ b/src/vm/vm.h
+@@ -122,6 +122,7 @@ GBytes *parser_function_call_build ( gchar *name );
+ 
+ void vm_free ( vm_t *vm );
+ value_t vm_run ( vm_t *vm );
++gboolean vm_code_is_constant ( GBytes *bytes );
+ value_t vm_code_eval ( GBytes *code, GtkWidget *widget );
+ vm_t *vm_expr_prep ( expr_cache_t *expr );
+ gboolean vm_expr_run ( vm_t *vm );

@@ -1,3 +1,11 @@
+neatvnc (0.9.1+dfsg+flickos1) trixie; urgency=medium
+
+  * Release: no longer a test version, published with flickos-classroom-
+    view 1.0. Computers with Debian's wayvnc now take this libneatvnc0
+    (no H.264) too.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 20:24:45 +0800
+
 neatvnc (0.9.1+dfsg+flickos1~test1) trixie; urgency=medium
 
   * FlickOS: built without H.264 (no libavcodec, libavfilter or

@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:19 +0800
+Subject: [PATCH 13/18] Widgets: style a mirror's child, not the mirror
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/basewidget.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/gui/basewidget.c b/src/gui/basewidget.c
+index 6aacf69..ccb3626 100644
+--- a/src/gui/basewidget.c
++++ b/src/gui/basewidget.c
+@@ -109,6 +109,7 @@ static gboolean base_widget_update_value ( GtkWidget *self )
+ static gboolean base_widget_style ( GtkWidget *self )
+ {
+   BaseWidgetPrivate *priv;
++  GList *iter;
+ 
+   if(!g_ptr_array_find(base_widgets, self, NULL))
+     return FALSE;
+@@ -120,9 +121,14 @@ static gboolean base_widget_style ( GtkWidget *self )
+   g_mutex_lock(&priv->style->mutex);
+   gtk_widget_set_name(base_widget_get_child(self),
+       value_get_string(priv->style->cache));
++  /* FlickOS: name each mirror's child, as above. Upstream named the
++   * mirror widget itself, which CSS doesn't match, so a copy on another
++   * screen kept the style it had when it was made (a dimmed tiler stayed
++   * dimmed, or never dimmed; the start button stayed grey). */
+   if(!priv->local_state)
+-    g_list_foreach(priv->mirror_children,
+-        (GFunc)gtk_widget_set_name, value_get_string(priv->style->cache));
++    for(iter=priv->mirror_children; iter; iter=g_list_next(iter))
++      gtk_widget_set_name(base_widget_get_child(iter->data),
++          value_get_string(priv->style->cache));
+   g_mutex_unlock(&priv->style->mutex);
+   css_widget_cascade(self, NULL);
+   if(!priv->local_state)

@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 10/18] Taskbar: right click on any group button; WindowInfo
+ appid and pinned
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/taskbarpopup.c | 13 +++++++++++++
+ src/lib/compositor.c   | 11 +++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/src/gui/taskbarpopup.c b/src/gui/taskbarpopup.c
+index 0c601ba..82268db 100644
+--- a/src/gui/taskbarpopup.c
++++ b/src/gui/taskbarpopup.c
+@@ -329,6 +329,19 @@ static gboolean taskbar_popup_action_exec ( GtkWidget *self, gint slot,
+   g_return_val_if_fail(IS_TASKBAR_POPUP(self),FALSE);
+   priv = taskbar_popup_get_instance_private(TASKBAR_POPUP(self));
+ 
++  /* FlickOS: a right click always runs the taskbar's RightClick action (the
++   * dock's pin menu), also on a pin without a window and on a group of
++   * several windows, which upstream ignores. The action finds its app with
++   * WindowInfo("appid"). */
++  if(slot==3 && (action = base_widget_get_action(priv->shell, slot,
++          base_widget_get_modifiers(self))))
++  {
++    win = flow_grid_get_sole_source(priv->tgroup);
++    vm_run_action(action, self, (GdkEvent *)ev, (win && !win->pin)? win : NULL,
++        NULL, base_widget_get_store(priv->shell), NULL);
++    return TRUE;
++  }
++
+   if(slot==2 && (win = wintree_pin_get(priv->appid)) )
+     exec_launch(win->pin);
+   else if((win = flow_grid_get_sole_source(priv->tgroup)))
+diff --git a/src/lib/compositor.c b/src/lib/compositor.c
+index 15b0685..8646f5f 100644
+--- a/src/lib/compositor.c
++++ b/src/lib/compositor.c
+@@ -103,6 +103,7 @@ static value_t lib_compositor_lib_window_info ( vm_t *vm, value_t p[], gint np )
+ {
+   GtkWidget *widget;
+   window_t *win;
++  gchar *appid;
+ 
+   vm_param_check_np_range(vm, np, 1, 2, "WindowInfo");
+   vm_param_check_string(vm, p, 0, "WindowInfo");
+@@ -116,7 +117,17 @@ static value_t lib_compositor_lib_window_info ( vm_t *vm, value_t p[], gint np )
+    * for, as Focus() and Minimize() do. Reading the app id as a window_t made
+    * WindowInfo('focused') false, so a click never minimized. */
+   if(widget && IS_TASKBAR_POPUP(widget))
++  {
++    /* FlickOS: "appid" and "pinned" are about the group's app, which has no
++     * window when it is only pinned or has several. The dock's pin menu
++     * asks them (a menu runs with its caller's widget). */
++    appid = flow_item_get_source(widget);
++    if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "appid"))
++      return value_new_string(appid? appid : "");
++    if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "pinned"))
++      return value_new_numeric(appid && wintree_pin_get(appid));
+     win = wintree_from_id(VM_WINDOW(vm));
++  }
+   else
+     win = flow_item_get_source(widget);
+   if(win)

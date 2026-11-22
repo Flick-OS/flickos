@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 04/18] Workspace: compare only the flags being changed
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/workspace.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/workspace.c b/src/workspace.c
+index 7db4df0..988d5d7 100644
+--- a/src/workspace.c
++++ b/src/workspace.c
+@@ -257,7 +257,10 @@ void workspace_mod_state ( gpointer id, gint32 mask, gboolean state )
+ 
+   if( !(ws = workspace_from_id(id)) )
+     return;
+-  if(!!(ws->state & WS_STATE_ALL) == state)
++  /* FlickOS: compare only the flags being changed. Upstream compared all of
++   * them, so once one was set (every shown workspace is "visible") no other
++   * could be, and the pager never marked the active workspace focused. */
++  if(!!(ws->state & mask) == state)
+     return;
+ 
+   if(state)

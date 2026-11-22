@@ -24,8 +24,8 @@ TITLE_CHARS scrolls through once when its track plays, one line every
 SCROLL_SECONDS (the only timer, and only then). One follower per session
 holds follow.lock (waybar runs a module's program once per screen); it writes
 the other buttons' JSON into $XDG_RUNTIME_DIR/flickos/media/panel/, whose
-modules only `cat` it, and sends waybar SIGRTMIN+PANEL_SIGNAL so they read it
-again at once. While a player says Playing it also runs `pw-dump --monitor`
+modules only `cat` it, and sends the panel that runs it (waybar or sfwbar)
+SIGRTMIN+PANEL_SIGNAL so they read it again at once. While a player says Playing it also runs `pw-dump --monitor`
 (AudioWatch), which prints only when PipeWire's objects change, and matches
 the player's process (its D-Bus name's) with the streams' (makes_sound).
 While the spectrum is on and a player plays, it runs `strip`,
@@ -115,7 +115,7 @@ TITLE_MODULE = "custom/media-title"
 # The buttons' files in panel/, one per module (flickos-layouts' modules.jsonc
 # cats them): custom/media-previous, -play, -next, -spectrum.
 BUTTONS = ("previous", "play", "next", "spectrum")
-PANEL_SIGNAL = 12           # waybar's SIGRTMIN+12; flick-tiler 8, phone 9, recording 10, desktops 11
+PANEL_SIGNAL = 12           # the panel's SIGRTMIN+12; flick-tiler 8, phone 9, recording 10, desktops 11
 TITLE_CHARS = 24            # a longer title scrolls through once per track, then ends in …; the tooltip has all
 SCROLL_SECONDS = 0.35       # one character further each step
 SCROLL_HOLD = 6             # steps the start stays still: about 2 s to read it
@@ -689,18 +689,40 @@ def player_command(action):
 
 # --- The follower -------------------------------------------------------------------
 
-def waybar_ancestor():
-    """The waybar that runs us (through its sh -c), or None."""
+# The programs that draw a panel: waybar, and sfwbar (Redmond's whole panel in
+# the sfwbar trial, docs/design/flickos-panel.md).
+PANEL_PROGRAMS = ("waybar", "sfwbar")
+
+
+def panel_ancestor():
+    """The panel (PANEL_PROGRAMS) that runs us, or None: a waybar among our
+    parents (it runs us through sh -c), else one in our process group. sfwbar
+    starts its programs through GLib's double fork, which leaves them to
+    PID 1, but they keep the process group of sfwbar's supervisor
+    (flickos-layout supervise), which sfwbar is in too."""
     pid = os.getppid()
     for _ in range(4):
         try:
-            with open(f"/proc/{pid}/comm", encoding="utf-8") as f:
-                if f.read().strip() == "waybar":
+            with open(os.path.join(PROC, str(pid), "comm"), encoding="utf-8") as f:
+                if f.read().strip() in PANEL_PROGRAMS:
                     return pid
-            with open(f"/proc/{pid}/stat", encoding="utf-8") as f:
+            with open(os.path.join(PROC, str(pid), "stat"), encoding="utf-8") as f:
                 pid = int(f.read().rsplit(")", 1)[1].split()[1])
         except (OSError, ValueError, IndexError):
-            return None
+            break
+    group = os.getpgrp()
+    try:
+        entries = sorted(int(entry) for entry in os.listdir(PROC) if entry.isdigit())
+    except OSError:
+        return None
+    for pid in entries:
+        try:
+            with open(os.path.join(PROC, str(pid), "stat"), encoding="utf-8") as f:
+                name, fields = f.read().split(" (", 1)[1].rsplit(")", 1)
+            if int(fields.split()[2]) == group and name in PANEL_PROGRAMS:
+                return pid
+        except (OSError, ValueError, IndexError):
+            continue
     return None
 
 
@@ -864,7 +886,7 @@ class Follower:
         self.pids = {}              # player name -> the process that owns it, or None
         self.silent = {}            # player name -> when its sound was first missed (heard_players)
         self.heard_at = None        # monotonic time to look at a silent player again
-        self.waybar = waybar_ancestor()
+        self.panel = panel_ancestor()
         self.signum = signal.SIGRTMIN + PANEL_SIGNAL
 
     def lead(self):
@@ -977,9 +999,9 @@ class Follower:
         if self.written.get("player") != (player or ""):
             write_atomic(os.path.join(self.folder, "player"), (player or "") + "\n")
             self.written["player"] = player or ""
-        if changed and self.waybar and catches_signal(self.waybar, self.signum):
+        if changed and self.panel and catches_signal(self.panel, self.signum):
             with contextlib.suppress(OSError):
-                os.kill(self.waybar, self.signum)
+                os.kill(self.panel, self.signum)
         self.want_strip(values["spectrum"] == "on" and playing, values["spectrum-layer"],
                         values["spectrum-shape"], values["spectrum-colors"], at_once=values["spectrum"] != "on")
 

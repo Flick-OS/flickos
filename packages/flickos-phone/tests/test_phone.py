@@ -57,7 +57,9 @@ fp.notify = lambda *args, **kwargs: None
 fp.copy_text = lambda text: None
 fp.spawn = lambda argv: None
 fp.choose_files = lambda: []
-# Never signal the build host's waybar or regenerate its panel.
+# Never signal the build host's panel or regenerate it (SignalPanelTest runs
+# the real signal_panel against the fake PROC, with os.kill mocked).
+_REAL_SIGNAL_PANEL = fp.signal_panel
 fp.signal_panel = lambda: None
 fp.reload_panel = lambda: None
 
@@ -2721,6 +2723,31 @@ class DaemonTest(Isolated):
 
 def tearDownModule():
     _ROOT.cleanup()
+
+
+class SignalPanelTest(unittest.TestCase):
+    """The panel's waybars and sfwbars get the signal, only once they catch it
+    (one still starting would die of it); other programs never do."""
+
+    def test_only_panels_that_catch_it(self):
+        signum = fp.signal.SIGRTMIN + fp.PANEL_SIGNAL
+        made = []
+        for pid, comm, caught in ((9001, "waybar", 1 << (signum - 1)), (9002, "waybar", 0),
+                                  (9003, "sfwbar", 1 << (signum - 1)), (9004, "foot", 1 << (signum - 1))):
+            folder = os.path.join(fp.PROC, str(pid))
+            os.makedirs(folder)
+            made.append(folder)
+            with open(os.path.join(folder, "comm"), "w") as f:
+                f.write(comm + "\n")
+            with open(os.path.join(folder, "status"), "w") as f:
+                f.write(f"Name:\t{comm}\nSigCgt:\t{caught:016x}\n")
+        try:
+            with mock.patch.object(fp.os, "kill") as kill:
+                _REAL_SIGNAL_PANEL()
+        finally:
+            for folder in made:
+                shutil.rmtree(folder)
+        self.assertEqual(sorted(kill.call_args_list), [mock.call(9001, signum), mock.call(9003, signum)])
 
 
 if __name__ == "__main__":

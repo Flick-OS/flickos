@@ -1,3 +1,77 @@
+sfwbar (1.0~beta17+git20260910+flickos11) trixie; urgency=medium
+
+  * Each FlickOS change to upstream is also kept as a patch in
+    debian/flickos-patches/ (a record for updating to a new upstream;
+    the built package is unchanged).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 20:10:30 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos10) trixie; urgency=medium
+
+  * Release of +flickos10~test6 for Redmond+ (flickos-layouts 1.90): no
+    polling while idle, the pulse module, a window's icon from its
+    desktop file, no hang at start, CSS classes from a style, :hover on
+    grids and labels, and a taskbar that keeps the apps that don't fit
+    behind a more button.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 18:14:49 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos10~test6) trixie; urgency=medium
+
+  * FlickOS patch: an overflowing taskbar takes its apps back from the
+    list when the bar gets room (media buttons gone, a wider screen); it
+    only gave them up.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 14:39:25 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos10~test5) trixie; urgency=medium
+
+  * FlickOS patch: a one-row taskbar with overflow = true keeps the apps
+    that don't fit in a list behind a more button at its end, instead of
+    pushing the rest of the bar off the screen.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 14:17:15 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos10~test4) trixie; urgency=medium
+
+  * FlickOS patch: CSS :hover works on a grid, label or image, not only
+    on buttons, so Redmond sfwbar's weather, Quick Settings, recording
+    and calendar arrows light up under the pointer.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 12:54:02 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos10~test3) trixie; urgency=medium
+
+  * A widget's style can carry CSS classes (style = "name.class"), so an
+    expression sets a state class the way waybar's JSON class does.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 16:01:18 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos10~test2) trixie; urgency=medium
+
+  * FlickOS patch: a widget given a trigger after it started polling no
+    longer hangs sfwbar at start (100% CPU, no bar drawn), as Redmond
+    sfwbar's weather button did at login.
+
+ -- Jon <dvbondoy@gmail.com>  Thu, 19 Nov 2026 07:10:45 +0800
+
+sfwbar (1.0~beta17+git20260910+flickos10~test1) trixie; urgency=medium
+
+  * FlickOS patch: taskbars, trays and pagers update when something
+    changes instead of every 100 ms, and widgets whose value and style
+    never change aren't re-evaluated every second. An idle Redmond-style
+    bar drops from about 1,200 wakeups a minute to under 10.
+  * FlickOS patch: a style change reaches the copies of a bar on other
+    screens (mirror), so a dimmed or highlighted button looks the same
+    on every screen.
+  * The pulse module is built (Build-Depends libpulse-dev), for a volume
+    control in an sfwbar panel.
+  * FlickOS patch: a window's icon comes from its app's own desktop file
+    before an icon named like its app id, as in waybar, so Thunar shows
+    its menu icon in the dock and window list.
+
+ -- Jon <dvbondoy@gmail.com>  Wed, 18 Nov 2026 21:32:32 +0800
+
 sfwbar (1.0~beta17+git20260910+flickos9) trixie; urgency=medium
 
   * Right click: a taskbar group (group = popup) always runs the

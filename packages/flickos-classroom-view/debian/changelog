@@ -1,3 +1,26 @@
+flickos-classroom-view (1.0) trixie; urgency=medium
+
+  * Release: flickos-classroom-view and flickos-classroom-teacher are
+    ordinary versions in the main repository, no longer test versions in
+    trixie-testing. Depends on the released libneatvnc0
+    (0.9.1+dfsg+flickos1).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 20:24:46 +0800
+
+flickos-classroom-view (1.0~test11) trixie; urgency=medium
+
+  * The panel's signal reaches sfwbar too (Redmond+, flickos-layouts
+    1.90): 1.0~test10+sfwbar1 merged into main.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 18:14:50 +0800
+
+flickos-classroom-view (1.0~test10+sfwbar1) trixie; urgency=medium
+
+  * The panel's signal reaches sfwbar too (the sfwbar panel trial,
+    docs/design/flickos-panel.md), only one that already catches it.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 16:01:13 +0800
+
 flickos-classroom-view (1.0~test10) trixie; urgency=medium
 
   * Hooks: sharing turned on or off fires changed, History on or off

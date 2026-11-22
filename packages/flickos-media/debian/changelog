@@ -1,3 +1,25 @@
+flickos-media (1.9) trixie; urgency=medium
+
+  * Release of 1.9~test2: the media buttons refresh in sfwbar too
+    (Redmond+, flickos-layouts 1.90).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 18:14:50 +0800
+
+flickos-media (1.9~test2) trixie; urgency=medium
+
+  * The follower finds the sfwbar that runs it in its process group:
+    sfwbar's double fork leaves it to PID 1, so the media buttons never
+    refreshed (only the title showed).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 17:33:11 +0800
+
+flickos-media (1.9~test1) trixie; urgency=medium
+
+  * The follower signals the sfwbar that runs it too, not only a waybar
+    (the sfwbar panel trial, docs/design/flickos-panel.md).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 16:01:13 +0800
+
 flickos-media (1.8) trixie; urgency=medium
 
   * Release of 1.8~test1: changed once a setting is applied.

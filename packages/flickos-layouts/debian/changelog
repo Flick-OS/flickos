@@ -1,3 +1,47 @@
+flickos-layouts (1.92) trixie; urgency=medium
+
+  * Redmond+ follows the default style (Dark) like every layout, instead
+    of Light: its DefaultStyle=light is gone, and its chooser preview is
+    drawn on Dark. GTK goes back to Dark at the next login for accounts
+    that never chose a style.
+  * Redmond+'s clock: the time and the date are each centered (two
+    labels in a grid; one two-line label justified them to the left).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 22 Nov 2026 10:29:16 +0800
+
+flickos-layouts (1.91) trixie; urgency=medium
+
+  * Cupertino's dock: right-click an app for Redmond+'s window menu
+    (Minimize, Maximize or Unmaximize, Restore, Close) with Pin to Dock
+    or Unpin from Dock, drawn like the hover list.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 19:56:22 +0800
+
+flickos-layouts (1.90) trixie; urgency=medium
+
+  * New layout Redmond+ (redmond-plus): Redmond's panel drawn by sfwbar,
+    with one taskbar button per app and its windows listed on hover, a
+    right-click window menu with pin and unpin, and a more button for
+    the apps that don't fit; the prompt start menu and the Light style
+    by default (docs/design/flickos-panel.md).
+  * layout.ini DefaultStyle=: a layout's own style while the user and
+    the site's layouts.conf chose none; GTK follows it when the layout
+    changes, and the chooser keeps it unless another style is picked.
+  * check and doctor read a dock that is the whole panel instead of its
+    empty waybar config, and the add-ons' buttons go to that dock.
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 18:14:50 +0800
+
+flickos-layouts (1.90~test1) trixie; urgency=medium
+
+  * A dock that is a whole panel follows the panel's settings:
+    #if/#else/#endif lines by feature (menu, quick, phone, media,
+    weather, classroom, floating, clock-12h, battery), the overlay
+    folder and battery path filled in, and the add-ons' buttons and CSS
+    (the sfwbar panel trial, docs/design/flickos-panel.md).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 16:24:36 +0800
+
 flickos-layouts (1.89) trixie; urgency=medium
 
   * Release of 1.89~test1: screens from the panel's supervisor, changed

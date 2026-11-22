@@ -171,16 +171,39 @@ class FilesTest(unittest.TestCase):
         self.assertIn('Exec("flickos/launcher")', dock)
         self.assertNotRegex(dock, r"(?m)^#CSS")
 
-    def test_right_click_pins_and_unpins(self):
-        """A right click on an app opens Pin to Dock or Unpin from Dock
-        (which one: WindowInfo("pinned"), a FlickOS patch to sfwbar), and each
-        item runs flickos-layout pinned with the app's id."""
+    def test_right_click_menu(self):
+        """A right click on an app opens Redmond+'s taskbar menu (Q2b of
+        flickos-layouts' docs/design/flickos-panel.md) in the dock's words:
+        a window's items by its state, and Pin to Dock or Unpin from Dock
+        (which one: WindowInfo("pinned"), a FlickOS patch to sfwbar) on an
+        app's button, running flickos-layout pinned with the app's id. Each
+        menu DockMenu names exists."""
         dock = text(os.path.join(LAYOUT, self.layout["Dock"]))
-        self.assertIn('action[RightClick] = Menu(If(WindowInfo("pinned"), "dock_unpin", "dock_pin"))', dock)
-        for menu, label, verb in (("dock_pin", "Pin to Dock", "add"), ("dock_unpin", "Unpin from Dock", "remove")):
-            self.assertRegex(dock, r'\nmenu "%s" \{\n  item \{\n    value = "%s"\n    action = '
-                                   r'Exec\("flickos-layout pinned %s \'" \+ WindowInfo\("appid"\) \+ "\'"\)'
-                                   % (menu, label, verb))
+        self.assertIn("\n    action[RightClick] = DockMenu()\n", dock)
+        body = re.search(r"\nFunction DockMenu\(\) \{\n(.*?)\n\}\n", dock, re.DOTALL).group(1)
+        self.assertIn('pin = WindowInfo("pinned");', body)
+        menus = dict(re.findall(r'\nmenu "(\w+)" \{\n(.*?)\n\}\n', dock, re.DOTALL))
+        states = re.findall(r'Menu\("(\w+)" \+ pin\)', body)
+        self.assertEqual(states, ["dock_app", "dock_minimized", "dock_maximized", "dock_window"])
+        expected = {"dock_app_pin", "dock_app_unpin"}
+        expected |= {state + suffix for state in states[1:] for suffix in ("", "_pin", "_unpin")}
+        self.assertEqual(set(menus), expected)
+        for name, items in menus.items():
+            for suffix, label, verb in (("_pin", "Pin to Dock", "add"), ("_unpin", "Unpin from Dock", "remove")):
+                if name.endswith(suffix):
+                    self.assertIn('value = "%s"  icon = "view-pin-symbolic"  action = Exec("flickos-layout '
+                                  "pinned %s '\" + WindowInfo(\"appid\") + \"'\")" % (label, verb), items, name)
+            if not name.startswith("dock_app"):
+                self.assertIn("action = Close()", items, name)
+        self.assertIn("UnMinimize()", menus["dock_minimized"])
+        self.assertIn("UnMaximize()", menus["dock_maximized"])
+        self.assertIn("action = Maximize()", menus["dock_window"])
+
+    def test_right_click_menu_drawn_like_the_hover_list(self):
+        """Footprint's own corners: 12 px like the hover list, 8 px rows."""
+        css = text(os.path.join(LAYOUT, "dock.css"))
+        self.assertRegex(css, r"\nmenu \{\n[^}]*border-radius: 12px;")
+        self.assertRegex(css, r"\nmenu menuitem \{\n[^}]*border-radius: 8px;")
 
     def test_show_apps_is_declared_before_the_mirror_line(self):
         """sfwbar copies a bar to the other screens when it reads `mirror`, so

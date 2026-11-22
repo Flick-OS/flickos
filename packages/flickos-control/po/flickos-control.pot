@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: flickos-control\n"
 "Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
-"POT-Creation-Date: 2026-11-19 21:24+0800\n"
+"POT-Creation-Date: 2026-11-21 22:13+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -417,7 +417,9 @@ msgid ""
 msgstr ""
 
 #: usr/bin/flickos-control
-msgid "startup autostart login items apps at login start automatically"
+msgid ""
+"startup autostart login items apps at login start automatically command "
+"script program"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -1471,6 +1473,27 @@ msgid "logind gave no power button and lid settings"
 msgstr ""
 
 #: usr/bin/flickos-control
+msgid "Type a command."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The command's quotes don't match."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "There is no program {program}."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Give the command a name."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Type the command on one line."
+msgstr ""
+
+#: usr/bin/flickos-control
 msgid "wlr-randr gave no list of screens"
 msgstr ""
 
@@ -2305,11 +2328,49 @@ msgid ""
 msgstr ""
 
 #: usr/bin/flickos-control
+msgid "Add _Command…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A program, script or command line that isn't in the list of apps"
+msgstr ""
+
+#: usr/bin/flickos-control
 msgid "Add a Startup App"
 msgstr ""
 
 #: usr/bin/flickos-control
 msgid "_Add"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Add a Startup Command"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A program, a script or a command line, as you would type it in a terminal. "
+"It runs as you at every login."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Browse…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Name"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Comman_d"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Choose a Program"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Choose"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -2534,10 +2595,6 @@ msgstr ""
 
 #: usr/bin/flickos-control
 msgid "No screenshot keys are set."
-msgstr ""
-
-#: usr/bin/flickos-control
-msgid "_Choose"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -3283,10 +3340,6 @@ msgid ""
 msgstr ""
 
 #: usr/bin/flickos-control
-msgid "Add _Command…"
-msgstr ""
-
-#: usr/bin/flickos-control
 msgid "Received"
 msgstr ""
 
@@ -3409,14 +3462,6 @@ msgstr ""
 msgid ""
 "It runs as you, on this computer. The phone is sent the name, and can run "
 "only this command."
-msgstr ""
-
-#: usr/bin/flickos-control
-msgid "_Name"
-msgstr ""
-
-#: usr/bin/flickos-control
-msgid "Comman_d"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -4113,6 +4158,11 @@ msgstr ""
 #: usr/bin/flickos-control
 msgid ""
 "Forgotten. The screens stay as they are until they change or you log out."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{app} starts at every login from now on."
 msgstr ""
 
 #: usr/bin/flickos-control

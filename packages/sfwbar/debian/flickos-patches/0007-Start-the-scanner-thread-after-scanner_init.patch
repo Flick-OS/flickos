@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 07/18] Start the scanner thread after scanner_init()
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/sfwbar.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/sfwbar.c b/src/sfwbar.c
+index 76be6be..8dde4ac 100644
+--- a/src/sfwbar.c
++++ b/src/sfwbar.c
+@@ -128,12 +128,16 @@ static void activate (GtkApplication* app, gpointer data )
+   bind_textdomain_codeset("sfwbar", "UTF-8");
+   textdomain("sfwbar");
+ 
++  /* FlickOS: the scanner thread starts after expr_init() and
++   * scanner_init() (upstream 88c83b9): its first scanner_invalidate() locked
++   * the still NULL scan_list and crashed when it ran before them. */
++  expr_init();
++  scanner_init();
++
+   g_thread_unref(g_thread_new("scanner",
+         (GThreadFunc)base_widget_scanner_thread,
+         g_main_context_get_thread_default()));
+ 
+-  expr_init();
+-  scanner_init();
+   config_init();
+   lib_init();
+   action_lib_init();

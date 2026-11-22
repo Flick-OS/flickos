@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 02/18] Bar: sensor_maximized property
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/bar.c | 118 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/gui/bar.h |   1 +
+ 2 files changed, 119 insertions(+)
+
+diff --git a/src/gui/bar.c b/src/gui/bar.c
+index 6c9f6bc..69c0d44 100644
+--- a/src/gui/bar.c
++++ b/src/gui/bar.c
+@@ -8,6 +8,7 @@
+ #include "meson.h"
+ #include "trigger.h"
+ #include "wayland.h"
++#include "wintree.h"
+ #include "gui/css.h"
+ #include "gui/bar.h"
+ #include "gui/monitor.h"
+@@ -31,6 +32,7 @@ enum {
+   BAR_EDGE,
+   BAR_HALIGN,
+   BAR_VALIGN,
++  BAR_SENSOR_MAXIMIZED,
+   BAR_N_PROPERTIES,
+ };
+ 
+@@ -123,6 +125,24 @@ static void bar_sensor_hide_complete ( GtkWidget *self )
+       bar_sensor_hide_complete, self);
+ }
+ 
++/* FlickOS: with sensor_maximized, a bar may only hide while the focused
++ * window is maximized or fullscreen on the bar's output. */
++static gboolean bar_may_hide ( GtkWidget *self )
++{
++  BarPrivate *priv;
++  window_t *win;
++
++  priv = bar_get_instance_private(BAR(self));
++  if(!priv->sensor_maximized)
++    return TRUE;
++  win = wintree_from_id(wintree_get_focus());
++  if(!win || (win->state & WS_MINIMIZED) ||
++      !(win->state & (WS_MAXIMIZED | WS_FULLSCREEN)))
++    return FALSE;
++  return !win->outputs || !priv->output ||
++    !!g_list_find_custom(win->outputs, priv->output, (GCompareFunc)g_strcmp0);
++}
++
+ static gboolean bar_sensor_hide ( GtkWidget *self )
+ {
+   BarPrivate *priv;
+@@ -133,6 +153,12 @@ static gboolean bar_sensor_hide ( GtkWidget *self )
+   if(gtk_bin_get_child(GTK_BIN(self))==priv->sensor)
+     return FALSE;
+ 
++  if(!bar_may_hide(self))
++  {
++    priv->sensor_handle = 0;
++    return FALSE;
++  }
++
+   if(window_ref_check(self))
+     return TRUE;
+   gtk_revealer_set_reveal_child(priv->revealer, FALSE);
+@@ -166,6 +192,7 @@ static gboolean bar_leave_handle ( GtkWidget *self )
+ 
+   g_return_val_if_fail(IS_BAR(self), G_SOURCE_REMOVE);
+   priv = bar_get_instance_private(BAR(self));
++  priv->pointer_in = FALSE;  /* FlickOS */
+ 
+ #if GTK_LAYER_VER_MINOR <= 5
+   gtk_layer_set_keyboard_interactivity(GTK_WINDOW(self), FALSE);
+@@ -239,6 +266,7 @@ static gboolean bar_enter_handle ( GtkWidget *self, gpointer m )
+ 
+   g_return_val_if_fail(IS_BAR(self),FALSE);
+   priv = bar_get_instance_private(BAR(self));
++  priv->pointer_in = TRUE;  /* FlickOS */
+ 
+ #if GTK_LAYER_VER_MINOR <= 5
+   gtk_layer_set_keyboard_interactivity(GTK_WINDOW(self), TRUE);
+@@ -283,6 +311,84 @@ static gboolean bar_drag_motion ( GtkWidget *self, GdkDragContext *ctx,
+   return TRUE;
+ }
+ 
++/* FlickOS: show or hide a sensor_maximized bar after a window change. */
++static void bar_maximized_update ( GtkWidget *self )
++{
++  BarPrivate *priv;
++
++  priv = bar_get_instance_private(BAR(self));
++  if(!priv->sensor_maximized || !priv->sensor_timeout)
++    return;
++
++  if(!bar_may_hide(self))
++  {
++    bar_sensor_cancel_hide(self);
++    if(!priv->sensor_state)
++      bar_sensor_show_bar(self);
++  }
++  else if(priv->sensor_state && !priv->pointer_in)
++  {
++    /* A shown bar holds a ref on itself until the pointer leaves it. The
++     * pointer isn't on it, so drop the ref (which schedules the hide, unless
++     * a popup is still open). */
++    window_unref(self, self);
++    if(!window_ref_check(self) && !priv->sensor_handle)
++      priv->sensor_handle = g_timeout_add(priv->sensor_timeout,
++          (GSourceFunc)bar_sensor_hide, self);
++  }
++}
++
++static guint bar_maximized_idle;
++
++static gboolean bar_maximized_update_all ( gpointer data )
++{
++  GHashTableIter iter;
++  GtkWidget *bar;
++  BarPrivate *priv;
++  GList *l;
++
++  bar_maximized_idle = 0;
++  if(!bar_list)
++    return G_SOURCE_REMOVE;
++  g_hash_table_iter_init(&iter, bar_list);
++  while(g_hash_table_iter_next(&iter, NULL, (gpointer *)&bar))
++  {
++    bar_maximized_update(bar);
++    priv = bar_get_instance_private(BAR(bar));
++    for(l=priv->mirror_children; l; l=g_list_next(l))
++      bar_maximized_update(l->data);
++  }
++
++  return G_SOURCE_REMOVE;
++}
++
++static void bar_maximized_window_event ( window_t *win, void *data )
++{
++  if(!bar_maximized_idle)
++    bar_maximized_idle = g_idle_add(bar_maximized_update_all, NULL);
++}
++
++static window_listener_t bar_maximized_listener = {
++  .window_new = bar_maximized_window_event,
++  .window_invalidate = bar_maximized_window_event,
++  .window_destroy = bar_maximized_window_event,
++};
++
++static void bar_set_sensor_maximized ( GtkWidget *self, gboolean value )
++{
++  BarPrivate *priv;
++  static gboolean listening;
++
++  priv = bar_get_instance_private(BAR(self));
++  priv->sensor_maximized = value;
++  if(value && !listening)
++  {
++    wintree_listener_register(&bar_maximized_listener, NULL);
++    listening = TRUE;
++  }
++  bar_maximized_update(self);
++}
++
+ static void bar_destroy ( GtkWidget *self )
+ {
+   BarPrivate *priv, *ppriv;
+@@ -497,6 +603,9 @@ static void bar_get_property ( GObject *self, guint id, GValue *value,
+       g_value_set_enum(value, (priv->overrides & BAR_OVERRIDE_VALIGN)?
+           (gint)priv->override_valign : -1);
+       break;
++    case BAR_SENSOR_MAXIMIZED:
++      g_value_set_boolean(value, priv->sensor_maximized);
++      break;
+     default:
+       G_OBJECT_WARN_INVALID_PROPERTY_ID(self, id, spec);
+   }
+@@ -572,6 +681,9 @@ static void bar_set_property ( GObject *self, guint id,
+       priv->overrides |= BAR_OVERRIDE_VALIGN;
+       bar_resize(GTK_WIDGET(self));
+       break;
++    case BAR_SENSOR_MAXIMIZED:
++      bar_set_sensor_maximized(GTK_WIDGET(self), g_value_get_boolean(value));
++      break;
+     default:
+       G_OBJECT_WARN_INVALID_PROPERTY_ID(self, id, spec);
+   }
+@@ -633,6 +745,10 @@ static void bar_class_init ( BarClass *kclass )
+   g_object_class_install_property(G_OBJECT_CLASS(kclass), BAR_EDGE,
+     g_param_spec_enum("edge", "bar edge","sfwbar_config",
+       g_type_from_name("direction"), GTK_POS_BOTTOM, G_PARAM_READWRITE));
++  /* FlickOS */
++  g_object_class_install_property(G_OBJECT_CLASS(kclass), BAR_SENSOR_MAXIMIZED,
++      g_param_spec_boolean("sensor_maximized", "hide only over maximized windows",
++        "sfwbar_config", FALSE, G_PARAM_READWRITE));
+ }
+ 
+ GtkWidget *bar_from_name ( gchar *name )
+@@ -1212,6 +1328,8 @@ GtkWidget *bar_mirror ( GtkWidget *src, GdkMonitor *monitor )
+ 
+   g_object_bind_property(G_OBJECT(src), "margin",
+       G_OBJECT(self), "margin", G_BINDING_SYNC_CREATE);
++  g_object_bind_property(G_OBJECT(src), "sensor_maximized",
++      G_OBJECT(self), "sensor_maximized", G_BINDING_SYNC_CREATE);
+   g_object_bind_property(G_OBJECT(src), "sensor",
+       G_OBJECT(self), "sensor", G_BINDING_SYNC_CREATE);
+   g_object_bind_property(G_OBJECT(src), "sensor_delay",
+diff --git a/src/gui/bar.h b/src/gui/bar.h
+index 72794b6..679f3ab 100644
+--- a/src/gui/bar.h
++++ b/src/gui/bar.h
+@@ -47,6 +47,7 @@ struct _BarPrivate {
+   GtkRevealer *revealer;
+   gint64 sensor_timeout, show_timeout, sensor_transition;
+   gboolean sensor_state, sensor_block, sensor_drag_enter;
++  gboolean sensor_maximized, pointer_in;  /* FlickOS */
+   guint sensor_handle, show_handle, sensor_refs;
+   gboolean hidden;
+   gboolean jump;

@@ -39,7 +39,6 @@ struct _TaskbarShellPrivate
   gboolean icons, labels, sort, floating_filter, preview;
   gint rows, cols, filter, title_width, primary_axis, api_id;
   gboolean tooltips;
-  guint timer_h;
   GPtrArray *pins;
   GBytes *style;
   gchar *css;

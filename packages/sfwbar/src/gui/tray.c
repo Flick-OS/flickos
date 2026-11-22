@@ -52,11 +52,6 @@ static void tray_destroy ( GtkWidget *self )
 
   g_return_if_fail(IS_TRAY(self));
   priv = tray_get_instance_private(TRAY(self));
-  if(priv->timer_h)
-  {
-    g_source_remove(priv->timer_h);
-    priv->timer_h = 0;
-  }
   g_clear_pointer(&priv->order, g_ptr_array_unref);
   GTK_WIDGET_CLASS(tray_parent_class)->destroy(self);
 }
@@ -91,11 +86,9 @@ static sni_listener_t tray_sni_listener = {
 
 static void tray_init ( Tray *self )
 {
-  TrayPrivate *priv;
-
   sni_listener_register(&tray_sni_listener, self);
-  priv = tray_get_instance_private(TRAY(self));
-  priv->timer_h = g_timeout_add(100, (GSourceFunc)flow_grid_update, self);
+  /* FlickOS: updated when invalidated, not polled (flowgrid.c). */
+  flow_grid_set_auto_update(GTK_WIDGET(self));
   gtk_grid_set_column_homogeneous(
       GTK_GRID(base_widget_get_child(GTK_WIDGET(self))), FALSE);
 

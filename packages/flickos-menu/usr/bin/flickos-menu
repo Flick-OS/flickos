@@ -1190,6 +1190,60 @@ def load_cairo():
     return cairo
 
 
+PANGO_SCALE = 1024      # Pango units in a pixel
+
+
+class Caret:
+    """The prompt style's underscore cursor: a bar under the place the next
+    letter goes (GTK 3's entry draws only a line, which style.css hides).
+
+    It blinks as GTK's own cursor does, by GTK's settings: not at all without
+    gtk-cursor-blink; on for two thirds of gtk-cursor-blink-time and off for
+    one third; solid for good once gtk-cursor-blink-timeout seconds pass
+    without a key, so an open menu left alone stops waking. restart() (a
+    key, a move, the focus) shows it solid and starts blinking again."""
+
+    def __init__(self, bar, settings, timeout_add, source_remove):
+        self.bar = bar                  # what is shown and hidden: set_opacity
+        self.settings = settings        # Gtk.Settings
+        self.timeout_add, self.source_remove = timeout_add, source_remove
+        self.timer = None
+        self.on = True
+        self.period = self.left = 0
+
+    def set_on(self, on):
+        self.on = on
+        self.bar.set_opacity(1.0 if on else 0.0)
+
+    def restart(self):
+        self.stop()
+        self.set_on(True)
+        props = self.settings.props
+        if not props.gtk_cursor_blink:
+            return
+        self.period = max(props.gtk_cursor_blink_time, 100)
+        self.left = props.gtk_cursor_blink_timeout * 1000
+        self.timer = self.timeout_add(self.period * 2 // 3, self.tick)
+
+    def tick(self):
+        if self.on:
+            if self.left <= 0:          # left alone long enough: stay on
+                self.timer = None
+                return False
+            self.set_on(False)
+            self.timer = self.timeout_add(self.period // 3, self.tick)
+        else:
+            self.set_on(True)
+            self.left -= self.period
+            self.timer = self.timeout_add(self.period * 2 // 3, self.tick)
+        return False
+
+    def stop(self):
+        if self.timer is not None:
+            self.source_remove(self.timer)
+            self.timer = None
+
+
 class Fader:
     """Shows and hides one layer-shell window, fading it.
 
@@ -3033,6 +3087,7 @@ class PromptView(View):
         self.open_ids = None        # app ids with a window, from flick-tiler
         self.flows = []
         self.pin_tiles, self.tiles = [], []
+        self.hovered = None         # the tile under the pointer (hover)
         self.content_height = 0     # the grid's rows, in px
         self.fitted_screen = None   # the screen height the last fit used
         self.middle_press = None
@@ -3099,9 +3154,22 @@ class PromptView(View):
         self.ghost.set_no_show_all(True)
         typed.add_overlay(self.ghost)
         typed.set_overlay_pass_through(self.ghost, True)
+        # The cursor: an underscore that blinks (Caret), over the ghost text
+        # like a terminal's over a suggestion.
+        bar = self.caret_bar = Gtk.Box(halign=Gtk.Align.START, valign=Gtk.Align.START)
+        bar.get_style_context().add_class("prompt-caret")
+        bar.set_no_show_all(True)
+        bar.connect("unmap", lambda *_: self.caret.stop())
+        typed.add_overlay(bar)
+        typed.set_overlay_pass_through(bar, True)
+        self.caret = Caret(bar, Gtk.Settings.get_default(), self.GLib.timeout_add, self.GLib.source_remove)
         field.pack_start(typed, True, True, 0)
         for signal in ("notify::cursor-position", "focus-in-event", "focus-out-event", "size-allocate"):
             self.entry.connect(signal, lambda *_: self.update_ghost() or False)
+        for signal in ("notify::cursor-position", "notify::selection-bound", "changed",
+                       "focus-in-event", "focus-out-event"):
+            self.entry.connect(signal, lambda *_: self.update_caret(True) or False)
+        self.entry.connect("size-allocate", lambda *_: self.update_caret(False))
         frame.pack_start(line, False, False, 0)
 
         self.pinned = self.flow("pinned")
@@ -3411,6 +3479,14 @@ class PromptView(View):
         events = Gtk.EventBox(visible_window=False)
         events.add(content)
         child.add(events)
+        # The tile under the pointer is lit as the grid style's is. GTK's
+        # :hover never reaches the tile through the EventBox's input window,
+        # so its own enter and leave do it; the selection (Enter's app) stays.
+        events.add_events(self.Gdk.EventMask.ENTER_NOTIFY_MASK | self.Gdk.EventMask.LEAVE_NOTIFY_MASK)
+        events.connect("enter-notify-event", lambda _w, _event, child=child: self.hover(child, True))
+        events.connect("leave-notify-event",
+                       lambda _w, event, child=child:
+                       event.detail != self.Gdk.NotifyType.INFERIOR and self.hover(child, False))
         target = Gtk.TargetEntry.new(DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
         events.drag_source_set(self.Gdk.ModifierType.BUTTON1_MASK, [target], self.Gdk.DragAction.MOVE)
         if app.info is not None and app.info.get_icon() is not None:
@@ -3595,8 +3671,22 @@ class PromptView(View):
             button.set_tooltip_text(text)
         button.get_accessible().set_name(text)
 
+    def hover(self, child, on):
+        """Light the tile under the pointer (style.css's .hover), and only it."""
+        if not on and self.hovered is not child:
+            return False        # a late leave of a tile already unlit
+        if self.hovered is not None:
+            self.hovered.get_style_context().remove_class("hover")
+            self.hovered = None
+        if on:
+            child.get_style_context().add_class("hover")
+            self.hovered = child
+        return False
+
     def reset(self):
         self.show_numbers(False)
+        if self.hovered is not None:
+            self.hover(self.hovered, False)
         self.mark_restart()
         self.stop_replacing()
         self.eject_error.hide()
@@ -4026,6 +4116,26 @@ class PromptView(View):
         self.ghost.set_text(ghost)
         self.ghost.set_margin_start(max(x, 0))
         self.ghost.show()
+
+    def update_caret(self, moved):
+        """Put the underscore under where the next letter goes: shown while
+        the entry has the focus and nothing is selected; solid again and
+        blinking anew when moved (a key, a click, the focus)."""
+        entry, bar = self.entry, self.caret_bar
+        if not entry.has_focus() or entry.get_selection_bounds():
+            self.caret.stop()
+            bar.hide()
+            return
+        index = entry.text_index_to_layout_index(entry.get_position())
+        strong = entry.get_layout().get_cursor_pos(index)[0]
+        x, y = entry.get_layout_offsets()
+        width, _height = entry.create_pango_layout("_").get_pixel_size()
+        bar.set_size_request(max(width, 6), 2)
+        bar.set_margin_start(max(x + strong.x // PANGO_SCALE, 0))
+        bar.set_margin_top(max(y + (strong.y + strong.height) // PANGO_SCALE - 2, 0))
+        if moved or not bar.get_visible():
+            bar.show()
+            self.caret.restart()
 
     def first_row(self):
         if self.matches is None:

@@ -54,6 +54,16 @@ struct _FlowGridPrivate
   GtkTargetEntry *dnd_target;
   GtkWidget *parent;
   GtkWidget *grid;
+  /* FlickOS: a grid that updates itself (flow_grid_set_auto_update) gets
+   * a one-shot timeout when invalidated, instead of a 100 ms poll. */
+  gboolean auto_update;
+  guint update_h;
+  /* FlickOS: overflow = true on a one-row grid: the items that don't fit
+   * go to a list that the more button (button#taskbar_more) opens. */
+  gboolean overflow;
+  gint capacity;
+  GtkWidget *more_button, *more_window, *more_grid;
+  gint64 more_closed;
 };
 
 GType flow_grid_get_type ( void );
@@ -61,6 +71,7 @@ GType flow_grid_get_type ( void );
 void flow_grid_add_child ( GtkWidget *self, GtkWidget *child );
 gboolean flow_grid_update ( GtkWidget *self );
 void flow_grid_invalidate ( GtkWidget *self );
+void flow_grid_set_auto_update ( GtkWidget *self );
 void flow_grid_delete_child ( GtkWidget *, void *parent );
 guint flow_grid_n_children ( GtkWidget *self, gboolean active );
 gpointer flow_grid_get_sole_source ( GtkWidget *self );

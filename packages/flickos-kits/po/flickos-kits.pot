@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: flickos-kits\n"
 "Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
-"POT-Creation-Date: 2026-11-19 22:43+0800\n"
+"POT-Creation-Date: 2026-11-21 08:26+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -23,7 +23,21 @@ msgid "Tool Kits"
 msgstr ""
 
 #: usr/bin/flickos-kits
+msgid ""
+"Use these tools only on computers and networks you own or have permission to "
+"test."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Development"
+msgstr ""
+
+#: usr/bin/flickos-kits
 msgid "What do you develop?"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Learning"
 msgstr ""
 
 #: usr/bin/flickos-kits
@@ -31,13 +45,11 @@ msgid "For learning and teaching"
 msgstr ""
 
 #: usr/bin/flickos-kits
-msgid "Security work"
+msgid "Security"
 msgstr ""
 
 #: usr/bin/flickos-kits
-msgid ""
-"Use these tools only on computers and networks you own or have permission to "
-"test."
+msgid "Security work"
 msgstr ""
 
 #: usr/bin/flickos-kits
@@ -145,70 +157,6 @@ msgid "Aircrack-ng and the tools for testing Wi-Fi networks"
 msgstr ""
 
 #: usr/bin/flickos-kits
-msgid "Your name and email for git"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Git puts them on every commit you make."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "SSH key"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "A key to sign in to GitHub and other code hosts."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Rust"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid ""
-"Rust's compiler and tools, from rust-lang.org (about 600 MB in your home "
-"folder)."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Devices on this network"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid ""
-"Let a phone or another computer on your home or office network reach a "
-"server you run."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Container networks with DHCP"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid ""
-"Let containers get addresses from your router. Almost nobody needs this."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Capture packets without administrator rights"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid ""
-"You can then record all network traffic on this computer, including other "
-"accounts'."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Wireless adapter for testing"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid ""
-"A second Wi-Fi adapter for monitor mode, which FlickOS then leaves alone."
-msgstr ""
-
-#: usr/bin/flickos-kits
 #, python-brace-format
 msgid ""
 "It downloads from Docker Hub ({image}, Debian's own image), then from "
@@ -300,6 +248,129 @@ msgid "'{item}' isn't a port: give ports like 8000/tcp or 5000:5010/udp."
 msgstr ""
 
 #: usr/bin/flickos-kits
+msgid "Git needs both a name and an email."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Change…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Copy Public Key"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Make a Key…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Update Rust…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Install Rust…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Open to devices on this network: {ports}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Applies when you log in again."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "None"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{address} (not plugged in)"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "FlickOS won't connect to networks with it."
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Monitor mode: sudo airmon-ng start {device} (never with check kill)"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "It isn't plugged in. FlickOS leaves it alone when it is."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Plug in a second Wi-Fi adapter that can do monitor mode."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Your name and email for git"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Git puts them on every commit you make."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "SSH key"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "A key to sign in to GitHub and other code hosts."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Rust"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Rust's compiler and tools, from rust-lang.org (about 600 MB in your home "
+"folder)."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Devices on this network"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Let a phone or another computer on your home or office network reach a "
+"server you run."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Container networks with DHCP"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Let containers get addresses from your router. Almost nobody needs this."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Capture packets without administrator rights"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"You can then record all network traffic on this computer, including other "
+"accounts'."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Wireless adapter for testing"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"A second Wi-Fi adapter for monitor mode, which FlickOS then leaves alone."
+msgstr ""
+
+#: usr/bin/flickos-kits
 #, python-brace-format
 msgid ""
 "Environment of {kits}: {count} packages, {download} to download, {disk} on "
@@ -348,6 +419,24 @@ msgstr ""
 msgid ""
 "Remove the environment {name}, everything installed in it and its image when "
 "nothing else uses it? Your home folder stays. [y/N] "
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid ""
+"Newer or other software in a container that shares your home folder: for "
+"other software, not for keeping anything apart."
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Environments"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Set up"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Newer versions"
 msgstr ""
 
 #: usr/bin/flickos-kits
@@ -434,75 +523,46 @@ msgid "Couldn't read which kits are installed: {error}"
 msgstr ""
 
 #: usr/bin/flickos-kits
-msgid "Set up"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Git needs both a name and an email."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Change…"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Copy Public Key"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Make a Key…"
-msgstr ""
-
-#: usr/bin/flickos-kits
-#, python-brace-format
-msgid "Open to devices on this network: {ports}"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Applies when you log in again."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Install Rust…"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Update Rust…"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "None"
-msgstr ""
-
-#: usr/bin/flickos-kits
-#, python-brace-format
-msgid "{address} (not plugged in)"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "FlickOS won't connect to networks with it."
-msgstr ""
-
-#: usr/bin/flickos-kits
-#, python-brace-format
-msgid "Monitor mode: sudo airmon-ng start {device} (never with check kill)"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "It isn't plugged in. FlickOS leaves it alone when it is."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Plug in a second Wi-Fi adapter that can do monitor mode."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Newer versions"
-msgstr ""
-
-#: usr/bin/flickos-kits
 #, python-brace-format
 msgid "mise can't say which versions are yours: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Couldn't list the environments: {error}"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Back"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "New Environment…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{count} of them is yours."
+msgid_plural "{count} of them are yours."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "{kit}: its tools"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Install Containers Kit…"
+msgstr ""
+
+#: usr/bin/flickos-kits
+msgid "Environments need the Containers kit"
+msgstr ""
+
+#: usr/bin/flickos-kits
+#, python-brace-format
+msgid "Podman and Distrobox, about {size} with Developer Basics."
 msgstr ""
 
 #: usr/bin/flickos-kits
@@ -709,38 +769,6 @@ msgstr ""
 #: usr/bin/flickos-kits
 #, python-brace-format
 msgid "{name} was removed."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Environments"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid ""
-"Newer or other software in a container that shares your home folder: for "
-"other software, not for keeping anything apart."
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Install Containers Kit…"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "Environments need the Containers kit"
-msgstr ""
-
-#: usr/bin/flickos-kits
-#, python-brace-format
-msgid "Podman and Distrobox, about {size} with Developer Basics."
-msgstr ""
-
-#: usr/bin/flickos-kits
-#, python-brace-format
-msgid "Couldn't list the environments: {error}"
-msgstr ""
-
-#: usr/bin/flickos-kits
-msgid "New Environment…"
 msgstr ""
 
 #: usr/bin/flickos-kits

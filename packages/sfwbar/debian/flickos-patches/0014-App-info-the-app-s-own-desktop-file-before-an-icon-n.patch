@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:19 +0800
+Subject: [PATCH 14/18] App info: the app's own desktop file before an icon
+ named like it
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/appinfo.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/src/appinfo.c b/src/appinfo.c
+index c98fe1e..006fb23 100644
+--- a/src/appinfo.c
++++ b/src/appinfo.c
+@@ -221,9 +221,25 @@ gchar *app_info_icon_get ( const gchar *app_id, gboolean symbolic_pref )
+ 
+ static gchar *app_info_lookup_id ( gchar *app_id, gboolean symbolic_pref )
+ {
+-  gchar ***desktop, *wmmap, *icon = NULL;
++  gchar ***desktop, *wmmap, *icon = NULL, *desktop_file;
++  GDesktopAppInfo *exact;
+   gint i,j;
+ 
++  /* FlickOS: the app's own desktop file (exactly APP_ID.desktop) first,
++   * then an icon named like the app id, as waybar does. Upstream tried the
++   * icon name first, so Thunar (app id "thunar", Icon=org.xfce.thunar) got
++   * the icon theme's old "thunar" icon instead of its menu entry's. The
++   * fuzzy desktop file search stays after the icon name. */
++  desktop_file = g_strconcat(app_id, ".desktop", NULL);
++  if( (exact = g_desktop_app_info_new(desktop_file)) )
++  {
++    g_object_unref(exact);
++    icon = app_info_icon_get(desktop_file, symbolic_pref);
++  }
++  g_free(desktop_file);
++  if(icon)
++    return icon;
++
+   if( (icon = app_info_icon_test(app_id, symbolic_pref)) )
+     return icon;
+ 

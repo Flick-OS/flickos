@@ -122,6 +122,7 @@ GBytes *parser_function_call_build ( gchar *name );
 
 void vm_free ( vm_t *vm );
 value_t vm_run ( vm_t *vm );
+gboolean vm_code_is_constant ( GBytes *bytes );
 value_t vm_code_eval ( GBytes *code, GtkWidget *widget );
 vm_t *vm_expr_prep ( expr_cache_t *expr );
 gboolean vm_expr_run ( vm_t *vm );

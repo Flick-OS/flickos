@@ -280,8 +280,8 @@ MAX_ARG_BYTES = 131071
 # last on PATH, so it is there exactly while the phone connection is on.
 ON_LINK = "flickos-phone-on"
 # The panel button (custom/phone in flickos-layouts' common/modules.jsonc,
-# in the panel only while this is on): waybar runs `status --panel` again
-# when it gets SIGRTMIN+PANEL_SIGNAL, which the daemon sends when a phone
+# in the panel only while this is on): the panel (waybar or sfwbar) runs
+# `status --panel` again when it gets SIGRTMIN+PANEL_SIGNAL, which the daemon sends when a phone
 # connects or goes away. flick-tiler's button uses 8.
 PANEL_SIGNAL = 9
 MENU_RECEIVED = 5               # the newest received items in the button's menu
@@ -2003,14 +2003,48 @@ def downloads_dir():
     return folder
 
 
-def signal_panel():
-    """Make waybar show the phone button's new state. waybar ignores real-time
-    signals no module uses, so a panel without the button is unaffected."""
+# The programs that draw a panel: waybar, and sfwbar (Cupertino's dock, and
+# Redmond's whole panel in the sfwbar trial, docs/design/flickos-panel.md).
+PANEL_PROGRAMS = ("waybar", "sfwbar")
+
+
+def catches_signal(pid, signum):
+    """Whether pid has a handler for signum (SigCgt): a panel still starting
+    would die of the signal."""
     try:
-        subprocess.run(["pkill", f"-RTMIN+{PANEL_SIGNAL}", "-u", str(os.getuid()), "-x", "waybar"],
-                       check=False, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired):
+        with open(os.path.join(PROC, str(pid), "status"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16) >> (signum - 1) & 1)
+    except (OSError, ValueError, IndexError):
         pass
+    return False
+
+
+def signal_panel():
+    """Make the panel show the new state (custom/phone's "signal"): this user's
+    waybars and sfwbars that catch SIGRTMIN+PANEL_SIGNAL get it. Both ignore
+    real-time signals no button uses, so a user's own panel is unaffected.
+    PIDs from PROC, never pkill -x."""
+    signum = signal.SIGRTMIN + PANEL_SIGNAL
+    try:
+        entries = os.listdir(PROC)
+    except OSError:
+        return
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            if os.stat(os.path.join(PROC, entry)).st_uid != os.getuid():
+                continue
+            with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
+                if f.read().strip() not in PANEL_PROGRAMS:
+                    continue
+        except OSError:
+            continue
+        if catches_signal(entry, signum):
+            with contextlib.suppress(OSError):
+                os.kill(int(entry), signum)
 
 
 def reload_panel():

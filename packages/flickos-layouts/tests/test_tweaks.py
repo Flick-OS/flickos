@@ -228,7 +228,7 @@ class FloatingChoiceTest(TweaksTest):
         shipped = os.path.join(PACKAGE, "usr/share/flickos/layouts")
         for folder in glob.glob(f"{shipped}/*/layout.ini"):
             layout = fl.load_layout(os.path.dirname(folder))
-            self.assertEqual(layout.floating is not None, layout.id == "redmond", layout.id)
+            self.assertEqual(layout.floating is not None, layout.id in ("redmond", "redmond-plus"), layout.id)
 
     def test_redmonds_files_are_there(self):
         layout = fl.load_layout(os.path.join(PACKAGE, "usr/share/flickos/layouts/redmond"))

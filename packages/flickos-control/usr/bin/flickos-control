@@ -118,6 +118,9 @@ Commands:
   startup enable|disable|remove ID
                      turn one on or off from the next login, or remove the user's own
   startup add APP    start an installed app (its desktop file id) at every login
+  startup add-command [--] NAME COMMAND
+                     start a command line at every login (shell syntax runs
+                     through sh -c); remove keeps its file, Hidden, for undo
   startup run        start the startup applications that are on (autostart)
   updates            print the automatic update settings
   displays list      print the kept screen arrangements: name, screens
@@ -294,6 +297,9 @@ DISPLAYS = "displays"               # ~/.config/flickos/displays: kanshi profile
 AUTOSTART_DIR = "autostart"
 AUTOSTART_ENABLED = "X-GNOME-Autostart-enabled"     # false: off (GNOME's key, which apps know)
 DESKTOP_ID = re.compile(r"^[A-Za-z0-9_.+-]+\.desktop$")
+CUSTOM_STARTUP = "flickos-command-"         # the id's start of a command the user typed (startup add-command)
+SHELL_SYNTAX = set("|&;<>()$`*?#[]{}!\n")  # a typed command with any of these runs through sh -c
+EXEC_RESERVED = set(" \t\n\"'\\><~|&;$*?#()`")  # an Exec word with any of these is quoted (Desktop Entry spec)
 TRAY_BUS_NAME = "org.kde.StatusNotifierWatcher"     # waybar's tray
 TRAY_WAIT_SECONDS = 10              # `startup run` waits this long for the tray (tray apps need it)
 # Automatic updates: unattended-upgrades.
@@ -644,7 +650,7 @@ SEARCH_KEYWORDS = {
              "command commands run script"),
     "apps": N_("default applications browser web file manager terminal editor image viewer pdf video music media "
             "open with"),
-    "startup": N_("startup autostart login items apps at login start automatically"),
+    "startup": N_("startup autostart login items apps at login start automatically command script program"),
     "screenshots": N_("screenshot screen shot print screen snip snipping capture record recording screencast video "
                    "pointer mouse cursor folder pictures videos"),
     "notifications": N_("notifications do not disturb dnd alerts popups quiet volume brightness microphone mute "
@@ -2386,6 +2392,10 @@ def startup_state(entry_id):
 def startup_name(entry_id):
     with contextlib.suppress(ControlError):
         return find_startup(entry_id).name
+    if entry_id.startswith(CUSTOM_STARTUP):         # removed: its file is kept
+        with contextlib.suppress(ControlError, OSError):
+            with open(user_autostart_file(entry_id), encoding="utf-8", errors="replace") as f:
+                return desktop_entry(f.read()).get("Name") or entry_id
     return app_name(entry_id)
 
 
@@ -3278,11 +3288,46 @@ def startup_entries(folders=None, desktops=None):
     return sorted(entries, key=lambda e: e.name.casefold())
 
 
+def exec_words(value):
+    """The words of an Exec value (Desktop Entry spec): in double quotes a
+    backslash escapes " ` $ and itself; single quotes and a backslash outside
+    quotes as in the shell, as GLib reads them. ValueError for an open quote."""
+    words, word, quote, started, i = [], [], None, False, 0
+    while i < len(value):
+        char, after = value[i], value[i + 1:i + 2]
+        if quote == '"' and char == "\\" and after and after in '"`$\\':
+            word.append(after)
+            i += 1
+        elif quote and char == quote:
+            quote = None
+        elif quote:
+            word.append(char)
+        elif char in " \t\n":
+            if started:
+                words.append("".join(word))
+            word, started = [], False
+        elif char in "\"'":
+            quote, started = char, True
+        elif char == "\\" and after:
+            word.append(after)
+            started = True
+            i += 1
+        else:
+            word.append(char)
+            started = True
+        i += 1
+    if quote:
+        raise ValueError("open quote")
+    if started:
+        words.append("".join(word))
+    return words
+
+
 def exec_argv(entry, path=""):
     """The command line of an entry's Exec (Desktop Entry spec: quoting, field
     codes left out or filled in). ControlError if it can't be read."""
     try:
-        words = shlex.split(entry.get("Exec", ""))
+        words = exec_words(entry.get("Exec", ""))
     except ValueError:
         raise ControlError(f"{path or 'an entry'}: its Exec can't be read") from None
     argv = []
@@ -3358,17 +3403,108 @@ def application_file(app_id):
 
 
 def add_startup(app_id):
-    with open(application_file(app_id), encoding="utf-8", errors="replace") as f:
-        text = f.read()
+    """An installed app's desktop file copied, on; a command the user added
+    and removed (its file kept, Hidden) back again."""
+    if app_id.startswith(CUSTOM_STARTUP):
+        try:
+            with open(user_autostart_file(app_id), encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            raise ControlError(f"no command '{app_id}' (flickos-control startup add-command)") from None
+        text = set_desktop_key(text, "Hidden", "false")
+    else:
+        with open(application_file(app_id), encoding="utf-8", errors="replace") as f:
+            text = f.read()
     write_atomic(user_autostart_file(app_id), set_desktop_key(text, AUTOSTART_ENABLED, "true"))
     return desktop_entry(text).get("Name") or app_id
 
 
+def command_argv(command):
+    """The program and arguments of a command line typed as in a terminal:
+    shell syntax runs through sh -c, a leading ~/ is the home folder.
+    ControlError when nothing in it can run."""
+    command = command.strip()
+    if not command:
+        raise ControlError(_("Type a command."))
+    if set(command) & SHELL_SYNTAX:
+        return ["sh", "-c", command]
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        raise ControlError(_("The command's quotes don't match.")) from None
+    if not words:
+        raise ControlError(_("Type a command."))
+    words = [os.path.expanduser(word) if word.startswith("~/") else word for word in words]
+    if "=" in words[0]:
+        return ["sh", "-c", command]            # VAR=value program: the shell's
+    if not shutil.which(words[0]):
+        raise ControlError(_("There is no program {program}.").format(program=words[0]))
+    return words
+
+
+def exec_quote(word):
+    """One word of an Exec value (Desktop Entry spec)."""
+    word = word.replace("%", "%%")
+    if word and not set(word) & EXEC_RESERVED:
+        return word
+    return '"' + re.sub(r'(["`$\\])', r"\\\1", word) + '"'
+
+
+def desktop_value(text):
+    """A desktop file's string value: backslashes escaped, one line."""
+    return text.replace("\\", "\\\\")
+
+
+def custom_startup_id(name):
+    """A free id for a command named name: its file doesn't exist, or is a
+    removed command's (Hidden)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")[:40].strip("-") or "command"
+    number = 0
+    while True:
+        number += 1
+        entry_id = f"{CUSTOM_STARTUP}{slug}{'' if number == 1 else f'-{number}'}.desktop"
+        try:
+            with open(user_autostart_file(entry_id), encoding="utf-8", errors="replace") as f:
+                hidden = desktop_entry(f.read()).get("Hidden", "").lower() == "true"
+        except FileNotFoundError:
+            return entry_id
+        except OSError:
+            continue
+        if hidden:
+            return entry_id
+
+
+def add_startup_command(name, command):
+    """A command the user typed, started at every login: a desktop file of
+    its own in the user's autostart folder. Returns its id."""
+    name = " ".join(name.split())
+    if not name:
+        raise ControlError(_("Give the command a name."))
+    if "\n" in command or "\r" in command:
+        raise ControlError(_("Type the command on one line."))
+    argv = command_argv(command)
+    entry_id = custom_startup_id(name)
+    write_atomic(user_autostart_file(entry_id),
+                 "[Desktop Entry]\nType=Application\n"
+                 f"Name={desktop_value(name)}\n"
+                 f"Exec={desktop_value(' '.join(exec_quote(word) for word in argv))}\n"
+                 f"{AUTOSTART_ENABLED}=true\n")
+    return entry_id
+
+
 def remove_startup(entry_id):
+    """The user's own entry deleted; a command the user added is kept as
+    Hidden (deleted, by the spec), since its file is the command's only copy
+    and History can put it back."""
     entry = find_startup(entry_id)
     if entry.system:
         raise ControlError(f"{entry.name} comes with the system: turn it off instead")
-    os.unlink(user_autostart_file(entry_id))
+    path = user_autostart_file(entry_id)
+    if entry_id.startswith(CUSTOM_STARTUP):
+        with open(path, encoding="utf-8", errors="replace") as f:
+            write_atomic(path, set_desktop_key(f.read(), "Hidden", "true"))
+    else:
+        os.unlink(path)
     return entry.name
 
 
@@ -6165,10 +6301,15 @@ class StartupPage:
                        False, False, 0)
         frame, self.rows = ui.framed_list()
         box.pack_start(frame, False, False, 0)
+        buttons = Gtk.Box(spacing=6)
         add = Gtk.Button.new_with_mnemonic(_("_Add App…"))
-        add.set_halign(Gtk.Align.START)
         add.connect("clicked", self.add_clicked)
-        box.pack_start(add, False, False, 0)
+        buttons.pack_start(add, False, False, 0)
+        command = Gtk.Button.new_with_mnemonic(_("Add _Command…"))
+        command.set_tooltip_text(_("A program, script or command line that isn't in the list of apps"))
+        command.connect("clicked", self.add_command_clicked)
+        buttons.pack_start(command, False, False, 0)
+        box.pack_start(buttons, False, False, 0)
         self.status = ui.status_label()
         box.pack_start(self.status, False, False, 0)
 
@@ -6197,6 +6338,57 @@ class StartupPage:
         if response == Gtk.ResponseType.OK and app is not None and app.get_id():
             self.run([*SELF, "startup", "add", app.get_id()])
 
+    def add_command_clicked(self, _button):
+        """Add Command…: a name and a command line (startup add-command)."""
+        Gtk = self.ui.Gtk
+        dialog = Gtk.Dialog(title=_("Add a Startup Command"), transient_for=self.widget.get_toplevel(), modal=True,
+                            resizable=False)
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        add = dialog.add_button(_("_Add"), Gtk.ResponseType.OK)
+        add.get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        grid = Gtk.Grid(row_spacing=8, column_spacing=12, margin=18)
+        grid.attach(self.ui.label(_("A program, a script or a command line, as you would type it in a terminal. "
+                                  "It runs as you at every login.")), 0, 0, 3, 1)
+        name = Gtk.Entry(activates_default=True, hexpand=True, width_chars=36)
+        command = Gtk.Entry(activates_default=True, hexpand=True, width_chars=36)
+        browse = Gtk.Button.new_with_mnemonic(_("_Browse…"))
+        grid.attach(Gtk.Label(label=_("_Name"), xalign=1, use_underline=True, mnemonic_widget=name), 0, 1, 1, 1)
+        grid.attach(name, 1, 1, 2, 1)
+        grid.attach(Gtk.Label(label=_("Comman_d"), xalign=1, use_underline=True, mnemonic_widget=command), 0, 2, 1, 1)
+        grid.attach(command, 1, 2, 1, 1)
+        grid.attach(browse, 2, 2, 1, 1)
+        dialog.get_content_area().add(grid)
+
+        def check(*_args):
+            add.set_sensitive(bool(name.get_text().strip() and command.get_text().strip()))
+
+        def choose(_button):
+            chooser = Gtk.FileChooserDialog(title=_("Choose a Program"), transient_for=dialog, modal=True,
+                                            action=Gtk.FileChooserAction.OPEN)
+            chooser.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+            chooser.add_button(_("_Choose"), Gtk.ResponseType.ACCEPT)
+            try:
+                chosen = chooser.get_filename() if chooser.run() == Gtk.ResponseType.ACCEPT else None
+            finally:
+                chooser.destroy()
+            if chosen:
+                command.set_text(shlex.quote(chosen))
+                if not name.get_text().strip():
+                    name.set_text(os.path.basename(chosen))
+
+        name.connect("changed", check)
+        command.connect("changed", check)
+        browse.connect("clicked", choose)
+        check()
+        dialog.show_all()
+        name.grab_focus()
+        response = dialog.run()
+        values = (name.get_text(), command.get_text())
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK and all(part.strip() for part in values):
+            self.run([*SELF, "startup", "add-command", "--", *values])
+
     def switched(self, switch, _param, entry_id):
         if not self.quiet:
             self.run([*SELF, "startup", "enable" if switch.get_active() else "disable", entry_id])
@@ -6221,18 +6413,21 @@ class StartupPage:
             switch = Gtk.Switch(active=entry.enabled, valign=Gtk.Align.CENTER)
             switch.connect("notify::active", self.switched, entry.id)
             widgets.pack_start(switch, False, False, 0)
-            self.rows.add(self.ui.row(entry.name, widgets, entry.comment or " ".join(
-                shlex.quote(word) for word in exec_argv_or_none(entry) or [])))
+            self.rows.add(self.ui.row(entry.name, widgets, entry.comment or command_text(entry)))
         if not entries:
             self.rows.add(self.ui.row(_("None"), None, _("Only the desktop itself starts at login.")))
         self.quiet = False
         self.rows.show_all()
 
 
-def exec_argv_or_none(entry):
+def command_text(entry):
+    """An entry's command line to show: a shell command as it was typed."""
     with contextlib.suppress(ControlError):
-        return exec_argv(entry.entry, entry.path)
-    return None
+        argv = exec_argv(entry.entry, entry.path)
+        if len(argv) == 3 and argv[:2] == ["sh", "-c"]:
+            return argv[2]
+        return " ".join(shlex.quote(word) for word in argv)
+    return ""
 
 
 class MediaPage:
@@ -10106,7 +10301,19 @@ def cmd_notifications(opts):
 
 
 def cmd_startup(opts):
-    """Startup applications: list, enable, disable, add, remove, run (autostart)."""
+    """Startup applications: list, enable, disable, add, add-command, remove,
+    run (autostart)."""
+    if opts.action == "add-command":
+        if opts.id is None or opts.command is None:
+            warn("add-command: give a name and the command line")
+            return 2
+        entry_id = add_startup_command(opts.id, opts.command)
+        record(f"startup.{entry_id}", "absent", startup_state(entry_id))
+        print(_("{app} starts at every login from now on.").format(app=startup_name(entry_id)))
+        return 0
+    if opts.command is not None:
+        warn(f"{opts.action} takes no command line")
+        return 2
     if opts.action in ("list", "run") and opts.id:
         warn(f"{opts.action} takes no id")
         return 2
@@ -10267,8 +10474,10 @@ def main(argv=None):
     commands.add_parser("notifications", help="turn Do Not Disturb on again once notifications run (autostart)"
                         ).set_defaults(func=cmd_notifications)
     startup = commands.add_parser("startup", help="startup applications (XDG autostart)")
-    startup.add_argument("action", choices=("list", "enable", "disable", "add", "remove", "run"))
-    startup.add_argument("id", nargs="?", help="a desktop file id (startup list; add: an installed app's)")
+    startup.add_argument("action", choices=("list", "enable", "disable", "add", "add-command", "remove", "run"))
+    startup.add_argument("id", nargs="?", help="a desktop file id (startup list; add: an installed app's); "
+                         "add-command: the name")
+    startup.add_argument("command", nargs="?", help="add-command: the command line, as typed in a terminal")
     startup.set_defaults(func=cmd_startup)
     commands.add_parser("updates", help="print the automatic update settings").set_defaults(func=cmd_updates)
     displays = commands.add_parser("displays", help="kept screen arrangements (kanshi profiles)")

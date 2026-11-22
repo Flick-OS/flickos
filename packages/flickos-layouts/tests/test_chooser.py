@@ -147,6 +147,27 @@ class ChooserTest(EngineTest):
             self.assertEqual(fl.apply_command(("b", "light", "both-menu"), current),
                              ["set", "b", "--style", "light", "--clicks", "both-menu"])
 
+
+    def test_apply_command_follows_the_layouts_style(self):
+        """A layout's DefaultStyle=: keeping the style the new layout gives
+        saves no style; another one is saved."""
+        current = ("a", "dark", "right-menu")
+        with mock.patch.object(fl, "self_command", lambda *args: list(args)):
+            self.assertEqual(fl.apply_command(("plus", "light", "right-menu"), current, "light"), ["set", "plus"])
+            self.assertEqual(fl.apply_command(("plus", "dark", "right-menu"), current, "light"),
+                             ["set", "plus", "--style", "dark"])
+            self.assertEqual(fl.apply_command(("a", "light", "right-menu"), current, "dark"), ["set", "--style", "light"])
+            self.assertIsNone(fl.apply_command(current, current, "dark"))
+
+    def test_chooser_style(self):
+        self.make_light_style()
+        self.make_layout("plus", extra="DefaultStyle=light\n")
+        with self.quiet():
+            available, available_styles = fl.layouts(), fl.styles()
+            self.assertEqual(fl.chooser_style(available, available_styles, "plus"), "light")
+            self.set_user_choice("dark", kind="style")
+            self.assertEqual(fl.chooser_style(available, available_styles, "plus"), "dark")
+            self.assertIsNone(fl.chooser_style(available, available_styles, "missing"))
     def test_palette_colors(self):
         path = self.write("palette.css", "/* @define-color no #000000; */\n@define-color wm_bg #FF0080;\n"
                                          "@define-color named @wm_bg;\n")

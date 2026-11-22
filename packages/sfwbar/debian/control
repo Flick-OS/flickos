@@ -9,6 +9,7 @@ Build-Depends: debhelper-compat (= 13),
                libgtk-3-dev,
                libgtk-layer-shell-dev,
                libjson-c-dev,
+               libpulse-dev,
                libwayland-dev,
                wayland-protocols
 Standards-Version: 4.7.0
@@ -28,5 +29,6 @@ Description: taskbar, dock and panel for Wayland stacking compositors
  the pointer touches the screen edge.
  .
  This is upstream sfwbar, packaged for FlickOS, which uses it as the
- dock of the Cupertino desktop layout. The pulse, pipewire, alsa and
- xkbmap modules are not built.
+ dock of the Cupertino desktop layout. Of the sound modules only pulse
+ is built (volume through pipewire-pulse); pipewire, alsa and xkbmap are
+ not.

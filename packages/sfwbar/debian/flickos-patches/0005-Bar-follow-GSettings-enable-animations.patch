@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 05/18] Bar: follow GSettings enable-animations
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/bar.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/src/gui/bar.c b/src/gui/bar.c
+index 69c0d44..ff3fe92 100644
+--- a/src/gui/bar.c
++++ b/src/gui/bar.c
+@@ -164,8 +164,14 @@ static gboolean bar_sensor_hide ( GtkWidget *self )
+   gtk_revealer_set_reveal_child(priv->revealer, FALSE);
+   priv->sensor_block = TRUE;
+   g_idle_add((GSourceFunc)bar_sensor_unblock_cb, self);
+-  g_signal_connect_swapped(G_OBJECT(priv->revealer),
+-      "notify::child-revealed", G_CALLBACK(bar_sensor_hide_complete), self);
++  /* FlickOS: with GTK's animations off (or transition = 0) the revealer
++   * hides at once and child-revealed was notified inside the call above,
++   * before anyone listened: finish the hide now instead of waiting. */
++  if(!gtk_revealer_get_child_revealed(priv->revealer))
++    bar_sensor_hide_complete(self);
++  else
++    g_signal_connect_swapped(G_OBJECT(priv->revealer),
++        "notify::child-revealed", G_CALLBACK(bar_sensor_hide_complete), self);
+   priv->sensor_handle = 0;
+ 
+   return FALSE;
+@@ -702,8 +708,10 @@ static void bar_class_init ( BarClass *kclass )
+   G_OBJECT_CLASS(kclass)->set_property = bar_set_property;
+ 
+   g_unix_signal_add(SIGUSR2, (GSourceFunc)bar_visibility_toggle_all, NULL);
+-  g_object_set(G_OBJECT(gtk_settings_get_default()), "gtk-enable-animations",
+-        TRUE, NULL);
++  /* FlickOS: upstream forced gtk-enable-animations on here, so the bar
++   * slid even when the user turned animations off (GSettings'
++   * enable-animations, FlickOS's Settings > Accessibility). GTK's setting is
++   * followed now; bar_sensor_hide copes with a revealer that hides at once. */
+ 
+   g_object_class_install_property(G_OBJECT_CLASS(kclass), BAR_LAYER,
+       g_param_spec_enum("layer", "layer", "sfwbar_config",

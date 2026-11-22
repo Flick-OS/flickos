@@ -31,7 +31,7 @@ Architecture: all
 #   its list of teachers (`student teachers`, ADR-016) and its
 #   firewall.classroom, which lets the teacher's computer in;
 # systemd: a lab computer's service (ADR-011), enabled only by `lab on`;
-# wayvnc, libneatvnc0 (>= 0.9.1+dfsg+flickos1~test1): one screen seen or
+# wayvnc, libneatvnc0 (>= 0.9.1+dfsg+flickos1): one screen seen or
 #   controlled (ADR-012), started only for that; FlickOS's libneatvnc0 has
 #   no H.264, so 1.2 MB instead of Debian's 53 MB (ADR-013);
 # gir1.2-gtklayershell-0.1: the strip that says a teacher views or
@@ -49,7 +49,7 @@ Depends: python3,
          flickos-control (>= 1.78~test1),
          systemd,
          wayvnc,
-         libneatvnc0 (>= 0.9.1+dfsg+flickos1~test1),
+         libneatvnc0 (>= 0.9.1+dfsg+flickos1),
          gir1.2-gtklayershell-0.1,
          ${misc:Depends}
 Description: share a FlickOS computer's screen with a teacher

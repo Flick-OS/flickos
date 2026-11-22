@@ -146,13 +146,16 @@ class Sandbox(unittest.TestCase):
             f.write("#!/bin/sh\n" + body)
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
 
-    def fake_process(self, pid, comm, cmdline=b""):
+    def fake_process(self, pid, comm, cmdline=b"", caught=-1):
+        """caught: SigCgt's mask (every signal by default)."""
         folder = os.path.join(self.proc, str(pid))
         os.makedirs(folder)
         with open(os.path.join(folder, "comm"), "w") as f:
             f.write(comm + "\n")
         with open(os.path.join(folder, "cmdline"), "wb") as f:
             f.write(cmdline)
+        with open(os.path.join(folder, "status"), "w") as f:
+            f.write(f"Name:\t{comm}\nSigCgt:\t{caught & (1 << 64) - 1:016x}\n")
 
     def logged(self, name):
         path = os.path.join(self.log, name)
@@ -1175,14 +1178,17 @@ class PipelineTest(unittest.TestCase):
 
 
 class PanelTest(Sandbox):
-    def test_signals_only_the_users_waybars(self):
+    def test_signals_only_the_users_panels(self):
         self.fake_process(101, "waybar")
         self.fake_process(102, "waybar-wrapper")
         self.fake_process(103, "bash")
+        self.fake_process(104, "sfwbar")
+        self.fake_process(105, "sfwbar", caught=0)     # still starting: would die of it
         os.makedirs(os.path.join(self.proc, "self"))
         with mock.patch.object(fs.os, "kill") as kill:
             fs.signal_panel()
-        kill.assert_called_once_with(101, fs.signal.SIGRTMIN + fs.PANEL_SIGNAL)
+        signum = fs.signal.SIGRTMIN + fs.PANEL_SIGNAL
+        self.assertEqual(sorted(kill.call_args_list), [mock.call(101, signum), mock.call(104, signum)])
 
     def test_write_and_delete(self):
         runtime = fs.runtime_dir()

@@ -29,11 +29,6 @@ static void pager_destroy ( GtkWidget *self )
   g_return_if_fail(IS_PAGER(self));
   workspace_listener_remove(self);
   priv = pager_get_instance_private(PAGER(self));
-  if(priv->timer_h)
-  {
-    g_source_remove(priv->timer_h);
-    priv->timer_h = 0;
-  }
   g_clear_pointer(&priv->pins, g_ptr_array_unref);
   GTK_WIDGET_CLASS(pager_parent_class)->destroy(self);
 }
@@ -104,7 +99,8 @@ static void pager_init ( Pager *self )
   PagerPrivate *priv;
 
   priv = pager_get_instance_private(PAGER(self));
-  priv->timer_h = g_timeout_add(100, (GSourceFunc)flow_grid_update, self);
+  /* FlickOS: updated when invalidated, not polled (flowgrid.c). */
+  flow_grid_set_auto_update(GTK_WIDGET(self));
   priv->pins = g_ptr_array_new();
 
   if(!workspace_api_check())

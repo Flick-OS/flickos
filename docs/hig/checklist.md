@@ -10,7 +10,7 @@ Should rules aren't listed. Read the pages for those.
 - [ ] **INT-3** A labwc menu change is in both the installed and the live menu (`tools/check-menus.py`).
 - [ ] **INT-4** A user-facing setting has a Settings row or tile, and search keywords for a new page or tile.
 - [ ] **INT-5** A new keybinding has a description on the shortcut sheet, doesn't take an app's key, and a symbol key can move on Nordic and German keyboards.
-- [ ] **INT-6** Tested in Redmond, Cupertino and Traditional, in Dark and Light.
+- [ ] **INT-6** Tested in Redmond, Redmond+, Cupertino and Traditional, in Dark and Light.
 - [ ] **INT-7** Hidden in the live session if it only makes sense installed, and the reverse.
 - [ ] **INT-8** Nothing new opens at first login besides `flickos-welcome`.
 - [ ] **INT-9** A new feature is opt-in and runs, generates and binds nothing while off. Only a record that runs nothing (History) may be on by default, with a switch that also deletes it, or a safety net that runs only inside an existing operation and briefly at start (restore points), through an ADR that states its cost; a shipped feature becomes the default only through an ADR that states its cost (the start menu); a tool that runs only when asked may bind its keys by default, through an ADR that names them (Screenshot, the level ring), and anything of it that shows unasked needs its own ADR (the hidden recording button).

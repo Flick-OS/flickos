@@ -27,7 +27,6 @@ typedef struct _TrayPrivate TrayPrivate;
 
 struct _TrayPrivate
 {
-  guint timer_h;
   GPtrArray *order;
 };
 

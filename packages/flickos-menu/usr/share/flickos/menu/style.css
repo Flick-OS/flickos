@@ -212,6 +212,14 @@ window.flickos-menu.style-grid {
     outline: none;
     min-height: 34px;
     padding-left: 4px;
+    caret-color: transparent;
+    -gtk-secondary-caret-color: transparent;
+}
+
+/* The cursor is an underscore that blinks (Caret, PromptView.update_caret),
+   in the text's color as GTK's own line is; the entry's line is hidden. */
+.flickos-menu.style-prompt .prompt-caret {
+    background-color: @theme_text_color;
 }
 
 /* The pins' band. Its color alone hardly shows (1.15:1 on Arc-Dark), so the
@@ -240,8 +248,10 @@ window.flickos-menu.style-grid {
     border-radius: 6px;
 }
 
-.flickos-menu.style-prompt flowboxchild.app:hover {
-    background-color: alpha(@theme_selected_bg_color, 0.25);
+/* The tile under the pointer (PromptView.hover), as the grid style's. */
+.flickos-menu.style-prompt flowboxchild.app.hover {
+    background-color: alpha(@theme_selected_bg_color, 0.6);
+    color: @theme_selected_fg_color;
 }
 
 .flickos-menu.style-prompt flowboxchild.app:selected,
@@ -274,6 +284,7 @@ window.flickos-menu.style-grid {
     background-color: @theme_selected_bg_color;
 }
 
+.flickos-menu.style-prompt flowboxchild.open.hover .running,
 .flickos-menu.style-prompt flowboxchild.open:selected .running {
     background-color: @theme_selected_fg_color;
 }

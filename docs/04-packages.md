@@ -122,7 +122,7 @@ the chosen layout and style at login and live (see
 | `usr/bin/flickos-layout` | `/usr/bin/` | Python 3 tool: `list`, `current`, `set`, `style list/current/set/new` (`new`: a user's own style, [09 – Your own style](09-customizing.md#your-own-style)), `layout new` (a user's own layout from one of FlickOS's, waybar only), `tweaks new` (a starter for the user's panel CSS, `~/.config/flickos/tweaks/style.css`), `check` (a style, `--layout` a layout, or everything of the user's), `explain` (which file each program reads), `clicks list/current/set`, `launcher list/current/set`, `menu-style list/current/set`, `clock list/current/set`, `buttons list/current/set` (where the window buttons are: the layout's own, left, right or split, for every layout; `set --buttons` too), `state` (all of them and doctor's warnings as JSON, for the Settings window), `prepare`, `panel`, `reload-panel` (generate the panel again and restart it: flickos-phone, when its button comes or goes), `supervise`, `wallpaper`, `doctor`, `pick` (chooser), `first-run`. Every `set` also takes `default` (removes the user's choice), and every change that shows is recorded for *Settings → History* |
 | `usr/libexec/flickos/check-css` | same | `FILE…`: parses CSS with GTK 3's own parser (python3-gi, no display) and prints one JSON line per file, `ok` or the first error's file, line and column. flickos-layout runs it on the user's CSS before the panel reads it, since waybar exits on any CSS error ([09 – Panel tweaks](09-customizing.md#panel-tweaks)) |
 | `usr/libexec/flickos/desktop` | same | `N`, `next` or `previous`: goes to that labwc desktop (ext-workspace-v1). What a desktop button in the panel runs on a click or scroll; a small stdlib program because a click must be quick. `show`: what the desktop keys run after labwc has switched; reads the current desktop and runs flickos-menu's `osd desktop NUMBER COUNT` for the circles card (desktops ADR-006) |
-| `usr/share/flickos/layouts/ID/` | same | One folder per layout (`redmond`, `cupertino`, `traditional`): `layout.ini`, `waybar.jsonc`, `style.css`, `preview.png` |
+| `usr/share/flickos/layouts/ID/` | same | One folder per layout (`redmond`, `redmond-plus`, `cupertino`, `traditional`): `layout.ini`, `waybar.jsonc`, `style.css`, `preview.png`; Redmond+'s panel is `panel.config` and `panel.css` (sfwbar), with `MenuStyle=prompt` in its `layout.ini` ([09](09-customizing.md#desktop-layouts)) |
 | `usr/share/backgrounds/flickos/ID.jpg` | same | The layouts' photos (their wallpapers until 1.37), now only choices in waypaper |
 | `usr/share/backgrounds/flickos/flickos-dark.png`, `flickos-light.png`, `flickos-home.png` | same | Dark's and Light's earlier wallpapers (the halo until FlickOS 2.3, then the house at dusk until flickos-layouts 1.81), now only choices in waypaper. Real files, so a user who picked one keeps it |
 | `debian/links` | `/usr/share/backgrounds/flickos/flickos-shore.png` | Link to the styles' wallpaper, for waypaper |
@@ -165,7 +165,8 @@ the chosen layout and style at login and live (see
   can't pin apps itself in a way that lasts. `pinned add` and `remove` take
   an app's desktop id or a window's app id (`firefox-esr`, `Thunar`, a
   `StartupWMClass`; since 1.86), which is what a dock's right-click menu
-  sends (Footprint's).
+  sends (Footprint's and Cupertino's, whose menu is Redmond+'s window menu
+  with *Pin to Dock*/*Unpin from Dock*; 1.91).
 - **It gives a layout labwc desktops** (`Desktops=`, only Traditional: 4)
   through the rc.xml overlay: `<desktops>` named `1` to `4` and the keys
   Super+Ctrl+←/→ and Super+1 to Super+4 (with Shift to take the window
@@ -289,10 +290,11 @@ upstream's source.
 
 - **A compiled FlickOS package** (with `neatvnc`): `Architecture: any`, built with meson
   by `debian/rules`. Its `Build-Depends` (meson, gettext, GTK 3,
-  gtk-layer-shell, json-c, Wayland headers) must be on the build host and are
+  gtk-layer-shell, json-c, libpulse, Wayland headers) must be on the build host and are
   installed in CI. The optional features are set explicitly in `debian/rules`,
   so the result doesn't depend on which `-dev` packages the host has: the
-  pulse, pipewire, alsa and xkbmap modules are off. It builds no `-dbgsym`
+  pulse module is on (a volume control, through pipewire-pulse; since
+  +flickos10), the pipewire, alsa and xkbmap modules are off. It builds no `-dbgsym`
   package, because `packages/build.sh` stages every `.deb` it finds.
 - **A git commit, not a release:** 1.0_beta17 documents taskbar `pins` but
   only implements them for the pager, and its `size = "auto"` bars collapse to
@@ -300,7 +302,8 @@ upstream's source.
   both working. Version: `1.0~beta17+git20260910+flickosN`, which sorts after
   beta17 and before `1.0~beta18+flickos1`.
 - **FlickOS changes** (listed in `debian/README.source`, marked `FlickOS:` in
-  the code): an app's dock button gets the CSS class `running` while the app has
+  the code, each kept as a patch against the vendored commit in
+  `debian/flickos-patches/` for updating): an app's dock button gets the CSS class `running` while the app has
   a window (the open-app line), a bar property `sensor_maximized`: the dock
   hides only while the active window is maximized or fullscreen on its monitor,
   a fix so the pager marks the current desktop `focused` (upstream never
@@ -320,10 +323,25 @@ upstream's source.
   right click on a `group = popup` button always runs the taskbar's
   `RightClick` action (upstream ignored it on a pin without a window and on
   a group of several windows), with `WindowInfo()` answering `"appid"` and
-  `"pinned"` for such a button: the base of Footprint's Pin to Dock menu.
+  `"pinned"` for such a button: the base of Footprint's Pin to Dock menu,
+  and (+flickos10) no polling while idle: taskbars, trays and pagers update
+  within 100 ms of a change instead of every 100 ms, and a widget whose value
+  and style are constant isn't re-evaluated every second (upstream's idle dock
+  or window list woke ~600–1,200 times a minute), and a style change reaches a
+  bar's copies on other screens (`mirror`), which upstream left with the style
+  they were made with, and a window's icon comes from its app's own desktop
+  file before an icon named like its app id (upstream's order gave Thunar the
+  icon theme's old `thunar` icon), and a style `name.class` gives a widget
+  CSS classes as waybar's JSON `class` does (upstream: one fixed class), its
+  icons restyled when they change, CSS `:hover` on grids, labels and images
+  (GTK 3 prelights only buttons), and `overflow = true` for a one-row
+  taskbar: the apps that don't fit go to a list behind a more button
+  (`button#taskbar_more`, the list `window#taskbar_more`) and come back when
+  the bar gets room.
 - **Used by `flickos-layouts`** (a Depends): `flickos-layout` generates the
   layout's sfwbar config (`Dock=`) in the layout overlay and runs `sfwbar -f FILE`
-  ([The generated panel](09-customizing.md#the-generated-panel)).
+  ([The generated panel](09-customizing.md#the-generated-panel)): Cupertino's
+  dock, Traditional's window list, Redmond+'s whole panel.
 - **License:** GPL-3 (version 3 only), protocol files MIT/HPND, weather icons
   MIT (`debian/copyright`).
 
@@ -646,8 +664,9 @@ and the phase 0 measurements with a real phone:
   dropped within about a minute and the daemon announces again.
 - **Panel button** (`custom/phone`, only while it's on; flickos-layouts puts
   it before the tiling button): `status --panel` gives waybar the phone icon,
-  dimmed while no phone is connected, and a tooltip; the daemon sends waybar
-  `SIGRTMIN+9` (`PANEL_SIGNAL`) when a phone connects or goes. A click opens
+  dimmed while no phone is connected, and a tooltip; the daemon sends the
+  panel (waybar or sfwbar, only one that catches it) `SIGRTMIN+9`
+  (`PANEL_SIGNAL`) when a phone connects or goes. A click opens
   `flickos-phone menu` (fuzzel): *Send Files to Phone…* (`send --choose`,
   GTK's file chooser), *Send Text to Phone…* (`send --type-text`, typed into
   fuzzel), *Send Clipboard to Phone* (a web address
@@ -759,9 +778,9 @@ config and screen chooser. Design and measurements:
   `custom/recording` (flickos-layouts, next to the clock) shows the countdown
   and then the time from `$XDG_RUNTIME_DIR/flickos/screenshot/panel.json`,
   which the recorder rewrites and signals (SIGRTMIN+10 to the user's
-  waybars) once a second; a click runs `stop`, which signals only the PID in
-  `recording.lock`. It also stops when the portal ends the session or less
-  than 200 MB are free.
+  waybars and sfwbars that catch it) once a second; a click runs `stop`,
+  which signals only the PID in `recording.lock`. It also stops when the
+  portal ends the session or less than 200 MB are free.
 - **The portal's screen chooser**: the conffile
   `/etc/xdg/xdg-desktop-portal-wlr/labwc` runs
   `/usr/libexec/flickos/screencast-chooser`, which answers the screen named
@@ -808,7 +827,8 @@ A Depends of flickos-desktop and in the sanity hook's `REQUIRED`.
   `playerctl --follow` tells it about every change (nothing while a track
   plays steadily). The follower holding `follow.lock` writes the buttons'
   JSON into `$XDG_RUNTIME_DIR/flickos/media/panel/`, which their modules
-  `cat`, and sends waybar signal 12 (`PANEL_SIGNAL`); the player the buttons
+  `cat`, and sends the panel that runs it (waybar or sfwbar) signal 12
+  (`PANEL_SIGNAL`); the player the buttons
   control is in `media/player`. The title shows 24 characters; a longer one
   scrolls through once when its track plays, then shows its start with "…"
   (one line to waybar every 0.35 s meanwhile, the follower's only timer), with the class `scrolling`, whose fixed width in base.css
@@ -867,8 +887,8 @@ the sanity hook's `REQUIRED`.
   `~/.cache/flickos/weather/forecast.json` and asks Open-Meteo only when that
   is an hour old or for another place or unit (15 minutes after a failure);
   one screen's run fetches while the others wait on a lock. A setting changed
-  while on sends waybar signal 13 (`PANEL_SIGNAL`), only to a waybar that
-  catches it.
+  while on sends the panel signal 13 (`PANEL_SIGNAL`), only to a waybar or
+  sfwbar that catches it.
 - **The button:** `text` the temperature, `alt` the temperature with its unit
   over the sky in words (a layout's `"format": "{alt}"`), `class` the sky
   (`clear`, `few-clouds-night`, …, drawn by base.css from the icon theme's
@@ -1248,7 +1268,9 @@ flick-tiler's `open-apps` (1.12). It also gets the search bar's results
 Down*…; those that end the session want a second Enter) come below the apps,
 and a first `=`, `/` or `>` asks for a sum, files and folders by name
 (`fdfind` in the home folder, a Depends) or a command run by the user's shell
-in a new terminal. The rows come from data files in
+in a new terminal. The line's cursor is an underscore that blinks, by GTK's
+blink settings (since 1.35), and the tile under the pointer is lit as the
+grid style's is (since 1.36). The rows come from data files in
 `/usr/share/flickos/menu/providers/` (`tasks.json`, `files.json`), read by
 `usr/share/flickos/menu/providers.py`, which the other styles never load. Only
 FlickOS's packages may add one: a live provider sees all that is typed.
@@ -1418,7 +1440,7 @@ it follows the Dark or Light style. Design and decisions:
   manager, text editor, image and document viewer, media player through
   `xdg-mime default`; the terminal through `~/.config/xdg-terminals.list`),
   *Startup Applications* (XDG autostart entries on or off, *Add App…*,
-  *Remove*), *Notifications* (Do Not Disturb, the level ring), *Media Controls* (flickos-media's `controls`, `spectrum`, `spectrum-shape`, `spectrum-layer` and `spectrum-colors`, while it is installed), *Power & Idle* (lock and sleep times; what the power button, closing the
+  *Add Command…*, *Remove*), *Notifications* (Do Not Disturb, the level ring), *Media Controls* (flickos-media's `controls`, `spectrum`, `spectrum-shape`, `spectrum-layer` and `spectrum-colors`, while it is installed), *Power & Idle* (lock and sleep times; what the power button, closing the
   lid and closing it while plugged in do, read from logind; the lid rows only
   with a lid switch), *Memory* (how much memory the computer has and uses,
   and *Firefox: use less memory*: the helper's `firefox-memory on|off` writes
@@ -1570,13 +1592,17 @@ it follows the Dark or Light style. Design and decisions:
   `set` changes only the file: flickos-menu's client reads `[Osd] Enabled=`
   at every press ([design](design/flickos-osd.md)).
 - **Startup applications** (`flickos-control startup
-  list|enable|disable|add|remove|run`): the XDG autostart entries labwc
+  list|enable|disable|add|add-command|remove|run`): the XDG autostart entries labwc
   doesn't run, by the spec (`~/.config/autostart` first, then `autostart` in
   `XDG_CONFIG_DIRS`; `Hidden`, `OnlyShowIn`/`NotShowIn`, `TryExec`, `Exec`
   field codes, `Terminal`, `Path`, `X-GNOME-Autostart-Delay`). Off is
   `X-GNOME-Autostart-enabled=false`, for a system entry in a user copy;
   `add` copies an installed app's desktop file, `remove` deletes the user's
-  own. `run` (autostart, last) waits at most 10 s for the tray, then starts
+  own. `add-command NAME COMMAND` (1.85) writes `flickos-command-NAME.desktop`
+  for a command line typed as in a terminal (shell syntax through `sh -c`,
+  the program must exist otherwise); `remove` only marks such a file
+  `Hidden=true`, its command's only copy, so `add ID` (History's undo) brings
+  it back. `run` (autostart, last) waits at most 10 s for the tray, then starts
   the entries that are on.
 - **Automatic updates** are read from `apt-config dump`
   (`flickos-control updates` prints them): on or off
@@ -2143,13 +2169,19 @@ in 1.7; sfwbar names neither the sections nor the box).
 line, so a section declared after it never reached a second monitor (found
 in 1.8; a test keeps the order).
 Right-clicking an app in the dock opens *Pin to Dock* or *Unpin from Dock*
-(1.9): two `menu` sections in `dock.config` and `action[RightClick] =
-Menu(If(WindowInfo("pinned"), "dock_unpin", "dock_pin"))` on the taskbar
-(sfwbar +flickos9), each item running `flickos-layout pinned add|remove` with
-the clicked app's app id. It saves the same list as Settings' *Pinned Apps*
-(so History and Settings follow), and flickos-layout then makes the dock read
-its config again (SIGHUP). It works for an app that is only pinned, one with
-a window and one with several.
+(1.9), each item running `flickos-layout pinned add|remove` with the clicked
+app's app id (`WindowInfo("appid")`, sfwbar +flickos9). It saves the same
+list as Settings' *Pinned Apps* (so History and Settings follow), and
+flickos-layout then makes the dock read its config again (SIGHUP). It works
+for an app that is only pinned, one with a window and one with several.
+Since 1.10 the menu is Redmond+'s taskbar menu (Q2b of
+[design/flickos-panel.md](design/flickos-panel.md)), as in Cupertino's dock:
+`action[RightClick] = DockMenu()`, whose function picks a `menu` by the
+window's state (*Minimize*, *Maximize*/*Unmaximize* or *Restore*, *Close*,
+with the theme's `window-*-symbolic` icons) and puts the pin item under them;
+an app with several windows gets the pin item alone and its hover list's rows
+the window items. `dock.css` draws it like the hover list (12 px corners,
+8 px rows).
 The start menu is the full-screen grid, at the top left. Design: ADR-016 and
 phase 8 of [design/flickos-ricing.md](design/flickos-ricing.md); named by
 allusion (ADR-013).
@@ -2385,19 +2417,30 @@ kit's metainfo, a test compares) with a switch each. A switch shows the plan
 from `flickos-software plan --json` in a dialog (Cancel and a verb; removing
 also says what else goes), then runs `flickos-software install|remove --json`,
 so there is one installing path (PackageKit, its password, History's apt
-hook). The security kits (1.4, [design/flickos-security.md](design/flickos-security.md)
-phase 2) are a list of their own, *Security work*, under the permission
-sentence (`PERMISSION`, the same words as Software's: a test compares), folded
-(`FOLDED`) until one of them is installed or the window opens on one; once
-opened or closed it stays so until the window closes. Under *Set up*, once any kit is installed and only when the step's program
-is on the computer (`STEPS`): git's name and email (`git config --global`),
+hook). Since 1.5 the window has a sidebar like Settings' and a page per kit
+category (`CATEGORIES`: *Development*, *Learning*, *Security*; flickos-dev.md
+ADR-010), 900×660. A page lists its category's kits, then, once one of them is
+installed, its *Set up*, *Newer versions* and *Environments*, each only when it
+has a row. The security kits' page ([design/flickos-security.md](design/flickos-security.md)
+phase 2) starts with the permission sentence (`PERMISSION`, the same words as
+Software's: a test compares). A kit with more than `INLINE_TOOLS` (3) of mise's
+tools shows one row naming them, which opens a page of its tools with a *Back*
+button (Escape goes back too). `page_model(category, snapshot)` describes a page
+as plain data (sections of rows whose first item is one of `ROW_KINDS`), the
+window only draws it and rebuilds a page only when its model changed, keeping
+its scroll position; a test fails when a page has more than `PAGE_ROWS` (20)
+rows with everything installed. It draws the kits first (`first_snapshot`, dpkg-query only, with *Loading…*) and the rest when `snapshot()` is in; `snapshot()` runs its reads at the same time (`READERS`), because each flickos-control read is a Python start of 0.4 to 0.9 s (six in a row took 5.5 s). The window opens on `--page`, the category of
+`--kit`, the first category with a kit installed, or Development. Under *Set
+up*, only when the step's program is on the computer (`STEPS`, records with
+their category, how to read them, their row's control as data and their
+`doctor` lines): git's name and email (`git config --global`),
 an SSH key (`ssh-keygen` in the user's terminal, so the passphrase is typed
 there; *Copy Public Key* through `wl-copy`) and Rust (`rustup` in a terminal,
 about 600 MB in `~/.rustup`). It writes none of those files itself (ADR-003).
 Nothing runs in the background; in the live session it says that what is
 installed is lost at restart.
 
-Commands: `window [--kit NAME]`, `list [--json] [--category C]`, `plan [--remove] KIT`,
+Commands: `window [--kit NAME] [--page CATEGORY]`, `list [--json] [--category C]`, `plan [--remove] KIT`,
 `install|remove KIT…`, `setup git|ssh|rust|ports|dhcp|capture|test-adapter`, `doctor` (see the program's
 docstring). A Depends of `flickos-desktop`. It is opened from Welcome's *Tools
 for your work* card, Settings' *Tool Kits* tile (More Settings), the menu, and

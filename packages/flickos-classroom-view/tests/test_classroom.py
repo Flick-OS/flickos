@@ -1235,15 +1235,18 @@ class StudentsTest(Base):
 
 
 class PanelSignalTest(Base):
-    def test_only_a_waybar_that_catches_it(self):
-        """A waybar without the button would die of the signal: never sent to it."""
-        for pid, cgt in (("1001", "0"), ("1002", hex(1 << (fc.signal.SIGRTMIN + fc.PANEL_SIGNAL - 1))[2:])):
+    def test_only_a_panel_that_catches_it(self):
+        """A panel without the button would die of the signal: never sent to it.
+        sfwbar is a panel too; other programs never get it."""
+        caught = hex(1 << (fc.signal.SIGRTMIN + fc.PANEL_SIGNAL - 1))[2:]
+        for pid, comm, cgt in (("1001", "waybar", "0"), ("1002", "waybar", caught), ("1003", "sfwbar", caught),
+                               ("1004", "sfwbar", "0"), ("1005", "foot", caught)):
             folder = os.path.join(self.proc, pid)
             os.makedirs(folder)
             with open(os.path.join(folder, "comm"), "w") as f:
-                f.write("waybar\n")
+                f.write(comm + "\n")
             with open(os.path.join(folder, "status"), "w") as f:
-                f.write(f"Name:\twaybar\nSigCgt:\t{cgt}\n")
+                f.write(f"Name:\t{comm}\nSigCgt:\t{cgt}\n")
         sent = []
         real = fc.os.kill
         fc.os.kill = lambda pid, sig: sent.append((pid, sig))
@@ -1251,7 +1254,8 @@ class PanelSignalTest(Base):
             fc.signal_panel()
         finally:
             fc.os.kill = real
-        self.assertEqual(sent, [(1002, fc.signal.SIGRTMIN + fc.PANEL_SIGNAL)])
+        self.assertEqual(sorted(sent), [(1002, fc.signal.SIGRTMIN + fc.PANEL_SIGNAL),
+                                        (1003, fc.signal.SIGRTMIN + fc.PANEL_SIGNAL)])
 
 
 if __name__ == "__main__":

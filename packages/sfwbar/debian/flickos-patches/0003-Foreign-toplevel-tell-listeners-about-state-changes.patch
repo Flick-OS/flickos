@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 03/18] Foreign toplevel: tell listeners about state changes
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/ipc/foreign-toplevel.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/ipc/foreign-toplevel.c b/src/ipc/foreign-toplevel.c
+index 1b256be..132be5a 100644
+--- a/src/ipc/foreign-toplevel.c
++++ b/src/ipc/foreign-toplevel.c
+@@ -79,6 +79,9 @@ static void toplevel_handle_state(void *data, wlr_fth *tl,
+ 
+   if(wintree_is_focused(win->uid) && !(win->state & WS_FOCUSED))
+     wintree_set_focus(NULL);
++  /* FlickOS: tell listeners (taskbars, sensor_maximized bars) about the new
++   * state, e.g. a window was maximized without a focus change. */
++  wintree_commit(win);
+   g_debug("foreign toplevel state for %p: %s%s%s%s", win->uid,
+     win->state & WS_FOCUSED ? "Activated, " : "",
+     win->state & WS_MINIMIZED ? "Minimized, " : "",

@@ -1,3 +1,18 @@
+flickos-screenshot (1.11) trixie; urgency=medium
+
+  * Release of 1.11~test1: the recording button's signal reaches sfwbar
+    too (Redmond+, flickos-layouts 1.90).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 18:14:50 +0800
+
+flickos-screenshot (1.11~test1) trixie; urgency=medium
+
+  * The recording button's signal reaches sfwbar too (the sfwbar panel
+    trial, docs/design/flickos-panel.md), and only a panel that already
+    catches it.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 16:01:13 +0800
+
 flickos-screenshot (1.10) trixie; urgency=medium
 
   * Release of 1.10~test1: screenshot, recording and changed.

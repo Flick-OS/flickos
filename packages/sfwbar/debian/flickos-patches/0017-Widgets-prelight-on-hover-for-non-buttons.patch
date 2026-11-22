@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:19 +0800
+Subject: [PATCH 17/18] Widgets: prelight on hover for non-buttons
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/basewidget.c | 47 +++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/src/gui/basewidget.c b/src/gui/basewidget.c
+index 6031c58..14d272f 100644
+--- a/src/gui/basewidget.c
++++ b/src/gui/basewidget.c
+@@ -957,6 +957,47 @@ static void base_widget_set_property ( GObject *self, guint id,
+   }
+ }
+ 
++/* FlickOS: CSS :hover on a widget that isn't a button (a grid, a label, an
++ * image). GTK 3 sets the prelight state only where a widget sets it itself
++ * (GtkButton does), so grid#name:hover never matched. The base widget, an
++ * event box, sets it on its child while the pointer is inside. Crossings
++ * to and from a widget inside (detail INFERIOR) don't count, so a grid
++ * stays lit over its own buttons. A button child is left alone: it does
++ * this itself, over its own area without the CSS margin. */
++static void base_widget_set_hover ( GtkWidget *self, gboolean hover )
++{
++  GtkWidget *child;
++
++  child = base_widget_get_child(self);
++  if(!child || GTK_IS_BUTTON(child))
++    return;
++  if(hover)
++    gtk_widget_set_state_flags(child, GTK_STATE_FLAG_PRELIGHT, FALSE);
++  else
++    gtk_widget_unset_state_flags(child, GTK_STATE_FLAG_PRELIGHT);
++}
++
++static gboolean base_widget_crossing_event ( GtkWidget *self,
++    GdkEventCrossing *event )
++{
++  g_return_val_if_fail(IS_BASE_WIDGET(self), FALSE);
++
++  if(event->detail != GDK_NOTIFY_INFERIOR)
++    base_widget_set_hover(self, event->type == GDK_ENTER_NOTIFY);
++
++  return FALSE;
++}
++
++/* FlickOS: a widget hidden under the pointer gets no leave event; don't let
++ * it come back lit. */
++static void base_widget_unmap ( GtkWidget *self )
++{
++  g_return_if_fail(IS_BASE_WIDGET(self));
++
++  base_widget_set_hover(self, FALSE);
++  GTK_WIDGET_CLASS(base_widget_parent_class)->unmap(self);
++}
++
+ static void base_widget_map ( GtkWidget *self )
+ {
+   BaseWidgetPrivate *priv;
+@@ -998,6 +1039,9 @@ static void base_widget_class_init ( BaseWidgetClass *kclass )
+   GTK_WIDGET_CLASS(kclass)->drag_drop = base_widget_drag_drop;
+   GTK_WIDGET_CLASS(kclass)->query_tooltip = base_widget_query_tooltip;
+   GTK_WIDGET_CLASS(kclass)->map = base_widget_map;
++  GTK_WIDGET_CLASS(kclass)->unmap = base_widget_unmap;
++  GTK_WIDGET_CLASS(kclass)->enter_notify_event = base_widget_crossing_event;
++  GTK_WIDGET_CLASS(kclass)->leave_notify_event = base_widget_crossing_event;
+ 
+   tristate_enum = g_enum_register_static("tristate", tristate_defs);
+   g_object_class_install_property(G_OBJECT_CLASS(kclass), BASE_WIDGET_STORE,
+@@ -1074,7 +1118,8 @@ static void base_widget_init ( BaseWidget *self )
+   g_ptr_array_add(base_widgets, self);
+ 
+   gtk_widget_add_events(GTK_WIDGET(self),
+-      GDK_BUTTON_RELEASE_MASK | GDK_SCROLL_MASK);
++      GDK_BUTTON_RELEASE_MASK | GDK_SCROLL_MASK |
++      GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+ 
+   if(!gtk_drag_dest_get_target_list(GTK_WIDGET(self)))
+     gtk_drag_dest_set(GTK_WIDGET(self), GTK_DEST_DEFAULT_ALL, NULL, 0,

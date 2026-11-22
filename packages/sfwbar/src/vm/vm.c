@@ -366,6 +366,38 @@ static void vm_immediate ( vm_t *vm )
   vm_push(vm, v1);
 }
 
+/* FlickOS: TRUE when the code gives the same value every time: nothing but
+ * immediate values and operators, so no variable, function, cached value,
+ * local or jump. Steps through the code as vm_run() does. A widget whose
+ * value and style are constant needn't be polled (basewidget.c). */
+gboolean vm_code_is_constant ( GBytes *bytes )
+{
+  guint8 *code, *ip;
+  gsize len;
+
+  if(!bytes)
+    return TRUE;
+  code = (guint8 *)g_bytes_get_data(bytes, &len);
+
+  for(ip = code+1; (ip-code)<(gssize)len; ip++)
+  {
+    if(*ip >= EXPR_OP_LAST || *ip == EXPR_OP_DISCARD)
+      continue;
+    if(*ip != EXPR_OP_IMMEDIATE || code+len-ip < 2)
+      return FALSE;
+    if(*(ip+1) != EXPR_TYPE_STRING)
+    {
+      if(code+len-ip < (gssize)sizeof(value_t)+1)
+        return FALSE;
+      ip += sizeof(value_t);
+    }
+    else
+      ip += strnlen((gchar *)ip+2, code+len-ip-2)+2;
+  }
+
+  return TRUE;
+}
+
 value_t vm_run ( vm_t *vm )
 {
   GtkWidget *widget;

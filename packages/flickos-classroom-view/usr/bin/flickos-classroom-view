@@ -933,9 +933,14 @@ def panel_json(state, teacher):
     return {"text": " ", "alt": state, "class": css, "tooltip": tooltip.format(teacher=teacher or "A teacher")}
 
 
+# The programs that draw a panel: waybar, and sfwbar (Cupertino's dock, and
+# Redmond's whole panel in the sfwbar trial, docs/design/flickos-panel.md).
+PANEL_PROGRAMS = ("waybar", "sfwbar")
+
+
 def catches_signal(pid, signum):
-    """Whether pid has a handler for signum (SigCgt): a waybar without the
-    button would die of SIGRTMIN+PANEL_SIGNAL."""
+    """Whether pid has a handler for signum (SigCgt): a panel without the
+    button, or one still starting, would die of SIGRTMIN+PANEL_SIGNAL."""
     try:
         with open(os.path.join(PROC, str(pid), "status"), encoding="utf-8") as f:
             for line in f:
@@ -959,7 +964,7 @@ def signal_panel():
             if os.stat(os.path.join(PROC, entry)).st_uid != os.getuid():
                 continue
             with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
-                if f.read().strip() != "waybar":
+                if f.read().strip() not in PANEL_PROGRAMS:
                     continue
         except OSError:
             continue

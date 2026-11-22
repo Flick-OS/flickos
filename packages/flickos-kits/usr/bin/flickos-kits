@@ -29,13 +29,14 @@ for this account only, so mise writes its own ~/.config/mise/config.toml and
 installs under ~/.local/share/mise; flickos-session puts mise's shims on PATH
 at login. Nothing is fetched until a button is pressed.
 
-The window lists the kits with a switch each, then the setup steps that apply
-to the kits that are installed (a step whose program isn't there is left out).
-The security kits are a list of their own under the permission sentence
-(ADR-S05), folded until one of them is installed or the window opens on one.
-A change shows its plan first (what comes with the kit, or what goes with it)
-and asks before it installs or removes. In the live session it says that what
-is installed is lost at restart.
+The window has a page per kit category (flickos-dev.md ADR-010), chosen in a
+sidebar like Settings': its kits with a switch each, then, once one of them is
+installed, its setup steps (a step whose program isn't there is left out), its
+newer versions and its environments. The security kits' page starts with the
+permission sentence (ADR-S05). A kit with many tools shows them on a page of
+their own, opened from one row. A change shows its plan first (what comes with
+the kit, or what goes with it) and asks before it installs or removes. In the
+live session it says that what is installed is lost at restart.
 
 The window is a plain GTK 3 window (python3-gi); GTK is imported only when it
 opens, so every command works without a display. One window per session
@@ -47,8 +48,8 @@ programs read (`list`, `doctor`) and messages on stderr stay in English,
 except the titles in `list`.
 
 Commands:
-  (none), window [--kit NAME]
-                     open the window, on a kit's row
+  (none), window [--kit NAME] [--page CATEGORY]
+                     open the window, on a kit's row or a category's page
   list [--json] [--category C]
                      the kits: name, installed (yes or no), title, summary
   plan [--remove] KIT
@@ -105,6 +106,7 @@ Exit codes: 0 ok, 1 error, 2 usage error.
 """
 
 import argparse
+import concurrent.futures
 import contextlib
 import fcntl
 import gettext
@@ -119,6 +121,7 @@ import tempfile
 import threading
 import time
 import traceback
+from typing import NamedTuple
 
 NAME = "flickos-kits"
 APP_ID = "flickos-kits"             # Wayland app id, matches flickos-kits.desktop
@@ -151,70 +154,66 @@ def N_(text):
 
 TITLE = N_("Tool Kits")
 
-# The kit categories and the heading of each list in the window.
-CATEGORIES = [
-    ("development", N_("What do you develop?")),
-    ("classroom", N_("For learning and teaching")),
-    ("security", N_("Security work")),
-]
 # Under the security kits' heading (flickos-security.md, ADR-S05): Software's
 # PERMISSION, the same words (a test compares).
 PERMISSION = N_("Use these tools only on computers and networks you own or have permission to test.")
-# Lists folded until one of their kits is installed or the window opens on one
-# (flickos-security.md, phase 2: the window serves two audiences).
-FOLDED = ("security",)
+
+
+class Category(NamedTuple):
+    """A kit category: a page of the window (flickos-dev.md ADR-010)."""
+    id: str
+    title: str          # the page's name in the sidebar
+    heading: str        # the heading of its list of kits
+    note: str = ""      # under that heading
+
+
+# The kit categories, in the sidebar's order.
+CATEGORIES = [
+    Category("development", N_("Development"), N_("What do you develop?")),
+    Category("classroom", N_("Learning"), N_("For learning and teaching")),
+    Category("security", N_("Security"), N_("Security work"), PERMISSION),
+]
+
+
+class Kit(NamedTuple):
+    name: str
+    category: str
+    title: str
+    summary: str
+
 
 # The kits, in the order they are shown: name, category, title, summary. The
 # same words as each kit's metainfo (a test compares them), so the window
 # doesn't wait for Software's index, and shows the kits that aren't installed.
 KITS = [
-    ("base", "development", N_("Developer Basics"),
-     N_("Git, a compiler and the everyday command-line tools")),
-    ("python", "development", N_("Python"),
-     N_("Virtual environments, pip and pipx for Python projects")),
-    ("web", "development", N_("Node.js and npm"),
-     N_("Node.js and npm for web and JavaScript projects")),
-    ("c", "development", N_("C and C++"),
-     N_("CMake, Meson, Ninja, Clang and Valgrind")),
-    ("containers", "development", N_("Containers"),
-     N_("Podman and Distrobox, without a daemon running")),
-    ("classroom", "classroom", N_("Young Learners"),
-     N_("Learning apps for children, at school and at home")),
-    ("study", "classroom", N_("Study"),
-     N_("Notes, flashcards and graphs for students")),
-    ("network", "security", N_("Network Analysis"),
-     N_("Wireshark, Nmap and the tools for looking at a network")),
-    ("web-testing", "security", N_("Web Testing"),
-     N_("Fuzzers, sqlmap and TLS checks for testing web apps")),
-    ("passwords", "security", N_("Passwords"),
-     N_("John the Ripper, hashcat and Hydra for testing passwords")),
-    ("forensics", "security", N_("Forensics"),
-     N_("The Sleuth Kit, Autopsy and tools for disk images")),
-    ("reversing", "security", N_("Reverse Engineering"),
-     N_("Debuggers, tracers and hex editors for programs")),
-    ("wireless", "security", N_("Wireless Testing"),
-     N_("Aircrack-ng and the tools for testing Wi-Fi networks")),
+    Kit("base", "development", N_("Developer Basics"),
+        N_("Git, a compiler and the everyday command-line tools")),
+    Kit("python", "development", N_("Python"),
+        N_("Virtual environments, pip and pipx for Python projects")),
+    Kit("web", "development", N_("Node.js and npm"),
+        N_("Node.js and npm for web and JavaScript projects")),
+    Kit("c", "development", N_("C and C++"),
+        N_("CMake, Meson, Ninja, Clang and Valgrind")),
+    Kit("containers", "development", N_("Containers"),
+        N_("Podman and Distrobox, without a daemon running")),
+    Kit("classroom", "classroom", N_("Young Learners"),
+        N_("Learning apps for children, at school and at home")),
+    Kit("study", "classroom", N_("Study"),
+        N_("Notes, flashcards and graphs for students")),
+    Kit("network", "security", N_("Network Analysis"),
+        N_("Wireshark, Nmap and the tools for looking at a network")),
+    Kit("web-testing", "security", N_("Web Testing"),
+        N_("Fuzzers, sqlmap and TLS checks for testing web apps")),
+    Kit("passwords", "security", N_("Passwords"),
+        N_("John the Ripper, hashcat and Hydra for testing passwords")),
+    Kit("forensics", "security", N_("Forensics"),
+        N_("The Sleuth Kit, Autopsy and tools for disk images")),
+    Kit("reversing", "security", N_("Reverse Engineering"),
+        N_("Debuggers, tracers and hex editors for programs")),
+    Kit("wireless", "security", N_("Wireless Testing"),
+        N_("Aircrack-ng and the tools for testing Wi-Fi networks")),
 ]
 
-# The setup steps, in the order they are shown: id, title, what it does (the
-# row's subtitle while it has nothing to show), the kit that brings its
-# program. A step shows only when its program is on this computer (WIN-9), so
-# a step doesn't need its kit listed in KITS.
-STEPS = [
-    ("git", N_("Your name and email for git"), N_("Git puts them on every commit you make."), "git"),
-    ("ssh", N_("SSH key"), N_("A key to sign in to GitHub and other code hosts."), "ssh-keygen"),
-    ("rust", N_("Rust"), N_("Rust's compiler and tools, from rust-lang.org (about 600 MB in your home folder)."),
-     "rustup"),
-    ("ports", N_("Devices on this network"),
-     N_("Let a phone or another computer on your home or office network reach a server you run."), "flickos-control"),
-    ("dhcp", N_("Container networks with DHCP"),
-     N_("Let containers get addresses from your router. Almost nobody needs this."), "flickos-control"),
-    ("capture", N_("Capture packets without administrator rights"),
-     N_("You can then record all network traffic on this computer, including other accounts'."), "dumpcap"),
-    # airmon-ng is in /usr/sbin, which isn't on a user's PATH: its package's aircrack-ng is.
-    ("test-adapter", N_("Wireless adapter for testing"),
-     N_("A second Wi-Fi adapter for monitor mode, which FlickOS then leaves alone."), "aircrack-ng"),
-]
 # Debian's group whose members may capture (flickos-control's packet-capture).
 WIRESHARK_GROUP = "wireshark"
 # NetworkManager's device states from prepare (40) to activated (100): the
@@ -278,6 +277,14 @@ SSH_KEY_FILE = "id_ed25519"
 PORT_ITEM = re.compile(r"^\d{1,5}(:\d{1,5})?/(tcp|udp)$")
 # What the plan lists before it says "and N more" (the dialog stays short).
 PLAN_LIST = 12
+# How many reads snapshot() runs at the same time.
+READERS = 8
+# A kit with more tools than this shows them on a page of their own, opened
+# from one row (flickos-dev.md ADR-010).
+INLINE_TOOLS = 3
+# The most rows a page may have with every kit installed (ADR-010: a test
+# checks it, so an addition that makes a page too long fails the build).
+PAGE_ROWS = 20
 
 # Newer versions (flickos-dev.md ADR-007 to ADR-009, 8a and 8b; Q8 decided
 # 2026-11-19: of the makers' repositories only mise's and Rapid7's).
@@ -566,10 +573,6 @@ def rust_toolchain(run=run_program):
     return done.stdout.split()[0] if done.returncode == 0 and done.stdout.strip() else ""
 
 
-def step_available(step, which=shutil.which):
-    return which(step[3]) is not None
-
-
 def control_value(key, run=run_program):
     """flickos-control's system setting KEY as it prints it, or None when it
     can't say (ufw or podman isn't there, or no flickos-control)."""
@@ -672,58 +675,197 @@ def adapter_address(text, adapters):
     raise KitsError(f"no Wi-Fi adapter named {text} (try: {', '.join(a['device'] for a in adapters) or 'none'})")
 
 
+# --- Setup steps (flickos-dev.md ADR-003, ADR-010) -------------------------------------
+#
+# A step is one record: what it is, the category whose page shows it, the
+# program it needs (a step shows only while its program is on this computer,
+# WIN-9, so it doesn't need its kit listed in KITS), how to read its value
+# (None leaves it out), its row and its doctor lines. The window draws a row's
+# control from data: ("button", words, action) with an action of STEP_ACTIONS,
+# ("switch", flickos-control key, on) or ("choice", key, chosen, ((id, words),
+# ...)). Adding a step adds a record here and touches nothing in the window.
+
+# The buttons' actions the window knows (it checks them when it opens).
+STEP_ACTIONS = ("git", "copy-key", "make-key", "rust", "ports")
+
+
+class Step(NamedTuple):
+    id: str
+    category: str
+    title: str
+    idle: str           # the row's subtitle while it has nothing to show
+    program: str
+    read: object        # read(run, installed kits) -> value, or None to leave the row out
+    row: object         # row(value) -> (subtitle or None for idle, control)
+    doctor: object      # doctor(value) -> [doctor's lines]
+
+
+def step_available(step, which=shutil.which):
+    return which(step.program) is not None
+
+
+def git_row(value):
+    name, email = value
+    if name and email:
+        subtitle = f"{name} <{email}>"
+    else:
+        subtitle = _("Git needs both a name and an email.") if name or email else None
+    return subtitle, ("button", _("Change…"), "git")
+
+
+def git_doctor(value):
+    name, email = value
+    return ["\t".join(("git", "ok" if name and email else "missing", f"{name} <{email}>" if name else ""))]
+
+
+def ssh_row(path):
+    if path:
+        return path, ("button", _("Copy Public Key"), "copy-key")
+    return None, ("button", _("Make a Key…"), "make-key")
+
+
+def rust_row(toolchain):
+    return toolchain or None, ("button", _("Update Rust…") if toolchain else _("Install Rust…"), "rust")
+
+
+def ports_row(value):
+    subtitle = None if value == "off" else \
+        _("Open to devices on this network: {ports}").format(ports=value.replace(",", ", "))
+    return subtitle, ("button", _("Change…"), "ports")
+
+
+def read_dhcp(run, installed):
+    """Only with the containers kit, whose drop-ins keep the helper off."""
+    return control_value("containers.dhcp", run) if "containers" in installed else None
+
+
+def read_capture(run, _installed):
+    value = control_value("packet-capture", run)
+    return None if value is None else (value, capture_active())
+
+
+def capture_row(value):
+    setting, active = value
+    # A group is read at login: until then the change waits (ADR-S02).
+    subtitle = _("Applies when you log in again.") if (setting == "on") != active else None
+    return subtitle, ("switch", "packet-capture", setting == "on")
+
+
+def capture_doctor(value):
+    setting, active = value
+    if setting == "on" and not active:
+        return ["\t".join(("capture", "next login", f"until then: sg {WIRESHARK_GROUP} -c wireshark"))]
+    return ["\t".join(("capture", "ok" if setting == "on" else "off", ""))]
+
+
+def read_test_adapter(run, _installed):
+    value = control_value("wireless.test-adapter", run)
+    return None if value is None else {"set": value, "adapters": wifi_adapters(run)}
+
+
+def test_adapter_row(value):
+    """The Wi-Fi adapters other than the one online, and None (ADR-S08)."""
+    chosen, adapters = value["set"], value["adapters"]
+    choices = [("off", _("None"))]
+    present = None
+    for adapter in adapters:
+        if adapter["address"] == chosen:
+            present = adapter
+        elif adapter["active"]:
+            continue
+        choices.append((adapter["address"], adapter["label"]))
+    if chosen != "off" and present is None:
+        choices.append((chosen, _("{address} (not plugged in)").format(address=chosen)))
+    if present is not None:
+        # Two lines: beside the drop-down a one-line sentence wraps in the middle of the command.
+        subtitle = (_("FlickOS won't connect to networks with it.") + "\n"
+                    + _("Monitor mode: sudo airmon-ng start {device} (never with check kill)").format(
+                        device=present["device"]))
+    elif chosen != "off":
+        subtitle = _("It isn't plugged in. FlickOS leaves it alone when it is.")
+    elif len(choices) > 1:
+        subtitle = None
+    else:
+        subtitle = _("Plug in a second Wi-Fi adapter that can do monitor mode.")
+    return subtitle, ("choice", "wireless.test-adapter", chosen, tuple(choices))
+
+
+# In the order they are shown on their pages.
+STEPS = [
+    Step("git", "development", N_("Your name and email for git"), N_("Git puts them on every commit you make."),
+         "git", lambda run, _i: git_values(run), git_row, git_doctor),
+    Step("ssh", "development", N_("SSH key"), N_("A key to sign in to GitHub and other code hosts."),
+         "ssh-keygen", lambda _r, _i: public_key_path() or "", ssh_row,
+         lambda path: ["\t".join(("ssh", "ok" if path else "missing", path))]),
+    Step("rust", "development", N_("Rust"),
+         N_("Rust's compiler and tools, from rust-lang.org (about 600 MB in your home folder)."),
+         "rustup", lambda run, _i: rust_toolchain(run), rust_row,
+         lambda toolchain: ["\t".join(("rust", "ok" if toolchain else "missing", toolchain))]),
+    Step("ports", "development", N_("Devices on this network"),
+         N_("Let a phone or another computer on your home or office network reach a server you run."),
+         "flickos-control", lambda run, _i: control_value("firewall.local-ports", run), ports_row,
+         lambda value: ["\t".join(("ports", "ok" if value != "off" else "none", "" if value == "off" else value))]),
+    Step("dhcp", "development", N_("Container networks with DHCP"),
+         N_("Let containers get addresses from your router. Almost nobody needs this."),
+         "flickos-control", read_dhcp, lambda value: (None, ("switch", "containers.dhcp", value == "on")),
+         lambda value: ["\t".join(("dhcp", "ok" if value == "on" else "off", ""))]),
+    # Not dumpcap: once capture is on it is root:wireshark 754 (ADR-S02), so a session
+    # from before the change can't run it and the row would vanish. tshark Depends on
+    # wireshark-common, which ships dumpcap, and stays 755.
+    Step("capture", "security", N_("Capture packets without administrator rights"),
+         N_("You can then record all network traffic on this computer, including other accounts'."),
+         "tshark", read_capture, capture_row, capture_doctor),
+    # airmon-ng is in /usr/sbin, which isn't on a user's PATH: its package's aircrack-ng is.
+    Step("test-adapter", "security", N_("Wireless adapter for testing"),
+         N_("A second Wi-Fi adapter for monitor mode, which FlickOS then leaves alone."),
+         "aircrack-ng", read_test_adapter, test_adapter_row,
+         lambda value: [test_adapter_line(value["set"], value["adapters"], True)]),
+]
+STEP_BY_ID = {step.id: step for step in STEPS}
+
+
 def snapshot(run=run_program, which=shutil.which):
     """Everything the page shows, read in one go (it runs git and rustup, so
     never on the main loop): {"kits": kit_rows(), "steps": {step id: value}}. A
-    step's value is git's (name, email), the SSH public key's path or None, or
+    step's value is git's (name, email), the SSH public key's path or "", or
     the Rust toolchain's name or "", the ports devices may reach ("off" or
     "8000/tcp,..."), "on" or "off" for podman's DHCP helper, (value, active now)
     for packet capture, or {"set": address or "off", "adapters": wifi_adapters()}
     for the test adapter; only steps that apply, and only once a kit is
-    installed."""
+    installed.
+
+    The reads run at the same time: each flickos-control read is a Python
+    start of 0.4 to 0.9 s, and one after another they took 5.5 s."""
     rows = kit_rows(run)
-    steps = {}
-    if any(r[4] for r in rows):
-        for step in STEPS:
-            if not step_available(step, which):
-                continue
-            if step[0] == "git":
-                steps["git"] = git_values(run)
-            elif step[0] == "ssh":
-                steps["ssh"] = public_key_path()
-            elif step[0] == "rust":
-                steps["rust"] = rust_toolchain(run)
-            elif step[0] == "ports":
-                value = control_value("firewall.local-ports", run)
-                if value is not None:
-                    steps["ports"] = value
-            elif step[0] == "dhcp":
-                # Only with the containers kit, whose drop-ins keep the helper off.
-                value = control_value("containers.dhcp", run) if any(r[0] == "containers" and r[4] for r in rows) \
-                    else None
-                if value is not None:
-                    steps["dhcp"] = value
-            elif step[0] == "capture":
-                value = control_value("packet-capture", run)
-                if value is not None:
-                    steps["capture"] = (value, capture_active())
-            elif step[0] == "test-adapter":
-                value = control_value("wireless.test-adapter", run)
-                if value is not None:
-                    steps["test-adapter"] = {"set": value, "adapters": wifi_adapters(run)}
-    # Environments (8c): None without distrobox and podman (the window offers
-    # the Containers kit); shown once any kit is installed, like the steps.
-    envs = None
-    if any(r[4] for r in rows) and environments_available(which):
-        try:
-            envs = environments(run)
-        except KitsError as error:
-            envs = str(error)
-    # Newer versions (8a, 8b): the makers' repositories and mise's tools the
-    # installed kits offer; None without a kit.
     installed = {r[0] for r in rows if r[4]}
-    return {"kits": rows, "steps": steps, "envs": envs, "versions": versions(installed, run, which) if installed
-            else None}
+    if not installed:
+        return {"kits": rows, "steps": {}, "envs": None, "versions": None}
+
+    def read_envs():
+        # Environments (8c): None without distrobox and podman (the window offers
+        # the Containers kit); shown once any kit is installed, like the steps.
+        if not environments_available(which):
+            return None
+        try:
+            return environments(run)
+        except KitsError as error:
+            return str(error)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=READERS) as pool:
+        reads = [(step.id, pool.submit(step.read, run, installed)) for step in STEPS if step_available(step, which)]
+        envs = pool.submit(read_envs)
+        # Newer versions (8a, 8b): the makers' repositories and mise's tools the
+        # installed kits offer; None without a kit.
+        vers = pool.submit(versions, installed, run, which)
+        steps = {step_id: future.result() for step_id, future in reads}
+        return {"kits": rows, "steps": {k: v for k, v in steps.items() if v is not None},
+                "envs": envs.result(), "versions": vers.result()}
+
+
+def first_snapshot(run=run_program):
+    """What the window draws before snapshot() is in: the kits only (dpkg-query,
+    about 0.1 s). page_model() shows nothing else while "loading" is set."""
+    return {"kits": kit_rows(run), "loading": True}
 
 
 def copy_public_key(which=shutil.which, run=run_program):
@@ -1199,7 +1341,9 @@ def versions(installed_kits, run=run_program, which=shutil.which):
     None (can't say)}, "packages": {package: version} of the makers' and
     Debian's, "tools": [USER_TOOLS rows], "mine": mise_tools() or None
     without mise, "error": mise's error or None, "on_path", "updated"}."""
-    upstreams = {entry_id: control_value(f"upstream.{entry_id}", run) for entry_id in shown_upstreams(installed_kits)}
+    ids = shown_upstreams(installed_kits)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=READERS) as pool:
+        upstreams = dict(zip(ids, pool.map(lambda entry_id: control_value(f"upstream.{entry_id}", run), ids)))
     tools = tool_rows(installed_kits, which) if "mise" in upstreams else []
     packages = [UPSTREAMS[e][0] for e in upstreams] + [t[5] for t in tools if t[5]]
     try:
@@ -1541,25 +1685,8 @@ def cmd_doctor(_opts, which=shutil.which):
     for name, _category, _title, _summary, installed in state["kits"]:
         print("\t".join((f"kit {name}", "ok" if installed else "not installed", "")))
     for step_id, value in state["steps"].items():
-        if step_id == "git":
-            name, email = value
-            print("\t".join(("git", "ok" if name and email else "missing", f"{name} <{email}>" if name else "")))
-        elif step_id == "ssh":
-            print("\t".join(("ssh", "ok" if value else "missing", value or "")))
-        elif step_id == "ports":
-            print("\t".join(("ports", "ok" if value != "off" else "none", "" if value == "off" else value)))
-        elif step_id == "dhcp":
-            print("\t".join(("dhcp", "ok" if value == "on" else "off", "")))
-        elif step_id == "capture":
-            setting, active = value
-            if setting == "on" and not active:
-                print("\t".join(("capture", "next login", f"until then: sg {WIRESHARK_GROUP} -c wireshark")))
-            else:
-                print("\t".join(("capture", "ok" if setting == "on" else "off", "")))
-        elif step_id == "test-adapter":
-            print(test_adapter_line(value["set"], value["adapters"], True))
-        else:
-            print("\t".join((step_id, "ok" if value else "missing", value)))
+        for line in STEP_BY_ID[step_id].doctor(value):
+            print(line)
     if "test-adapter" not in state["steps"]:
         # A system setting stays when its kit goes (ADR-S08): say so.
         value = control_value("wireless.test-adapter")
@@ -1595,12 +1722,125 @@ def test_adapter_line(address, adapters, kit):
     return "\t".join(("test-adapter", "ok", f"{address} {device}"))
 
 
+# --- The window's pages (flickos-dev.md ADR-010) ---------------------------------------
+#
+# page_model() turns a snapshot into what one page shows, as plain data: its
+# sections in order, each a heading, a note and rows. A row is a tuple whose
+# first item is one of ROW_KINDS, and it carries everything its drawing reads,
+# so two models that are equal draw the same page and the window rebuilds a
+# page only when its model changed. Headings and notes are untranslated.
+
+ROW_KINDS = ("kit", "step", "upstream", "tool", "tool-group", "mise", "env", "env-needs-containers")
+ENV_NOTE = N_("Newer or other software in a container that shares your home folder: "
+              "for other software, not for keeping anything apart.")
+
+
+class Section(NamedTuple):
+    id: str             # kits, steps, versions, environments or tools
+    heading: str
+    note: str
+    rows: tuple
+    footer: str = ""    # a button under the list: "new-env"
+
+
+def category_of(category_id):
+    return next(c for c in CATEGORIES if c.id == category_id)
+
+
+def tool_model(tool, vers):
+    """A tool's row: mise's name, the account's (version, asked) or None, Debian's version or None."""
+    return ("tool", tool[0], (vers["mine"] or {}).get(tool[0]), vers["packages"].get(tool[5]) if tool[5] else None)
+
+
+def version_rows(category, vers, installed):
+    """The Newer versions rows of a page: the makers' repositories of this
+    category, then, with mise on, the tools of its installed kits (a kit with
+    more than INLINE_TOOLS as one row that opens them), then mise's own row."""
+    if not vers:
+        return ()
+    here = {k.name for k in KITS if k.category == category}
+    with_tools = bool(here & installed & {t[2] for t in USER_TOOLS})
+    rows = []
+    for entry_id, value in vers["upstreams"].items():
+        package, _title, _about, entry_category = UPSTREAMS[entry_id][:4]
+        if entry_category is None and (not with_tools or value == "on"):
+            continue            # mise: on pages whose kits have tools; once on, its row is the last
+        if entry_category not in (None, category):
+            continue
+        rows.append(("upstream", entry_id, value, vers["packages"].get(package)))
+    if with_tools and vers["upstreams"].get("mise") == "on":
+        mine = vers["mine"] or {}
+        for kit in KITS:
+            tools = [t for t in vers["tools"] if t[2] == kit.name and kit.name in here]
+            if len(tools) > INLINE_TOOLS:
+                rows.append(("tool-group", kit.name, tuple(t[0] for t in tools), sum(t[0] in mine for t in tools)))
+            else:
+                rows += [tool_model(t, vers) for t in tools]
+        rows.append(("mise", vers["packages"].get("mise"), vers["updated"], bool(vers["mine"]), vers["on_path"]))
+    return tuple(rows)
+
+
+def page_model(category, state):
+    """[Section] of a category's page: its kits, then (once one of them is
+    installed) Set up, Newer versions and Environments, each only with rows."""
+    page = category_of(category)
+    kits = [r for r in state["kits"] if r[1] == category]
+    sections = [Section("kits", page.heading, page.note, tuple(("kit", r[0], r[4]) for r in kits))]
+    if state.get("loading"):        # first_snapshot(): the rest is still being read
+        return sections
+    installed = {r[0] for r in state["kits"] if r[4]}
+    envs = state.get("envs")
+    mine_envs = [e for e in envs if e["category"] == category] if isinstance(envs, list) else []
+    if not any(r[4] for r in kits):
+        if mine_envs:           # environments outlive their kits: still reachable
+            sections.append(Section("environments", N_("Environments"), ENV_NOTE,
+                                    tuple(("env", e) for e in mine_envs), "new-env"))
+        return sections
+    steps = tuple(("step", s.id, state["steps"][s.id]) for s in STEPS
+                  if s.category == category and s.id in state["steps"])
+    if steps:
+        sections.append(Section("steps", N_("Set up"), "", steps))
+    versions = version_rows(category, state.get("versions"), installed)
+    if versions:
+        sections.append(Section("versions", N_("Newer versions"), "", versions))
+    if category in ENV_IMAGES:
+        if envs is None:
+            sections.append(Section("environments", N_("Environments"), ENV_NOTE, (("env-needs-containers",),)))
+        else:
+            sections.append(Section("environments", N_("Environments"), ENV_NOTE,
+                                    tuple(("env", e) for e in mine_envs), "new-env"))
+    return sections
+
+
+def tools_model(kit, state):
+    """The page of a kit's tools (a tool-group row opens it): one Section, or
+    None when the kit has no tools to show any more (mise removed, kit removed)."""
+    vers = state.get("versions") or {}
+    tools = [t for t in vers.get("tools", ()) if t[2] == kit]
+    if len(tools) <= INLINE_TOOLS or vers.get("upstreams", {}).get("mise") != "on":
+        return None
+    return Section("tools", kit_of(kit).title, "", tuple(tool_model(t, vers) for t in tools))
+
+
+def start_page(state, select=None, page=None):
+    """Where the window opens (ADR-010): --page, the category of --kit, the
+    first category with a kit installed, or the first."""
+    ids = [c.id for c in CATEGORIES]
+    if page in ids:
+        return page
+    if select in kit_names():
+        return kit_of(select).category
+    installed = {r[1] for r in state["kits"] if r[4]}
+    return next((c for c in ids if c in installed), ids[0])
+
+
 # --- The window ------------------------------------------------------------------------
 
-def window(select=None):
-    """Build and show the window. Returns 0 when it is closed. Anything that
-    runs a program does it in a thread, and the result comes back on the main
-    loop (PERF-2)."""
+def window(select=None, page=None):
+    """Build and show the window: a sidebar with a page per kit category
+    (flickos-dev.md ADR-010), each drawn from page_model(). Returns 0 when it is
+    closed. Anything that runs a program does it in a thread, and the result
+    comes back on the main loop (PERF-2)."""
     try:
         import gi
         gi.require_version("Gtk", "3.0")
@@ -1616,14 +1856,17 @@ def window(select=None):
         return 1
 
     win = Gtk.Window(title=_(TITLE), icon_name=ICON)
-    win.set_default_size(760, 680)
+    win.set_default_size(900, 660)          # Settings' size (WIN-3)
     win.connect("destroy", Gtk.main_quit)
     busy = {"kit": None}            # the kit being changed, or None
 
     def key_pressed(_window, event):
-        """Escape closes the window (A11Y-2) unless a change is running."""
+        """Escape leaves a kit's tools, else closes the window (A11Y-2), unless a change is running."""
         if event.keyval == Gdk.KEY_Escape and busy["kit"] is None:
-            win.destroy()
+            if shown["kit"] is not None:
+                back()
+            else:
+                win.destroy()
             return True
         return False
 
@@ -1643,8 +1886,7 @@ def window(select=None):
             GLib.idle_add(lambda: done(result, error) and False)
         threading.Thread(target=target, daemon=True).start()
 
-    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-    outer.set_border_width(24)
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     win.add(outer)
 
     # A warning bar for errors (WIN-10), with selectable text.
@@ -1665,11 +1907,37 @@ def window(select=None):
         show_notice(_("This is the live session: what you install here is gone when you restart."),
                     Gtk.MessageType.INFO)
 
-    scroller = Gtk.ScrolledWindow()
-    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-    outer.pack_start(scroller, True, True, 0)
-    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-    scroller.add(content)
+    # The sidebar, like Settings': a page per kit category (ADR-010).
+    body = Gtk.Box()
+    outer.pack_start(body, True, True, 0)
+    sidebar = Gtk.ListBox(selection_mode=Gtk.SelectionMode.BROWSE)
+    sidebar.get_style_context().add_class("sidebar")
+    for category in CATEGORIES:
+        row = Gtk.ListBoxRow()
+        label = Gtk.Label(label=_(category.title), xalign=0)
+        label.set_margin_top(8)
+        label.set_margin_bottom(8)
+        label.set_margin_start(12)
+        label.set_margin_end(12)
+        row.add(label)
+        row.category = category.id
+        sidebar.add(row)
+    side = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+    side.set_size_request(200, -1)
+    side.add(sidebar)
+    body.pack_start(side, False, False, 0)
+    body.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
+    # The pages, and "tools": the page of one kit's tools (a tool-group row opens it).
+    stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, hhomogeneous=False, vhomogeneous=False)
+    body.pack_start(stack, True, True, 0)
+    pages = {}                      # name -> {"scroller", "content", "model": what it was drawn from}
+    for name in [c.id for c in CATEGORIES] + ["tools"]:
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        content.set_border_width(24)
+        scroller.add(content)
+        stack.add_named(scroller, name)
+        pages[name] = {"scroller": scroller, "content": content, "model": None}
 
     status = Gtk.Label(xalign=0, wrap=True, selectable=True)
     status.get_style_context().add_class("dim-label")
@@ -1685,12 +1953,17 @@ def window(select=None):
         listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         for row in rows:
             listbox.add(row)
+        listbox.connect("row-activated", lambda _l, row: row.on_activate and row.on_activate())
         frame.add(listbox)
         return frame
 
-    def row_of(title, subtitle, control):
-        """A row (WIN-6): title and dimmed subtitle on the left, the control on the right."""
-        row = Gtk.ListBoxRow(activatable=False)
+    def row_of(title, subtitle, control, on_activate=None):
+        """A row (WIN-6): title and dimmed subtitle on the left, the control on
+        the right; with on_activate, an arrow instead, and the row opens something."""
+        row = Gtk.ListBoxRow(activatable=on_activate is not None)
+        row.on_activate = on_activate
+        if control is None:
+            control = Gtk.Image.new_from_icon_name("go-next-symbolic", Gtk.IconSize.BUTTON)
         box = Gtk.Box(spacing=12)
         box.set_border_width(10)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1729,7 +2002,7 @@ def window(select=None):
         set_sensitive_all(True)
         if message:
             show_notice(message)
-        shown["state"] = None       # whatever happened, build the page from what is installed now
+        invalidate()                # whatever happened, draw the pages from what is installed now
         refresh()
 
     def ask(title_text, question, body, names, verb, destructive):
@@ -1821,182 +2094,200 @@ def window(select=None):
 
     # --- The page -------------------------------------------------------------------------
 
-    shown = {"state": None}         # what the page was built from
-    # A folded list's state once the user opened or closed it, kept across rebuilds.
-    unfolded = {}
+    # What the pages were drawn from, the page shown, and the kit whose tools are shown.
+    shown = {"state": None, "page": None, "kit": None, "started": False}
+
+    def invalidate():
+        """Draw every page again at the next read, even if nothing changed: a
+        refused change must put its control back."""
+        shown["state"] = None
+        for drawn in pages.values():
+            drawn["model"] = None
 
     def refresh():
-        """Reads what is installed and set up, and builds the page again when it changed."""
+        """Reads what is installed and set up, and draws the pages whose models changed.
+        The first time it draws the kits first (first_snapshot), with Loading… until
+        the rest is in."""
+        def kits_first(state, error):
+            # Its error, if any, comes again with the full read's.
+            if not error and shown["state"] is None:    # the full read may have come first
+                shown["state"] = state
+                draw()
+
+        if not shown["started"]:
+            status.set_text(_("Loading…"))
+            background(first_snapshot, kits_first)
+
         def read(state, error):
+            if status.get_text() == _("Loading…") and busy["kit"] is None:
+                status.set_text("")
             if error:
                 return show_notice(_("Couldn't read which kits are installed: {error}").format(error=error))
-            if state != shown["state"]:
-                shown["state"] = state
-                build(state)
+            if state == shown["state"]:
+                return
+            old = shown["state"] or {}
+            shown["state"] = state
+            vers = state.get("versions") or {}
+            if vers.get("error") and vers["error"] != (old.get("versions") or {}).get("error"):
+                show_notice(_("mise can't say which versions are yours: {error}").format(error=vers["error"]))
+            if isinstance(state["envs"], str) and state["envs"] != old.get("envs"):
+                show_notice(_("Couldn't list the environments: {error}").format(error=state["envs"]))
+            draw()
         background(snapshot, read)
 
-    def build(state):
-        rows = state["kits"]
-        for child in content.get_children():
-            content.remove(child)
-        switches.clear()
-        for category, title in CATEGORIES:
-            in_category = [r for r in rows if r[1] == category]
-            rows_here = []
-            for name, kit_category, kit_title, summary, installed in rows:
-                if kit_category != category:
-                    continue
-                switch = Gtk.Switch()
-                switch.kit = name
-                switch.set_active(installed)
-                switch.get_accessible().set_name(kit_title)
-                switch.connect("notify::active", toggled)
-                switches[name] = switch
-                rows_here.append(row_of(kit_title, summary, switch))
-            if category not in FOLDED:
-                content.pack_start(heading(_(title)), False, False, 0)
-                content.pack_start(framed(rows_here), False, False, 0)
-                continue
-            # Folded until one of its kits is installed or the window opens on one;
-            # then as the user leaves it.
-            opened = unfolded.get(category, any(r[4] or r[0] == select for r in in_category))
-            expander = Gtk.Expander(expanded=opened)
-            expander.set_label_widget(heading(_(title)))
-            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            inner.set_margin_top(12)
-            note = Gtk.Label(label=_(PERMISSION), xalign=0, wrap=True, max_width_chars=70, selectable=True)
-            inner.pack_start(note, False, False, 0)
-            inner.pack_start(framed(rows_here), False, False, 0)
-            expander.add(inner)
-            expander.connect("notify::expanded", lambda e, _p, c=category: unfolded.__setitem__(c, e.get_expanded()))
-            content.pack_start(expander, False, False, 0)
-        steps = [s for s in STEPS if s[0] in state["steps"]]
-        if steps:
-            content.pack_start(heading(_("Set up")), False, False, 0)
-            content.pack_start(framed([step_row(s, state["steps"][s[0]]) for s in steps]), False, False, 0)
-        if state.get("versions") and state["versions"]["upstreams"]:
-            versions_section(state["versions"])
-        if any(r[4] for r in rows):
-            env_section(state["envs"])
-        content.show_all()
-        if select in switches:
+    def draw():
+        state = shown["state"]
+        for category in CATEGORIES:
+            draw_page(category.id, page_model(category.id, state))
+        if shown["kit"] is not None:
+            model = tools_model(shown["kit"], state)
+            if model is None:
+                back()
+            else:
+                draw_page("tools", [model])
+        if not shown["started"]:    # the first read (the sidebar selects its first row before it)
+            shown["started"] = True
+            open_page(start_page(state, select, page))
+        if select in switches and not state.get("loading") and not shown.get("focused"):
+            shown["focused"] = True     # once all is drawn: a page drawn again makes new switches
             switches[select].grab_focus()
 
-    def step_row(step, value):
-        step_id, title, idle, _program = step
-        button = Gtk.Button()
-        if step_id == "git":
-            name, email = value
-            if name and email:
-                subtitle = f"{name} <{email}>"
-            elif name or email:
-                subtitle = _("Git needs both a name and an email.")
-            else:
-                subtitle = _(idle)
-            button.set_label(_("Change…"))
-            button.connect("clicked", lambda _b: git_dialog())
-        elif step_id == "ssh":
-            path = value
-            subtitle = path or _(idle)
-            if path:
-                button.set_label(_("Copy Public Key"))
-                button.connect("clicked", lambda _b: copy_key(button))
-            else:
-                button.set_label(_("Make a Key…"))
-                button.connect("clicked", lambda _b: make_key())
-        elif step_id == "ports":
-            if value == "off":
-                subtitle = _(idle)
-            else:
-                subtitle = _("Open to devices on this network: {ports}").format(ports=value.replace(",", ", "))
-            button.set_label(_("Change…"))
-            button.connect("clicked", lambda _b: ports_dialog(value))
-        elif step_id == "dhcp":
-            subtitle = _(idle)
-            switch = Gtk.Switch()
-            switch.set_active(value == "on")
-            switch.get_accessible().set_name(_(title))
-            switch.connect("notify::active", lambda s, _p: system_step("containers.dhcp",
-                                                                       "on" if s.get_active() else "off"))
-            return row_of(_(title), subtitle, switch)
-        elif step_id == "capture":
-            setting, active = value
-            # A group is read at login: until then the change waits (ADR-S02).
-            subtitle = _("Applies when you log in again.") if (setting == "on") != active else _(idle)
-            switch = Gtk.Switch()
-            switch.set_active(setting == "on")
-            switch.get_accessible().set_name(_(title))
-            switch.connect("notify::active", lambda s, _p: system_step("packet-capture",
-                                                                       "on" if s.get_active() else "off"))
-            return row_of(_(title), subtitle, switch)
-        elif step_id == "test-adapter":
-            return adapter_row(title, idle, value)
-        else:                       # rust
-            toolchain = value
-            subtitle = toolchain or _(idle)
-            button.set_label(_("Install Rust…") if not toolchain else _("Update Rust…"))
-            button.connect("clicked", lambda _b: rust_step(bool(toolchain)))
-        button.get_accessible().set_name(_(title))
-        return row_of(_(title), subtitle, button)
+    def draw_page(name, sections):
+        """Draws a page from its model, only when that changed, keeping its scroll position."""
+        drawn = pages[name]
+        if drawn["model"] == sections:
+            return
+        drawn["model"] = sections
+        content = drawn["content"]
+        adjustment = drawn["scroller"].get_vadjustment()
+        kept = adjustment.get_value()
+        for child in content.get_children():
+            content.remove(child)
+        if name == "tools":
+            back_button = Gtk.Button(label=_("Back"), image=Gtk.Image.new_from_icon_name(
+                "go-previous-symbolic", Gtk.IconSize.BUTTON), always_show_image=True, halign=Gtk.Align.START)
+            back_button.connect("clicked", lambda _b: back())
+            content.pack_start(back_button, False, False, 0)
+        for section in sections:
+            group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            group.pack_start(heading(_(section.heading)), False, False, 0)
+            if section.note:
+                note = Gtk.Label(label=_(section.note), xalign=0, wrap=True, max_width_chars=70, selectable=True)
+                group.pack_start(note, False, False, 0)
+            if section.rows:
+                group.pack_start(framed([drawers[r[0]](*r[1:]) for r in section.rows]), False, False, 0)
+            if section.footer == "new-env":
+                new = Gtk.Button(label=_("New Environment…"))
+                new.connect("clicked", lambda _b, c=name: new_env_dialog(c))
+                line = Gtk.Box()
+                line.pack_end(new, False, False, 0)
+                group.pack_start(line, False, False, 0)
+            content.pack_start(group, False, False, 0)
+        content.show_all()
 
-    def adapter_row(title, idle, value):
-        """The Wi-Fi adapters other than the one online, and None (ADR-S08)."""
-        chosen, adapters = value["set"], value["adapters"]
-        combo = Gtk.ComboBoxText()
-        combo.append("off", _("None"))
-        present = None
-        for adapter in adapters:
-            if adapter["address"] == chosen:
-                present = adapter
-            elif adapter["active"]:
-                continue
-            combo.append(adapter["address"], adapter["label"])
-        if chosen != "off" and present is None:
-            combo.append(chosen, _("{address} (not plugged in)").format(address=chosen))
-        combo.set_active_id(chosen)
-        combo.set_sensitive(len(combo.get_model()) > 1)
-        for cell in combo.get_cells():      # a long model name mustn't squeeze the row's sentence
-            cell.set_property("ellipsize", Pango.EllipsizeMode.END)
-            cell.set_property("max-width-chars", 30)
-        if present is not None:
-            # Two lines: beside the drop-down a one-line sentence wraps in the middle of the command.
-            subtitle = (_("FlickOS won't connect to networks with it.") + "\n"
-                        + _("Monitor mode: sudo airmon-ng start {device} (never with check kill)").format(
-                            device=present["device"]))
-        elif chosen != "off":
-            subtitle = _("It isn't plugged in. FlickOS leaves it alone when it is.")
-        elif len(combo.get_model()) > 1:
-            subtitle = _(idle)
-        else:
-            subtitle = _("Plug in a second Wi-Fi adapter that can do monitor mode.")
-        combo.get_accessible().set_name(_(title))
-        combo.connect("changed", lambda c: c.get_active_id() not in (None, chosen)
-                      and system_step("wireless.test-adapter", c.get_active_id()))
-        return row_of(_(title), subtitle, combo)
+        def scroll_back():
+            adjustment.set_value(min(kept, max(0, adjustment.get_upper() - adjustment.get_page_size())))
+            return False
+        GLib.idle_add(scroll_back)
+
+    def open_page(name):
+        shown["page"], shown["kit"] = name, None
+        stack.set_visible_child_name(name)
+        for row in sidebar.get_children():
+            if row.category == name and sidebar.get_selected_row() is not row:
+                sidebar.select_row(row)
+
+    def open_tools(kit):
+        model = tools_model(kit, shown["state"])
+        if model is None:
+            return
+        shown["kit"] = kit
+        draw_page("tools", [model])
+        stack.set_visible_child_name("tools")
+        pages["tools"]["scroller"].get_vadjustment().set_value(0)
+        pages["tools"]["content"].get_children()[0].grab_focus()     # the Back button
+
+    def back():
+        shown["kit"] = None
+        stack.set_visible_child_name(shown["page"] or CATEGORIES[0].id)
+
+    sidebar.connect("row-selected", lambda _l, row: row is not None and row.category != shown["page"]
+                    and open_page(row.category))
+    # A click on the page's own row also leaves a kit's tools.
+    sidebar.connect("row-activated", lambda _l, row: open_page(row.category))
+
+    # --- Rows: one drawer per ROW_KINDS -------------------------------------------------
+
+    def kit_row(name, installed):
+        kit = kit_of(name)
+        switch = Gtk.Switch()
+        switch.kit = name
+        switch.set_active(installed)
+        switch.set_sensitive(busy["kit"] is None)
+        switch.get_accessible().set_name(_(kit.title))
+        switch.connect("notify::active", toggled)
+        switches[name] = switch
+        return row_of(_(kit.title), _(kit.summary), switch)
+
+    def step_row(step_id, value):
+        """A step's control from its row's data (Step.row)."""
+        step = STEP_BY_ID[step_id]
+        subtitle, control = step.row(value)
+        if control[0] == "button":
+            _kind, words, action = control
+            widget = Gtk.Button(label=words)
+            widget.connect("clicked", lambda b: step_actions[action](value, b))
+        elif control[0] == "switch":
+            _kind, key, active = control
+            widget = Gtk.Switch()
+            widget.set_active(active)
+            widget.connect("notify::active", lambda s, _p: system_step(key, "on" if s.get_active() else "off"))
+        else:                       # choice
+            _kind, key, chosen, choices = control
+            widget = Gtk.ComboBoxText()
+            for choice_id, words in choices:
+                widget.append(choice_id, words)
+            widget.set_active_id(chosen)
+            widget.set_sensitive(len(choices) > 1)
+            for cell in widget.get_cells():     # a long model name mustn't squeeze the row's sentence
+                cell.set_property("ellipsize", Pango.EllipsizeMode.END)
+                cell.set_property("max-width-chars", 30)
+            widget.connect("changed", lambda c: c.get_active_id() not in (None, chosen)
+                           and system_step(key, c.get_active_id()))
+        widget.get_accessible().set_name(_(step.title))
+        return row_of(_(step.title), subtitle or _(step.idle), widget)
+
+    def tool_group_row(kit, names, mine):
+        """One row for a kit's many tools: it opens their page (ADR-010)."""
+        titles = [t[1] for t in USER_TOOLS if t[0] in names]
+        subtitle = ", ".join(titles)
+        if mine:
+            subtitle += "\n" + ngettext("{count} of them is yours.", "{count} of them are yours.", mine).format(
+                count=mine)
+        row = row_of(_(kit_of(kit).title), subtitle, None, lambda: open_tools(kit))
+        row.get_accessible().set_name(_("{kit}: its tools").format(kit=_(kit_of(kit).title)))
+        return row
+
+    def containers_row():
+        button = Gtk.Button(label=_("Install Containers Kit…"))
+        button.connect("clicked", lambda _b: switches["containers"].set_active(True)
+                       if "containers" in switches else None)
+        return row_of(_("Environments need the Containers kit"),
+                      _("Podman and Distrobox, about {size} with Developer Basics.").format(
+                          size=human_size(CONTAINERS_SIZE)), button)
 
     # --- Newer versions (flickos-dev.md ADR-007 to ADR-009) -------------------------------
-
-    def versions_section(vers):
-        content.pack_start(heading(_("Newer versions")), False, False, 0)
-        rows = [upstream_row(entry_id, value, vers) for entry_id, value in vers["upstreams"].items()
-                if not (entry_id == "mise" and value == "on")]
-        if vers["upstreams"].get("mise") == "on":
-            rows += [tool_row(tool, vers) for tool in vers["tools"]]
-            rows.append(mise_row(vers))
-        if vers["error"]:
-            show_notice(_("mise can't say which versions are yours: {error}").format(error=vers["error"]))
-        content.pack_start(framed(rows), False, False, 0)
 
     def upstream_name(entry_id):
         return "mise" if entry_id == "mise" else _(UPSTREAMS[entry_id][1])
 
-    def upstream_row(entry_id, value, vers):
-        package, title, about, _category, _download, _size = UPSTREAMS[entry_id]
+    def upstream_row(entry_id, value, version):
+        _package, title, about, _category, _download, _size = UPSTREAMS[entry_id]
         button = Gtk.Button(label=_("Install…"))
         if value == "on":
             subtitle = _("Version {version}, from Rapid7. Automatic updates keep it current. "
                          "Set up its database with msfdb init.").format(
-                version=vers["packages"].get(package, "?"))
+                version=version or "?")
             button.set_label(_("Remove…"))
             button.connect("clicked", lambda _b: upstream_change(entry_id, False))
         else:
@@ -2008,10 +2299,9 @@ def window(select=None):
         button.get_accessible().set_name(_(title))
         return row_of(_(title), subtitle, button)
 
-    def tool_row(tool, vers):
-        name, title, _kit, check, spec, debian = tool
-        mine = (vers["mine"] or {}).get(name)
-        computer = vers["packages"].get(debian) if debian else None
+    def tool_row(name, mine, computer):
+        tool = next(t for t in USER_TOOLS if t[0] == name)
+        _name, title, _kit, check, _spec, _debian = tool
         has = _("The computer has {version} from Debian.").format(version=computer) if computer else ""
         if mine:
             version, asked = mine
@@ -2057,19 +2347,19 @@ def window(select=None):
         box.pack_start(more, False, False, 0)
         return row_of(title, subtitle, box)
 
-    def mise_row(vers):
+    def mise_row(version, updated, has_mine, on_path):
         words = []
-        if vers["packages"].get("mise"):
-            words.append(_("mise {version}.").format(version=vers["packages"]["mise"]))
-        if vers["updated"]:
+        if version:
+            words.append(_("mise {version}.").format(version=version))
+        if updated:
             words.append(_("Your versions were last updated {date}.").format(
-                date=GLib.DateTime.new_from_unix_local(int(vers["updated"])).format("%x")))
+                date=GLib.DateTime.new_from_unix_local(int(updated)).format("%x")))
         words.append(_("They get no restore points, History or automatic updates: update them here."))
-        if vers["mine"] and not vers["on_path"]:
+        if has_mine and not on_path:
             words.append(_("Programs use them from your next login."))
         box = Gtk.Box(spacing=6)
         update = Gtk.Button(label=_("Update All"))
-        update.set_sensitive(bool(vers["mine"]))
+        update.set_sensitive(has_mine)
         update.connect("clicked", lambda _b: mise_work(update_tools, _("Updating your versions…"),
                                                        _("Your versions are up to date.")))
         box.pack_start(update, False, False, 0)
@@ -2123,33 +2413,6 @@ def window(select=None):
                        else _("{name} was removed.").format(name=name))
 
     # --- Environments (flickos-dev.md 8c, flickos-security.md ADR-S03) ---------------------
-
-    def env_section(envs):
-        content.pack_start(heading(_("Environments")), False, False, 0)
-        about = Gtk.Label(label=_("Newer or other software in a container that shares your home folder: "
-                                  "for other software, not for keeping anything apart."),
-                          xalign=0, wrap=True, max_width_chars=70)
-        about.get_style_context().add_class("dim-label")
-        content.pack_start(about, False, False, 0)
-        if envs is None:
-            button = Gtk.Button(label=_("Install Containers Kit…"))
-            button.connect("clicked", lambda _b: switches["containers"].set_active(True)
-                           if "containers" in switches else None)
-            content.pack_start(framed([row_of(_("Environments need the Containers kit"),
-                                              _("Podman and Distrobox, about {size} with Developer Basics.").format(
-                                                  size=human_size(CONTAINERS_SIZE)), button)]), False, False, 0)
-            return
-        if isinstance(envs, str):
-            show_notice(_("Couldn't list the environments: {error}").format(error=envs))
-            envs = []
-        rows = [env_row(env) for env in envs]
-        new = Gtk.Button(label=_("New Environment…"))
-        new.connect("clicked", lambda _b: new_env_dialog())
-        if rows:
-            content.pack_start(framed(rows), False, False, 0)
-        line = Gtk.Box()
-        line.pack_end(new, False, False, 0)
-        content.pack_start(line, False, False, 0)
 
     def env_row(env):
         name = env["name"]
@@ -2209,7 +2472,7 @@ def window(select=None):
                 show_notice(error)
             elif done_words:
                 status.set_text(done_words)
-            shown["state"] = None
+            invalidate()
             refresh()
         background(work, done)
 
@@ -2255,9 +2518,11 @@ def window(select=None):
             env_background(lambda: export_command(name, command, with_menu),
                            _("{command} is available.").format(command=command))
 
-    def new_env_dialog():
+    def new_env_dialog(category):
+        """A new environment of a page's category: Debian testing or Kali (ENV_IMAGES)."""
         installed = {r[0] for r in shown["state"]["kits"] if r[4]}
         taken = {e["name"] for e in shown["state"]["envs"] or [] if isinstance(e, dict)}
+        security = category == "security"
         dialog = Gtk.Dialog(title=_("New Environment"), transient_for=win, modal=True)
         dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         go = dialog.add_button(_("_Make…"), Gtk.ResponseType.ACCEPT)
@@ -2266,58 +2531,36 @@ def window(select=None):
         box = dialog.get_content_area()
         box.set_spacing(12)
         box.set_border_width(18)
-        security_first = any(kit_of(k)[1] == "security" for k in installed)
         line = Gtk.Box(spacing=6)
         label = Gtk.Label.new_with_mnemonic(_("_Name"))
-        entry = Gtk.Entry(text=free_name("kali" if security_first else "testing", taken), activates_default=True,
+        entry = Gtk.Entry(text=free_name("kali" if security else "testing", taken), activates_default=True,
                           width_chars=24)
         label.set_mnemonic_widget(entry)
         line.pack_start(label, False, False, 0)
         line.pack_start(entry, True, True, 0)
         box.pack_start(line, False, False, 0)
-        kinds = {}
-        first = None
-        for category, words in (("security", _("Security work: Kali Linux")),
-                                ("development", _("Development: Debian testing"))):
-            radio = Gtk.RadioButton.new_with_label_from_widget(first, words)
-            first = first or radio
-            kinds[category] = radio
-            box.pack_start(radio, False, False, 0)
-        kits_label = Gtk.Label(xalign=0)
-        kits_label.set_markup("<b>{}</b>".format(GLib.markup_escape_text(_("Kits"))))
-        box.pack_start(kits_label, False, False, 0)
-        kits_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.pack_start(kits_box, False, False, 0)
+        kind = Gtk.Label(label=_("Security work: Kali Linux") if security else _("Development: Debian testing"),
+                         xalign=0)
+        box.pack_start(kind, False, False, 0)
+        box.pack_start(heading(_("Kits")), False, False, 0)
+        checks = {}
+        for kit in KITS:
+            if kit.category == category and kit.name not in NO_ENV:
+                check = Gtk.CheckButton(label=_(kit.title))
+                check.set_active(kit.name in installed)
+                checks[kit.name] = check
+                box.pack_start(check, False, False, 0)
         whole = Gtk.CheckButton.new_with_mnemonic(_("Add Kali's _whole list for these kits"))
         extras = {key: Gtk.CheckButton(label=_(value[1])) for key, value in ENV_EXTRAS.items()}
-        for widget in (whole, *extras.values()):
-            box.pack_start(widget, False, False, 0)
-        source = Gtk.Label(xalign=0, wrap=True, max_width_chars=56)
+        if security:
+            for widget in (whole, *extras.values()):
+                box.pack_start(widget, False, False, 0)
+        source = Gtk.Label(label=_(ENV_SOURCES[category]).format(image=ENV_IMAGES[category]),
+                           xalign=0, wrap=True, max_width_chars=56)
         source.get_style_context().add_class("dim-label")
         box.pack_start(source, False, False, 0)
         hint = Gtk.Label(xalign=0, wrap=True, max_width_chars=56)
         box.pack_start(hint, False, False, 0)
-        checks = {}
-
-        def category():
-            return next(c for c, radio in kinds.items() if radio.get_active())
-
-        def fill(_widget=None):
-            for child in kits_box.get_children():
-                kits_box.remove(child)
-            checks.clear()
-            for kit in KITS:
-                if kit[1] == category() and kit[0] not in NO_ENV:
-                    check = Gtk.CheckButton(label=_(kit[2]))
-                    check.set_active(kit[0] in installed)
-                    check.connect("toggled", validate)
-                    checks[kit[0]] = check
-                    kits_box.pack_start(check, False, False, 0)
-            for widget in (whole, *extras.values()):
-                widget.set_visible(category() == "security")
-            source.set_text(_(ENV_SOURCES[category()]).format(image=ENV_IMAGES[category()]))
-            kits_box.show_all()
-            validate()
 
         def validate(_widget=None):
             name = entry.get_text().strip()
@@ -2331,18 +2574,17 @@ def window(select=None):
             go.set_sensitive(problem is None)
             hint.set_text(problem or _("A terminal shows the sizes and asks before anything is installed."))
 
-        kinds["security" if security_first else "development"].set_active(True)
-        for radio in kinds.values():
-            radio.connect("toggled", fill)
+        for check in checks.values():
+            check.connect("toggled", validate)
         entry.connect("changed", validate)
+        validate()
         dialog.show_all()
-        fill()
         answer = dialog.run()
         args = ["env", "new", entry.get_text().strip()]
         for kit, check in checks.items():
             if check.get_active():
                 args += ["--kit", kit]
-        if category() == "security":
+        if security:
             args += ["--whole"] if whole.get_active() else []
             for key, check in extras.items():
                 args += ["--extra", key] if check.get_active() else []
@@ -2403,7 +2645,7 @@ def window(select=None):
             status.set_text("")
             if error:
                 show_notice(_("Not changed: {error}").format(error=error))
-            shown["state"] = None
+            invalidate()
             refresh()
 
         background(lambda: run_control(key, value), changed)
@@ -2480,13 +2722,26 @@ def window(select=None):
 
     win.connect("focus-in-event", focused)
 
+    # Drawers and actions by name: a row kind or step action without one fails at once.
+    drawers = {"kit": kit_row, "step": step_row, "upstream": upstream_row, "tool": tool_row,
+               "tool-group": tool_group_row, "mise": mise_row, "env": env_row,
+               "env-needs-containers": containers_row}
+    step_actions = {"git": lambda _v, _b: git_dialog(), "copy-key": lambda _v, b: copy_key(b),
+                    "make-key": lambda _v, _b: make_key(), "rust": lambda v, _b: rust_step(bool(v)),
+                    "ports": lambda v, _b: ports_dialog(v)}
+    assert set(drawers) == set(ROW_KINDS) and set(step_actions) == set(STEP_ACTIONS)
+
     footer = Gtk.Box(spacing=12)
     footer.pack_start(status, True, True, 0)
     close = Gtk.Button.new_with_mnemonic(_("_Close"))
     close.connect("clicked", lambda _b: win.destroy())
     footer.pack_end(close, False, False, 0)
-    outer.pack_start(progress, False, False, 0)
-    outer.pack_start(footer, False, False, 0)
+    bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    bottom.set_border_width(12)
+    bottom.pack_start(progress, False, False, 0)
+    bottom.pack_start(footer, False, False, 0)
+    outer.pack_start(Gtk.Separator(), False, False, 0)
+    outer.pack_start(bottom, False, False, 0)
 
     win.show_all()
     progress.hide()
@@ -2500,7 +2755,7 @@ def cmd_window(opts):
         if not first:
             print(_("Tool Kits is already open."))
             return 0
-        return window(opts.kit)
+        return window(opts.kit, opts.page)
 
 
 # --- Entry point -----------------------------------------------------------------------
@@ -2510,6 +2765,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
     show = commands.add_parser("window", help="open the window")
     show.add_argument("--kit", metavar="NAME", help="start on a kit's row")
+    show.add_argument("--page", choices=[c.id for c in CATEGORIES], help="start on a category's page")
     show.set_defaults(func=cmd_window)
     listing = commands.add_parser("list", help="print the kits: name, installed, title, summary")
     listing.add_argument("--json", action="store_true", help="print JSON")

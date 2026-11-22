@@ -221,8 +221,24 @@ gchar *app_info_icon_get ( const gchar *app_id, gboolean symbolic_pref )
 
 static gchar *app_info_lookup_id ( gchar *app_id, gboolean symbolic_pref )
 {
-  gchar ***desktop, *wmmap, *icon = NULL;
+  gchar ***desktop, *wmmap, *icon = NULL, *desktop_file;
+  GDesktopAppInfo *exact;
   gint i,j;
+
+  /* FlickOS: the app's own desktop file (exactly APP_ID.desktop) first,
+   * then an icon named like the app id, as waybar does. Upstream tried the
+   * icon name first, so Thunar (app id "thunar", Icon=org.xfce.thunar) got
+   * the icon theme's old "thunar" icon instead of its menu entry's. The
+   * fuzzy desktop file search stays after the icon name. */
+  desktop_file = g_strconcat(app_id, ".desktop", NULL);
+  if( (exact = g_desktop_app_info_new(desktop_file)) )
+  {
+    g_object_unref(exact);
+    icon = app_info_icon_get(desktop_file, symbolic_pref);
+  }
+  g_free(desktop_file);
+  if(icon)
+    return icon;
 
   if( (icon = app_info_icon_test(app_id, symbolic_pref)) )
     return icon;

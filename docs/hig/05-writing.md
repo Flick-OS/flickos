@@ -48,7 +48,7 @@ in, on, at, by* unless first or last):
 - desktop file `Comment`
 
 Proper names keep their capitals everywhere: FlickOS, Debian, Wi-Fi,
-Bluetooth, Do Not Disturb, the layouts (Redmond, Cupertino, Traditional) and
+Bluetooth, Do Not Disturb, the layouts (Redmond, Redmond+, Cupertino, Traditional) and
 styles (Dark, Light).
 
 ### TXT-3 Must: An ellipsis means "more is needed before this happens"

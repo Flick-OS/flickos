@@ -1413,6 +1413,74 @@ class StartupTest(SettingsTest):
             self.assertEqual(fc.main(["startup", "remove", "org.example.Chat.desktop"]), 0)
         self.assertEqual([e.id for e in fc.startup_entries()], ["applet.desktop"])
 
+    def test_add_command(self):
+        """Add Command…: a command line that isn't an installed app."""
+        home = os.path.join(self.tmp, "home")
+        for path in ("bin/myprog", "home/bin/script"):
+            os.chmod(self.write(path, "#!/bin/sh\n"), 0o755)
+        env = mock.patch.dict(os.environ, {"PATH": os.path.join(self.tmp, "bin"), "HOME": home})
+        env.start()
+        self.addCleanup(env.stop)
+
+        def argv(entry_id):
+            entry = [e for e in fc.startup_entries() if e.id == entry_id][0]
+            return fc.exec_argv(entry.entry, entry.path)
+
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(fc.main(["startup", "add-command", "--", "My  Prog", "myprog --flag 'a b' 50% "
+                                      "'C:\\dir' 'say \"hi\"'"]), 0)
+            self.assertEqual(fc.main(["startup", "add-command", "--", "Log", 'echo "$HOME" | tee -a ~/x.log']), 0)
+            self.assertEqual(fc.main(["startup", "add-command", "Script", "~/bin/script --now"]), 0)
+            self.assertEqual(fc.main(["startup", "add-command", "--", "My Prog", "LANG=C myprog"]), 0)
+        self.assertEqual(out.getvalue().splitlines()[0], "My Prog starts at every login from now on.")
+        self.assertEqual(argv("flickos-command-my-prog.desktop"),
+                         ["myprog", "--flag", "a b", "50%", "C:\\dir", 'say "hi"'])
+        self.assertEqual(argv("flickos-command-log.desktop"), ["sh", "-c", 'echo "$HOME" | tee -a ~/x.log'])
+        self.assertEqual(argv("flickos-command-script.desktop"), [os.path.join(home, "bin/script"), "--now"])
+        self.assertEqual(argv("flickos-command-my-prog-2.desktop"), ["sh", "-c", "LANG=C myprog"])
+        log = [e for e in fc.startup_entries() if e.id == "flickos-command-log.desktop"][0]
+        self.assertEqual(fc.command_text(log), 'echo "$HOME" | tee -a ~/x.log')
+        self.assertEqual((log.name, log.enabled, log.user, log.system), ("Log", True, True, False))
+        with open(log.path) as f:
+            self.assertEqual(f.read(), '[Desktop Entry]\nType=Application\nName=Log\n'
+                             'Exec=sh -c "echo \\\\"\\\\$HOME\\\\" | tee -a ~/x.log"\nX-GNOME-Autostart-enabled=true\n')
+        with mock.patch.object(fc, "tray_running", return_value=True), \
+             mock.patch.object(fc.subprocess, "Popen") as popen:
+            self.assertEqual(len(fc.run_startup()), 4)
+        self.assertIn(["sh", "-c", 'echo "$HOME" | tee -a ~/x.log'], [c.args[0] for c in popen.call_args_list])
+        # Refused: nothing written.
+        with mock.patch("sys.stdout"), mock.patch.object(fc, "warn") as warn:
+            for name, command in (("X", "nosuchprogram"), ("X", "myprog 'open"), ("  ", "myprog"), ("X", " "),
+                                  ("X", "myprog\nmyprog")):
+                self.assertEqual(fc.main(["startup", "add-command", "--", name, command]), 1, command)
+            self.assertIn("nosuchprogram", warn.call_args_list[0].args[0])
+            self.assertEqual(fc.main(["startup", "add-command", "X"]), 2)
+            self.assertEqual(fc.main(["startup", "enable", "a.desktop", "extra"]), 2)
+        self.assertEqual(len(fc.startup_entries()), 4)
+        # Remove keeps the file, Hidden, so the change can be undone.
+        with mock.patch("sys.stdout"):
+            self.assertEqual(fc.main(["startup", "remove", "flickos-command-log.desktop"]), 0)
+        self.assertNotIn("flickos-command-log.desktop", [e.id for e in fc.startup_entries()])
+        self.assertTrue(os.path.exists(log.path))
+        self.assertEqual(fc.startup_state("flickos-command-log.desktop"), "absent")
+        self.assertEqual(fc.startup_name("flickos-command-log.desktop"), "Log")
+        with mock.patch("sys.stdout"):
+            self.assertEqual(fc.main(["startup", "add", "flickos-command-log.desktop"]), 0)
+        self.assertEqual(argv("flickos-command-log.desktop"), ["sh", "-c", 'echo "$HOME" | tee -a ~/x.log'])
+        with mock.patch("sys.stdout"), mock.patch.object(fc, "warn"):
+            self.assertEqual(fc.main(["startup", "add", "flickos-command-none.desktop"]), 1)
+            fc.main(["startup", "remove", "flickos-command-log.desktop"])
+            # A new command of the same name takes the removed one's id.
+            self.assertEqual(fc.main(["startup", "add-command", "--", "log", "myprog"]), 0)
+        self.assertEqual(argv("flickos-command-log.desktop"), ["myprog"])
+        self.assertEqual(fc.custom_startup_id("Отчёт"), "flickos-command-command.desktop")
+
+    def test_exec_words(self):
+        self.assertEqual(fc.exec_words('a "b c" "d\\"e" "\\$x\\`\\\\" \'f g\' h\\ i  ""'),
+                         ["a", "b c", 'd"e', "$x`\\", "f g", "h i", ""])
+        with self.assertRaises(ValueError):
+            fc.exec_words('a "b')
+
     def test_run_starts_the_entries_that_are_on(self):
         self.entry("config", "a.desktop", Name="A", Exec="a --x %U", Path=self.tmp)
         self.entry("config", "b.desktop", Name="B", Exec="b", X_GNOME_Autostart_Delay="5")

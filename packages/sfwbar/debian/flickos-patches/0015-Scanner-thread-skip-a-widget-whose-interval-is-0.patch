@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:19 +0800
+Subject: [PATCH 15/18] Scanner thread: skip a widget whose interval is 0
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/basewidget.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/gui/basewidget.c b/src/gui/basewidget.c
+index ccb3626..17ba0c6 100644
+--- a/src/gui/basewidget.c
++++ b/src/gui/basewidget.c
+@@ -1245,6 +1245,14 @@ gpointer base_widget_scanner_thread ( GMainContext *gmc )
+     for(iter=widgets_scan; iter; iter=g_list_next(iter))
+     {
+       priv = base_widget_get_instance_private(BASE_WIDGET(iter->data));
++      /* FlickOS: a widget given a trigger (or interval 0) has interval 0
++       * before base_widget_update_list() can take widget_mutex to remove
++       * it. Polled, its next_poll stayed "now", so this loop never slept,
++       * and its g_cond_wait_until() retook the mutex before the main
++       * thread could: the config parse waited forever and no bar was
++       * drawn, at 100% CPU (Redmond sfwbar's weather grid, at login). */
++      if(!priv->interval)
++        continue;
+       if(priv->next_poll <= ctime)
+       {
+         if(BASE_WIDGET_GET_CLASS(iter->data)->always_update ||

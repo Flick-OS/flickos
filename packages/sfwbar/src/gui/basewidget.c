@@ -106,9 +106,60 @@ static gboolean base_widget_update_value ( GtkWidget *self )
   return FALSE;
 }
 
+/* FlickOS: a style "name.class1.class2" names the widget "name" and gives it
+ * those CSS classes, so an expression can set a state class the way waybar's
+ * JSON "class" does (style = "media_title." + $Class). The classes a style
+ * set last time are taken off first; other classes stay. Empty parts are
+ * skipped, so "name." is just the name. */
+#define STYLE_CLASSES_KEY "flickos-style-classes"
+
+/* GTK emits style-updated only on widgets whose CSS values changed, so a
+ * child whose look comes from a style property alone (ScaleImage's
+ * -ScaleImage-color in button#tiler.off image) never re-reads it when an
+ * ancestor's class changes. */
+static void base_widget_style_restyle ( GtkWidget *widget, gpointer data )
+{
+  g_signal_emit_by_name(widget, "style-updated");
+  if(GTK_IS_CONTAINER(widget))
+    gtk_container_forall(GTK_CONTAINER(widget), base_widget_style_restyle,
+        NULL);
+}
+
+static void base_widget_style_apply ( GtkWidget *child, const gchar *style )
+{
+  GtkStyleContext *context;
+  gchar **parts, **old;
+  gboolean changed = FALSE;
+  gint i;
+
+  parts = g_strsplit(style, ".", -1);
+  context = gtk_widget_get_style_context(child);
+  old = g_object_get_data(G_OBJECT(child), STYLE_CLASSES_KEY);
+  for(i=0; old && old[i]; i++)
+    if(!parts[0] || !g_strv_contains((const gchar * const *)parts+1, old[i]))
+    {
+      gtk_style_context_remove_class(context, old[i]);
+      changed = TRUE;
+    }
+  for(i=1; parts[0] && parts[i]; i++)
+    if(*parts[i] && !gtk_style_context_has_class(context, parts[i]))
+    {
+      gtk_style_context_add_class(context, parts[i]);
+      changed = TRUE;
+    }
+  g_object_set_data_full(G_OBJECT(child), STYLE_CLASSES_KEY,
+      parts[0]? g_strdupv(parts+1) : NULL, (GDestroyNotify)g_strfreev);
+  gtk_widget_set_name(child, parts[0]? parts[0] : "");
+  g_strfreev(parts);
+  if(changed && GTK_IS_CONTAINER(child))
+    gtk_container_forall(GTK_CONTAINER(child), base_widget_style_restyle,
+        NULL);
+}
+
 static gboolean base_widget_style ( GtkWidget *self )
 {
   BaseWidgetPrivate *priv;
+  GList *iter;
 
   if(!g_ptr_array_find(base_widgets, self, NULL))
     return FALSE;
@@ -118,11 +169,16 @@ static gboolean base_widget_style ( GtkWidget *self )
     return FALSE;
 
   g_mutex_lock(&priv->style->mutex);
-  gtk_widget_set_name(base_widget_get_child(self),
+  base_widget_style_apply(base_widget_get_child(self),
       value_get_string(priv->style->cache));
+  /* FlickOS: name each mirror's child, as above. Upstream named the
+   * mirror widget itself, which CSS doesn't match, so a copy on another
+   * screen kept the style it had when it was made (a dimmed tiler stayed
+   * dimmed, or never dimmed; the start button stayed grey). */
   if(!priv->local_state)
-    g_list_foreach(priv->mirror_children,
-        (GFunc)gtk_widget_set_name, value_get_string(priv->style->cache));
+    for(iter=priv->mirror_children; iter; iter=g_list_next(iter))
+      base_widget_style_apply(base_widget_get_child(iter->data),
+          value_get_string(priv->style->cache));
   g_mutex_unlock(&priv->style->mutex);
   css_widget_cascade(self, NULL);
   if(!priv->local_state)
@@ -460,7 +516,13 @@ static void base_widget_update_list ( GtkWidget *self )
   priv = base_widget_get_instance_private(BASE_WIDGET(self));
 
   g_mutex_lock(&widget_mutex);
-  if(!priv->interval || (!priv->value->code && !priv->style->code))
+  /* FlickOS: a constant value and style (value = "icon-name", and the
+   * "layout" style every bar grid gets) were re-evaluated every second
+   * (the default interval), waking the scanner thread for nothing. They
+   * are evaluated once when set (base_widget_set_value/_style) and copied
+   * to mirrors (base_widget_mirror_impl), so they aren't polled. */
+  if(!priv->interval || (vm_code_is_constant(priv->value->code) &&
+        vm_code_is_constant(priv->style->code)))
     widgets_scan = g_list_remove(widgets_scan, self);
   else if(!g_list_find(widgets_scan, self))
   {
@@ -895,6 +957,47 @@ static void base_widget_set_property ( GObject *self, guint id,
   }
 }
 
+/* FlickOS: CSS :hover on a widget that isn't a button (a grid, a label, an
+ * image). GTK 3 sets the prelight state only where a widget sets it itself
+ * (GtkButton does), so grid#name:hover never matched. The base widget, an
+ * event box, sets it on its child while the pointer is inside. Crossings
+ * to and from a widget inside (detail INFERIOR) don't count, so a grid
+ * stays lit over its own buttons. A button child is left alone: it does
+ * this itself, over its own area without the CSS margin. */
+static void base_widget_set_hover ( GtkWidget *self, gboolean hover )
+{
+  GtkWidget *child;
+
+  child = base_widget_get_child(self);
+  if(!child || GTK_IS_BUTTON(child))
+    return;
+  if(hover)
+    gtk_widget_set_state_flags(child, GTK_STATE_FLAG_PRELIGHT, FALSE);
+  else
+    gtk_widget_unset_state_flags(child, GTK_STATE_FLAG_PRELIGHT);
+}
+
+static gboolean base_widget_crossing_event ( GtkWidget *self,
+    GdkEventCrossing *event )
+{
+  g_return_val_if_fail(IS_BASE_WIDGET(self), FALSE);
+
+  if(event->detail != GDK_NOTIFY_INFERIOR)
+    base_widget_set_hover(self, event->type == GDK_ENTER_NOTIFY);
+
+  return FALSE;
+}
+
+/* FlickOS: a widget hidden under the pointer gets no leave event; don't let
+ * it come back lit. */
+static void base_widget_unmap ( GtkWidget *self )
+{
+  g_return_if_fail(IS_BASE_WIDGET(self));
+
+  base_widget_set_hover(self, FALSE);
+  GTK_WIDGET_CLASS(base_widget_parent_class)->unmap(self);
+}
+
 static void base_widget_map ( GtkWidget *self )
 {
   BaseWidgetPrivate *priv;
@@ -936,6 +1039,9 @@ static void base_widget_class_init ( BaseWidgetClass *kclass )
   GTK_WIDGET_CLASS(kclass)->drag_drop = base_widget_drag_drop;
   GTK_WIDGET_CLASS(kclass)->query_tooltip = base_widget_query_tooltip;
   GTK_WIDGET_CLASS(kclass)->map = base_widget_map;
+  GTK_WIDGET_CLASS(kclass)->unmap = base_widget_unmap;
+  GTK_WIDGET_CLASS(kclass)->enter_notify_event = base_widget_crossing_event;
+  GTK_WIDGET_CLASS(kclass)->leave_notify_event = base_widget_crossing_event;
 
   tristate_enum = g_enum_register_static("tristate", tristate_defs);
   g_object_class_install_property(G_OBJECT_CLASS(kclass), BASE_WIDGET_STORE,
@@ -1012,7 +1118,8 @@ static void base_widget_init ( BaseWidget *self )
   g_ptr_array_add(base_widgets, self);
 
   gtk_widget_add_events(GTK_WIDGET(self),
-      GDK_BUTTON_RELEASE_MASK | GDK_SCROLL_MASK);
+      GDK_BUTTON_RELEASE_MASK | GDK_SCROLL_MASK |
+      GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
 
   if(!gtk_drag_dest_get_target_list(GTK_WIDGET(self)))
     gtk_drag_dest_set(GTK_WIDGET(self), GTK_DEST_DEFAULT_ALL, NULL, 0,
@@ -1233,6 +1340,14 @@ gpointer base_widget_scanner_thread ( GMainContext *gmc )
     for(iter=widgets_scan; iter; iter=g_list_next(iter))
     {
       priv = base_widget_get_instance_private(BASE_WIDGET(iter->data));
+      /* FlickOS: a widget given a trigger (or interval 0) has interval 0
+       * before base_widget_update_list() can take widget_mutex to remove
+       * it. Polled, its next_poll stayed "now", so this loop never slept,
+       * and its g_cond_wait_until() retook the mutex before the main
+       * thread could: the config parse waited forever and no bar was
+       * drawn, at 100% CPU (Redmond sfwbar's weather grid, at login). */
+      if(!priv->interval)
+        continue;
       if(priv->next_poll <= ctime)
       {
         if(BASE_WIDGET_GET_CLASS(iter->data)->always_update ||

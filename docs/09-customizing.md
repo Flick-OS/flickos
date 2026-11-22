@@ -279,13 +279,17 @@ the choice is remembered.
 | Id | Name | Bars | Window buttons |
 |---|---|---|---|
 | `redmond` (**default**) | Redmond | One bottom panel: logo launcher button, window list of app icons (the title is in the tooltip, as in Windows 7), then tray (network is nm-applet's icon there), volume and battery icons and a two-line clock | Right (labwc default) |
-| `cupertino` | Cupertino | Thin top bar (logo launcher button, clock, tray and status) and a centered dock at the bottom that fits its icons ([sfwbar](04-packages.md#sfwbar)). The dock takes no screen space. It is shown unless the active window is maximized (or fullscreen) on its monitor; then it hides until the pointer touches the bottom edge below it. It shows pinned apps, then other open apps. A line under an icon marks an open app, in the accent color for the active one. Hovering an app with several windows lists them | Left: `close,iconify,max:` |
+| `redmond-plus` | Redmond+ | Redmond's bottom panel drawn by [sfwbar](04-packages.md#sfwbar) instead of waybar: one taskbar button per app (all terminals under one icon), that app's windows listed on hover; a right-click menu for a window (and Pin/Unpin); apps that don't fit go behind a more button at the taskbar's end, so the tray and clock stay on the screen. Opens the `prompt` start menu unless the user chose another (`MenuStyle=`) | Right (labwc default) |
+| `cupertino` | Cupertino | Thin top bar (logo launcher button, clock, tray and status) and a centered dock at the bottom that fits its icons ([sfwbar](04-packages.md#sfwbar)). The dock takes no screen space. It is shown unless the active window is maximized (or fullscreen) on its monitor; then it hides until the pointer touches the bottom edge below it. It shows pinned apps, then other open apps. A line under an icon marks an open app, in the accent color for the active one. Hovering an app with several windows lists them. Right-clicking an app opens Redmond+'s window menu (Minimize, Maximize or Unmaximize, Restore, Close, on a row of the hover list for an app with several windows) with *Pin to Dock* or *Unpin from Dock* | Left: `close,iconify,max:` |
 | `traditional` | Traditional | Top panel (logo and *Applications* launcher button, clock, tray and status) and a bottom panel ([sfwbar](04-packages.md#sfwbar)): window list with titles, which get shorter as windows open, then a switcher for 4 desktops at the right end, as in GNOME 2. Super+Ctrl+←/→ goes to the next desktop (as in Windows), with Shift the window goes along | Right (labwc default) |
 
 The launcher opens fuzzel. All bars of a layout run in **one** waybar process,
 so there is always exactly one tray. A layout's sfwbar bar (`Dock=`:
 Cupertino's dock, Traditional's bottom panel) is a separate sfwbar process
-without a tray.
+without a tray. Redmond+'s whole panel is its `Dock=` bar, tray included;
+its waybar runs for a screen that doesn't exist (`"output":
+"FLICKOS-NO-SCREEN"`), so `supervise`, `set` and `reload-panel` work as in
+every layout, and draws nothing.
 
 **Limits** (tell users in release notes):
 
@@ -299,7 +303,11 @@ without a tray.
 - Redmond's window list (waybar) doesn't shrink its buttons: waybar 0.12
   doesn't ellipsize their titles. So it shows icons only, and titles only in
   the tooltip: with titles, many open windows would push the tray, status and
-  clock off the bar.
+  clock off the bar. Redmond+ groups them by app instead.
+- Redmond+: users' [panel tweaks](#panel-tweaks) are written for waybar's
+  names and don't match its sfwbar widgets; the calendar opens on a click,
+  not on hover; no window previews on hover (labwc 0.8.3 can't capture one
+  window).
 - The dock has no magnification or drag-to-pin. Pinned apps are the
   layout's (`layout.ini`) until a user chooses their own in *Settings →
   Desktop Layout & Style → Pinned Apps* (`flickos-layout pinned`): a stopgap
@@ -321,6 +329,7 @@ without a tray.
 | `usr/share/flickos/layouts/ID/waybar.jsonc`, `style.css` | The layout's bars and CSS |
 | `usr/share/flickos/layouts/cupertino/dock.config`, `dock.css` | Cupertino's dock: sfwbar config (see `sfwbar(1)`) and its CSS |
 | `usr/share/flickos/layouts/traditional/windowlist.config`, `windowlist.css` | Traditional's bottom panel (window list and desktop switcher): sfwbar config and its CSS |
+| `usr/share/flickos/layouts/redmond-plus/panel.config`, `panel.css` | Redmond+'s whole panel: sfwbar config with `#if` lines (see [The generated panel](#the-generated-panel)) and its CSS; its `waybar.jsonc` draws nothing |
 | `usr/share/flickos/layouts/redmond/floating.css`, `floating-full.css` | Redmond's floating panel: its look, and what turns it into the full panel ([design](design/flickos-floating-panel.md)); `FloatingDefault=on` in a layout's `layout.ini` floats it without a choice (Tortuga's) |
 | `usr/share/flickos/layouts/ID/preview.png` | 240×150 image shown in the chooser (`tools/make-layout-previews.sh`) |
 | `usr/share/flickos/styles/ID/wallpaper.png` | The style's [wallpaper](#wallpaper), shown with every layout |
@@ -373,6 +382,14 @@ layout without one gets an empty space.
 use, unless the user chose their own ([Wallpaper](#wallpaper)). FlickOS's
 layouts have none: they show the style's wallpaper, so a layout switch keeps
 the picture. A layout of your own may bring one; it wins over the style's.
+
+`DefaultStyle` (optional) is a style's id, the layout's own style: it is used
+while the user chose no style and the site's `layouts.conf`
+(`/etc/xdg/flickos-site/flickos/`) sets no `Style=`; it comes before
+FlickOS's own default (Dark). FlickOS's layouts have none. GTK follows
+when `set` changes the layout, and the chooser offers it as the layout's
+style, so keeping it saves no style choice. A style that isn't installed is
+skipped (`flickos-layout check` warns).
 
 `Menu` (optional) is `bottom-left` or `top-left`: where the [start
 menu](#start-menu) opens, in the corner of the bar with the apps button; or
@@ -444,6 +461,18 @@ started as `sfwbar -f sfwbar.config` next to waybar:
   with window app ids), or removed when none is installed;
 - every `Exec("flickos/launcher")` changed to what the panel's apps button
   runs: the start menu while it is on, else fuzzel (Footprint's *Show Apps*);
+- for a dock that is a whole panel (Redmond+, whose waybar bars show no
+  module, [flickos-panel.md](design/flickos-panel.md)), the same settings as the
+  waybar panel: lines between `#if NAME` (or `#if !NAME`), `#else` and
+  `#endif`, each on a line of its own, are kept only while NAME is on, where
+  NAME is `menu`, `quick`, `phone`, `phone-popup`, `media`, `weather`,
+  `classroom`, `floating`, `clock-12h` or `battery` (any other name is an
+  error); `@flickos:runtime@` becomes the overlay folder and
+  `@flickos:battery@` the battery's `/sys/class/power_supply` folder; the
+  lines `#flickos/addons-sources` and `#flickos/addons` become the add-ons'
+  panel buttons (each `custom/NAME` of their `waybar.jsonc` as a button
+  `custom-NAME` with its JSON class as a CSS class), and their `style.css`
+  follows the dock's CSS;
 - then a `#CSS` line, the style's palette and the layout's `DockStyle=` file,
   copied in (sfwbar loads that CSS from a string, where `@import` can't find
   relative files).
@@ -714,7 +743,7 @@ While it is off, none of these exist. Super+D and Alt+F3 stay fuzzel either way.
 | `classic` (default) | Redmond | Windows 7: pinned apps, All apps, search; user, folders, Settings, Software, power |
 | `categories` | Traditional | GNOME 2/Whisker: search on top, categories left (Favorites, All apps, sections, Folders), apps right as you point at a category, user and power buttons below |
 | `grid` | Cupertino | Launchpad: every app as a big icon, full screen and see-through, the power buttons top right while Quick Settings is off; click the background or press Escape to close |
-| `prompt` | none yet (ADR-022) | FlickOS's own: a search line, the first six pins on Ctrl+1–6, every app as icons A–Z (type a category, such as `games`, for its apps), folder chips, user, Settings, Software and power below |
+| `prompt` | Redmond+ (ADR-022) | FlickOS's own: a search line, the first six pins on Ctrl+1–6, every app as icons A–Z (type a category, such as `games`, for its apps), folder chips, user, Settings, Software and power below |
 
 A user can pick one style for every layout instead, under *Start menu
 style* in the Settings page, or:

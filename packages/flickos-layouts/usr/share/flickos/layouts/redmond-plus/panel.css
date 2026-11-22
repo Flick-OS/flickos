@@ -1,0 +1,551 @@
+/* Redmond+: Redmond's style.css, base.css,
+ * buttons.css and floating.css rewritten as sfwbar CSS, measured against
+ * waybar (logical px). Named colors only: flickos-layout puts the style's
+ * palette (waybar-colors.css) before this file, and the add-ons' CSS and the
+ * user's tweaks after it.
+ *
+ * waybar's numbers this copies: a 40 px bar; a module's button is set in
+ * 3 px from the bar's edges and 1 px at its sides (buttons.css, margin
+ * 3px 1px), rounded 6 px, lit alpha(@fg_color, 0.08) under the pointer; 4 px
+ * between modules (waybar.jsonc "spacing": 4), here a left margin of 5 px
+ * (4 + the 1 px side margin). Window buttons are 44 px + 1 px each side.
+ *
+ * A widget's state is a CSS class, as in waybar (style = "name.class":
+ * sfwbar +flickos10). */
+
+/* The window is see-through; grid#panel is the bar, so the floating panel
+ * can draw a gap around it. */
+window#sfwbar {
+    background-color: transparent;
+}
+
+window#sfwbar * {
+    font-size: 13px;
+    color: @fg_color;
+}
+
+/* The faint line along the bar's top edge (Redmond's style.css). The
+ * grid is the whole bar: the screen's width. */
+grid#panel {
+    -GtkWidget-hexpand: true;
+    background-color: @wm_bg;
+    box-shadow: inset 0 1px alpha(@fg_color, 0.1);
+}
+
+/* Redmond's floating panel (floating.css): a slimmer bar with a gap around
+ * it inside the same 40 px, so windows never move; the full panel again
+ * while a window fills the screen (floating-full.css, panel-state.css). */
+grid#panel.floating {
+    margin: 0 8px 4px;
+    border-radius: 8px;
+    border: 1px solid alpha(@fg_color, 0.2);
+    background-color: alpha(@wm_bg, 0.8);
+    box-shadow: none;
+    transition: margin 200ms ease, border-radius 200ms ease, background-color 200ms ease;
+}
+/* The same 40 px: 6 px less for the gap and the border (measured). The
+ * two-line clock is then the tallest button: 2 px from the edges, not 3. */
+grid#panel.floating button#launcher {
+    min-height: 28px;
+}
+grid#panel.floating grid#clock {
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+grid#panel.floating.full grid#clock {
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+grid#panel.floating.full {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background-color: @wm_bg;
+    box-shadow: inset 0 1px alpha(@fg_color, 0.1);
+}
+grid#panel.floating.full button#launcher {
+    min-height: 34px;
+}
+
+/* Plain "button", so the named rules below outrank it. */
+button {
+    border: none;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    min-height: 0;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    -GtkWidget-vexpand: true;
+}
+
+/* buttons.css: one rounded shape, set in from the bar's edges. */
+button#launcher,
+button#taskbar_popup,
+button#taskbar_more,
+button#media,
+button#media_title,
+button#spectrum,
+button#classroom,
+grid#weather,
+button#phone,
+button#tiler,
+grid#quick,
+grid#recording,
+grid#clock {
+    margin: 3px 1px 3px 5px;
+    border-radius: 6px;
+}
+button#launcher {
+    margin-left: 1px;
+}
+button#taskbar_popup,
+button#taskbar_more {
+    margin-left: 1px;
+}
+
+button#launcher:hover,
+button#taskbar_popup:hover,
+button#taskbar_more:hover,
+button#media:hover,
+button#media_title:hover,
+button#spectrum:hover,
+button#classroom:hover,
+grid#weather:hover,
+button#phone:hover,
+button#tiler:hover,
+grid#quick:hover,
+grid#recording:hover,
+grid#clock:hover {
+    background-color: alpha(@fg_color, 0.08);
+}
+
+/* The start button: 24 px logo + 10 px each side. sfwbar paints a symbolic
+ * icon in one color (scaleimage.c), so the whole logo is the brand color
+ * (waybar: the ring and dot only, all of it the accent color on hover).
+ * The 40 px bar ("height": 40): GTK 3 ignores min-height on a grid or a
+ * window, so the start button is 34 px tall + 3 px margins. */
+button#launcher {
+    min-height: 34px;
+    padding: 0 10px;
+}
+button#launcher image {
+    min-width: 24px;
+    min-height: 24px;
+    -ScaleImage-color: @brand_color;
+}
+button#launcher:hover image {
+    -ScaleImage-color: @selected_bg_color;
+}
+
+/* One button per app: 24 px icon, 10 px each side; 4 px after the start
+ * button (the first one's left margin). */
+grid#taskbar {
+    margin-left: 4px;
+    -GtkWidget-hexpand: true;
+    -GtkWidget-halign: start;
+    /* The bar's full height, or the buttons sat at its top. */
+    -GtkWidget-vexpand: true;
+    -GtkWidget-valign: fill;
+}
+button#taskbar_popup {
+    min-width: 24px;
+    padding: 0 10px;
+}
+/* The icon in the middle of its button: sfwbar puts it in a grid at the
+ * button's top. */
+button#taskbar_popup grid,
+button#taskbar_popup image {
+    -GtkWidget-vexpand: true;
+    -GtkWidget-valign: center;
+}
+button#taskbar_popup image {
+    min-width: 24px;
+    min-height: 24px;
+}
+button#taskbar_popup.focused {
+    background-color: alpha(@fg_color, 0.06);
+    background-image: linear-gradient(@selected_bg_color, @selected_bg_color);
+    background-repeat: no-repeat;
+    background-size: 16px 3px;
+    background-position: 50% 100%;
+}
+button#taskbar_popup.focused:hover {
+    background-color: alpha(@fg_color, 0.1);
+}
+/* A running app that isn't focused: a short grey line, so a pinned app
+ * that isn't running (none) looks different. */
+button#taskbar_popup.running:not(.focused) {
+    background-image: linear-gradient(alpha(@fg_color, 0.5), alpha(@fg_color, 0.5));
+    background-repeat: no-repeat;
+    background-size: 6px 3px;
+    background-position: 50% 100%;
+}
+
+/* An app's windows, listed on hover. */
+window#taskbar_popup {
+    background-color: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 6px;
+    padding: 4px;
+}
+window#taskbar_popup button#taskbar_item {
+    padding: 4px 8px;
+    margin: 0;
+    border: none;
+    border-radius: 6px;
+    background: none;
+}
+window#taskbar_popup button#taskbar_item label {
+    color: @fg_color;
+}
+window#taskbar_popup button#taskbar_item:hover {
+    background-color: alpha(@fg_color, 0.08);
+}
+window#taskbar_popup button#taskbar_item.focused {
+    background-color: alpha(@selected_bg_color, 0.3);
+}
+grid#taskbar_popup_grid {
+    -GtkWidget-direction: bottom;
+}
+
+/* The more button at the taskbar's end when apps don't fit (sfwbar's
+ * overflow, F-21): an app button's shape around the theme's
+ * view-more-horizontal icon. */
+button#taskbar_more {
+    min-width: 24px;
+    padding: 0 10px;
+}
+button#taskbar_more image {
+    min-width: 16px;
+    min-height: 16px;
+    -GtkWidget-vexpand: true;
+    -GtkWidget-valign: center;
+}
+/* The apps that don't fit, in one row: a pop-up surface like the
+ * calendar's, the apps' buttons as in the bar. */
+window#taskbar_more {
+    background-color: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 8px;
+    padding: 4px;
+}
+window#taskbar_more button#taskbar_popup {
+    margin: 0;
+    padding: 6px 10px;
+}
+
+/* Menus: the taskbar's right-click menu (Q2b) and the tray apps' menus,
+ * drawn like the hover list and the calendar: a pop-up surface (8 px
+ * corners, a border, no shadow: HIG VIS-5) with 6 px rows lit like the
+ * panel's buttons. :hover is also the row chosen with the arrow keys, and
+ * the GTK theme's white hover colors are put back to the text color. sfwbar
+ * adds its CSS above the GTK theme (USER priority), and these are its only
+ * menus. A menu opens against the panel: sfwbar places it, and CSS margins
+ * or padding don't move it. */
+window.popup {
+    background-color: transparent;
+}
+window.popup decoration {
+    border-radius: 8px;
+    box-shadow: none;
+}
+menu {
+    background-color: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 8px;
+    padding: 4px;
+}
+menu menuitem {
+    min-height: 0;
+    padding: 6px 16px 6px 8px;
+    border-radius: 6px;
+    color: @fg_color;
+}
+menu menuitem:hover {
+    background-color: alpha(@fg_color, 0.08);
+    color: @fg_color;
+}
+menu menuitem label,
+menu menuitem:hover label {
+    color: @fg_color;
+}
+menu menuitem:disabled label {
+    color: alpha(@fg_color, 0.5);
+}
+menu menuitem image {
+    margin-right: 10px;
+    color: alpha(@fg_color, 0.8);
+}
+menu menuitem arrow,
+menu menuitem:hover arrow {
+    margin-left: 12px;
+    color: alpha(@fg_color, 0.6);
+}
+/* Check and radio items: the icon theme's symbolic boxes (every FlickOS
+ * icon theme has them), the same with and without the pointer; the GTK
+ * theme's hover pictures are white, for its own blue row. */
+menu menuitem check,
+menu menuitem check:hover,
+menu menuitem radio,
+menu menuitem radio:hover {
+    min-width: 16px;
+    min-height: 16px;
+    margin: 0 8px 0 0;
+    color: alpha(@fg_color, 0.6);
+}
+menu menuitem check,
+menu menuitem check:hover {
+    -gtk-icon-source: -gtk-icontheme("checkbox-symbolic");
+}
+menu menuitem check:checked,
+menu menuitem check:checked:hover {
+    -gtk-icon-source: -gtk-icontheme("checkbox-checked-symbolic");
+    color: @selected_bg_color;
+}
+menu menuitem radio,
+menu menuitem radio:hover {
+    -gtk-icon-source: -gtk-icontheme("radio-symbolic");
+}
+menu menuitem radio:checked,
+menu menuitem radio:checked:hover {
+    -gtk-icon-source: -gtk-icontheme("radio-checked-symbolic");
+    color: @selected_bg_color;
+}
+menu separator {
+    min-height: 1px;
+    margin: 4px 8px;
+    background-color: alpha(@fg_color, 0.1);
+}
+
+grid#right {
+    -GtkWidget-halign: end;
+    -GtkWidget-hexpand: true;
+}
+
+/* Status buttons (base.css): 16 px symbolic icons, 10 px each side; the
+ * media buttons 6 px each side. */
+button#media,
+button#spectrum,
+button#classroom,
+button#phone,
+button#tiler,
+button#volume,
+button#battery {
+    min-width: 16px;
+    padding: 0 10px;
+}
+button#media {
+    padding: 0 6px;
+}
+button image {
+    min-width: 16px;
+    min-height: 16px;
+}
+image#weather_icon,
+image#recording_icon {
+    min-width: 16px;
+    min-height: 16px;
+}
+
+/* States (base.css). sfwbar paints a symbolic icon in one color;
+ * -ScaleImage-color keeps its alpha, the label color doesn't. */
+button#tiler.off image,
+button#phone.waiting image {
+    -ScaleImage-color: alpha(@fg_color, 0.4);
+}
+button#volume.muted image {
+    -ScaleImage-color: alpha(@fg_color, 0.5);
+}
+button#battery.warning image {
+    -ScaleImage-color: @warning_color;
+}
+button#battery.critical:not(.charging) image {
+    -ScaleImage-color: @error_color;
+}
+button#spectrum.off image {
+    -ScaleImage-color: alpha(@fg_color, 0.4);
+}
+button#spectrum.on.top {
+    box-shadow: inset 0 -2px @selected_bg_color;
+}
+button#classroom.looking image {
+    -ScaleImage-color: @error_color;
+}
+button#classroom.unpaired image {
+    -ScaleImage-color: alpha(@fg_color, 0.4);
+}
+
+/* Volume and battery: one module, one hover (group/quick); no margins of
+ * their own, as in waybar. */
+grid#quick button {
+    margin: 0;
+}
+grid#quick button:hover {
+    background: none;
+}
+
+/* The tray (base.css #tray): 10 px each side, 16 px icons 12 px apart
+ * (Redmond's "spacing": 12), centered in the bar; no rounded shape. Each
+ * icon has 6 px each side, so the grid has 10 - 6 = 4. */
+grid#tray {
+    margin-left: 4px;
+    padding: 0 4px;
+    -GtkWidget-vexpand: true;
+    -GtkWidget-valign: center;
+}
+button#tray_item {
+    padding: 0 6px;
+}
+button#tray_item image {
+    min-width: 16px;
+    min-height: 16px;
+}
+
+/* The clock: two lines in 12 px, 10 px each side, the time in semibold.
+ * The pair is centered in the bar's height, each line across the width. */
+grid#clock {
+    padding: 0 10px;
+    -GtkWidget-vexpand: true;
+}
+grid#clock label {
+    font-size: 12px;
+    -GtkWidget-vexpand: true;
+}
+label#clock_time {
+    font-weight: 600;
+    -GtkWidget-valign: end;
+}
+label#clock_date {
+    -GtkWidget-valign: start;
+}
+
+/* Weather (base.css #custom-weather): the icon 10 px in, the temperature
+ * 6 px after it, dimmed while the forecast is old or no place is chosen.
+ * Its grid fills the bar's height, the icon and text are centered in it. */
+grid#weather,
+grid#recording {
+    padding: 0 10px;
+    -GtkWidget-vexpand: true;
+}
+image#weather_icon,
+label#weather_text,
+image#recording_icon,
+label#recording_text {
+    -GtkWidget-vexpand: true;
+    -GtkWidget-valign: center;
+}
+label#weather_text,
+label#recording_text {
+    padding-left: 6px;
+}
+grid#weather.stale label,
+grid#weather.unset label {
+    color: alpha(@fg_color, 0.6);
+}
+grid#weather.stale image,
+grid#weather.unset image {
+    -ScaleImage-color: alpha(@fg_color, 0.6);
+}
+
+/* A screen recording: the record icon and the time in the error color;
+ * plain while it counts down. */
+grid#recording.recording label {
+    color: @error_color;
+}
+grid#recording.recording image {
+    -ScaleImage-color: @error_color;
+}
+
+/* The media title (base.css): 8 px after, 4 px before; flickos-media
+ * scrolls a long one, about 16em wide so the buttons beside it stay put;
+ * dimmed while paused or stopped. */
+button#media_title {
+    padding: 0 8px 0 4px;
+}
+button#media_title.scrolling {
+    min-width: 16em;
+}
+button#media_title.paused label,
+button#media_title.stopped label {
+    color: alpha(@fg_color, 0.6);
+}
+
+/* Show Desktop (base.css #custom-desktop): an 8 px strip at the right edge,
+ * 4 px after the clock, full height. */
+button#desktop {
+    min-width: 8px;
+    margin-left: 4px;
+    padding: 0;
+    border-left: 1px solid alpha(@fg_color, 0.2);
+}
+button#desktop:hover {
+    background-color: alpha(@fg_color, 0.15);
+    border-left-color: alpha(@fg_color, 0.4);
+}
+
+/* Add-ons' buttons (custom-NAME, their CSS after this file): the shape of
+ * a status button. Their CSS draws the icon as a background picture. */
+button.flickos-addon {
+    margin: 3px 1px 3px 5px;
+    border-radius: 6px;
+    min-width: 16px;
+    padding: 0 10px;
+}
+
+/* The calendar (waybar's clock tooltip): a month under the clock. */
+window#flickos_calendar {
+    background-color: transparent;
+}
+grid#cal_popup {
+    background-color: @bg_color;
+    border: 1px solid @borders;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 4px;
+    -GtkWidget-direction: bottom;
+}
+grid#cal_head {
+    -GtkWidget-hexpand: true;
+    padding-bottom: 6px;
+}
+label#cal_title {
+    font-weight: 600;
+    -GtkWidget-hexpand: true;
+}
+image#cal_arrow {
+    min-width: 16px;
+    min-height: 16px;
+    padding: 4px;
+    border-radius: 6px;
+}
+image#cal_arrow:hover {
+    background-color: alpha(@fg_color, 0.08);
+}
+grid#cal_days {
+    -GtkWidget-column-homogeneous: true;
+    -GtkWidget-row-homogeneous: true;
+}
+label#cal_weekday,
+label#cal_day {
+    min-width: 28px;
+    min-height: 24px;
+    border-radius: 6px;
+}
+label#cal_weekday {
+    font-weight: 600;
+    color: alpha(@fg_color, 0.6);
+}
+label#cal_day.other {
+    color: alpha(@fg_color, 0.4);
+}
+label#cal_day.today {
+    background-color: @selected_bg_color;
+    color: @selected_fg_color;
+    font-weight: bold;
+}
+
+#hidden {
+    -GtkWidget-visible: false;
+}

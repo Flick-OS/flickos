@@ -1,3 +1,10 @@
+flickos-control (1.85) trixie; urgency=medium
+
+  * Startup Applications: Add Command… starts a program, script or
+    command line that isn't in the list of apps (startup add-command).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 22:13:52 +0800
+
 flickos-control (1.84) trixie; urgency=medium
 
   * Release of 1.84~test1: packet capture, the wireless test adapter and

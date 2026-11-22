@@ -13,8 +13,8 @@ How it runs. There is no daemon: waybar runs `panel` for the button every
 (api.open-meteo.com) only when the cache is older than REFRESH_SECONDS, or for
 another place or unit; after a failure it waits RETRY_SECONDS. waybar runs
 the module once per screen, so the fetch holds a lock and the others read
-what it got. A setting changed while on sends waybar SIGRTMIN+PANEL_SIGNAL,
-so the button shows it at once.
+what it got. A setting changed while on sends the panel (waybar or sfwbar)
+SIGRTMIN+PANEL_SIGNAL, so the button shows it at once.
 
 What is sent (PRIVACY.md): the place's position rounded to COORD_DIGITS
 decimals (about 1 km), the units and the fields asked for, with the user
@@ -91,7 +91,7 @@ LOCK_SECONDS = 15           # waiting for another screen's fetch
 HOURS = 6                   # in the tooltip
 DAYS = 4                    # today and three more
 FIND_COUNT = 8
-PANEL_SIGNAL = 13           # waybar's SIGRTMIN+13; flick-tiler 8, phone 9, recording 10, desktops 11, media 12
+PANEL_SIGNAL = 13           # the panel's SIGRTMIN+13; flick-tiler 8, phone 9, recording 10, desktops 11, media 12
 LAYOUT = "flickos-layout"
 # Regions that measure temperature in Fahrenheit: the United States and its
 # territories, Liberia, Myanmar, and a few in the Caribbean and Pacific.
@@ -412,14 +412,18 @@ def reload_panel():
         pass
 
 
-# --- The panel's waybar -------------------------------------------------------------
+# --- The panel ---------------------------------------------------------------------
 
 PROC = "/proc"
+# The programs that draw a panel: waybar, and sfwbar (Cupertino's dock, and
+# Redmond's whole panel in the sfwbar trial, docs/design/flickos-panel.md).
+PANEL_PROGRAMS = ("waybar", "sfwbar")
 
 
 def catches_signal(pid, signum):
     """Whether pid has a handler for signum (SigCgt in /proc/PID/status): a
-    waybar without the button would die of SIGRTMIN+PANEL_SIGNAL."""
+    panel without the button, or one still starting, would die of
+    SIGRTMIN+PANEL_SIGNAL."""
     try:
         with open(os.path.join(PROC, str(pid), "status"), encoding="utf-8") as f:
             for line in f:
@@ -430,8 +434,8 @@ def catches_signal(pid, signum):
     return False
 
 
-def own_waybars():
-    """PIDs of this user's waybar processes."""
+def own_panels():
+    """PIDs of this user's panel processes (PANEL_PROGRAMS)."""
     pids = []
     for entry in os.listdir(PROC):
         if not entry.isdigit():
@@ -440,7 +444,7 @@ def own_waybars():
             if os.stat(os.path.join(PROC, entry)).st_uid != os.getuid():
                 continue
             with open(os.path.join(PROC, entry, "comm"), encoding="utf-8") as f:
-                if f.read().strip() == "waybar":
+                if f.read().strip() in PANEL_PROGRAMS:
                     pids.append(int(entry))
         except OSError:
             continue
@@ -448,9 +452,9 @@ def own_waybars():
 
 
 def signal_panel():
-    """Have every waybar with the button run `panel` again at once."""
+    """Have every panel with the button run `panel` again at once."""
     signum = signal.SIGRTMIN + PANEL_SIGNAL
-    for pid in own_waybars():
+    for pid in own_panels():
         if catches_signal(pid, signum):
             with contextlib.suppress(OSError):
                 os.kill(pid, signum)

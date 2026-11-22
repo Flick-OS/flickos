@@ -1,0 +1,229 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:19 +0800
+Subject: [PATCH 11/18] Flow grids: no 100 ms poll
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/flowgrid.c     | 46 ++++++++++++++++++++++++++++++++++++++++++
+ src/gui/flowgrid.h     |  5 +++++
+ src/gui/pager.c        |  8 ++------
+ src/gui/pager.h        |  1 -
+ src/gui/taskbarshell.c |  8 ++------
+ src/gui/taskbarshell.h |  1 -
+ src/gui/tray.c         | 11 ++--------
+ src/gui/tray.h         |  1 -
+ 8 files changed, 57 insertions(+), 24 deletions(-)
+
+diff --git a/src/gui/flowgrid.c b/src/gui/flowgrid.c
+index 1d9a063..60c6431 100644
+--- a/src/gui/flowgrid.c
++++ b/src/gui/flowgrid.c
+@@ -71,6 +71,11 @@ static void flow_grid_destroy( GtkWidget *self )
+   g_return_if_fail(IS_FLOW_GRID(self));
+   priv = flow_grid_get_instance_private(FLOW_GRID(self));
+ 
++  if(priv->update_h)
++  {
++    g_source_remove(priv->update_h);
++    priv->update_h = 0;
++  }
+   g_list_free_full(g_steal_pointer(&priv->children),
+       (GDestroyNotify)gtk_widget_destroy);
+   GTK_WIDGET_CLASS(flow_grid_parent_class)->destroy(self);
+@@ -331,6 +336,46 @@ static void flow_grid_remove_widget_maybe (GtkWidget *widget, GtkWidget *self)
+     gtk_container_remove (GTK_CONTAINER(priv->grid), widget);
+ }
+ 
++/* FlickOS: upstream's taskbars, trays and pagers ran flow_grid_update()
++ * every 100 ms for as long as they existed, and it did nothing unless the
++ * grid was invalid: 10 wakeups a second per grid on an idle desktop. Now
++ * flow_grid_invalidate() starts a one-shot 100 ms timeout on such a grid
++ * instead, so changes are still batched and shown within 100 ms, and an
++ * idle grid never wakes up. A grid invalidated during its own update gets
++ * a new timeout, as the poll's next tick would have run it again. */
++static gboolean flow_grid_update_cb ( GtkWidget *self )
++{
++  FlowGridPrivate *priv;
++
++  priv = flow_grid_get_instance_private(FLOW_GRID(self));
++  priv->update_h = 0;
++  flow_grid_update(self);
++
++  return G_SOURCE_REMOVE;
++}
++
++static void flow_grid_schedule_update ( GtkWidget *self )
++{
++  FlowGridPrivate *priv;
++
++  priv = flow_grid_get_instance_private(FLOW_GRID(self));
++  if(priv->auto_update && priv->invalid && !priv->update_h)
++    priv->update_h = g_timeout_add(100, (GSourceFunc)flow_grid_update_cb,
++        self);
++}
++
++void flow_grid_set_auto_update ( GtkWidget *self )
++{
++  FlowGridPrivate *priv;
++
++  g_return_if_fail(IS_FLOW_GRID(self));
++  priv = flow_grid_get_instance_private(FLOW_GRID(self));
++
++  priv->auto_update = TRUE;
++  /* A parent class's init may have invalidated the grid already. */
++  flow_grid_schedule_update(self);
++}
++
+ void flow_grid_invalidate ( GtkWidget *self )
+ {
+   FlowGridPrivate *priv;
+@@ -343,6 +388,7 @@ void flow_grid_invalidate ( GtkWidget *self )
+     flow_grid_invalidate(iter->data);
+ 
+   priv->invalid = TRUE;
++  flow_grid_schedule_update(self);
+ }
+ 
+ void flow_grid_add_child ( GtkWidget *self, GtkWidget *child )
+diff --git a/src/gui/flowgrid.h b/src/gui/flowgrid.h
+index 2b49cc3..e2959c9 100644
+--- a/src/gui/flowgrid.h
++++ b/src/gui/flowgrid.h
+@@ -54,6 +54,10 @@ struct _FlowGridPrivate
+   GtkTargetEntry *dnd_target;
+   GtkWidget *parent;
+   GtkWidget *grid;
++  /* FlickOS: a grid that updates itself (flow_grid_set_auto_update) gets
++   * a one-shot timeout when invalidated, instead of a 100 ms poll. */
++  gboolean auto_update;
++  guint update_h;
+ };
+ 
+ GType flow_grid_get_type ( void );
+@@ -61,6 +65,7 @@ GType flow_grid_get_type ( void );
+ void flow_grid_add_child ( GtkWidget *self, GtkWidget *child );
+ gboolean flow_grid_update ( GtkWidget *self );
+ void flow_grid_invalidate ( GtkWidget *self );
++void flow_grid_set_auto_update ( GtkWidget *self );
+ void flow_grid_delete_child ( GtkWidget *, void *parent );
+ guint flow_grid_n_children ( GtkWidget *self, gboolean active );
+ gpointer flow_grid_get_sole_source ( GtkWidget *self );
+diff --git a/src/gui/pager.c b/src/gui/pager.c
+index 48f947c..7ffa513 100644
+--- a/src/gui/pager.c
++++ b/src/gui/pager.c
+@@ -29,11 +29,6 @@ static void pager_destroy ( GtkWidget *self )
+   g_return_if_fail(IS_PAGER(self));
+   workspace_listener_remove(self);
+   priv = pager_get_instance_private(PAGER(self));
+-  if(priv->timer_h)
+-  {
+-    g_source_remove(priv->timer_h);
+-    priv->timer_h = 0;
+-  }
+   g_clear_pointer(&priv->pins, g_ptr_array_unref);
+   GTK_WIDGET_CLASS(pager_parent_class)->destroy(self);
+ }
+@@ -104,7 +99,8 @@ static void pager_init ( Pager *self )
+   PagerPrivate *priv;
+ 
+   priv = pager_get_instance_private(PAGER(self));
+-  priv->timer_h = g_timeout_add(100, (GSourceFunc)flow_grid_update, self);
++  /* FlickOS: updated when invalidated, not polled (flowgrid.c). */
++  flow_grid_set_auto_update(GTK_WIDGET(self));
+   priv->pins = g_ptr_array_new();
+ 
+   if(!workspace_api_check())
+diff --git a/src/gui/pager.h b/src/gui/pager.h
+index fc7a404..b56939e 100644
+--- a/src/gui/pager.h
++++ b/src/gui/pager.h
+@@ -27,7 +27,6 @@ struct _PagerClass
+ struct _PagerPrivate
+ {
+   GPtrArray *pins;
+-  guint timer_h;
+ };
+ 
+ GType pager_get_type ( void );
+diff --git a/src/gui/taskbarshell.c b/src/gui/taskbarshell.c
+index e06fd49..e8a67d1 100644
+--- a/src/gui/taskbarshell.c
++++ b/src/gui/taskbarshell.c
+@@ -45,11 +45,6 @@ static void taskbar_shell_destroy ( GtkWidget *self )
+   wintree_listener_remove(self);
+   workspace_listener_remove(self);
+   g_clear_pointer(&priv->pins, g_ptr_array_unref);
+-  if(priv->timer_h)
+-  {
+-    g_source_remove(priv->timer_h);
+-    priv->timer_h = 0;
+-  }
+   g_clear_pointer(&priv->css, g_free);
+   g_clear_pointer(&priv->style, g_bytes_unref);
+   GTK_WIDGET_CLASS(taskbar_shell_parent_class)->destroy(self);
+@@ -357,7 +352,8 @@ static void taskbar_shell_init ( TaskbarShell *self )
+ 
+   priv = taskbar_shell_get_instance_private(TASKBAR_SHELL(self));
+   priv->get_taskbar = taskbar_get_taskbar;
+-  priv->timer_h = g_timeout_add(100, (GSourceFunc)flow_grid_update, self);
++  /* FlickOS: updated when invalidated, not polled (flowgrid.c). */
++  flow_grid_set_auto_update(GTK_WIDGET(self));
+   priv->title_width = -1;
+   priv->pins = g_ptr_array_new();
+   wintree_listener_register(&taskbar_shell_window_listener, self);
+diff --git a/src/gui/taskbarshell.h b/src/gui/taskbarshell.h
+index ad7df6b..efd6f5c 100644
+--- a/src/gui/taskbarshell.h
++++ b/src/gui/taskbarshell.h
+@@ -39,7 +39,6 @@ struct _TaskbarShellPrivate
+   gboolean icons, labels, sort, floating_filter, preview;
+   gint rows, cols, filter, title_width, primary_axis, api_id;
+   gboolean tooltips;
+-  guint timer_h;
+   GPtrArray *pins;
+   GBytes *style;
+   gchar *css;
+diff --git a/src/gui/tray.c b/src/gui/tray.c
+index 3a2fa68..2ac06a9 100644
+--- a/src/gui/tray.c
++++ b/src/gui/tray.c
+@@ -52,11 +52,6 @@ static void tray_destroy ( GtkWidget *self )
+ 
+   g_return_if_fail(IS_TRAY(self));
+   priv = tray_get_instance_private(TRAY(self));
+-  if(priv->timer_h)
+-  {
+-    g_source_remove(priv->timer_h);
+-    priv->timer_h = 0;
+-  }
+   g_clear_pointer(&priv->order, g_ptr_array_unref);
+   GTK_WIDGET_CLASS(tray_parent_class)->destroy(self);
+ }
+@@ -91,11 +86,9 @@ static sni_listener_t tray_sni_listener = {
+ 
+ static void tray_init ( Tray *self )
+ {
+-  TrayPrivate *priv;
+-
+   sni_listener_register(&tray_sni_listener, self);
+-  priv = tray_get_instance_private(TRAY(self));
+-  priv->timer_h = g_timeout_add(100, (GSourceFunc)flow_grid_update, self);
++  /* FlickOS: updated when invalidated, not polled (flowgrid.c). */
++  flow_grid_set_auto_update(GTK_WIDGET(self));
+   gtk_grid_set_column_homogeneous(
+       GTK_GRID(base_widget_get_child(GTK_WIDGET(self))), FALSE);
+ 
+diff --git a/src/gui/tray.h b/src/gui/tray.h
+index 47a2d66..9d3d137 100644
+--- a/src/gui/tray.h
++++ b/src/gui/tray.h
+@@ -27,7 +27,6 @@ typedef struct _TrayPrivate TrayPrivate;
+ 
+ struct _TrayPrivate
+ {
+-  guint timer_h;
+   GPtrArray *order;
+ };
+ 

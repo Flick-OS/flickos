@@ -1,3 +1,17 @@
+flickos-weather (1.4) trixie; urgency=medium
+
+  * Release of 1.4~test1: the panel's signal reaches sfwbar too
+    (Redmond+, flickos-layouts 1.90).
+
+ -- Jon <dvbondoy@gmail.com>  Sat, 21 Nov 2026 18:14:50 +0800
+
+flickos-weather (1.4~test1) trixie; urgency=medium
+
+  * The panel's signal reaches sfwbar too (the sfwbar panel trial,
+    docs/design/flickos-panel.md), only one that already catches it.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 16:01:13 +0800
+
 flickos-weather (1.3) trixie; urgency=medium
 
   * Release of 1.3~test1: changed once a setting is applied.

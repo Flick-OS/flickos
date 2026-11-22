@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 01/18] Taskbar: "running" class on an app button while it has
+ a window
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/gui/taskbarpopup.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/gui/taskbarpopup.c b/src/gui/taskbarpopup.c
+index 90b12f7..0c601ba 100644
+--- a/src/gui/taskbarpopup.c
++++ b/src/gui/taskbarpopup.c
+@@ -242,6 +242,11 @@ static void taskbar_popup_update ( GtkWidget *self )
+   flow_grid_update(priv->tgroup);
+   flow_item_set_active(self, flow_grid_n_children(priv->tgroup, TRUE)>0);
+   priv->single = (flow_grid_n_children(priv->tgroup, TRUE)==1);
++  /* FlickOS: .running when the group has a window, not just its pin (a pin
++   * is only active while its app has no window). */
++  win = flow_grid_get_sole_source(priv->tgroup);
++  css_set_class(priv->button, "running",
++      flow_grid_n_children(priv->tgroup, TRUE) > 1 || (win && !win->pin));
+ 
+   window_collapse_popups(priv->popover);
+   gtk_widget_hide(priv->popover);

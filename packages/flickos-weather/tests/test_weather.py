@@ -402,22 +402,24 @@ class PanelTest(TempHome):
 
 
 class SignalTest(TempHome):
-    """waybar dies of a real-time signal it doesn't catch: only the ones with
-    the button get it."""
+    """A panel dies of a real-time signal it doesn't catch: only the waybars
+    and sfwbars that catch it get it."""
 
     def proc(self, pid, comm, caught):
         self.write(os.path.join(self.tmp.name, "proc", str(pid), "comm"), comm + "\n")
         self.write(os.path.join(self.tmp.name, "proc", str(pid), "status"), f"Name:\t{comm}\nSigCgt:\t{caught:016x}\n")
 
-    def test_only_waybars_that_catch_it(self):
+    def test_only_panels_that_catch_it(self):
         signum = signal.SIGRTMIN + fw.PANEL_SIGNAL
         self.proc(10, "waybar", 1 << (signum - 1))
         self.proc(11, "waybar", 0)
         self.proc(12, "sfwbar", 1 << (signum - 1))
+        self.proc(13, "sfwbar", 0)                  # still starting
+        self.proc(14, "foot", 1 << (signum - 1))
         with mock.patch.object(fw, "PROC", os.path.join(self.tmp.name, "proc")), \
                 mock.patch.object(fw.os, "kill") as kill:
             fw.signal_panel()
-        kill.assert_called_once_with(10, signum)
+        self.assertEqual(kill.call_args_list, [mock.call(10, signum), mock.call(12, signum)])
 
     def test_set_tells_the_panel_or_reloads_it(self):
         with mock.patch.object(fw, "signal_panel") as tell, mock.patch.object(fw, "reload_panel") as reload:

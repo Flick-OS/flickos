@@ -45,11 +45,6 @@ static void taskbar_shell_destroy ( GtkWidget *self )
   wintree_listener_remove(self);
   workspace_listener_remove(self);
   g_clear_pointer(&priv->pins, g_ptr_array_unref);
-  if(priv->timer_h)
-  {
-    g_source_remove(priv->timer_h);
-    priv->timer_h = 0;
-  }
   g_clear_pointer(&priv->css, g_free);
   g_clear_pointer(&priv->style, g_bytes_unref);
   GTK_WIDGET_CLASS(taskbar_shell_parent_class)->destroy(self);
@@ -357,7 +352,8 @@ static void taskbar_shell_init ( TaskbarShell *self )
 
   priv = taskbar_shell_get_instance_private(TASKBAR_SHELL(self));
   priv->get_taskbar = taskbar_get_taskbar;
-  priv->timer_h = g_timeout_add(100, (GSourceFunc)flow_grid_update, self);
+  /* FlickOS: updated when invalidated, not polled (flowgrid.c). */
+  flow_grid_set_auto_update(GTK_WIDGET(self));
   priv->title_width = -1;
   priv->pins = g_ptr_array_new();
   wintree_listener_register(&taskbar_shell_window_listener, self);

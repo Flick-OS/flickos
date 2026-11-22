@@ -952,6 +952,27 @@ class WaylandTest(unittest.TestCase):
             self.wl.dispatch()
 
 
+class SignalPanelTest(unittest.TestCase):
+    """The panel's waybars and sfwbars get SIGRTMIN+8, only once they catch it
+    (one still starting would die of it); other programs never do."""
+
+    def test_only_panels_that_catch_it(self):
+        signum = ft.signal.SIGRTMIN + ft.PANEL_SIGNAL
+        with tempfile.TemporaryDirectory() as proc:
+            for pid, comm, caught in ((11, "waybar", 1 << (signum - 1)), (12, "waybar", 0),
+                                      (13, "sfwbar", 1 << (signum - 1)), (14, "sfwbar", 0),
+                                      (15, "foot", 1 << (signum - 1))):
+                folder = os.path.join(proc, str(pid))
+                os.makedirs(folder)
+                with open(os.path.join(folder, "comm"), "w") as f:
+                    f.write(comm + "\n")
+                with open(os.path.join(folder, "status"), "w") as f:
+                    f.write(f"Name:\t{comm}\nSigCgt:\t{caught:016x}\n")
+            with mock.patch.object(ft, "PROC", proc), mock.patch.object(ft.os, "kill") as kill:
+                ft.signal_panel()
+        self.assertEqual(sorted(kill.call_args_list), [mock.call(11, signum), mock.call(13, signum)])
+
+
 if __name__ == "__main__":
     unittest.main()
 

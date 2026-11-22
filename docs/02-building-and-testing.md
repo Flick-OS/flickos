@@ -14,7 +14,7 @@ Install the tools once:
 sudo apt install live-build build-essential debhelper dpkg-dev devscripts reprepro rsync wget \
                  qemu-system-x86 qemu-utils ovmf xorriso \
                  meson pkgconf gettext libgtk-3-dev sassc libglib2.0-bin \
-                 libgtk-layer-shell-dev libjson-c-dev libwayland-dev wayland-protocols \
+                 libgtk-layer-shell-dev libjson-c-dev libpulse-dev libwayland-dev wayland-protocols \
                  libgnutls28-dev libaml-dev libdrm-dev libgbm-dev libpixman-1-dev libturbojpeg0-dev libxxhash-dev zlib1g-dev
 ```
 
@@ -279,6 +279,7 @@ tools/package-cost.py swappy                  # packages and KB a package would 
 tools/package-cost.py config/packages.chroot/flickos-foo_1.0_all.deb
 tools/measure.py PID                          # CPU, PSS/Private memory and wakeups until it exits
 tools/measure.py --tree -- flickos-control    # start a program, count the processes it starts too
+tools/measure.py --group PID                  # and those GLib's double fork gave to PID 1 (sfwbar's programs)
 ```
 
 `package-cost.py` asks apt to simulate the install without Recommends, the way

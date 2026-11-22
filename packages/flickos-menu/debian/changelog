@@ -1,3 +1,19 @@
+flickos-menu (1.36) trixie; urgency=medium
+
+  * Prompt style: the tile under the pointer is lit as the grid style's
+    is, in place of 1.35's icon zoom, which never showed (GTK's :hover
+    doesn't reach the tiles).
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 18:19:36 +0800
+
+flickos-menu (1.35) trixie; urgency=medium
+
+  * Prompt style: the search line's cursor is an underscore that blinks
+    by GTK's blink settings, and an app's icon comes a little closer and
+    brightens under the pointer.
+
+ -- Jon <dvbondoy@gmail.com>  Fri, 20 Nov 2026 18:13:40 +0800
+
 flickos-menu (1.34) trixie; urgency=medium
 
   * Desktop card: the ring's socket and /usr/libexec/flickos/osd take

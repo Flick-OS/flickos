@@ -98,10 +98,198 @@ class TablesTest(unittest.TestCase):
             software = re.search(r'^PERMISSION = "([^"]*)"', f.read(), re.M).group(1)
         self.assertEqual(fk.PERMISSION, software)
 
-    def test_the_security_kits_are_folded(self):
+    def test_the_security_kits_have_their_page_and_its_note(self):
+        """flickos-dev.md ADR-010: no folding; the permission sentence heads the page."""
         self.assertEqual([k[0] for k in fk.KITS if k[1] == "security"],
                          ["network", "web-testing", "passwords", "forensics", "reversing", "wireless"])
-        self.assertEqual(fk.FOLDED, ("security",))
+        self.assertEqual(fk.category_of("security").note, fk.PERMISSION)
+        self.assertFalse(hasattr(fk, "FOLDED"))
+
+
+# A snapshot with everything: every kit installed, every step there, mise on
+# with every tool, Rapid7's repository on, two environments of each kind.
+def full_state():
+    tools = list(fk.USER_TOOLS)
+    return {
+        "kits": [(*kit, True) for kit in fk.KITS],
+        "steps": {"git": ("Jon", "jon@example.org"), "ssh": "/h/.ssh/id_ed25519.pub", "rust": "stable",
+                  "ports": "8000/tcp", "dhcp": "off", "capture": ("on", True),
+                  "test-adapter": {"set": "off", "adapters": []}},
+        "envs": [{"name": f"{c}{n}", "category": c, "kits": [], "extras": [], "running": False, "created": 0,
+                  "image": "", "updated": 0} for c in fk.ENV_IMAGES for n in (1, 2)],
+        "versions": {"upstreams": {"mise": "on", "rapid7": "on"}, "packages": {"mise": "2026.11.8"},
+                     "tools": tools, "mine": {"node": ("24.1.0", "lts")}, "error": None, "on_path": True,
+                     "updated": 1763500000},
+    }
+
+
+def only(installed, **changes):
+    """full_state() with only these kits installed (and changes to its keys)."""
+    state = full_state()
+    state["kits"] = [(*kit, kit[0] in installed) for kit in fk.KITS]
+    state["versions"]["tools"] = [t for t in fk.USER_TOOLS if t[2] in installed]
+    state.update(changes)
+    return state
+
+
+def sections(category, state):
+    return {s.id: s for s in fk.page_model(category, state)}
+
+
+class StepRecordTest(unittest.TestCase):
+    """flickos-dev.md ADR-010: a step is one record; the window draws its control from data."""
+
+    SAMPLES = {"git": [("", ""), ("Jon", ""), ("Jon", "j@x")], "ssh": ["", "/h/.ssh/id.pub"], "rust": ["", "stable"],
+               "ports": ["off", "8000/tcp,9000/udp"], "dhcp": ["on", "off"],
+               "capture": [("on", True), ("on", False), ("off", False)],
+               "test-adapter": [{"set": "off", "adapters": []},
+                                {"set": "aa:bb:cc:dd:ee:ff", "adapters": [
+                                    {"address": "aa:bb:cc:dd:ee:ff", "device": "wlan1", "label": "A", "active": False},
+                                    {"address": "11:22:33:44:55:66", "device": "wlan0", "label": "B",
+                                     "active": True}]}]}
+
+    def test_every_step_is_on_a_page_and_its_controls_are_known(self):
+        categories = {c.id for c in fk.CATEGORIES}
+        self.assertEqual(set(self.SAMPLES), set(fk.STEP_BY_ID))
+        for step in fk.STEPS:
+            self.assertIn(step.category, categories, step.id)
+            for value in self.SAMPLES[step.id]:
+                subtitle, control = step.row(value)
+                self.assertTrue(subtitle is None or isinstance(subtitle, str), step.id)
+                self.assertIn(control[0], ("button", "switch", "choice"), step.id)
+                if control[0] == "button":
+                    self.assertIn(control[2], fk.STEP_ACTIONS, step.id)
+                for line in step.doctor(value):
+                    self.assertEqual(line.split("\t")[0], step.id)
+
+    def test_rows(self):
+        self.assertEqual(fk.STEP_BY_ID["git"].row(("Jon", "j@x"))[0], "Jon <j@x>")
+        self.assertIsNone(fk.STEP_BY_ID["git"].row(("", ""))[0])
+        self.assertEqual(fk.STEP_BY_ID["ssh"].row("")[1][2], "make-key")
+        self.assertEqual(fk.STEP_BY_ID["ssh"].row("/k.pub")[1][2], "copy-key")
+        self.assertEqual(fk.STEP_BY_ID["ports"].row("8000/tcp,9000/udp")[0],
+                         "Open to devices on this network: 8000/tcp, 9000/udp")
+        self.assertEqual(fk.STEP_BY_ID["capture"].row(("on", False)),
+                         ("Applies when you log in again.", ("switch", "packet-capture", True)))
+        subtitle, control = fk.STEP_BY_ID["test-adapter"].row(self.SAMPLES["test-adapter"][1])
+        self.assertIn("sudo airmon-ng start wlan1", subtitle)
+        self.assertEqual(control[3], (("off", "None"), ("aa:bb:cc:dd:ee:ff", "A")))     # not the one online
+
+    def test_the_window_has_a_drawer_per_row_kind_and_an_action_per_step_action(self):
+        """window() checks this when it opens; the build checks it here, without a display."""
+        import ast
+        with open(os.path.join(PACKAGE, "usr/bin/flickos-kits"), encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        window = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "window")
+        found = {}
+        for node in ast.walk(window):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict) \
+                    and isinstance(node.targets[0], ast.Name):
+                found[node.targets[0].id] = {k.value for k in node.value.keys}
+        self.assertEqual(found["drawers"], set(fk.ROW_KINDS))
+        self.assertEqual(found["step_actions"], set(fk.STEP_ACTIONS))
+
+
+class PageModelTest(unittest.TestCase):
+    """flickos-dev.md ADR-010: a page per category, drawn from page_model()."""
+
+    def test_rows_are_known_kinds(self):
+        for category in fk.CATEGORIES:
+            for section in fk.page_model(category.id, full_state()):
+                for row in section.rows:
+                    self.assertIn(row[0], fk.ROW_KINDS)
+
+    def test_every_page_fits_its_budget_with_everything_installed(self):
+        """An addition that makes a page longer than PAGE_ROWS fails here: split
+        the category, or put rows behind a kit's page, first (ADR-010)."""
+        for category in fk.CATEGORIES:
+            count = sum(len(s.rows) for s in fk.page_model(category.id, full_state()))
+            self.assertLessEqual(count, fk.PAGE_ROWS, category.id)
+
+    def test_nothing_installed_is_only_the_kits(self):
+        state = only(set(), envs=None)
+        for category in fk.CATEGORIES:
+            model = fk.page_model(category.id, state)
+            self.assertEqual([s.id for s in model], ["kits"])
+            self.assertEqual([r[1] for r in model[0].rows], [k[0] for k in fk.KITS if k[1] == category.id])
+
+    def test_while_loading_only_the_kits(self):
+        """first_snapshot(): the kits are drawn at once, the rest when snapshot() is in."""
+        state = full_state()
+        state["loading"] = True
+        for category in fk.CATEGORIES:
+            self.assertEqual([s.id for s in fk.page_model(category.id, state)], ["kits"])
+        self.assertEqual(fk.first_snapshot(fake_dpkg({"flickos-kit-web"}))["loading"], True)
+
+    def test_the_learning_page_is_only_its_kits(self):
+        self.assertEqual(list(sections("classroom", full_state())), ["kits"])
+
+    def test_the_security_page_has_its_note_and_its_own_rows(self):
+        page = sections("security", only({"network", "web-testing"}))
+        self.assertEqual(list(page), ["kits", "steps", "versions", "environments"])
+        self.assertEqual(page["kits"].note, fk.PERMISSION)
+        self.assertEqual([r[1] for r in page["steps"].rows], ["capture", "test-adapter"])
+        self.assertEqual([r[1]["name"] for r in page["environments"].rows], ["security1", "security2"])
+        kinds = [r[0] for r in page["versions"].rows]
+        self.assertEqual(kinds, ["upstream", "tool", "tool-group", "mise"])     # rapid7, impacket, web testing, mise
+        group = page["versions"].rows[2]
+        self.assertEqual(group[1], "web-testing")
+        self.assertEqual(len(group[2]), 9)
+
+    def test_the_development_page_leaves_out_the_security_rows(self):
+        state = only({"base", "web", "python"})
+        del state["steps"]["dhcp"]                      # snapshot() leaves it out without the containers kit
+        page = sections("development", state)
+        self.assertEqual([r[1] for r in page["steps"].rows], ["git", "ssh", "rust", "ports"])
+        rows = page["versions"].rows
+        self.assertEqual([r[0] for r in rows], ["tool", "tool-group", "mise"])     # uv; Node's four; mise
+        self.assertEqual(rows[0][1:], ("uv", None, None))
+        self.assertEqual(rows[1][3], 1)                 # node is yours
+        self.assertNotIn("rapid7", str(rows))
+
+    def test_mise_off_is_its_row_on_pages_with_tools(self):
+        state = only({"base", "passwords"})
+        state["versions"]["upstreams"] = {"mise": "off", "rapid7": "off"}
+        state["versions"]["tools"] = []
+        self.assertNotIn("versions", sections("development", state))           # base has no tools
+        rows = sections("security", state)["versions"].rows
+        self.assertEqual([r[1] for r in rows], ["rapid7"])                      # passwords has no tools either
+        state = only({"web"})
+        state["versions"]["upstreams"] = {"mise": "off"}
+        state["versions"]["tools"] = []
+        self.assertEqual(sections("development", state)["versions"].rows, (("upstream", "mise", "off", "2026.11.8"),))
+
+    def test_environments_without_the_containers_kit_and_after_their_kits(self):
+        page = sections("development", only({"base"}, envs=None))
+        self.assertEqual(page["environments"].rows, (("env-needs-containers",),))
+        self.assertEqual(page["environments"].footer, "")
+        page = sections("security", only({"base"}))                             # Kali's remain
+        self.assertEqual(list(page), ["kits", "environments"])
+        self.assertEqual(page["environments"].footer, "new-env")
+        self.assertEqual(list(sections("security", only({"base"}, envs="podman broke"))), ["kits"])
+
+    def test_equal_snapshots_draw_equal_pages(self):
+        self.assertEqual(fk.page_model("security", full_state()), fk.page_model("security", full_state()))
+        changed = full_state()
+        changed["versions"]["mine"]["uv"] = ("0.9.0", "latest")
+        self.assertEqual(fk.page_model("security", changed), fk.page_model("security", full_state()))
+        self.assertNotEqual(fk.page_model("development", changed), fk.page_model("development", full_state()))
+
+    def test_a_kits_tools_page(self):
+        section = fk.tools_model("web-testing", full_state())
+        self.assertEqual(section.heading, "Web Testing")
+        self.assertEqual([r[1] for r in section.rows], [t[0] for t in fk.USER_TOOLS if t[2] == "web-testing"])
+        self.assertIsNone(fk.tools_model("python", full_state()))              # one tool: inline
+        state = full_state()
+        state["versions"]["upstreams"]["mise"] = "off"
+        self.assertIsNone(fk.tools_model("web-testing", state))
+
+    def test_where_the_window_opens(self):
+        state = only({"network"})
+        self.assertEqual(fk.start_page(state), "security")
+        self.assertEqual(fk.start_page(state, select="study"), "classroom")
+        self.assertEqual(fk.start_page(state, select="study", page="development"), "development")
+        self.assertEqual(fk.start_page(only(set())), "development")
 
 
 class InstalledTest(unittest.TestCase):
@@ -321,6 +509,20 @@ class SnapshotTest(QuietHome):
         state = fk.snapshot(run, lambda name: "/usr/bin/" + name if name in programs else None)
         self.assertEqual(state["steps"], {"git": ("Jon", "Jon"), "rust": ""})
 
+    def test_parallel_reads_keep_the_steps_order(self):
+        """snapshot() reads at the same time; the steps stay in STEPS' order."""
+        values = {"firewall.local-ports": "off", "containers.dhcp": "off", "packet-capture": "on",
+                  "wireless.test-adapter": "off"}
+        with mock.patch.object(fk, "control_value", side_effect=lambda key, run=None: values.get(key)), \
+                mock.patch.object(fk, "wifi_adapters", return_value=[]), \
+                mock.patch.object(fk, "capture_active", return_value=True), \
+                mock.patch.object(fk, "environments_available", return_value=False):
+            run = fake_dpkg({"flickos-kit-containers", "flickos-kit-network", "flickos-kit-wireless"})
+            programs = {"flickos-control", "tshark", "aircrack-ng"}
+            state = fk.snapshot(run, lambda name: "/usr/bin/" + name if name in programs else None)
+        self.assertEqual(list(state["steps"]), ["ports", "dhcp", "capture", "test-adapter"])
+        self.assertEqual(state["steps"]["capture"], ("on", True))
+
     def test_doctor_prints_each_state(self):
         state = {"kits": [("base", "development", "Developer Basics", "x", True)],
                  "steps": {"git": ("Jon", ""), "ssh": "/h/.ssh/id.pub", "rust": ""}}
@@ -499,7 +701,8 @@ class SecurityStepsTest(QuietHome):
             if args[0] == fk.CONTROL:
                 return control(args, **kw)
             return fake_network(args, **kw)
-        programs = {fk.CONTROL, "dumpcap", "aircrack-ng"}
+        # No dumpcap: with capture on, a session from before it can't run it (root:wireshark 754).
+        programs = {fk.CONTROL, "tshark", "aircrack-ng"}
         with mock.patch.object(fk, "capture_active", return_value=False):
             state = fk.snapshot(run, lambda name: "/usr/bin/" + name if name in programs else None)
         self.assertEqual(state["steps"], {"ports": "off", "capture": ("on", False),

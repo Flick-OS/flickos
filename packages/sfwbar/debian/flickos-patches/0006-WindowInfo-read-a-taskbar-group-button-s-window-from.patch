@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon <dvbondoy@gmail.com>
+Date: Sat, 21 Nov 2026 20:08:02 +0800
+Subject: [PATCH 06/18] WindowInfo: read a taskbar group button's window from
+ the action
+
+FlickOS change against upstream d40912d, not forwarded. Why: debian/README.source.
+---
+ src/lib/compositor.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib/compositor.c b/src/lib/compositor.c
+index da992c5..15b0685 100644
+--- a/src/lib/compositor.c
++++ b/src/lib/compositor.c
+@@ -6,6 +6,7 @@
+ #include "input.h"
+ #include "vm/vm.h"
+ #include "gui/taskbaritem.h"
++#include "gui/taskbarpopup.h"
+ #include "gui/pageritem.h"
+ 
+ static gpointer lib_compositor_window_get ( vm_t *vm, value_t p[], gint np )
+@@ -110,7 +111,15 @@ static value_t lib_compositor_lib_window_info ( vm_t *vm, value_t p[], gint np )
+ 
+   widget = vm_widget_get(vm, np==2? value_get_string(p[0]) : NULL);
+ 
+-  if( (win = flow_item_get_source(widget)) )
++  /* FlickOS: a taskbar group's button (group = popup, the Cupertino dock)
++   * has its app id as source, not a window: take the window the action runs
++   * for, as Focus() and Minimize() do. Reading the app id as a window_t made
++   * WindowInfo('focused') false, so a click never minimized. */
++  if(widget && IS_TASKBAR_POPUP(widget))
++    win = wintree_from_id(VM_WINDOW(vm));
++  else
++    win = flow_item_get_source(widget);
++  if(win)
+   {
+     if(!g_ascii_strcasecmp(value_get_string(p[np-1]), "appid"))
+       return value_new_string(win->appid);
