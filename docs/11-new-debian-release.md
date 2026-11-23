@@ -35,7 +35,9 @@ The move is two jobs, and the second is the harder one:
 | 6. Release | After Debian 14.0 | FlickOS 3.0 ISO, notes, site | Tag `v3.0` built, published and announced |
 
 Phases 1–3 happen on a branch while `main` keeps shipping 2.x. Nothing a user
-sees changes until phase 4.
+sees changes until phase 4. For the move to forky, 2.x has been feature-frozen
+since 2026-11-22: main takes only fixes and new features go on `forky`
+([06 – 2.x feature freeze](06-ci-and-releases.md#2x-feature-freeze)).
 
 ## Debian's calendar and FlickOS's
 
@@ -344,7 +346,8 @@ Do this once, in this order:
    as usual), so the split starts from published versions.
 3. **Make the trixie branch:** `git branch trixie main`. In that branch's
    `iso.yml`, add `trixie` to `on.push.branches`, so 2.x fixes still get CI.
-   Tags (`v2.*`) already trigger it.
+   Tags (`v2.*`) already trigger it. Check it out in its own worktree
+   (*After the release*, **The 2.x worktree**).
 4. **Merge the forky branch into `main`** (the draft pull request). Remove
    `Enabled: no` from `flickos.sources`.
 5. **Give every package a forky version,** because of the shared pool. The
@@ -406,6 +409,8 @@ so nothing happens until the user acts. If a user only edits Debian's
 can lose flickos-desktop (points 4 and 5 above). They need a FlickOS-owned
 way: an upgrade command, for example `flickos-upgrade`, offered on the
 *Updates* page through `control-helper` (pkexec, like every system change).
+Its design, decisions and spike results for the move to forky:
+`docs/design/flickos-upgrade.md`.
 
 ### What the upgrade must do, in order
 
@@ -508,12 +513,77 @@ warn when `/etc/os-release`'s `VERSION_CODENAME` differs from the suites in
 
 ## After the release: keeping the old release alive
 
-- **Publish trixie fixes from the trixie branch:** `git switch trixie`, fix,
-  `dch -v X.Y.N -D trixie`, `repo/publish.sh && repo/upload.sh`,
-  `git switch main`. `publish.sh` reads `FLICKOS_DEBIAN` from the tree you
-  have checked out, so the branch decides the suite. **Never** publish from
-  the wrong branch: `main`'s packages would land in forky, which is right
-  there and wrong for trixie.
+The old release needs no computer of its own: it is built in a container,
+tested in QEMU, and published from its own worktree on your usual computer.
+
+**The 2.x worktree.** Keep the trixie branch checked out next to main, the way
+forky was during phases 1–3, so a 2.x fix never needs a `git switch` in your
+main folder:
+
+```sh
+git worktree add ../FlickOS-trixie trixie
+cd ../FlickOS-trixie
+for d in db public .gh-pages; do ln -s ../../FlickOS/repo/$d repo/$d; done
+ls -l repo/ | grep -- '->'     # three links, pointing to main's folders
+```
+
+There is **one** apt repository with one pool and one reprepro database for
+every suite (*Phase 1*, step 2), but `repo/db/`, `repo/public/` and
+`repo/.gh-pages/` are git-ignored, so a new worktree starts with empty ones
+of its own. Published from those, `publish.sh` would make a repository holding
+only trixie, and `upload.sh`'s `rsync --delete` would then delete forky from
+the live site, and with it every 3.0 system's updates. Two things prevent
+that:
+
+- `repo/data-dir.sh` (read by `publish.sh`, `upload.sh`,
+  `community/publish.sh`, `packages/build.sh`, `tools/release.sh`, and the
+  same rule in `tools/check-all.py`) finds the main worktree through git and
+  always uses **its** `repo/` for the data; each checkout keeps its own
+  `repo/conf/` (`reprepro --confdir`). From the 2.x worktree the scripts
+  therefore publish into the shared repository without any setup, and
+  `publish.sh` says so (*Repository data: …*).
+- `upload.sh` refuses to upload when the site has a suite that the local
+  `repo/public/dists/` lacks.
+
+The links above are for where git can't reach the main worktree: in a
+container that mounts only the 2.x worktree, the scripts fall back to the
+worktree's own `repo/`, and the links lead them to main's (see the build
+host below). Once forky is merged into main, remove its old worktree
+(`git worktree remove ../FlickOS-forky`).
+
+**The 2.x build host.** While your own computer is still on 2.x, 2.x builds
+run on it directly (and 3.0 builds in the forky container from *Phase 1*).
+After you move your computer to 3.0 (phase 5), build 2.x the same way, in a
+trixie container: `tools/build-host.Containerfile` defaults to trixie.
+
+```sh
+sudo podman build --network host -t flickos-trixie \
+    -f tools/build-host.Containerfile "$(mktemp -d)"
+# in ../FlickOS-trixie; for a package fix, packages/build.sh or
+# tools/check-all.py --build in place of tools/build-iso.sh
+sudo podman run --rm -it --privileged --network host -v "$PWD":/src -w /src \
+    flickos-trixie tools/build-iso.sh
+```
+
+The container sees only the worktree, so mount main's `repo/` too when a
+command inside it reads the pool (`-v "$PWD/../FlickOS/repo":/FlickOS/repo`,
+which the relative links then find), and run the same `chown` as in *Phase 1*
+afterwards, never on live-build's own folders. Publish from the host, not from
+the container: signing needs your key and a terminal.
+
+**Testing 2.x:** `tools/boot-test.py` and `tools/test-iso.sh` boot the 2.x ISO
+in QEMU, and a test disk installed from 2.x (`tools/test-iso.sh --install`,
+then `--disk`) stands in for a 2.x computer: install the fix, check it, reset.
+The same disk serves for rehearsing the upgrade (phase 5). What a VM can't
+show (suspend and wake, Wi-Fi adapters, recording on a real graphics chip, the
+phone) needs one real computer left on 2.x until its fixes end, if you have
+one to spare.
+
+- **Publish trixie fixes from the 2.x worktree:** in `../FlickOS-trixie`,
+  fix, `dch -v X.Y.N -D trixie`, `repo/publish.sh && repo/upload.sh`.
+  `publish.sh` reads `FLICKOS_DEBIAN` from the tree it runs in, so the folder
+  decides the suite. **Never** publish from the wrong folder: `main`'s
+  packages would land in forky, which is right there and wrong for trixie.
 - **Fix bugs on main first,** then backport to trixie only what 2.x users
   need: security, data loss, broken upgrades.
 - **Only Debian's packages get Debian's security fixes.** FlickOS's own
@@ -534,6 +604,9 @@ The traps in one place:
 4. A trixie fix must have a lower version than forky's.
 5. Publish `forky-community` before the keyring that names it.
 6. Keep every suite's stanza in `repo/conf/distributions` on both branches.
+   Both publish into one `repo/db/` and `repo/public/`, the main worktree's
+   (`repo/data-dir.sh`); an upload from a `repo/public/` missing a suite
+   would delete it from the site, so `upload.sh` refuses one.
 7. The ISO build's final `apt update` needs the suite online: use
    `Enabled: no` until phase 4, then remove it (`build-iso.sh` warns, the
    boot test fails, `release.sh` refuses).
@@ -578,6 +651,7 @@ The traps in one place:
 **Phase 4: repository**
 - [ ] Pending repository move done first
 - [ ] Last 2.x packages published; `trixie` branch made, its `iso.yml` builds it
+- [ ] `../FlickOS-trixie` worktree, its `repo/db`, `repo/public`, `repo/.gh-pages` linked to main's
 - [ ] forky merged into main; `Enabled: no` removed
 - [ ] Every package bumped for forky; version rule checked
 - [ ] Keyring for forky published only to forky
@@ -587,6 +661,7 @@ The traps in one place:
 **Phase 5: upgrade**
 - [ ] Upgrade tool with checks, removal guard, restore point, sources switch, Recommends map
 - [ ] Every case of the test matrix passed, upgrade and way back
+- [ ] forky's flickos-settings autostart runs `flickos-upgrade notify` (main merged into forky after the upgrade branch; the note at the first login on 3.0 needs it)
 - [ ] (Optional) hand-upgrade warning in a 2.x update
 
 **Phase 6: release**

@@ -1,3 +1,40 @@
+flickos-recovery (1.9) trixie; urgency=medium
+
+  * Putting back a restore point (restore, keep, try-again) asks for the
+    password every time (auth_admin): it puts back passwords and
+    accounts too (HIG SET-10, security audit F-3).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 13:43:05 +0800
+
+flickos-recovery (1.8) trixie; urgency=medium
+
+  * Release of 1.8~test1-test3: a restore point marked keep is never
+    pruned; restore points keep debconf's answers and putting one back
+    puts them back.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 12:01:13 +0800
+
+flickos-recovery (1.8~test3) trixie; urgency=medium
+
+  * Putting back leaves no empty /var/lib/flickos-recovery behind.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 06:58:16 +0800
+
+flickos-recovery (1.8~test2) trixie; urgency=medium
+
+  * Restore points keep debconf's answers (in /var/cache, outside the
+    system) and putting one back puts them back: a second upgrade after
+    going back lost the login screen.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 06:16:16 +0800
+
+flickos-recovery (1.8~test1) trixie; urgency=medium
+
+  * A restore point marked keep (flickos-upgrade's 'Before FlickOS 3.0')
+    is never pruned and doesn't count among the five.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 22 Nov 2026 20:40:44 +0800
+
 flickos-recovery (1.7) trixie; urgency=medium
 
   * Release of 1.7~test1: debian/rules names the services --no-start is

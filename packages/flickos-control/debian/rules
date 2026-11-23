@@ -31,3 +31,9 @@ override_dh_install:
 # Skipped with DEB_BUILD_OPTIONS=nocheck.
 override_dh_auto_test:
 	python3 -m unittest discover -s tests -v
+
+# flickos-upgrade.service runs only in system-update.target, linked from
+# there (debian/links). The package never starts, stops or restarts it: the
+# new release's flickos-control is configured while it runs, and a restart
+# would stop the install halfway through dpkg.
+override_dh_installsystemd:

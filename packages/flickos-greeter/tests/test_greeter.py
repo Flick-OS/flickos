@@ -829,5 +829,56 @@ class ScriptTest(unittest.TestCase):
                          r"^gtkgreet --command flickos-session --style /usr/share/flickos/greeter/gtkgreet.css$")
 
 
+class PostinstTest(unittest.TestCase):
+    """debian/flickos-greeter.postinst in a temporary DPKG_ROOT: the file that
+    keeps greetd's login screen link through greetd's upgrades."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        self.file = os.path.join(self.root, "etc/X11/default-display-manager")
+        os.makedirs(os.path.join(self.root, "etc/systemd/system"))
+
+    def link(self, service):
+        os.symlink(f"/usr/lib/systemd/system/{service}",
+                   os.path.join(self.root, "etc/systemd/system/display-manager.service"))
+
+    def run_postinst(self, *argv):
+        result = subprocess.run(["sh", os.path.join(PACKAGE, "debian/flickos-greeter.postinst"), *argv],
+                                env={"PATH": "/usr/bin:/bin", "DPKG_ROOT": self.root},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def read(self):
+        with open(self.file) as f:
+            return f.read()
+
+    def test_written_while_greetd_is_the_login_screen(self):
+        self.link("greetd.service")
+        self.run_postinst("configure", "")
+        self.assertEqual(self.read(), "/usr/sbin/greetd\n")
+        self.assertEqual(os.listdir(os.path.dirname(self.file)), ["default-display-manager"])
+
+    def test_an_existing_file_stays(self):
+        self.link("greetd.service")
+        os.makedirs(os.path.dirname(self.file))
+        with open(self.file, "w") as f:
+            f.write("/usr/sbin/lightdm\n")
+        self.run_postinst("configure", "2.4")
+        self.assertEqual(self.read(), "/usr/sbin/lightdm\n")
+
+    def test_nothing_for_another_login_screen_or_none(self):
+        self.run_postinst("configure", "")
+        self.link("lightdm.service")
+        self.run_postinst("configure", "")
+        self.assertFalse(os.path.exists(self.file))
+
+    def test_only_at_configure(self):
+        self.link("greetd.service")
+        self.run_postinst("abort-upgrade", "2.4")
+        self.assertFalse(os.path.exists(self.file))
+
+
 if __name__ == "__main__":
     unittest.main()

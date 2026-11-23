@@ -1,3 +1,19 @@
+flickos-greeter (2.4.1) trixie; urgency=medium
+
+  * Release of 2.4.1~test1: the postinst writes /etc/X11/default-
+    display-manager while greetd is the login screen.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 12:01:13 +0800
+
+flickos-greeter (2.4.1~test1) trixie; urgency=medium
+
+  * The postinst writes /etc/X11/default-display-manager while greetd is
+    the login screen and the file is missing: without it Debian 14's
+    greetd can remove the login screen's link when upgraded. 2.4.1, not
+    2.5: forky's 2.5~test1 must stay the newer one.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 06:24:00 +0800
+
 flickos-greeter (2.4) trixie; urgency=medium
 
   * Release of 2.4~test1: the login screen's background picture and box

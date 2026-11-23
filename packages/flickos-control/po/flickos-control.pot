@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: flickos-control\n"
 "Report-Msgid-Bugs-To: https://github.com/Flick-OS/flickos/issues\n"
-"POT-Creation-Date: 2026-11-21 22:13+0800\n"
+"POT-Creation-Date: 2026-11-23 10:13+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -461,7 +461,7 @@ msgstr ""
 #: usr/bin/flickos-control
 msgid ""
 "updates upgrade security patches automatic restart reboot software purchase "
-"purchased key buy bought paid apps store"
+"purchased key buy bought paid apps store release new version debian"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -1387,6 +1387,19 @@ msgstr ""
 #, python-brace-format
 msgid "{apps} and {count} more"
 msgstr ""
+
+#. Translators: {release} is a FlickOS version, such as 3.0.
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Upgraded to FlickOS {release}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} package changed"
+msgid_plural "{count} packages changed"
+msgstr[0] ""
+msgstr[1] ""
 
 #: usr/bin/flickos-control
 #, python-brace-format
@@ -2598,6 +2611,241 @@ msgid "No screenshot keys are set."
 msgstr ""
 
 #: usr/bin/flickos-control
+#, python-brace-format
+msgid "Installed on {date}."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "A settings file you had changed stayed as you had it: {files}."
+msgid_plural ""
+"{count} settings files you had changed stayed as you had them: {files}."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{release} is installed"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{release} is installed at the next restart"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Save your work first. Installing takes about 15 minutes, then the computer "
+"restarts by itself."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{release} is ready to install"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Downloaded: {size}. Installing takes about 15 minutes, at a restart you "
+"choose."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{release} is being downloaded"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "You can keep using the computer. This page says when it is ready."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The upgrade to {release} didn't finish"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Finish it, or put back the restore point taken before it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Finish it: the computer restarts and goes on where it stopped."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The upgrade to {release} failed"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The computer was put back as it was before, on {date}."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Back from {release}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The restore point from before it was put back on {date}."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The upgrade to {release} stopped"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Nothing on this computer was changed. {error}"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{release} is available"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"The next FlickOS release, on Debian {debian}. Downloading it changes nothing "
+"until you choose to install it."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "This is the live session. Install FlickOS first."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Connect the power cable: the upgrade takes a while."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Test versions are installed: {packages}. Install their released versions "
+"first."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "flickos-desktop isn't installed."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "No Debian sources were found to move to the new release."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{count} update is waiting. Install it first, in Software Updates."
+msgid_plural ""
+"{count} updates are waiting. Install them first, in Software Updates."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The new release's package lists couldn't be fetched. Check the connection, "
+"and try again later."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The new release's Debian package lists couldn't be fetched. Check the "
+"connection, and try again later."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "apt can't work out the upgrade on this computer."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The upgrade would remove parts of FlickOS: {packages}."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Not enough free space: {needed} is needed, and {free} is free."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"{count} restore point is kept on this computer: deleting it in Restore "
+"Points frees space."
+msgid_plural ""
+"{count} restore points are kept on this computer: deleting the ones you no "
+"longer need, in Restore Points, frees space."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "The most is usually in “{names}”, the system you went back from."
+msgid_plural "The most is usually in the systems you went back from: {names}."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The freed space shows a minute after deleting: then check the plan again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The download stopped. Try again later."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"{upgraded} packages are updated and {new} added. The download is {download}; "
+"it needs {needed} of free space, and {free} is free."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Removed, as the new release no longer has them: {packages}."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{new} is installed in place of {old}."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Afterwards the packages only the old release needed are removed."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Other software sources stay as they are, and may not have packages for the "
+"new release yet: {sources}."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"A restore point is taken first. If the install fails, the computer goes back "
+"by itself; you can also go back later, in Restore Points."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"This computer can't take a restore point, so there is no way back. Back up "
+"your files first."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Downloading changes nothing, and you can keep using the computer. Installing "
+"comes at a restart you choose and takes about 15 minutes."
+msgstr ""
+
+#: usr/bin/flickos-control
 msgid ""
 "Updates are installed in the background every day, so security fixes arrive "
 "without anyone having to remember."
@@ -2609,6 +2857,42 @@ msgstr ""
 
 #: usr/bin/flickos-control
 msgid "Software Updates shows and installs every update at any time."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Not Now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Upgrade…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restart and _Install…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restart _Now"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Don't Install"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Finish Upgrade…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restore _Points"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Discard…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "New FlickOS release"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -2687,6 +2971,121 @@ msgid ""
 "The apps bought with it stay installed but no longer update, and they can't "
 "be installed again. Adding the key again needs the key itself, from the page "
 "or the email of your purchase."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "{release} is offered here again in {days} day."
+msgid_plural "{release} is offered here again in {days} days."
+msgstr[0] ""
+msgstr[1] ""
+
+#: usr/bin/flickos-control
+msgid "Restarting…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "The computer didn't restart."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Finish the upgrade to {release}?"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Restart and install {release}?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"The computer restarts now and installs it, which takes about 15 minutes; "
+"then it restarts again by itself. Save your work first, keep the power cable "
+"in, and don't turn the computer off while it installs."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "There is no way back on this computer: back up your files first."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "A restore point is taken first, so you can go back."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "It goes on where it stopped."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Restart and Install"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Restart and Finish"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "I have a _backup, and I know there is no way back"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Delete the downloaded {release}?"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "It frees about {size}. Upgrading later downloads it again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Upgrading later downloads it again."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Delete"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid "Upgrade to {release}"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Download"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"Finding out what the upgrade changes… This takes a minute or two, and needs "
+"the network."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Close"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Checking the plan once more…"
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"Downloading {release}. You can keep using the computer, and close this "
+"window."
+msgstr ""
+
+#: usr/bin/flickos-control
+#, python-brace-format
+msgid ""
+"{release} is downloaded. Install it when you are ready, with Restart and "
+"Install on the Updates page."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "_Hide"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -2989,7 +3388,16 @@ msgid ""
 msgstr ""
 
 #: usr/bin/flickos-control
+#, python-brace-format
+msgid "{date} · kept until you delete it"
+msgstr ""
+
+#: usr/bin/flickos-control
 msgid "Put Back…"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Delete…"
 msgstr ""
 
 #: usr/bin/flickos-control
@@ -3043,6 +3451,21 @@ msgid "Checking what would change…"
 msgstr ""
 
 #: usr/bin/flickos-control
+#, python-brace-format
+msgid "Delete the restore point “{name}”?"
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid ""
+"This frees the space it holds, and the system can then not be put back to "
+"it. The freed space shows a minute after."
+msgstr ""
+
+#: usr/bin/flickos-control
+msgid "Restore point deleted."
+msgstr ""
+
+#: usr/bin/flickos-control
 msgid "Delete all restore points?"
 msgstr ""
 
@@ -3059,10 +3482,6 @@ msgstr ""
 
 #: usr/bin/flickos-control
 msgid "All restore points deleted."
-msgstr ""
-
-#: usr/bin/flickos-control
-msgid "The computer didn't restart."
 msgstr ""
 
 #: usr/bin/flickos-control

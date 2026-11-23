@@ -14,10 +14,10 @@ strings:
     shortProductName:    FlickOS
     # Must match FLICKOS_VERSION in packages/flickos-branding/usr/lib/flickos-release
     # (tools/build-iso.sh checks this).
-    version:             "2.3"
-    shortVersion:        "2.3"
-    versionedName:       "FlickOS 2.3"
-    shortVersionedName:  "FlickOS 2.3"
+    version:             "2.4"
+    shortVersion:        "2.4"
+    versionedName:       "FlickOS 2.4"
+    shortVersionedName:  "FlickOS 2.4"
     # Used as the GRUB menu entry and EFI directory name.
     bootloaderEntryName: FlickOS
     # Links on the welcome page (enabled in modules/welcome.conf).

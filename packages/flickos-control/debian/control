@@ -56,8 +56,11 @@ Depends: python3,
 # commands list 1.14 (commands list|add|remove), and Open Phone runs
 # flickos-phone 1.16 (window). The Login Screen page's background and box
 # position are read by flickos-greeter 2.4; an older login screen ignores them.
+# flickos-upgrade's restore point "Before FlickOS 3.0" is marked keep, which
+# flickos-recovery 1.8 never prunes, and 1.8 keeps debconf's answers with it.
 Breaks: flickos-phone (<< 1.16),
-        flickos-greeter (<< 2.4~)
+        flickos-greeter (<< 2.4~),
+        flickos-recovery (<< 1.8~)
 # About: wl-copy for Copy System Info (else GTK's clipboard), lspci for the
 # graphics card (else left out).
 Recommends: wl-clipboard,

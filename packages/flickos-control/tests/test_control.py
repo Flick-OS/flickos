@@ -4,6 +4,7 @@ import base64
 import configparser
 import datetime
 import gzip
+import fcntl
 import importlib.machinery
 import importlib.util
 import io
@@ -1964,7 +1965,8 @@ class HelperTest(unittest.TestCase):
         self.keyboard = os.path.join(self.tmp, "keyboard")
         with open(self.keyboard, "w") as f:
             f.write("# KEYBOARD CONFIGURATION FILE\n" + KEYBOARD_FILE)
-        for name, value in (("XKB_RULES", self.rules), ("KEYBOARD_DEFAULTS", self.keyboard), ("AFTER", ())):
+        for name, value in (("XKB_RULES", self.rules), ("KEYBOARD_DEFAULTS", self.keyboard), ("AFTER", ()),
+                            ("ACCOUNTS_LOCK", os.path.join(self.tmp, "accounts.lock"))):
             patcher = mock.patch.object(helper, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -2449,6 +2451,46 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(list(helper.DEFAULT_GROUPS), [g for g in groups if g != helper.ADMIN_GROUP])
         self.assertIn(f"sudoersGroup:    {helper.ADMIN_GROUP}", text)
 
+    def test_account_verbs_hold_the_lock(self):
+        """Two removals at once could both pass "keep one administrator"
+        (audit F-6): every account verb holds ACCOUNTS_LOCK while it runs."""
+        runs = self.account_mocks({"jon": 1000, "ann": 1001}, ["jon", "ann"], caller="jon")
+        held = []
+
+        def run(cmd, **kw):
+            fd = os.open(helper.ACCOUNTS_LOCK, os.O_RDWR)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.append(cmd[0])
+            finally:
+                os.close(fd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(helper.main(["user-admin", "ann", "no"]), 0)
+        self.assertEqual((held, runs), (["gpasswd"], []))
+        # Free again afterwards.
+        fd = os.open(helper.ACCOUNTS_LOCK, os.O_RDWR)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.assertEqual(os.stat(helper.ACCOUNTS_LOCK).st_mode & 0o777, 0o600)
+
+    # A verb that changes who can log in or be an administrator, what can reach
+    # the computer, what runs as root or who can read the network asks for the
+    # password every time (audit F-3, HIG SET-10); the others keep it 5 minutes.
+    ASK_EVERY_TIME = {"user-add", "user-admin", "user-password", "autologin-on", "firewall-off", "updates",
+                      "packages-undo", "upstream", "packet-capture", "upgrade"}
+
+    def test_the_policy_asks_every_time_where_it_matters(self):
+        top = ET.parse(os.path.join(PACKAGE, "usr/share/polkit-1/actions/org.flickos.control.policy")).getroot()
+        for action in top.iter("action"):
+            verb = action.find("annotate[@key='org.freedesktop.policykit.exec.argv1']").text
+            wanted = "auth_admin" if verb in self.ASK_EVERY_TIME else "auth_admin_keep"
+            self.assertEqual(action.find("defaults/allow_active").text, wanted, verb)
+            self.assertEqual((action.find("defaults/allow_any").text, action.find("defaults/allow_inactive").text),
+                             ("auth_admin", "auth_admin"), verb)
+
     def test_the_policy_has_an_action_per_verb(self):
         top = ET.parse(os.path.join(PACKAGE, "usr/share/polkit-1/actions/org.flickos.control.policy")).getroot()
         argv1 = {a.find("annotate[@key='org.freedesktop.policykit.exec.argv1']").text for a in top.iter("action")}
@@ -2887,6 +2929,16 @@ class SoftwareHelperTest(unittest.TestCase):
         mixed = change("2026-09-11T10:00:00")
         self.assertEqual((mixed["kind"], mixed["undoable"]), ("mixed", False))
 
+    def test_the_upgrade_to_a_new_release_is_no_change_to_undo(self):
+        transaction = {"id": "2026-11-22T08:20:00", "lists": {"Install": [("papers", "amd64", "49.8-2")]},
+                       "command": "apt-get -c /var/lib/flickos/upgrade/apt-install.conf -y --no-download "
+                                  "-o FlickOS::Upgrade=3.0 install papers"}
+        change = helper.describe_transaction(transaction, "amd64")
+        self.assertEqual((change["kind"], change["release"], change["undoable"], change["packages"], change["upgraded"]),
+                         ("upgrade", "3.0", False, [], 1))
+        self.assertIn("restore point", change["why"])
+        self.assertIsNone(helper.describe_transaction(self.transaction("2026-09-03T12:19:54"), "amd64")["release"])
+
     def test_list(self):
         changes = helper.software_changes(days=30, live=False, now=datetime.datetime(2026, 9, 20))
         self.assertEqual([c["id"] for c in changes][:2], ["2026-09-03T12:19:54", "2026-09-03T13:10:03"])
@@ -2925,7 +2977,7 @@ class SoftwareHelperTest(unittest.TestCase):
         everything = {"linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64"}
         plan, calls = self.plan(None, installed, [(everything, set())], transaction=self.kernel_install(),
                                 depends=self.liquorix_depends)
-        self.assertEqual(calls, [["remove", "linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64"]])
+        self.assertEqual(calls, [["remove", "--", "linux-image-liquorix-amd64", "linux-image-7.3.4-3-liquorix-amd64"]])
         self.assertEqual((plan["remove"], plan["kept"]), (sorted(everything), []))
 
     def test_kernel_dependencies_leave_out_what_isnt_a_kernel_and_the_shared_headers(self):
@@ -2945,7 +2997,7 @@ class SoftwareHelperTest(unittest.TestCase):
                                                    "linux-headers-7.3.4-3-liquorix-amd64"}, set()),
                                                   ({"linux-image-liquorix-amd64"}, set())],
                                 transaction=self.kernel_install(), depends=self.liquorix_depends)
-        self.assertEqual((calls[1], plan["kept"]), (["remove", "linux-image-liquorix-amd64"],
+        self.assertEqual((calls[1], plan["kept"]), (["remove", "--", "linux-image-liquorix-amd64"],
                                                    ["linux-image-7.3.4-3-liquorix-amd64"]))
         with mock.patch.object(helper, "undo_plan", return_value=plan), \
                 mock.patch.object(helper, "live_system", return_value=False), \
@@ -2968,13 +3020,13 @@ class SoftwareHelperTest(unittest.TestCase):
         # What it brought in goes too, named (never --autoremove: that takes everything unneeded).
         plan, calls = self.plan("2026-09-03T12:19:54", {"adb", "android-liblog", "zlib1g:i386"},
                                 [({"adb", "android-liblog", "zlib1g:i386"}, set())])
-        self.assertEqual(calls, [["remove", "adb", "android-liblog", "zlib1g:i386"]])
+        self.assertEqual(calls, [["remove", "--", "adb", "android-liblog", "zlib1g:i386"]])
         self.assertEqual((plan["action"], plan["remove"], plan["upgraded"]),
                          ("remove", ["adb", "android-liblog", "zlib1g:i386"], 1))
         # Another package needs one of them: only what was asked for goes.
         plan, calls = self.plan("2026-09-03T12:19:54", {"adb", "android-liblog"},
                                 [({"adb", "android-liblog", "fastboot"}, set()), ({"adb"}, set())])
-        self.assertEqual((calls[1], plan["args"]), (["remove", "adb"], ["remove", "adb"]))
+        self.assertEqual((calls[1], plan["args"]), (["remove", "--", "adb"], ["remove", "--", "adb"]))
         # Even that would take something else: refused, named.
         with self.assertRaisesRegex(helper.HelperError, "also remove fastboot"):
             self.plan("2026-09-03T12:19:54", {"adb"}, [({"adb", "fastboot"}, set()), ({"adb", "fastboot"}, set())])
@@ -2986,7 +3038,9 @@ class SoftwareHelperTest(unittest.TestCase):
     def test_undo_a_removal(self):
         plan, calls = self.plan("2026-09-03T13:10:03", set(), [(set(), {"adb", "android-liblog"})])
         self.assertEqual((calls, plan["action"], plan["install"]),
-                         ([["install", "adb"]], "install", ["adb", "android-liblog"]))
+                         ([["install", "--", "adb"]], "install", ["adb", "android-liblog"]))
+        # The real run may remove nothing: the system can change after the simulation (audit F-4).
+        self.assertEqual(plan["args"], ["install", "--no-remove", "--", "adb"])
         with self.assertRaisesRegex(helper.HelperError, "would remove fastboot"):
             self.plan("2026-09-03T13:10:03", set(), [({"fastboot"}, {"adb"})])
         with self.assertRaisesRegex(helper.HelperError, "installed again"):
@@ -3012,10 +3066,31 @@ class SoftwareHelperTest(unittest.TestCase):
         with mock.patch.object(helper.os, "geteuid", return_value=1000), \
                 mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
                 mock.patch.object(helper, "boot_time", return_value=datetime.datetime(2000, 1, 1)):
-            self.assertEqual(helper.main(["packages-list", "100000"]), 0)
+            self.assertEqual(helper.main(["packages-list", "99999"]), 0)
         self.assertEqual(len(json.loads(out.getvalue())), 6)
         with mock.patch.object(helper.os, "geteuid", return_value=1000), mock.patch("sys.stderr"):
             self.assertEqual(helper.main(["packages-undo", "2026-09-03T13:10:03"]), 1)
+
+    def test_packages_list_takes_only_an_ascii_number(self):
+        # "²".isdigit() is True and int("²") raises; a huge number overflows timedelta (audit F-5).
+        for days in ("²", "٣", "-1", "1e3", "999999", ""):
+            with mock.patch.object(helper.os, "geteuid", return_value=1000), \
+                    mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+                self.assertEqual(helper.main(["packages-list", days]), 1, days)
+            self.assertIn("usage: packages-list [DAYS]", err.getvalue())
+
+    def test_the_helper_never_uses_isdigit(self):
+        with open(_helper_loader.path, encoding="utf-8") as f:
+            self.assertNotIn(".isdigit(", f.read())
+        self.assertTrue(helper.number("60000"))
+        for text in ("²", "٣", "", " 1", "1\n", "1234567890"):
+            self.assertFalse(helper.number(text), text)
+
+    def test_an_option_in_the_log_is_no_package(self):
+        # apt-get reads options anywhere on its command line (audit F-4).
+        self.assertEqual(helper.parse_items("-oAPT::Get::Show-Versions=1:amd64 (1.0), -oX=12:amd64 (1), "
+                                            "hello:amd64 (2.10-3), libstdc++6:amd64 (14.2.0-19, automatic)"),
+                         [("hello", "amd64", "2.10-3"), ("libstdc++6", "amd64", "14.2.0-19, automatic")])
 
     def test_undo_runs_apt_get_with_the_mark(self):
         plan = {"id": "2026-09-03T13:10:03", "action": "install", "args": ["install", "adb"], "remove": [],
@@ -5169,3 +5244,155 @@ for count in (3, 5):
         if result.returncode == 77 or "No module named 'gi'" in result.stderr:
             self.skipTest("no GTK display")
         self.assertEqual((result.returncode, result.stdout), (0, "FlowBox []\nScrolledWindow []\n"), result.stderr)
+
+
+class UpgradePageTest(unittest.TestCase):
+    """Settings > Updates and History for the upgrade to the next release
+    (flickos-upgrade, docs/design/flickos-upgrade.md phase 4)."""
+
+    TARGET = {"name": "FlickOS", "version": "3.0", "from": "trixie", "to": "forky", "debian": "14"}
+    NOW = 1795400000.0
+
+    def view(self, state, offered=False):
+        offer = {"offered": offered, "why": None, "target": self.TARGET}
+        return fc.upgrade_view(state, offer, lambda n: f"{n / 1e9:.1f} GB", now=self.NOW)
+
+    def test_nothing_while_closed(self):
+        self.assertIsNone(self.view({}))
+
+    def test_offered(self):
+        view = self.view({}, offered=True)
+        self.assertEqual((view["title"], view["buttons"]), ("FlickOS 3.0 is available", ["notnow", "plan"]))
+        self.assertIn("Debian 14", view["subtitle"])
+
+    def test_each_step(self):
+        target = {"target": self.TARGET}
+        steps = {
+            "staged": (["install", "discard"], "FlickOS 3.0 is ready to install"),
+            "scheduled": (["restart", "dont"], "FlickOS 3.0 is installed at the next restart"),
+            "downloading": ([], "FlickOS 3.0 is being downloaded"),
+        }
+        for step, (buttons, title) in steps.items():
+            view = self.view(dict(target, step=step, download=962000000))
+            self.assertEqual((view["title"], view["buttons"]), (title, buttons), step)
+        self.assertIn("1.0 GB", self.view(dict(target, step="staged", download=962000000))["subtitle"])
+        self.assertIsNone(self.view(dict(target, step="installing")))
+
+    def test_interrupted(self):
+        self.assertEqual(self.view({"step": "interrupted", "restore_point_name": "x"})["buttons"],
+                         ["finish", "recovery"])
+        self.assertEqual(self.view({"step": "interrupted"})["buttons"], ["finish"])
+
+    def test_returned(self):
+        failed = self.view({"step": "returned", "back": {"when": self.NOW, "failed": "dpkg --audit: …"}},
+                           offered=True)
+        self.assertEqual((failed["title"], failed["buttons"]), ("The upgrade to FlickOS 3.0 failed",
+                                                                ["plan", "discard"]))
+        self.assertEqual(self.view({"step": "returned", "back": {"when": self.NOW}})["title"],
+                         "Back from FlickOS 3.0")
+
+    def test_installed_for_a_month(self):
+        state = {"step": "installed", "target": self.TARGET, "finished": self.NOW - 86400,
+                 "kept_files": ["/etc/default/grub.ucf-dist"]}
+        view = self.view(state)
+        self.assertEqual((view["title"], view["buttons"]), ("FlickOS 3.0 is installed", []))
+        self.assertIn("/etc/default/grub.", view["subtitle"])
+        self.assertNotIn("ucf-dist", view["subtitle"])
+        state["finished"] = self.NOW - 31 * 86400
+        self.assertIsNone(self.view(state))
+
+    def test_the_plan_in_words(self):
+        plan = {"ready": True, "upgraded": 977, "new": 115, "removed": [{"name": "evince"}],
+                "replacements": [{"old": "evince", "new": "papers"}], "download": 962000000,
+                "needed": 5.3e9, "free": 9.6e9, "restore_point": True, "third_party": [], "problems": []}
+        text = "\n".join(fc.upgrade_plan_lines(plan, lambda n: f"{n / 1e9:.1f} GB"))
+        for words in ("977 packages are updated and 115 added", "1.0 GB", "5.3 GB", "evince",
+                      "papers is installed in place of evince", "A restore point is taken first",
+                      "only the old release needed"):
+            self.assertIn(words, text)
+        plan.update(restore_point=False, ready=False,
+                    problems=[{"code": "space", "text": "x"}, {"code": "lists", "errors": ["E: no Release"]}])
+        text = "\n".join(fc.upgrade_plan_lines(plan, lambda n: f"{n / 1e9:.1f} GB"))
+        self.assertIn("no way back", text)
+        self.assertIn("5.3 GB is needed, and 9.6 GB is free", text)
+        self.assertIn("E: no Release", text)
+
+    def test_not_now_hides_only_the_offer_of_this_release(self):
+        # Q7: 30 days, for this release; a download, an install or the way
+        # back still show.
+        tmp = tempfile.mkdtemp(prefix="flickos-control-test-")
+        self.addCleanup(shutil.rmtree, tmp)
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": tmp}):
+            self.assertFalse(fc.upgrade_hidden(self.TARGET, self.NOW))
+            fc.upgrade_not_now(self.TARGET, self.NOW)
+            self.assertTrue(fc.upgrade_hidden(self.TARGET, self.NOW + 29 * 86400))
+            self.assertFalse(fc.upgrade_hidden(self.TARGET, self.NOW + 31 * 86400))
+            self.assertFalse(fc.upgrade_hidden(dict(self.TARGET, version="3.1"), self.NOW))
+            with open(os.path.join(tmp, "flickos", fc.UPGRADE_NOT_NOW), "w") as f:
+                f.write("broken")
+            self.assertFalse(fc.upgrade_hidden(self.TARGET, self.NOW))
+        offer = {"offered": True, "target": self.TARGET}
+        size = lambda n: f"{n / 1e9:.1f} GB"
+        self.assertIsNone(fc.upgrade_view({}, offer, size, now=self.NOW, hidden=True))
+        for state in ({"step": "staged", "target": self.TARGET}, {"step": "returned", "target": self.TARGET},
+                      {"step": "interrupted", "target": self.TARGET}):
+            self.assertIsNotNone(fc.upgrade_view(state, offer, size, now=self.NOW, hidden=True), state)
+
+    def test_too_little_space_points_at_the_restore_points(self):
+        # Finding E: the newer system left after going back is named.
+        size = lambda n: f"{n / 1e9:.1f} GB"
+        plan = {"needed": 4.1e9, "free": 1.9e9, "problems": [{"code": "space", "restore_points": [
+            {"name": "a", "description": "Before FlickOS 3.0, 22 November 17:40", "put_back": False},
+            {"name": "b", "description": "Before putting back a restore point, 22 November 17:56",
+             "put_back": True}]}]}
+        text = fc.upgrade_problem_text(plan["problems"][0], plan, size)
+        for words in ("4.1 GB is needed, and 1.9 GB is free", "2 restore points are kept",
+                      "\u201cBefore putting back a restore point, 22 November 17:56\u201d, the system you went back from",
+                      "shows a minute after"):
+            self.assertIn(words, text)
+        self.assertTrue(fc.space_points(plan))
+        plan["problems"][0]["restore_points"] = []
+        self.assertEqual(fc.upgrade_problem_text(plan["problems"][0], plan, size),
+                         "Not enough free space: 4.1 GB is needed, and 1.9 GB is free.")
+        self.assertFalse(fc.space_points(plan))
+        self.assertFalse(fc.space_points({"problems": [{"code": "lists", "restore_points": [{}]}]}))
+
+    def test_every_refusal_has_its_own_words(self):
+        with open(os.path.join(PACKAGE, "usr/bin/flickos-upgrade"), encoding="utf-8") as f:
+            codes = set(re.findall(r'"code": "([a-z-]+)"', f.read()))
+        self.assertGreater(len(codes), 8)
+        for code in codes:
+            text = fc.upgrade_problem_text({"code": code, "text": "ENGLISH", "packages": ["a"]}, {}, str)
+            self.assertNotEqual(text, "ENGLISH", code)
+
+    def test_the_answer_of_a_no(self):
+        tmp = tempfile.mkdtemp(prefix="flickos-control-test-")
+        self.addCleanup(shutil.rmtree, tmp)
+        program = os.path.join(tmp, "flickos-upgrade")
+        with open(program, "w") as f:
+            f.write('#!/bin/sh\necho \'{"offered": false, "why": "closed"}\'\nexit 1\n')
+        os.chmod(program, 0o755)
+        with mock.patch.object(fc, "UPGRADE", program):
+            self.assertEqual(fc.upgrade_json(["offer"], 5), {"offered": False, "why": "closed"})
+            with open(program, "w") as f:
+                f.write("#!/bin/sh\necho broken >&2\nexit 2\n")
+            with self.assertRaises(fc.ControlError):
+                fc.upgrade_json(["status"], 5)
+        with mock.patch.object(fc, "UPGRADE", os.path.join(tmp, "missing")):
+            self.assertIsNone(fc.upgrade_state())
+
+    def test_history_shows_the_upgrade_once(self):
+        def item(time, kind, release=None, upgraded=0, packages=()):
+            return {"id": time, "time": time + "+00:00", "kind": kind, "packages": list(packages), "automatic": [],
+                    "upgraded": upgraded, "purged": False, "autoremove": False, "undoable": kind == "install",
+                    "why": None, "release": release}
+        items = [item("2026-11-22T07:51:15", "upgrade", "3.0", 400), item("2026-11-22T07:59:01", "upgrade", "3.0", 700),
+                 item("2026-11-22T08:05:44", "upgrade", "3.0", 1), item("2026-11-23T10:00:00", "install",
+                                                                        packages=["vlc"])]
+        with mock.patch.object(fc, "history_cleared", return_value=None):
+            changes = fc.software_changes(items=items)
+        self.assertEqual([change.kind for change in changes], ["install", "upgrade"])
+        upgrade = changes[1]
+        self.assertEqual(fc.describe_software(upgrade), ("Upgraded to FlickOS 3.0", "1101 packages changed"))
+        self.assertFalse(upgrade.undoable)
+        self.assertEqual(upgrade.when, datetime.datetime.fromisoformat("2026-11-22T08:05:44+00:00"))

@@ -26,7 +26,7 @@ Should rules aren't listed. Read the pages for those.
 - [ ] **SET-7** A change applies at once, or the row says when it will.
 - [ ] **SET-8** Every setting can go back to its default.
 - [ ] **SET-9** A shared setting (GTK theme, button layout) changes only while it holds FlickOS's value.
-- [ ] **SET-10** System changes go through a polkit-aware service or a checked pkexec helper verb.
+- [ ] **SET-10** System changes go through a polkit-aware service or a checked pkexec helper verb; `auth_admin` every time for who can get in, what can reach the computer or what runs as root.
 
 ## Windows and layout ([04](04-windows.md))
 

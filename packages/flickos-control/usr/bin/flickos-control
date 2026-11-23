@@ -515,6 +515,20 @@ ARRANGE_CHECK_SECONDS = 1             # how often `displays arrange` looks for a
 UPDATE_VIEWER = ("gpk-update-viewer",)  # shows and installs updates (Updates)
 PACKAGEKIT_NAME = "org.freedesktop.PackageKit"
 UPDATE_REFRESH_SECONDS = 180          # longest wait for PackageKit's refresh before the viewer opens anyway
+# The upgrade to the next release (docs/design/flickos-upgrade.md, phase 4).
+UPGRADE = PREFIX + "/usr/bin/flickos-upgrade"
+UPGRADE_FORCE_ENV = "FLICKOS_UPGRADE_FORCE"   # set: offer and plan before the release is published (testing)
+UPGRADE_PLAN_SECONDS = 600            # plan fetches the new release's lists and asks apt: a minute or more
+UPGRADE_OFFER_SECONDS = 120           # offer fetches its InRelease, only once it is open
+UPGRADE_RESULT = "flickos-upgrade-result: "       # control-helper upgrade prepare's last line
+UPGRADE_PROGRESS = "flickos-upgrade-progress: "   # flickos-upgrade's lines for this page
+UPGRADE_SHOWN_DAYS = 30               # the "is installed" row stays this long
+UPGRADE_RESTORE_POINTS_RESPONSE = 1   # the plan dialog's Restore Points button (a GTK response id)
+# Q7: Not Now hides the offer of this release for this long, for this user
+# ($XDG_STATE_HOME/flickos/UPGRADE_NOT_NOW: {"version", "until"}). A newer
+# release is offered again; a future end-of-support notice must ignore it.
+UPGRADE_NOT_NOW = "upgrade-not-now"
+UPGRADE_NOT_NOW_DAYS = 30
 TERMINALS_LIST = "xdg-terminals.list"   # xdg-terminal-exec's config (Super+Enter, the menu)
 NIGHT_LIGHT = "/usr/libexec/flickos/night-light"
 AUTOLOGIN_GROUP = "autologin"           # flickos-greeter logs in its first member
@@ -662,7 +676,7 @@ SEARCH_KEYWORDS = {
     "memory": N_("memory ram speed slow performance old computer resources firefox browser tabs"),
     "datetime": N_("date time clock timezone time zone network time ntp 12-hour 24-hour am pm"),
     "updates": N_("updates upgrade security patches automatic restart reboot software purchase purchased key buy "
-               "bought paid apps store"),
+               "bought paid apps store release new version debian"),
     "login": N_("login screen autologin automatic login password greeter background wallpaper picture position "
                 "language keyboard layout"),
     "users": N_("users accounts user account password administrator admin sudo picture photo avatar"),
@@ -2425,6 +2439,7 @@ class SoftwareChange:
     why: str                        # why it can't be undone, or None
     undone: bool = False
     newest: bool = True             # every transaction is a change of its own
+    release: str = None             # kind upgrade: the FlickOS version flickos-upgrade moved to
 
 
 def helper_json(args):
@@ -2579,11 +2594,13 @@ def software_changes(days=HISTORY_DAYS, items=None):
             when = datetime.datetime.fromisoformat(item["time"]).astimezone()
             change = SoftwareChange(item["id"], when, item["kind"], list(item["packages"]), list(item["automatic"]),
                                     int(item["upgraded"]), bool(item["purged"]), bool(item["autoremove"]),
-                                    item.get("undo_of"), bool(item["undoable"]), item.get("why"))
+                                    item.get("undo_of"), bool(item["undoable"]), item.get("why"),
+                                    release=item.get("release"))
         except (KeyError, TypeError, ValueError):
             continue
         if cleared is None or when > cleared:
             changes.append(change)
+    changes = merge_upgrade(changes)
     undone = {change.undo_of for change in changes if change.undo_of}
     for change in changes:
         if change.id in undone:
@@ -2656,10 +2673,35 @@ def package_names(packages):
     return names_and_more(names + packages[APP_NAMES_SHOWN:])
 
 
+def merge_upgrade(changes):
+    """flickos-upgrade's apt runs (kind upgrade) as one change per release,
+    at the time of the last; every package they touched counted once."""
+    merged, firsts = [], {}
+    for change in changes:
+        if change.kind != "upgrade":
+            merged.append(change)
+            continue
+        count = change.upgraded + len(change.packages) + len(change.automatic)
+        first = firsts.get(change.release)
+        if first is None:
+            change.upgraded, change.packages, change.automatic = count, [], []
+            firsts[change.release] = change
+            merged.append(change)
+        else:
+            first.upgraded += count
+            first.when = max(first.when, change.when)
+    return merged
+
+
 def describe_software(change):
     """(title, detail) of a software change: "Installed: VLC media player"."""
     details = []
-    if change.kind == "install":
+    if change.kind == "upgrade":
+        # Translators: {release} is a FlickOS version, such as 3.0.
+        title = _("Upgraded to FlickOS {release}").format(release=change.release)
+        details.append(ngettext("{count} package changed", "{count} packages changed",
+                                change.upgraded).format(count=change.upgraded))
+    elif change.kind == "install":
         title = _("Installed: {apps}").format(apps=package_names(change.packages))
         if change.automatic:
             count = len(change.automatic)
@@ -4889,7 +4931,8 @@ class Ui:
     def row(self, title, widget=None, subtitle=None):
         line = self.Gtk.Box(spacing=12, margin=10)
         text = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=2, valign=self.Gtk.Align.CENTER)
-        text.pack_start(self.label(title, wrap=False), False, False, 0)
+        first = self.label(title, wrap=False)
+        text.pack_start(first, False, False, 0)
         # Always there, hidden while empty: set_subtitle() can fill it later.
         second = self.label(subtitle or "", dim=True)
         second.set_no_show_all(not subtitle)
@@ -4901,7 +4944,7 @@ class Ui:
             self.name_control(widget, title)
         row = self.Gtk.ListBoxRow(activatable=False)
         row.add(line)
-        row.subtitle = second
+        row.title, row.subtitle = first, second
         if self.indexing:
             self.index.append(search_item(title, self.indexing.name, subtitle or "", page=self.indexing.id,
                                           target=row, focus=widget))
@@ -6866,6 +6909,224 @@ class ScreenshotsPage:
             self.send(["set", key, chosen])
 
 
+def upgrade_json(args, seconds):
+    """flickos-upgrade's --json answer. It exits 1 for a "no" (not offered,
+    not ready) with its JSON all the same, so only a missing answer fails."""
+    try:
+        result = subprocess.run([UPGRADE, *args, "--json"], capture_output=True, text=True, timeout=seconds,
+                                check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ControlError(f"{UPGRADE}: {error}") from None
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        message = " ".join(output_messages("", result.stderr)) or f"exit code {result.returncode}"
+        raise ControlError(f"{UPGRADE} {args[0]}: {message}") from None
+
+
+def upgrade_force():
+    return ["--force"] if os.environ.get(UPGRADE_FORCE_ENV) else []
+
+
+def upgrade_state():
+    """(status, offer) for Settings > Updates, or None without flickos-upgrade.
+    offer uses the network only once the upgrade is open (ADR-003)."""
+    if not os.access(UPGRADE, os.X_OK) or live_session():
+        return None
+    return upgrade_json(["status"], COMMAND_SECONDS), upgrade_json(["offer", *upgrade_force()], UPGRADE_OFFER_SECONDS)
+
+
+def release_name(target):
+    return f"{target.get('name') or 'FlickOS'} {target.get('version') or ''}".strip()
+
+
+def upgrade_not_now_path():
+    return os.path.join(state_home(), "flickos", UPGRADE_NOT_NOW)
+
+
+def upgrade_hidden(target, now=None):
+    """Whether Not Now hides the offer of TARGET's release now (Q7)."""
+    now = time.time() if now is None else now
+    try:
+        with open(upgrade_not_now_path(), encoding="utf-8") as f:
+            hidden = json.load(f)
+        return hidden.get("version") == target.get("version") and now < float(hidden.get("until", 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+
+
+def upgrade_not_now(target, now=None):
+    """Not Now: hide the offer of TARGET's release for UPGRADE_NOT_NOW_DAYS."""
+    now = time.time() if now is None else now
+    os.makedirs(os.path.dirname(upgrade_not_now_path()), exist_ok=True)
+    write_atomic(upgrade_not_now_path(), json.dumps({"version": target.get("version"),
+                                                     "until": now + UPGRADE_NOT_NOW_DAYS * 86400}) + "\n")
+
+
+def upgrade_view(state, offer, size, now=None, hidden=False):
+    """What Settings > Updates shows of the upgrade to the next release, from
+    flickos-upgrade status and offer: None, or {"title", "subtitle", "buttons"}.
+    buttons, in order: notnow, plan (Upgrade…), install, restart, dont (cancel
+    the install at the restart), finish, recovery (Restore Points), discard.
+    hidden: Not Now was chosen for this release (only the offer goes; a
+    download, an install or a way back always shows). size(bytes) -> text."""
+    now = time.time() if now is None else now
+    offered = bool(offer and offer.get("offered"))
+    target = state.get("target") or (offer or {}).get("target") or {}
+    release = release_name(target)
+    step = state.get("step")
+
+    def day(stamp):
+        return time.strftime("%-d %B", time.localtime(stamp)) if stamp else "?"
+
+    if step == "installed":
+        if now - (state.get("finished") or 0) > UPGRADE_SHOWN_DAYS * 86400:
+            return None
+        lines = [_("Installed on {date}.").format(date=day(state.get("finished")))]
+        kept = [path.rsplit(".", 1)[0] for path in state.get("kept_files", [])]
+        if kept:
+            lines.append(ngettext("A settings file you had changed stayed as you had it: {files}.",
+                                  "{count} settings files you had changed stayed as you had them: {files}.",
+                                  len(kept)).format(count=len(kept), files=", ".join(kept)))
+        return {"title": _("{release} is installed").format(release=release), "subtitle": " ".join(lines),
+                "buttons": []}
+    if step == "scheduled":
+        return {"title": _("{release} is installed at the next restart").format(release=release),
+                "subtitle": _("Save your work first. Installing takes about 15 minutes, then the computer restarts "
+                              "by itself."),
+                "buttons": ["restart", "dont"]}
+    if step == "staged":
+        return {"title": _("{release} is ready to install").format(release=release),
+                "subtitle": _("Downloaded: {size}. Installing takes about 15 minutes, at a restart you "
+                              "choose.").format(size=size(state.get("download") or 0)),
+                "buttons": ["install", "discard"]}
+    if step == "downloading":
+        return {"title": _("{release} is being downloaded").format(release=release),
+                "subtitle": _("You can keep using the computer. This page says when it is ready."), "buttons": []}
+    if step == "interrupted":
+        point = bool(state.get("restore_point_name"))
+        return {"title": _("The upgrade to {release} didn't finish").format(release=release),
+                "subtitle": (_("Finish it, or put back the restore point taken before it.") if point else
+                             _("Finish it: the computer restarts and goes on where it stopped.")),
+                "buttons": ["finish", "recovery"] if point else ["finish"]}
+    if step == "returned":
+        back = state.get("back") or {}
+        if back.get("failed"):
+            title = _("The upgrade to {release} failed").format(release=release)
+            subtitle = _("The computer was put back as it was before, on {date}.").format(date=day(back.get("when")))
+        else:
+            title = _("Back from {release}").format(release=release)
+            subtitle = _("The restore point from before it was put back on {date}.").format(date=day(back.get("when")))
+        return {"title": title, "subtitle": subtitle, "buttons": (["plan"] if offered else []) + ["discard"]}
+    if step == "failed":
+        return {"title": _("The upgrade to {release} stopped").format(release=release),
+                "subtitle": _("Nothing on this computer was changed. {error}").format(
+                    error=state.get("error", "")).strip(),
+                "buttons": (["plan"] if offered else []) + ["discard"]}
+    if step is None and offered and not hidden:
+        return {"title": _("{release} is available").format(release=release),
+                "subtitle": _("The next FlickOS release, on Debian {debian}. Downloading it changes nothing until "
+                              "you choose to install it.").format(debian=target.get("debian") or "?"),
+                "buttons": ["notnow", "plan"]}
+    return None
+
+
+def upgrade_problem_text(problem, plan, size):
+    """A refusal of flickos-upgrade plan or prepare, by its code, in the
+    window's language (the program's own text is English)."""
+    code, packages = problem.get("code"), problem.get("packages") or []
+    if code == "live":
+        return _("This is the live session. Install FlickOS first.")
+    if code == "battery":
+        return _("Connect the power cable: the upgrade takes a while.")
+    if code == "test-packages":
+        return _("Test versions are installed: {packages}. Install their released versions first.").format(
+            packages=", ".join(packages))
+    if code == "no-desktop":
+        return _("flickos-desktop isn't installed.")
+    if code == "no-debian-sources":
+        return _("No Debian sources were found to move to the new release.")
+    if code == "updates-pending":
+        return ngettext("{count} update is waiting. Install it first, in Software Updates.",
+                        "{count} updates are waiting. Install them first, in Software Updates.",
+                        len(packages)).format(count=len(packages))
+    if code == "lists":
+        return _("The new release's package lists couldn't be fetched. Check the connection, and try again later.")
+    if code == "no-new-debian":
+        return _("The new release's Debian package lists couldn't be fetched. Check the connection, and try "
+                 "again later.")
+    if code == "unsolvable":
+        return _("apt can't work out the upgrade on this computer.")
+    if code == "removes-flickos":
+        return _("The upgrade would remove parts of FlickOS: {packages}.").format(packages=", ".join(packages))
+    if code == "space":
+        text = _("Not enough free space: {needed} is needed, and {free} is free.").format(
+            needed=size(plan.get("needed") or 0), free=size(plan.get("free") or 0))
+        points = problem.get("restore_points") or []
+        if points:
+            # Finding E: after going back, the system left kept as a restore
+            # point takes the room, and nothing else shows it.
+            text += " " + ngettext(
+                "{count} restore point is kept on this computer: deleting it in Restore Points frees space.",
+                "{count} restore points are kept on this computer: deleting the ones you no longer need, in "
+                "Restore Points, frees space.", len(points)).format(count=len(points))
+            newer = [point["description"] for point in points if point.get("put_back")]
+            if newer:
+                text += " " + ngettext(
+                    "The most is usually in \u201c{names}\u201d, the system you went back from.",
+                    "The most is usually in the systems you went back from: {names}.", len(newer)).format(
+                    names=newer[0] if len(newer) == 1 else ", ".join(f"\u201c{name}\u201d" for name in newer))
+            text += " " + _("The freed space shows a minute after deleting: then check the plan again.")
+        return text
+    if code == "download":
+        return _("The download stopped. Try again later.")
+    return problem.get("text") or code
+
+
+def space_points(plan):
+    """Whether the plan is refused for space with restore points that could go."""
+    return any(problem.get("code") == "space" and problem.get("restore_points")
+               for problem in plan.get("problems", []))
+
+
+def upgrade_plan_lines(plan, size):
+    """The plan dialog's paragraphs: what the upgrade does, then why not if it can't."""
+    lines = []
+    if "upgraded" in plan:
+        lines.append(_("{upgraded} packages are updated and {new} added. The download is {download}; it needs "
+                       "{needed} of free space, and {free} is free.").format(
+            upgraded=plan["upgraded"], new=plan["new"], download=size(plan.get("download") or 0),
+            needed=size(plan.get("needed") or 0), free=size(plan.get("free") or 0)))
+        removed = [item["name"] for item in plan.get("removed", [])]
+        if removed:
+            lines.append(_("Removed, as the new release no longer has them: {packages}.").format(
+                packages=", ".join(removed)))
+        for item in plan.get("replacements", []):
+            lines.append(_("{new} is installed in place of {old}.").format(new=item["new"], old=item["old"]))
+        lines.append(_("Afterwards the packages only the old release needed are removed."))
+        if plan.get("third_party"):
+            lines.append(_("Other software sources stay as they are, and may not have packages for the new release "
+                           "yet: {sources}.").format(sources=", ".join(plan["third_party"])))
+        if plan.get("restore_point"):
+            lines.append(_("A restore point is taken first. If the install fails, the computer goes back by "
+                           "itself; you can also go back later, in Restore Points."))
+        else:
+            lines.append(_("This computer can't take a restore point, so there is no way back. Back up your files "
+                           "first."))
+        lines.append(_("Downloading changes nothing, and you can keep using the computer. Installing comes at a "
+                       "restart you choose and takes about 15 minutes."))
+    return lines + upgrade_problem_lines(plan, size)
+
+
+def upgrade_problem_lines(plan, size):
+    """Why the upgrade can't go on, one paragraph per problem, with apt's own errors."""
+    lines = []
+    for problem in plan.get("problems", []):
+        lines.append(upgrade_problem_text(problem, plan, size))
+        lines += problem.get("errors", [])[:3]
+    return lines
+
+
 class UpdatesPage:
     """Automatic updates: unattended-upgrades' settings (read with apt-config,
     changed through the helper's updates verb)."""
@@ -6883,6 +7144,30 @@ class UpdatesPage:
             intro.append(_("Apps installed from Flathub are updated with them."))
         intro.append(_("Software Updates shows and installs every update at any time."))
         box.pack_start(ui.label(" ".join(intro)), False, False, 0)
+        # The next FlickOS release (flickos-upgrade): shown only while there is
+        # something to say, from upgrade_view().
+        self.upgrade_frame, upgrade_list = ui.framed_list()
+        self.upgrade_frame.set_no_show_all(True)
+        upgrade_box = Gtk.Box(spacing=6)
+        self.upgrade_buttons = {}
+        for key, label, handler in (
+                ("notnow", _("_Not Now"), self.not_now),
+                ("plan", _("_Upgrade…"), self.ask_upgrade),
+                ("install", _("Restart and _Install…"), self.ask_install),
+                ("restart", _("Restart _Now"), self.restart),
+                ("dont", _("_Don't Install"), lambda _b: self.upgrade_helper(["cancel"])),
+                ("finish", _("_Finish Upgrade…"), self.ask_install),
+                ("recovery", _("Restore _Points"), lambda _b: self.ui.open_page and self.ui.open_page("recovery")),
+                ("discard", _("_Discard…"), self.ask_discard)):
+            button = Gtk.Button.new_with_mnemonic(label)
+            button.connect("clicked", handler)
+            button.set_no_show_all(True)
+            upgrade_box.pack_start(button, False, False, 0)
+            self.upgrade_buttons[key] = button
+        self.upgrade_row = ui.row(_("New FlickOS release"), upgrade_box, "")
+        upgrade_list.add(self.upgrade_row)
+        self.upgrade = ({}, None)              # (status, offer) as last read
+        box.pack_start(self.upgrade_frame, False, False, 0)
         frame, listbox = ui.framed_list()
         self.auto = Gtk.Switch()
         self.auto.connect("notify::active", lambda w, _p: self.change("auto", "yes" if w.get_active() else "no"))
@@ -7082,6 +7367,266 @@ class UpdatesPage:
         self.buttons.set_visible(bool(shutil.which(UPDATE_VIEWER[0])))
         self.show_key()
         self.ui.background(updates_state, self.show, key=(self, "read"))
+        self.ui.background(upgrade_state, self.show_upgrade, key=(self, "upgrade"))
+
+    # --- The next release (flickos-upgrade; docs/design/flickos-upgrade.md, phase 4) ---
+
+    def size(self, count):
+        return self.ui.GLib.format_size(int(count))
+
+    def release(self):
+        status, offer = self.upgrade
+        return release_name(status.get("target") or (offer or {}).get("target") or {})
+
+    def show_upgrade(self, state, error):
+        if error:
+            warn(error)                     # the rest of the page stays as it is
+        if not state:
+            self.upgrade_frame.hide()
+            return
+        self.upgrade = state
+        target = state[0].get("target") or (state[1] or {}).get("target") or {}
+        view = upgrade_view(state[0], state[1], self.size, hidden=upgrade_hidden(target))
+        if view is None:
+            self.upgrade_frame.hide()
+            return
+        self.upgrade_row.title.set_text(view["title"])
+        self.ui.set_subtitle(self.upgrade_row, view["subtitle"])
+        for key, button in self.upgrade_buttons.items():
+            button.set_visible(key in view["buttons"])
+        # show_all() skips a no_show_all widget: the frame stays out of the
+        # page's own show_all, and comes in here with its row.
+        self.upgrade_frame.set_no_show_all(False)
+        self.upgrade_frame.show_all()
+
+    def not_now(self, _button):
+        """Q7: the offer goes for UPGRADE_NOT_NOW_DAYS days; this release only."""
+        status, offer = self.upgrade
+        target = status.get("target") or (offer or {}).get("target") or {}
+        try:
+            upgrade_not_now(target)
+        except OSError as error:
+            self.status.set_text(str(error))
+            return
+        self.upgrade_frame.hide()
+        self.status.set_text(ngettext("{release} is offered here again in {days} day.",
+                                      "{release} is offered here again in {days} days.",
+                                      UPGRADE_NOT_NOW_DAYS).format(release=self.release(),
+                                                                   days=UPGRADE_NOT_NOW_DAYS))
+
+    def upgrade_helper(self, args, then=None):
+        """control-helper upgrade ARGS (a password each time), then then() or
+        the page read again."""
+        self.status.set_text(_("Waiting for the password…"))
+
+        def done(ok, stdout, stderr):
+            messages = [line for line in output_messages(stdout, stderr) if not line.startswith(UPGRADE_PROGRESS)]
+            self.status.set_text("\n".join(messages) if messages or ok else _("Not changed."))
+            if ok and then:
+                then()
+            else:
+                self.shown()
+
+        self.ui.run_async(["pkexec", HELPER, "upgrade", *args], done)
+
+    def restart(self, _button=None):
+        self.status.set_text(_("Restarting…"))
+        self.ui.run_async(["systemctl", "reboot"], lambda ok, stdout, stderr: ok or self.status.set_text(
+            "\n".join(output_messages(stdout, stderr)) or _("The computer didn't restart.")))
+
+    def ask_install(self, button):
+        """Restart and Install, or Finish Upgrade: the helper sets the next
+        start to install (step 6), then the computer restarts."""
+        Gtk = self.ui.Gtk
+        finish = button is self.upgrade_buttons["finish"]
+        release = self.release()
+        dialog = Gtk.MessageDialog(transient_for=self.widget.get_toplevel(), modal=True,
+                                   message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE,
+                                   text=(_("Finish the upgrade to {release}?") if finish else
+                                         _("Restart and install {release}?")).format(release=release))
+        no_way_back = not finish and not recovery_available()
+        lines = [_("The computer restarts now and installs it, which takes about 15 minutes; then it restarts "
+                   "again by itself. Save your work first, keep the power cable in, and don't turn the computer "
+                   "off while it installs.")]
+        lines.append(_("There is no way back on this computer: back up your files first.") if no_way_back else
+                     _("A restore point is taken first, so you can go back.") if not finish else
+                     _("It goes on where it stopped."))
+        dialog.format_secondary_text(" ".join(lines))
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        go = dialog.add_button(_("_Restart and Install") if not finish else _("_Restart and Finish"),
+                               Gtk.ResponseType.OK)
+        go.get_style_context().add_class("suggested-action")
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        if no_way_back:
+            consent = Gtk.CheckButton.new_with_mnemonic(_("I have a _backup, and I know there is no way back"))
+            consent.connect("toggled", lambda c: go.set_sensitive(c.get_active()))
+            go.set_sensitive(False)
+            dialog.get_message_area().pack_start(consent, False, False, 0)
+            consent.show()
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK:
+            self.upgrade_helper(["install"] + (["--without-restore-point"] if no_way_back else []), self.restart)
+
+    def ask_discard(self, _button):
+        Gtk = self.ui.Gtk
+        status = self.upgrade[0]
+        dialog = Gtk.MessageDialog(transient_for=self.widget.get_toplevel(), modal=True,
+                                   message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE,
+                                   text=_("Delete the downloaded {release}?").format(release=self.release()))
+        dialog.format_secondary_text(_("It frees about {size}. Upgrading later downloads it again.").format(
+            size=self.size(status.get("download") or 0)) if status.get("download") else
+            _("Upgrading later downloads it again."))
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        delete = dialog.add_button(_("_Delete"), Gtk.ResponseType.OK)
+        delete.get_style_context().add_class("destructive-action")
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK:
+            self.upgrade_helper(["discard"])
+
+    def ask_upgrade(self, _button):
+        """The plan (flickos-upgrade plan, no password), then the download
+        (control-helper upgrade prepare) with its progress in the same dialog.
+        Hide leaves the download running."""
+        Gtk, GLib, Gio = self.ui.Gtk, self.ui.GLib, self.ui.Gio
+        release = self.release()
+        dialog = Gtk.Dialog(title=_("Upgrade to {release}").format(release=release),
+                            transient_for=self.widget.get_toplevel(), modal=True)
+        dialog.set_default_size(560, -1)
+        cancel = dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        # Too little space with restore points kept (finding E): to their page.
+        points = dialog.add_button(_("Restore _Points"), UPGRADE_RESTORE_POINTS_RESPONSE)
+        # add_button() shows it at once: hide it, and keep show_all() from
+        # showing it again, until a plan refused for space needs it.
+        points.hide()
+        points.set_no_show_all(True)
+        go = dialog.add_button(_("_Download"), Gtk.ResponseType.OK)
+        go.get_style_context().add_class("suggested-action")
+        go.set_sensitive(False)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=18)
+        dialog.get_content_area().add(content)
+        busy = Gtk.Box(spacing=8)
+        spinner = Gtk.Spinner(active=True)
+        busy.pack_start(spinner, False, False, 0)
+        busy.pack_start(self.ui.label(_("Finding out what the upgrade changes… This takes a minute or two, and "
+                                        "needs the network."), dim=True), False, False, 0)
+        content.pack_start(busy, False, False, 0)
+        text = self.ui.label("")
+        text.set_selectable(True)
+        text.set_no_show_all(True)
+        # A wrapped label is measured at its narrowest: without a width of its
+        # own the dialog grows taller than the screen (its buttons off it).
+        text.set_width_chars(60)
+        content.pack_start(text, False, False, 0)
+        consent = Gtk.CheckButton.new_with_mnemonic(_("I have a _backup, and I know there is no way back"))
+        consent.set_no_show_all(True)
+        content.pack_start(consent, False, False, 0)
+        progress = Gtk.ProgressBar()
+        progress.set_no_show_all(True)
+        content.pack_start(progress, False, False, 0)
+        session = {"plan": None, "running": False, "closed": False, "last": []}
+
+        def say(paragraphs):
+            text.set_text("\n\n".join(paragraphs))
+            text.show()
+
+        def ready_to_go():
+            plan = session["plan"] or {}
+            go.set_sensitive(bool(plan.get("ready")) and (plan.get("restore_point") or consent.get_active()))
+
+        def planned(plan, error):
+            if session["closed"]:
+                return
+            spinner.stop()
+            busy.hide()
+            if error:
+                say([error])
+                return
+            session["plan"] = plan
+            say(upgrade_plan_lines(plan, self.size))
+            points.set_visible(space_points(plan) and page_available("recovery"))
+            consent.set_visible(bool(plan.get("ready")) and not plan.get("restore_point"))
+            ready_to_go()
+
+        consent.connect("toggled", lambda _c: ready_to_go())
+
+        def finished(text_lines):
+            session["running"] = False
+            if not session["closed"]:           # Hide destroyed the dialog; the page still learns
+                progress.hide()
+                cancel.set_label(_("_Close"))
+                say(text_lines)
+            self.shown()
+
+        def on_line(stream, result):
+            try:
+                line, _skip = stream.read_line_finish_utf8(result)
+            except GLib.Error:
+                line = None
+            if line is None:                    # it has ended without a result
+                finished(output_messages("\n".join(session["last"][-5:]), "") or [_("Not changed.")])
+                return
+            if line.startswith(UPGRADE_PROGRESS) and not session["closed"]:
+                with contextlib.suppress(ValueError):
+                    event = json.loads(line[len(UPGRADE_PROGRESS):])
+                    if event.get("step") == "planning":
+                        say([_("Checking the plan once more…")])
+                        progress.set_show_text(False)       # a pulse, no percentage yet
+                        progress.pulse()
+                    elif event.get("step") == "downloading":
+                        say([_("Downloading {release}. You can keep using the computer, and close this "
+                               "window.").format(release=release)])
+                        progress.set_show_text(True)
+                        progress.set_fraction(min(max(event.get("percent", 0), 0), 100) / 100)
+            elif line.startswith(UPGRADE_RESULT):
+                try:
+                    plan = json.loads(line[len(UPGRADE_RESULT):])
+                except ValueError:
+                    plan = {"ready": False, "problems": []}
+                finished([_("{release} is downloaded. Install it when you are ready, with Restart and Install on "
+                            "the Updates page.").format(release=release)] if plan.get("ready")
+                         else upgrade_problem_lines(plan, self.size) or [_("Not changed.")])
+                if not session["closed"]:
+                    points.set_visible(space_points(plan) and page_available("recovery"))
+                return
+            elif not line.startswith(UPGRADE_PROGRESS):
+                session["last"].append(line)
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, on_line)
+
+        def start():
+            session["running"] = True
+            go.hide()
+            consent.hide()
+            cancel.set_label(_("_Hide"))
+            say([_("Waiting for the password…")])
+            progress.show()
+            flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
+            try:
+                process = Gio.Subprocess.new(["pkexec", HELPER, "upgrade", "prepare", *upgrade_force()], flags)
+            except GLib.Error as failure:
+                finished([failure.message])
+                return
+            process.wait_async(None, None, None)        # reaped when it exits
+            Gio.DataInputStream.new(process.get_stdout_pipe()).read_line_async(GLib.PRIORITY_DEFAULT, None,
+                                                                              on_line)
+
+        def response(_dialog, response_id):
+            if response_id == Gtk.ResponseType.OK and not session["running"] and session["plan"]:
+                start()
+                return
+            # Cancel, Hide (the download goes on: the page shows it), Close or Escape.
+            session["closed"] = True
+            dialog.destroy()
+            if response_id == UPGRADE_RESTORE_POINTS_RESPONSE and self.ui.open_page:
+                self.ui.open_page("recovery")
+
+        dialog.connect("response", response)
+        dialog.show_all()
+        self.ui.background(lambda: upgrade_json(["plan", *upgrade_force()], UPGRADE_PLAN_SECONDS), planned,
+                           key=(self, "plan"))
 
     def show(self, state, error):
         if error:
@@ -7705,10 +8250,22 @@ class RestorePointsPage:
                                          "then, software can't be installed or removed.")] if waiting else [])
         for point in reversed(state.get("points", [])):
             when = point["description"].rsplit(", ", 1)
+            subtitle = when[1] if len(when) > 1 else point["name"]
+            if point.get("keep"):
+                # The upgrade's way back is never deleted by itself (flickos-recovery's keep).
+                subtitle = _("{date} · kept until you delete it").format(date=subtitle)
+            buttons = Gtk.Box(spacing=6)
             button = Gtk.Button.new_with_mnemonic(_("Put Back…"))
             button.set_sensitive(not waiting)
             button.connect("clicked", self.put_back, point["name"])
-            self.points.add(self.ui.row(when[0], button, when[1] if len(when) > 1 else point["name"]))
+            # One at a time, for the space (flickos-upgrade's finding E: after
+            # going back, the system left holds the most).
+            delete = Gtk.Button.new_with_mnemonic(_("Delete…"))
+            delete.set_sensitive(not waiting)
+            delete.connect("clicked", self.ask_delete_one, point)
+            buttons.pack_start(button, False, False, 0)
+            buttons.pack_start(delete, False, False, 0)
+            self.points.add(self.ui.row(when[0], buttons, subtitle))
         if not state.get("points"):
             self.points.add(self.ui.row(_("No restore points yet"), None,
                                         _("One is taken before the next software change.")))
@@ -7792,6 +8349,24 @@ class RestorePointsPage:
                 self.shown()
 
         ask_put_back(self.ui, self.widget.get_toplevel(), name, done)
+
+    def ask_delete_one(self, _button, point):
+        Gtk = self.ui.Gtk
+        what = point["description"].rsplit(", ", 1)[0]
+        dialog = Gtk.MessageDialog(transient_for=self.widget.get_toplevel(), modal=True,
+                                   message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE,
+                                   text=_("Delete the restore point \u201c{name}\u201d?").format(name=what))
+        dialog.format_secondary_text(_("This frees the space it holds, and the system can then not be put back "
+                                     "to it. The freed space shows a minute after."))
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        ok = dialog.add_button(_("_Delete"), Gtk.ResponseType.OK)
+        ok.get_style_context().add_class("destructive-action")
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK:
+            self.change([RECOVERY, "delete", point["name"]], _("Waiting for the password…"),
+                        _("Restore point deleted."))
 
     def ask_delete(self, _button):
         Gtk = self.ui.Gtk

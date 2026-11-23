@@ -1,178 +1,166 @@
-# FlickOS 2.3
+# FlickOS 2.4
 
-FlickOS 2.3 is still based on **Debian 13 "trixie"**. It is made for people
-**coming from Windows**: it brings your files over from the Windows part of
-your disk, tells you what to use instead of a Windows program, and puts
-websites like WhatsApp or Outlook in windows of their own. It also has a
-**more polished look**, its own **login screen** and **lock screen**, **media
-controls** and **weather** in the panel, a **volume and brightness ring**, and
-many ways to make the desktop your own.
+FlickOS 2.4 is still based on **Debian 13 "trixie"**, and it is the **last
+2.x release with new features**. It brings **Tool Kits**, which set up a
+computer for programming, studying, teaching children or security testing
+in one step; **Classroom**, a teacher's view of a room of FlickOS computers;
+a **new start menu style** you drive by typing; **Redmond+**, a panel that
+groups each app's windows; FlickOS's **own GTK themes**, so windows, title
+bars and the desktop finally look like one thing; and **hooks** that run your
+own programs when something happens on the desktop.
 
-## Coming from 2.2, 2.1 or 2.0
+## What comes next
 
-You don't need to reinstall. Everything in 2.3 comes through FlickOS's apt
-repository:
+Work now moves to **FlickOS 3.0**, on Debian 14 "forky", once Debian releases
+it (expected in 2027). 2.x keeps getting fixes until then and for **12 months
+after 3.0's release**, and 3.0 will come with a tested way to upgrade, so you
+won't need to reinstall. The 3.0 release notes will give the exact end date.
+
+## Coming from 2.3 or older
+
+You don't need to reinstall. Everything in 2.4 comes through FlickOS's apt
+repository, and a system with automatic updates on already has most of it:
 
 ```sh
 sudo apt update && sudo apt upgrade
 ```
 
 Use `apt upgrade`, not `apt-get upgrade`: `apt-get` keeps the FlickOS desktop
-back because it needs new packages. Then restart. If Firefox was open, close
-it and open it again, so it can make web apps.
+back because it needs new packages. Then restart.
 
-New installs also get **fastfetch**, which shows the FlickOS logo in the
-terminal. An upgraded system can add it with `sudo apt install fastfetch`.
+At your next login, the Dark and Light styles switch your windows to
+FlickOS's new GTK themes, unless you picked another GTK theme yourself.
 
-Coming from **2.1 or 2.0**, read the
-[2.2 release notes](https://sourceforge.net/projects/flickos/files/v2.2/)
-too: restore points need a new install, and a few apps only arrive if you
-add them yourself.
+Coming from **2.2, 2.1 or 2.0**, read the
+[2.3 release notes](https://sourceforge.net/projects/flickos/files/v2.3/) too,
+and the [2.2 ones](https://sourceforge.net/projects/flickos/files/v2.2/) from
+2.1 or 2.0: restore points need a new install, and a few apps only arrive if
+you add them yourself.
 
 Coming from FlickOS 1.x (Ubuntu/LXLE based), there is still **no in-place
-upgrade**. Back up your files and install 2.3 fresh.
+upgrade**. Back up your files and install 2.4 fresh.
 
 ## What's new
 
-### Coming from Windows
+### Tool Kits
 
-- **Bring Files from Windows** copies your Desktop, Documents, Downloads,
-  Music, Pictures and Videos, your OneDrive folders and your Chrome, Edge or
-  Brave bookmarks from the Windows part of the disk. It only reads Windows and
-  never changes it, never overwrites a file (a different file with the same
-  name is copied as *NAME (from Windows)*), and unlocks BitLocker with your
-  recovery key. Files that live only in OneDrive's cloud are listed with
-  where to download them instead of being copied.
-  - In the **live session**, it copies to a USB drive, so you can save your
-    files before installing. **Install FlickOS** offers to do that first when
-    it finds Windows.
-  - On an installed system it is in the start menu, and the Welcome window
-    shows a card for it when the computer has Windows.
-  - The installer can also install FlickOS **next to Windows** (*Install
-    alongside*), shrinking the Windows partition.
-- **Windows programs:** double-click a `.exe`, `.msi` or `.msix` file and a
-  window says what the program is and what to use instead: the FlickOS
-  version in Software, its web version, or similar apps, from a list of 161
-  Windows programs. Nothing in the file is run.
-  - **Try with Wine** installs Wine from Software, with the 32-bit part most
-    Windows programs need (about 3 GB). Many programs don't work with Wine,
-    and the window says so.
-  - **Software's search** knows the same programs: search for *photoshop* or
-    *ms word* and Software says what to use instead, above the results.
-- **Web apps:** WhatsApp, Outlook, Teams, Netflix and other websites in a
-  window of their own, with a taskbar button and a place in the start menu,
-  sharing Firefox's sign-ins. Find them in **Software → Explore → Web Apps**,
-  or make one of any address with *New Web App…*. Firefox makes them with
-  the button at the right of its address bar, so they get the site's own
-  name and icon.
+- **One switch for each kind of work**, in the new **Tool Kits** window (in
+  the start menu, on a Welcome card and in *Settings → More Settings*). Each
+  kit installs a set of apps and tools through Software, and removes them
+  again:
+  - **Programming:** a base kit (Git, a C compiler, everyday command-line
+    tools), Python, web (Node.js and npm), C and C++, and containers (Podman
+    and Distrobox).
+  - **Study**, for students, and **Young Learners**, apps for children's
+    learning.
+  - **Security testing:** network, web testing, passwords, forensics,
+    reverse engineering and wireless. Only test computers and networks you
+    are allowed to test; the window and Software say so.
+- **Setup steps** after a kit is on: your name for Git, an SSH key, Rust,
+  capturing network packets without administrator rights, choosing a Wi-Fi
+  adapter for testing, and the ports devices on your network may reach.
+- **Newer versions:** a tool's latest version for your account only (through
+  mise), and Metasploit from its maker's repository, both off until you turn
+  them on.
+- **Environments:** a Debian testing or Kali Linux container with a kit's
+  tools inside, whose apps show in your start menu, without changing your
+  system.
+- In **Software**, kits are under *Developer Tools*, *Education* and
+  *Security Tools*.
+
+Guide: https://flickos.org/guides/tool-kits/
+
+### Classroom
+
+- **A teacher's view of a classroom**, on the school's own network and with no
+  server: thumbnails of every student's screen, **lock the class** with a
+  message, send a message or a web page, **view or control** one student's
+  screen to help, and **show your own screen** on theirs.
+- Neither part comes with FlickOS. Install it in a terminal:
+  `sudo apt install flickos-classroom-teacher` on the teacher's computer and
+  `sudo apt install flickos-classroom-view` on each student's. Nothing is
+  shared until the student, or the school on a lab computer, turns sharing
+  on in *Settings → Classroom* and pairs with the teacher's six-digit code. While sharing is on, a button in
+  the panel shows it, and it turns red while a teacher is looking.
 
 ### The desktop
 
-- **A new wallpaper:** the Dark and Light styles and the login screen now show
-  a wave on a sandy shore, seen from above. If you never chose a wallpaper,
-  you get it at your next login after the update. A wallpaper you chose stays,
-  and the old ones are still in *Settings → Wallpaper*.
-- **A new system font:** Inter, in windows, the panels, title bars,
-  notifications and the launcher. The terminal keeps DejaVu, and a style with
-  a font of its own keeps it. A font you chose in *Settings → Appearance* stays
-  in your windows and the panels.
-- **Window shadows:** a soft shadow shows which window is in front, in every
-  style. Turning it off in *Settings → Accessibility* can help on an old
-  computer.
-- **Window borders** stand out better on dark pages. In the Dark and Light
-  styles the focused window's border is now a soft blue.
-- **Rounder corners:** windows and pop-ups share one corner size, and the start
-  menu, Quick Settings and the phone popup now keep a small gap from the edges
-  of the screen and the panel.
-- **New mouse cursors:** Bibata, on the desktop and the login screen.
-- **Tidier panels:** the buttons in Redmond, Cupertino and Traditional have one
-  rounded shape and light up the same way. In Redmond, a short line marks the
-  focused window, and the clock shows the date in words (*Fri 06 Nov*).
-- **FlickOS's own login screen:** pick your name from a list instead of
-  typing it. It remembers the last user and each user's session, can show
-  the password as you type it, and has Shut Down and Restart, zoom
-  (`Super+=`, `Super+-`, `Super+0`) and, with more than one keyboard layout,
-  a button that shows the layout in use.
-- **Your picture:** choose one in *Settings → Users*. It shows on the login
-  screen, on the lock screen and in the start menu.
-- **FlickOS's own lock screen** for `Super+L`, the menus and the idle lock,
-  in the style's colors. When the screen locks by itself, a key or a mouse
-  move within a few seconds unlocks it again. The volume, microphone and
-  media keys work while the screen is locked.
-- **The level ring:** the volume, microphone and brightness keys show the new
-  level for a moment. It can be turned off in *Settings → Notifications*.
-- **Media controls** in the panel (previous, play or pause, next, and what is
-  playing), and a **sound spectrum** above the panel or as a ring in the
-  middle of the screen, in the style's colors or rainbow ones. Off by
-  default: *Settings → Media Controls*.
-- **The weather** in the panel for a place you choose, from Open-Meteo. Off
-  by default: *Settings → Weather*. While it is on, only the place's
-  position, rounded to about 1 km, is sent, at most once an hour.
-- **Pinned apps** in the dock and panel can be added, moved and removed in
-  *Settings → Desktop Layout & Style*.
-- **Keys for every keyboard layout:** a FlickOS shortcut whose key needs
-  Shift or AltGr on your keyboard moves to the key in the same place (on a
-  Nordic keyboard, `Super+[` becomes `Super+Å`). The shortcut sheet shows
-  the keys as your keyboard labels them, and now fits small screens.
-- **Tiling** now tiles the windows that are already open when you turn it on.
-- **The clock's calendar** marks today. Scroll over the clock for another
-  month, right-click for the year.
-- **The start menu** is translated into **Finnish** (thanks, Pekka Kurki),
-  and the start menu, Quick Settings, the login screen, the Welcome window
-  and the Coming from Windows windows can now be translated. Help is welcome.
-- **Save Report…** in *Settings → About* puts what a bug report needs in one
-  file for you to attach. Nothing is sent. Your home folder, your user and
-  computer names and web addresses are left out; file names stay, so read it
-  first.
-
-### Make it yours
-
-- **More styles in Software:** *Seven*, *Aye3wm*, *Footprint*, *Elemental*,
-  *Experience* and *Eleven*, each with its own look and layout, under
-  **Software → Styles**. *Try* uses one until you log out; *Use* keeps it.
-- **A floating panel for Redmond:** a slimmer, see-through bar that floats
-  above the bottom of the screen and fills it, solid, while a window is
-  maximized, fullscreen or tiled. Off by default, and Redmond's panel is solid
-  without it: *Settings → Desktop Layout & Style*.
-- **Your own styles and layouts:** start from any FlickOS style or layout
-  and change only what you want. Your own panel tweaks (CSS), and your own
-  labwc settings added on top of FlickOS's. FlickOS checks your files first,
-  so a mistake can't leave you without a panel. *Settings → Desktop Layout &
-  Style* has a button for each folder, and `flickos-layout` can try a style,
-  share it as one file and apply your changes as you save them.
-- **The plain session:** if your changes break something, pick **FlickOS
-  (Plain Session)** from the button at the bottom left of the login screen to
-  get FlickOS without them.
+- **One look from edge to edge:** FlickOS's own GTK themes, *FlickOS-Arc-Dark*
+  and *FlickOS-Arc*, give windows the same corners as the panels and menus,
+  and the title bars of other windows now match the apps' own header bars.
+  The previous themes are still in *Settings → Appearance*.
+- **A new start menu style, Prompt:** type to find apps and folders, work out
+  sums (Enter copies the answer), or run desktop tasks such as *Restart
+  Panel* or *Shut Down*; start with `/` to find files and `>` to run a
+  command. Every app is a tile underneath, the
+  first six pins open with `Ctrl+1` to `Ctrl+6`, a plugged-in drive gets a
+  button with an eject, and a newly installed app is marked *New*.
+  Right-click an app to pin it, hide it or open it in Software. Choose it in
+  *Settings → Desktop Layout & Style*. Press `F1` in it for its keys.
+- **The classic start menu** now has *Recent* and *Trash*, with Settings and
+  Software beside the power buttons.
+- **A new layout, Redmond+:** Redmond's panel with one taskbar button per app,
+  its windows listed when you point at it, a right-click menu to minimize,
+  maximize, close, pin or unpin, and a *more* button for apps that don't fit,
+  so the tray is never pushed off the screen. Choose it in *Settings →
+  Desktop Layout & Style*.
+- **The docks** of Cupertino and Footprint have the same right-click menu,
+  with *Pin to Dock* and *Unpin from Dock*.
+- **Window buttons on the left, the right or split**, for every layout:
+  *Settings → Desktop Layout & Style → Window buttons*.
+- **Switching desktops** (`Super+Ctrl+Left`/`Right`, `Super+1`…) shows them
+  as circles on a card in the middle of the screen.
+- **A new style, Tortuga**, in *Software → Styles*: floating islands for a
+  panel and a dock that shows your desktops as a 2×2 grid. Every style in
+  Software now has screenshots.
+- **The login screen's own page**, *Settings → Login Screen*: logging in
+  automatically, its language and keyboard layout, a background picture
+  (yours too), and where the login box goes (left, middle or right).
+- **Startup Applications** can start any command or script, not only apps:
+  *Add Command…*.
+- **Hooks:** run your own programs when the screen locks or unlocks, the
+  computer wakes, a screen comes or goes, your phone connects, a setting
+  changes, or a screenshot or recording is saved. Nothing runs until you add
+  one. Guide: https://flickos.org/guides/hooks/
+- **Packages and Flatpaks:** double-click a `.deb`, `.flatpak` or
+  `.flatpakref` file and Software shows what it is, what it needs and what a
+  Flatpak may reach, then installs it.
+- **Weather** can show wind in km/h, m/s, mph or knots: *Settings →
+  Weather*.
+- **Tiling** no longer rearranges the windows that are already open when you
+  turn it on. *Settings → Tiling → Tile open windows* brings that back.
+- **Settings can now be translated**, like the start menu and the Welcome
+  window. Help is welcome.
 
 ## Fixes
 
-- **Folders opened in Firefox** instead of the file manager from *Show in
-  Folder* and Settings' folder buttons.
-- **A second panel** appeared on a screen turned on while you were logged in.
-- **The clock's calendar** was an empty box after a screen was turned on or
-  off, or after the panel was changed.
-- **The panels** ignored the font chosen in *Settings → Appearance*.
-- **Phone** couldn't pair with a computer running KDE Connect. A computer's
-  clipboard is now ignored, since KDE Connect sends it at every change; text
-  shared from a computer still arrives.
-- **Redmond's tray menus** were unreadable in the Light style.
-- **Screen recordings** of a whole screen of odd size (a virtual machine's
-  window) failed, and a recording of a screen that never changed was
-  announced as saved but empty.
-- **Media controls** kept showing a video that had been closed, and counted
-  Flathub's Spotify as silent.
-- **The dock** could crash at start when switching layouts, and a dock on the
-  left ran past the bottom of the screen.
-- **Restore points** made by apt commands with options are named after the
-  packages again, and *Put Back* lists the change a restore point was made
-  before.
-- **History** names apps better (Thunar no longer shows as *Bulk Rename*).
-- **Sound** could crackle or break up while the computer was busy, because
-  sound never got the real-time priority it needs.
+- **.zip and .7z files** couldn't be opened or made in the file manager and
+  Xarchiver.
+- **Thunar's Set as Wallpaper** did nothing.
+- **Settings → Wallpaper** stopped listing pictures after a removed style's
+  wallpaper.
+- **Use for the Whole System** (*Language & Region*) didn't change the system
+  language.
+- **Check for Updates Now** could miss updates published since the last
+  check.
+- **Undo of a kernel install** in History left the kernel installed.
+- **Background tasks** (the daily app update, the weekly count) stopped after
+  each update until the next restart.
+- **Ejecting a USB drive** from the start menu or Thunar failed for some
+  drives.
+- **Add Phone** could hang when the phone asked to pair straight away.
+- **Displays** opened too small to show the map of the screens.
+- **File dialogs in the Light style** had blank buttons at the bottom, and
+  buttons with text in a header bar (Displays' *Cancel* and *Apply*) touched
+  its edges.
+- **The lines** in the start menu, Quick Settings and the phone popup hardly
+  showed.
+- **Security:** adding a user account in Settings now refuses a full name
+  that could have passed options to the system's account tool.
 
 ## Trying it and installing
 
-1. Download `FlickOS-64bit-v2.3.iso` and check it:
+1. Download `FlickOS-64bit-v2.4.iso` and check it:
    `sha256sum -c SHA256SUMS`
 2. Write it to a USB stick (for example with Balena Etcher or `dd`) and boot it.
 3. The live session logs in automatically as `user` (password `live`).
@@ -202,19 +190,22 @@ upgrade**. Back up your files and install 2.3 fresh.
 | `Super+T` | Tiling on/off |
 
 Right-click the desktop for the menu. On some keyboard layouts a few of these
-keys move (see *Keys for every keyboard layout*); hold `Super` to see yours.
+keys move; hold `Super` to see yours.
 
 ## Known issues
 
+- **Classroom** needs the teacher's and the students' computers on a network
+  that lets computers see each other. Many school and guest Wi-Fi networks
+  don't; a wired network or the school's own staff network usually does.
+- **Redmond+** is new and drawn by a different panel program than the other
+  layouts. If something in it misbehaves, tell us, and switch back to Redmond
+  in *Settings → Desktop Layout & Style*.
 - **Bring Files from Windows** has been tested on test disks, not yet on many
   real Windows computers. After copying, open a few files from your OneDrive
   folders: if one opens empty, download it from OneDrive instead, and please
   tell us.
 - **The login screen** can't change an expired password. Press `Ctrl+Alt+F1`
-  and log in on the text screen, which asks for a new one. If you ever get
-  the old login screen, where you type your user name, the new one couldn't
-  start: please tell us, with the output of
-  `journalctl -b -t flickos-greeter`.
+  and log in on the text screen, which asks for a new one.
 - **Web apps** use a Firefox feature that Mozilla hasn't turned on for Linux
   yet. A site that moves you to another address when you sign in (Teams does)
   may show in Software as not installed after you made its web app.
@@ -222,8 +213,7 @@ keys move (see *Keys for every keyboard layout*); hold `Super` to see yours.
 - **Restore points only on new installs** with btrfs (see the 2.2 notes).
   They cover the system, not your home folder: keep backing up your files.
 - **Opening Settings or the Welcome window a second time** doesn't bring the
-  open window to the front, so it looks as if nothing happened. Find the
-  window in the taskbar.
+  open window to the front. Find the window in the taskbar.
 - **Low-contrast secondary text:** the gray descriptions under settings are
   hard to read, most of all in the Light style.
 - **Tiling** uses the same arrangement on all monitors.
@@ -238,7 +228,7 @@ keys move (see *Keys for every keyboard layout*); hold `Super` to see yours.
 
 ## Downloads
 
-- ISO: https://sourceforge.net/projects/flickos/files/v2.3/
+- ISO: https://sourceforge.net/projects/flickos/files/v2.4/
 - Website: https://flickos.org
 - Source code and issues: https://github.com/Flick-OS/flickos
 - Community: https://www.reddit.com/r/flickos/

@@ -1,5 +1,7 @@
 usr/bin/flickos-control                   usr/bin/
 usr/libexec/flickos/control-helper        usr/libexec/flickos/
+usr/bin/flickos-upgrade                   usr/bin/
+usr/lib/systemd/system/*                  usr/lib/systemd/system/
 usr/share/applications/*                  usr/share/applications/
 usr/share/polkit-1/actions/*              usr/share/polkit-1/actions/
 etc/xdg/flickos/*                         etc/xdg/flickos/

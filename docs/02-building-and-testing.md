@@ -15,7 +15,7 @@ sudo apt install live-build build-essential debhelper dpkg-dev devscripts reprep
                  qemu-system-x86 qemu-utils ovmf xorriso \
                  meson pkgconf gettext libgtk-3-dev sassc libglib2.0-bin \
                  libgtk-layer-shell-dev libjson-c-dev libpulse-dev libwayland-dev wayland-protocols \
-                 libgnutls28-dev libaml-dev libdrm-dev libgbm-dev libpixman-1-dev libturbojpeg0-dev libxxhash-dev zlib1g-dev
+                 libgnutls28-dev libaml-dev libdrm-dev libgbm-dev libpixman-1-dev libturbojpeg0-dev libxxhash-dev zlib1g-dev python3-pil
 ```
 
 | Tool | Used for |
@@ -28,6 +28,7 @@ sudo apt install live-build build-essential debhelper dpkg-dev devscripts reprep
 | `qemu-system-x86`, `qemu-utils`, `ovmf` | Testing in a VM (`qemu-img` for disks, OVMF for UEFI) |
 | `xorriso` | Extracting the kernel from the ISO for the headless boot test |
 | `meson`, `pkgconf`, `gettext`, `lib…-dev`, `wayland-protocols` | Compiling `sfwbar` and `neatvnc`, the FlickOS packages with C code (their `Build-Depends`) |
+| `python3-pil` | Building `flickos-classroom-view` (its `Build-Depends`) |
 
 For KVM acceleration (much faster VMs), add yourself to the `kvm` group once:
 `sudo adduser $USER kvm`, then log out and back in.

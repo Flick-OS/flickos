@@ -2,3 +2,7 @@
 
 %:
 	dh $@
+
+# Skipped with DEB_BUILD_OPTIONS=nocheck.
+override_dh_auto_test:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v

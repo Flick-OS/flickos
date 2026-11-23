@@ -25,6 +25,12 @@ if [ -d /sys/firmware/efi/efivars ]; then
 else
     echo " * install grub... (bios)"
     DEBIAN_FRONTEND=noninteractive chroot $CHROOT apt-get -y install grub-pc os-prober
+    # grub-pc's debconf answer for GRUB's disk, which nothing else gives: without
+    # it every later upgrade of grub-pc stops half configured (flickos-branding's
+    # grub-install-device; docs/design/flickos-upgrade.md, finding J).
+    if [ -x $CHROOT/usr/libexec/flickos/grub-install-device ]; then
+        chroot $CHROOT /usr/libexec/flickos/grub-install-device
+    fi
 fi
 
 # Re-enable os-prober:

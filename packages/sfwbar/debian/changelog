@@ -1,3 +1,11 @@
+sfwbar (1.0~beta17+git20260910+flickos12) trixie; urgency=medium
+
+  * A tray adds each item once: a mirrored bar's copy on a second screen
+    (Redmond+'s panel on a laptop's own screen) showed every tray icon
+    twice.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 22 Nov 2026 12:21:09 +0800
+
 sfwbar (1.0~beta17+git20260910+flickos11) trixie; urgency=medium
 
   * Each FlickOS change to upstream is also kept as a patch in

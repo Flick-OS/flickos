@@ -422,6 +422,8 @@ class StyleChecksTest(unittest.TestCase):
         cls.folder = tempfile.mkdtemp(prefix="community-style-test-")
         cls.share = os.path.join(cls.folder, "share")
         write(os.path.join(cls.share, "themes/Arc-Dark/gtk-3.0/gtk.css"), "")
+        # The Dark style's GTK theme since flickos-theme (seamless phase 2b).
+        write(os.path.join(cls.share, "themes/FlickOS-Arc-Dark/gtk-3.0/gtk.css"), "")
         write(os.path.join(cls.share, "icons/Numix-Circle/index.theme"), "[Icon Theme]\n")
         cls.debs = {"good-style": make_style_deb(cls.folder, "good-style")}
         for name, (change, style, _words) in BAD_STYLES.items():

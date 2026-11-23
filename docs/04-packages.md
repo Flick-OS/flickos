@@ -337,7 +337,9 @@ upstream's source.
   (GTK 3 prelights only buttons), and `overflow = true` for a one-row
   taskbar: the apps that don't fit go to a list behind a more button
   (`button#taskbar_more`, the list `window#taskbar_more`) and come back when
-  the bar gets room.
+  the bar gets room, and (+flickos12) a tray made after its items (a
+  mirrored bar's copy on a second screen) shows each item once (upstream
+  added the existing items twice: two nm-applet icons on the laptop's screen).
 - **Used by `flickos-layouts`** (a Depends): `flickos-layout` generates the
   layout's sfwbar config (`Dock=`) in the layout overlay and runs `sfwbar -f FILE`
   ([The generated panel](09-customizing.md#the-generated-panel)): Cupertino's
@@ -1156,8 +1158,17 @@ measurements:
   stdin), whichever program runs apt.
   - One change gets one restore point, `/.snapshots/NAME` (the time) plus
     `NAME.json` (why, which program, the packages).
+  - debconf's answers live in `/var/cache` (`@cache`), outside the
+    snapshot, so a restore point keeps a copy in
+    `var/lib/flickos-recovery/debconf/` (written while the snapshot is
+    still writable, then it becomes read-only). Putting it back puts them
+    back and keeps the ones in use with "before putting back". Without this
+    a package's maintainer scripts saw the answers of a newer system
+    (flickos-upgrade's finding D: greetd removed the login screen). Older
+    restore points have no copy; debconf then stays as it is.
   - The newest `KEEP` (5) are kept, and none is made with less than 2 GiB or
-    10 % of the disk free.
+    10 % of the disk free. One marked `keep` in its JSON (flickos-upgrade's
+    "Before FlickOS 3.0") is never pruned and doesn't count among the five.
   - On ext4 the hook reads `/proc/self/mountinfo` and leaves before
     importing anything else: 34 ms per apt run on a 2014 laptop.
   - It never stops apt, except right after putting back (exit status 100,
@@ -1172,6 +1183,9 @@ measurements:
     back nor a start from a restore point loses a change).
   - The changing ones need root. Run by a user they `exec` pkexec and the
     helper (polkit `org.flickos.recovery.policy`, one action per verb).
+    `restore`, `keep` and `try-again` put back passwords and accounts too,
+    so they ask for the password every time (`auth_admin`, 1.9, HIG
+    SET-10); the others keep it 5 minutes.
   - Only snapshots with a `NAME.json` are restore points: a user's own are
     never touched.
 - **Putting back** (ADR-003):
@@ -1229,7 +1243,8 @@ measurements:
 - **The log:** `/var/log/flickos-recovery.log` (in `@log`, fsynced,
   `etc/logrotate.d/flickos-recovery`).
 - **Settings window:** flickos-control's *Restore Points* page (System
-  group, only on the btrfs layout: the list, *Put Back…*, the switches
+  group, only on the btrfs layout: the list, *Put Back…* and *Delete…* on
+  each restore point (a `keep` one says it stays until deleted), the switches
   `restore-points` and `restore-points.auto`, and a banner with *Keep…* and
   *Try Again* while running from a restore point), and restore points in
   *History*.
@@ -1484,7 +1499,8 @@ it follows the Dark or Light style. Design and decisions:
   Apps* is in its own menu and whose `paid` changes History shows and undoes
   with `flickos-software paid set`, 1.63; a tile is hidden when its app
   isn't installed), *Restore Points* (flickos-recovery's restore points with
-  *Put Back…*, which shows `flickos-recovery plan` before the password; the
+  *Put Back…*, which shows `flickos-recovery plan` before the password, and
+  *Delete…*, one at a time, besides *Delete All…*; the
   switches are the system settings `restore-points` and `restore-points.auto`;
   a banner with *Keep…* and *Try Again* while running from a restore point;
   only on the btrfs layout, `recovery_available()` reads
@@ -1634,7 +1650,13 @@ it follows the Dark or Light style. Design and decisions:
   /usr/libexec/flickos/control-helper keyboard MODEL LAYOUT VARIANT OPTIONS`:
   polkit action `org.flickos.control.keyboard`
   (`usr/share/polkit-1/actions/org.flickos.control.policy`, one action per verb
-  via `exec.argv1`, admin password). The helper checks every value against
+  via `exec.argv1`, admin password). The password is kept 5 minutes
+  (`auth_admin_keep`) except for the verbs that change who can log in or be an
+  administrator, what can reach the computer, what runs as root or who can
+  read the network: `user-add`, `user-admin`, `user-password`,
+  `autologin-on`, `firewall-off`, `updates`, `packages-undo`, `upstream`,
+  `packet-capture` and `upgrade` ask every time (`auth_admin`, 1.87, security
+  audit F-3; a test holds the list). The helper checks every value against
   xkb-data's `evdev.lst`, rewrites only the `XKB*` lines, runs `udevadm trigger`
   and `setupcon --save-only -k`. The same helper has `autologin-on` and
   `autologin-off` (actions `org.flickos.control.autologin-on`/`-off`): for
@@ -1665,7 +1687,9 @@ it follows the Dark or Light style. Design and decisions:
   undo it: the old picture isn't kept.
   `user-password NAME` reads the password on standard input. Only regular
   accounts (`UID_MIN`..`UID_MAX` of `/etc/login.defs`), names that match
-  adduser's `NAME_REGEX`, and never away from the last administrator.
+  adduser's `NAME_REGEX`, and never away from the last administrator. The
+  account verbs hold a lock (`flock` on `/run/flickos-control-accounts.lock`,
+  1.87), so two removals at once can't both pass that check (audit F-6).
 - **The firewall** goes through the same helper: `firewall-on` runs `ufw
   --force enable` (no question about ssh connections), `firewall-off` runs
   `ufw disable` (actions `org.flickos.control.firewall-on`/`-off`). The page
@@ -1798,7 +1822,9 @@ it follows the Dark or Light style. Design and decisions:
     first, and `pkexec control-helper packages-undo ID` (action
     `org.flickos.control.packages-undo`) checks it again with `apt-get -s` and
     refuses an undo that would remove anything else, anything flickos-desktop
-    depends on, or install a live-session package. Updates, autoremoves and
+    depends on, or install a live-session package. Only Debian package names
+    from the log count, after `--` in both apt-get calls, and an undo's
+    install runs with `--no-remove` (1.87, audit F-4). Updates, autoremoves and
     transactions that both installed and removed are shown without Undo.
   - **Put back as it was** (*Put Back as It Was…*, `flickos-control history
     restore WHEN [--dry-run]`): every setting changed since WHEN that needs
@@ -1849,6 +1875,73 @@ it follows the Dark or Light style. Design and decisions:
   has `after-resume WOKE_COMMAND`, which runs the user's `woke` hooks. It is
   a shell test of `~/.config/flickos/hooks/woke.d` and `setsid -f`, because
   `swayidle -w` waits for every command, idle locking included.
+- **The upgrade to 3.0** (`usr/bin/flickos-upgrade`, design
+  [design/flickos-upgrade.md](design/flickos-upgrade.md); on the `upgrade`
+  branch until docs/11 phase 5): `check` (live session, battery, `~test`
+  packages installed, flickos-desktop present) and `plan` (the sources
+  switched in a scratch apt folder under `~/.cache/flickos-upgrade`, the new
+  release's lists fetched there, `apt-get -s full-upgrade` against the real
+  dpkg status; refuses a removal of flickos-desktop, its Depends or a
+  `flickos-`/`flick-` package; download, disk change, restore point space;
+  `RECOMMENDS_MAP` replacements; other makers' sources listed, not moved).
+  Read-only, no root. `--json` is for the Settings page, whose text it
+  translates from the `code` of each problem; the program's own output is
+  English. `--force` plans before FlickOS's new suites are published, with
+  FlickOS's sources left on the old release. `TARGET` names the move.
+  `status` reads the stage's `state.json`. Phase 2: `control-helper upgrade
+  prepare [--force]|discard` (polkit action `org.flickos.control.upgrade`,
+  `auth_admin` every time) loads `/usr/bin/flickos-upgrade` and stages the
+  upgrade in `/var/lib/flickos/upgrade` (lists, packages, `state.json`,
+  `backup/`; log `/var/log/flickos/upgrade.log`) without changing anything
+  else; its last line is `flickos-upgrade-result: ` and the plan as JSON.
+  `switch_changes`/`apply_switch`/`undo_switch` hold the sources switch.
+  Phase 3, the install: `control-helper upgrade install
+  [--without-restore-point]|cancel` links `/system-update` to the stage
+  (systemd's offline updates; without a restore point only with the flag,
+  ADR-005); the caller restarts. `flickos-upgrade.service` (in
+  `system-update.target.wants`, debian/links; **dh_installsystemd is
+  overridden to nothing**: the new release's flickos-control is configured
+  while the service runs, and its restart would stop the install) runs
+  `flickos-upgrade offline`: removes the link first (another program's link
+  is left alone), writes `installing`, takes "Before FlickOS 3.0" through
+  flickos-recovery's own code (marked `keep`, `good`, `upgrade`), switches
+  the sources, moves the staged lists in, runs `upgrade --without-new-pkgs`,
+  `full-upgrade` (again after `dpkg --configure -a` if it fails) and the
+  replacements from the stage with `--no-download`,
+  `--force-confdef --force-confold` (ucf follows them through `DPKG_FORCE`)
+  and flickos-recovery's apt hook left out (`apt_install_conf`); the
+  progress comes on a pipe of its own (`APT::Status-Fd`, **never 1**: apt
+  closes that descriptor for dpkg, whose maintainer scripts then fail) and
+  goes to the splash as a message (`plymouth display-message`). The old half
+  of a replacement goes when no source has it any more (`remove_obsolete`),
+  then `apt-get autoremove` (Q8; never when it would remove FlickOS; listed
+  as `autoremoved`). Then `dpkg --audit` and flickos-desktop: on
+  success the stage is emptied but `state.json` (`installed`, the kept
+  `.dpkg-dist`/`.ucf-dist` files); on a failure the restore point is put back
+  and the failed system's restore point is marked `upgrade_failed`; it always
+  restarts. `status` tells `interrupted` (an `installing` from another start:
+  install again goes on from there) from `returned` (put back from the
+  upgrade's restore point). At login flickos-settings' autostart runs
+  `flickos-upgrade notify` where `state.json` exists: one note after the
+  install or a failed one, one at every login while interrupted
+  (`~/.local/state/flickos/upgrade-noted`).
+  Phase 4, the page: `flickos-upgrade offer [--force]` says whether to offer
+  it (ADR-003: `OPEN`, False on 2.x until docs/11 phase 6, then the new
+  FlickOS suites fetched and verified by apt; no network while closed).
+  Settings > Updates has one row for it from `upgrade_view()` and
+  `upgrade_state()` (status + offer, read in a thread when the page shows):
+  Not Now hides the offer of that release for 30 days
+  (`$XDG_STATE_HOME/flickos/upgrade-not-now`, Q7); Upgrade… opens the plan dialog (`flickos-upgrade plan --json`, refusals
+  worded by their `code` in `upgrade_problem_text`; the `space` refusal
+  carries the restore points, `put_back` marking the system left after going
+  back, and the dialog then has a Restore Points button), whose Download runs
+  `pkexec control-helper upgrade prepare` and reads its
+  `flickos-upgrade-progress:` lines into a progress bar; Restart and
+  Install…, Restart Now, Don't Install, Finish Upgrade…, Restore Points and
+  Discard… act on the stage. `FLICKOS_UPGRADE_FORCE=1` in the window's
+  environment passes `--force` (testing). History: the helper's
+  `packages-list` gives the install's apt runs (`-o FlickOS::Upgrade=VERSION`)
+  kind `upgrade`, not undoable, and the window merges them into one row.
 
 ### `flickos-software`
 
@@ -2792,7 +2885,8 @@ flickos-classroom-teacher. Opt-in: not in the ISO or `flickos-desktop`;
   hasn't written it (the panel may start first), plain "on", never empty.
 - **A lab computer** (ADR-011, `lab status|on|off|pair CODE|forget|run`):
   the administrator's system setting `classroom.lab` (flickos-control,
-  `pkexec flickos-classroom-view lab …` through `org.flickos.classroom.lab`).
+  `pkexec flickos-classroom-view lab …` through `org.flickos.classroom.lab`,
+  which asks for the password every time: `auth_admin`, 1.1, HIG SET-10).
   `lab on` makes the computer's identity in `/etc/flickos/classroom/` (key
   root-only), writes the `lab` mark and enables
   `flickos-classroom-lab.service` (`lab run`, root; the package enables
@@ -2956,7 +3050,13 @@ screen, `greeter-window`, in the cage kiosk compositor, in the Arc-Dark colors
 gtkgreet as a login screen that came up, so every start ended at this one
 looked failed and GRUB started a restore point. greetd's postinst enables it
 as `display-manager.service` but doesn't start it, so an upgraded system
-switches to the login screen at the next boot. **A Depends of
+switches to the login screen at the next boot. Debian's greetd keeps that
+link through its own upgrades only while `/etc/X11/default-display-manager`
+names it, which trixie's greetd never writes, so this package's postinst
+writes `/usr/sbin/greetd` there while greetd is the login screen and the
+file is missing (also in the live image's chroot, so installs have it):
+Debian 14's greetd otherwise removed the link after a second upgrade try
+(flickos-upgrade's finding D). **A Depends of
 `flickos-desktop`** and in the sanity hook's `REQUIRED`. See
 [09 – Login screen](09-customizing.md#login-screen).
 
@@ -2987,9 +3087,20 @@ files belong to Debian's `base-files`, so the package **diverts** Debian's
 versions (`dpkg-divert`) and generates FlickOS versions from them in
 `debian/flickos-branding.postinst`. File triggers regenerate them whenever
 `base-files` is upgraded. `usr/lib/flickos-release` holds the FlickOS name and
-version. This is the only FlickOS package with hand-written maintainer scripts
-(`postinst`, `postrm`, `triggers`); flickos-greeter's postinst is only
-debhelper's generated sysusers snippet. See [09 – OS name and login banner](09-customizing.md#os-name-and-login-banner).
+version. It has hand-written maintainer scripts (`postinst`, `postrm`,
+`triggers`), as do flickos-settings, flickos-recovery and flickos-greeter. See [09 – OS name and login banner](09-customizing.md#os-name-and-login-banner).
+
+`usr/libexec/flickos/grub-install-device` (since 1.16.1): on a BIOS computer
+it gives Debian's grub-pc its debconf answer `grub-pc/install_devices` (the
+disk under `/boot` or `/`, through LUKS, by its `/dev/disk/by-id` name when
+there is one) when it has none. Calamares installs GRUB itself and never
+answered it, so every unattended upgrade of grub-pc stopped half configured
+("You must correct your GRUB install devices"), and the upgrade to 3.0 with
+it (flickos-upgrade's finding J). The postinst runs it where
+`/boot/grub/grub.cfg` exists, flickos-installer's `bootloader-config` in the
+new system on BIOS, and flickos-upgrade before the install; it does nothing
+on UEFI, without grub-pc, or once answered. Tests: `tests/` with stand-in
+commands and temporary `/sys` and `/dev/disk/by-id`.
 
 It also gives fastfetch the FlickOS logo: with `ID=debian` fastfetch would
 show Debian's. The conffile `/etc/xdg/fastfetch/config.jsonc` (read after a

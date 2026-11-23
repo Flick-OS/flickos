@@ -43,6 +43,7 @@ ISOs ([06](06-ci-and-releases.md)).
 | `repo/db/` | **no** | reprepro's database of what the repo contains |
 | `repo/public/` | **no** | The finished repository to upload |
 | `repo/.gh-pages/` | **no** | `repo/upload.sh`'s clone of the `gh-pages` branch |
+| `repo/data-dir.sh` | yes | Finds the folder holding `db/`, `public/` and `.gh-pages/`: always the main worktree's `repo/`, so a second worktree (the old release's, [11](11-new-debian-release.md#after-the-release-keeping-the-old-release-alive)) publishes into the same repository |
 | `packages/flickos-archive-keyring/keyrings/flickos-archive-keyring.asc` | yes | Public key |
 | `packages/flickos-archive-keyring/etc/apt/sources.list.d/flickos.sources` | yes | The apt source installed systems use (holds the **repo URL**) |
 
@@ -148,7 +149,10 @@ If the version didn't change but the file **did**, reprepro stops with
 1. clones the `gh-pages` branch to `repo/.gh-pages/` (first run only), then
    resets it to the remote branch,
 2. copies `repo/public/` over it with `rsync --delete`, so the branch is an
-   exact copy of `repo/public/` (plus `.nojekyll`),
+   exact copy of `repo/public/` (plus `.nojekyll`). It refuses first when the
+   branch has a suite (`dists/NAME`) that `repo/public/` lacks: suites are
+   never deleted, so that means the wrong `repo/public/`, and uploading it
+   would cut every system of that release off from its updates,
 3. commits and pushes. If nothing changed it stops without a commit.
 
 GitHub Pages usually serves the new files within a minute or two. Check the

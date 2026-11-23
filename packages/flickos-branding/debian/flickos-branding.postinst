@@ -72,6 +72,11 @@ case "$1" in
             plymouth-set-default-theme flickos
         fi
         update_boot_menu
+        # BIOS: grub-pc must know GRUB's disk, or its next upgrade stops
+        # half configured (finding J). Only where GRUB is set up.
+        if [ -e /boot/grub/grub.cfg ]; then
+            /usr/libexec/flickos/grub-install-device || true
+        fi
         ;;
     triggered)
         generate_files

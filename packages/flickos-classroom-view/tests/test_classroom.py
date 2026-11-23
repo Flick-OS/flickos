@@ -1200,6 +1200,17 @@ class PackagingTest(unittest.TestCase):
         self.assertNotIn("applications", read("flickos-classroom-view.install"))
         self.assertIn("flickos-classroom-teacher.desktop", read("flickos-classroom-teacher.install"))
 
+    def test_the_lab_action_asks_every_time(self):
+        """lab decides which teacher sees every account's screen: no kept
+        password lets another program repeat it (HIG SET-10)."""
+        import xml.etree.ElementTree as ET
+        top = ET.parse(os.path.join(PACKAGE, "usr/share/polkit-1/actions/org.flickos.classroom.policy")).getroot()
+        actions = list(top.iter("action"))
+        self.assertEqual([a.get("id") for a in actions], ["org.flickos.classroom.lab"])
+        self.assertEqual([actions[0].find(f"defaults/{key}").text for key in ("allow_any", "allow_inactive",
+                                                                              "allow_active")],
+                         ["auth_admin"] * 3)
+
     def test_lab_service_comes_back_after_an_upgrade(self):
         """dh_installsystemd --no-start stops the service in the preinst of
         every upgrade and starts it nowhere: a lab computer went unreachable

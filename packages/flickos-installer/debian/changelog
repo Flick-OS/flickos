@@ -1,3 +1,24 @@
+flickos-installer (1.36.1) trixie; urgency=medium
+
+  * Release of 1.36.1~test1: new BIOS installs give grub-pc its install
+    disk.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 12:01:14 +0800
+
+flickos-installer (1.36.1~test1) trixie; urgency=medium
+
+  * On BIOS, bootloader-config tells grub-pc its install disk (flickos-
+    branding's grub-install-device), so later grub-pc upgrades don't
+    stop half configured.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 11:35:22 +0800
+
+flickos-installer (1.36) trixie; urgency=medium
+
+  * FlickOS 2.4.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 22 Nov 2026 11:58:04 +0800
+
 flickos-installer (1.36~test1) trixie; urgency=medium
 
   * Live start menu: Hidden= repeats the installed system's (Foot Client

@@ -29,6 +29,10 @@ set -e
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REPO="${REPO:-$ROOT/repo}"
+# REPO_DATA: db/ and public/, shared by every checkout (repo/data-dir.sh);
+# with REPO set from outside, REPO itself.
+[ "$REPO" = "$ROOT/repo" ] || REPO_DATA="${REPO_DATA:-$REPO}"
+. "$ROOT/repo/data-dir.sh"
 APPS="$ROOT/repo/community/apps"
 WITHDRAWN="$ROOT/repo/community/withdrawn"
 # FLICKOS_DEBIAN: the suite names.
@@ -57,7 +61,7 @@ field() {
 }
 
 published() {
-    reprepro -b "$REPO" list "$DIST" "$1" | sed -n 's/^[^:]*: [^ ]* //p' | head -n 1
+    reprepro -b "$REPO_DATA" --confdir "$REPO/conf" list "$DIST" "$1" | sed -n 's/^[^:]*: [^ ]* //p' | head -n 1
 }
 
 for file in "$WITHDRAWN"/*; do
@@ -110,7 +114,7 @@ for file in "$APPS"/*; do
     fi
     echo "==> $name $version: checking again"
     python3 "$ROOT/repo/community/check.py" "$deb"
-    reprepro -b "$REPO" includedeb "$DIST" "$deb"
+    reprepro -b "$REPO_DATA" --confdir "$REPO/conf" includedeb "$DIST" "$deb"
 done
 
 # Withdrawn apps: the empty package replaces them everywhere.
@@ -125,22 +129,22 @@ for file in "$WITHDRAWN"/*; do
     echo "==> $name $version: withdrawing it ($(head -n 1 "$file"))"
     deb="$(python3 "$ROOT/repo/community/build.py" --withdrawn "$name" --version "$version" \
         --reason "$(head -n 1 "$file")" --out "$WORK/withdrawn")"
-    reprepro -b "$REPO" includedeb "$DIST" "$deb"
+    reprepro -b "$REPO_DATA" --confdir "$REPO/conf" includedeb "$DIST" "$deb"
 done
 
 # Apps taken off the list (not withdrawn) leave the distribution (and the
 # shelf: featured.json).
-reprepro -b "$REPO" list "$DIST" | sed -n 's/^[^:]*: \([^ ]*\) .*/\1/p' | sort -u | while read -r name; do
+reprepro -b "$REPO_DATA" --confdir "$REPO/conf" list "$DIST" | sed -n 's/^[^:]*: \([^ ]*\) .*/\1/p' | sort -u | while read -r name; do
     if [ ! -f "$APPS/$name" ] && [ ! -f "$WITHDRAWN/$name" ]; then
         echo "==> $name is no longer listed: removing it"
-        reprepro -b "$REPO" remove "$DIST" "$name"
+        reprepro -b "$REPO_DATA" --confdir "$REPO/conf" remove "$DIST" "$name"
     fi
 done
 
 # Also makes the distribution's (empty) indices the first time, which apt on
 # every computer with flickos-archive-keyring 1.6 needs.
-reprepro -b "$REPO" export "$DIST"
+reprepro -b "$REPO_DATA" --confdir "$REPO/conf" export "$DIST"
 
 echo "==> $DIST:"
-reprepro -b "$REPO" list "$DIST"
+reprepro -b "$REPO_DATA" --confdir "$REPO/conf" list "$DIST"
 echo "==> Next: repo/upload.sh"

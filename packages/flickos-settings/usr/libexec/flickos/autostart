@@ -99,6 +99,11 @@ fi
 if [ -e /run/flickos/restore-point-boot ] && command -v flickos-recovery >/dev/null; then
     flickos-recovery notify &
 fi
+# After the upgrade to a new FlickOS release (flickos-upgrade, in flickos-control):
+# say once how it went. Nothing runs on a computer that was never upgraded.
+if [ -e /var/lib/flickos/upgrade/state.json ] && command -v flickos-upgrade >/dev/null; then
+    flickos-upgrade notify &
+fi
 
 # Tray applets. --indicator: waybar's tray only shows StatusNotifierItem icons.
 nm-applet --indicator &

@@ -3,7 +3,9 @@
   "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!-- flickos-classroom-view: a school's lab computer (ADR-011). The verbs
      `lab on|off|pair|forget` check that they run as root; this action lets
-     an administrator run them through pkexec from Settings > Classroom. -->
+     an administrator run them through pkexec from Settings > Classroom.
+     They decide which teacher sees every account's screen, so the password
+     is asked every time (auth_admin, HIG SET-10). -->
 <policyconfig>
   <vendor>FlickOS</vendor>
   <vendor_url>https://github.com/Flick-OS/flickos</vendor_url>
@@ -15,7 +17,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/flickos-classroom-view</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">lab</annotate>

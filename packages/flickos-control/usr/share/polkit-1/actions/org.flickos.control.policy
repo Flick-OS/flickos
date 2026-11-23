@@ -2,7 +2,11 @@
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
   "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!-- System settings changed from the Settings window (flickos-control) through
-     pkexec /usr/libexec/flickos/control-helper VERB ...: one action per verb. -->
+     pkexec /usr/libexec/flickos/control-helper VERB ...: one action per verb.
+     auth_admin (the password every time) for a verb that changes who can log
+     in or be an administrator, what can reach the computer, what runs as
+     root or who can read the network (security audit F-3, HIG SET-10);
+     auth_admin_keep (kept 5 minutes) for the others. -->
 <policyconfig>
   <vendor>FlickOS</vendor>
   <vendor_url>https://github.com/Flick-OS/flickos</vendor_url>
@@ -27,7 +31,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">autologin-on</annotate>
@@ -79,7 +83,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">user-add</annotate>
@@ -105,7 +109,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">user-admin</annotate>
@@ -118,7 +122,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">user-password</annotate>
@@ -144,7 +148,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">firewall-off</annotate>
@@ -222,10 +226,23 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">updates</annotate>
+  </action>
+
+  <action id="org.flickos.control.upgrade">
+    <description>Upgrade to a new FlickOS release</description>
+    <message>Authentication is required to download or install the new FlickOS release.</message>
+    <icon_name>system-software-update</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">upgrade</annotate>
   </action>
 
   <action id="org.flickos.control.firewall-phones">
@@ -287,7 +304,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">packet-capture</annotate>
@@ -313,7 +330,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">upstream</annotate>
@@ -339,7 +356,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/control-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">packages-undo</annotate>

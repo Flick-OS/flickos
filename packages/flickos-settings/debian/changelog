@@ -1,3 +1,17 @@
+flickos-settings (1.62) trixie; urgency=medium
+
+  * Release of 1.62~test1: autostart runs flickos-upgrade notify after
+    an upgrade to a new release.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 12:01:13 +0800
+
+flickos-settings (1.62~test1) trixie; urgency=medium
+
+  * Autostart: flickos-upgrade notify after the upgrade to a new
+    release, only where one was staged.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 22 Nov 2026 20:40:44 +0800
+
 flickos-settings (1.61) trixie; urgency=medium
 
   * Release of 1.61~test1: mise's shims on PATH while mise is installed.

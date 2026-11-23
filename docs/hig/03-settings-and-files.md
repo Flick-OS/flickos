@@ -144,9 +144,15 @@ runs through polkit, never through `sudo` or a root GUI.
    - one polkit action per verb (`org.flickos.control.VERB`, matched with
      `org.freedesktop.policykit.exec.argv1`), with a `<message>` that says
      what will change in plain words,
-   - `auth_admin_keep` for the active session, `auth_admin` otherwise,
+   - `auth_admin_keep` for the active session, `auth_admin` otherwise;
+     `auth_admin` for the active session too when the verb changes who can
+     log in or be an administrator, what can reach the computer, what runs
+     as root or who can read the network (a kept password lets any program
+     in the session repeat the verb for 5 minutes without asking),
    - every argument checked against a fixed list or pattern before anything
-     changes, and the helper exits with an error on anything else,
+     changes (the whole value: `fullmatch`; numbers as ASCII digits, not
+     `isdigit()`), and the helper exits with an error on anything else;
+     values from a file go to a tool after `--`,
    - acting on the calling user only (`PKEXEC_UID`) unless the verb is about
      other users, and then never on the calling user's own account, a
      logged-in account or the last administrator.

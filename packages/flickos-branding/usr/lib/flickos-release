@@ -11,5 +11,5 @@
 # Bump FLICKOS_VERSION for each FlickOS release.
 # History: 1.0-1.1 were based on Ubuntu 20.04/LXLE; 2.0 is based on Debian 13.
 FLICKOS_NAME="FlickOS"
-FLICKOS_VERSION="2.3"
+FLICKOS_VERSION="2.4"
 FLICKOS_DEBIAN="trixie"

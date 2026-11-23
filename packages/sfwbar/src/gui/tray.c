@@ -91,8 +91,9 @@ static void tray_init ( Tray *self )
   flow_grid_set_auto_update(GTK_WIDGET(self));
   gtk_grid_set_column_homogeneous(
       GTK_GRID(base_widget_get_child(GTK_WIDGET(self))), FALSE);
-
-  g_list_foreach(sni_item_get_list(), (GFunc)tray_item_new, self);
+  /* FlickOS: sni_listener_register() has added the items there already;
+   * upstream added them again here, so a tray made after its items (a
+   * mirror's on another screen) showed each one twice. */
 }
 
 GtkWidget *tray_new ( void )

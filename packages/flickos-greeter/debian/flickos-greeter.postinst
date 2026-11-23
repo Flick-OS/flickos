@@ -1,0 +1,26 @@
+#!/bin/sh
+set -e
+
+# The login screen survives greetd's upgrades. Debian's greetd keeps
+# display-manager.service only while /etc/X11/default-display-manager names
+# it, and writes that file only at its first configuration through debconf,
+# which trixie's greetd (0.10.3-4) doesn't use. So FlickOS installs had no
+# such file, and forky's greetd (0.10.3-7) removed the link when its debconf
+# answer was already there: after putting back a restore point the computer
+# started on a text login (docs/design/flickos-upgrade.md, finding D).
+# Written only while greetd is the login screen and the file is missing: a
+# login screen the user chose stays theirs. Also run in the live image's
+# chroot, so the installed systems have it from the start.
+if [ "$1" = configure ]; then
+    file="$DPKG_ROOT/etc/X11/default-display-manager"
+    link=$(readlink "$DPKG_ROOT/etc/systemd/system/display-manager.service" || true)
+    if [ ! -e "$file" ] && [ "${link##*/}" = greetd.service ]; then
+        mkdir -p "$DPKG_ROOT/etc/X11"
+        echo /usr/sbin/greetd > "$file.tmp"
+        mv "$file.tmp" "$file"
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

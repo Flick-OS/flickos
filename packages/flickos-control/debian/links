@@ -1,0 +1,1 @@
+usr/lib/systemd/system/flickos-upgrade.service usr/lib/systemd/system/system-update.target.wants/flickos-upgrade.service

@@ -116,7 +116,8 @@ What the first audit looked at and found in line:
 - **INT-5:** the shortcut sheet reads the keybinds from the rc.xml labwc uses,
   and the boot test checks that it lists FlickOS's keys with descriptions.
 - **SET-10:** `control-helper` has one polkit action per verb, checks every
-  value, and takes passwords on stdin.
+  value, takes passwords on stdin, and asks every time for the verbs that
+  change who can get in or what runs as root (1.87).
 - **PKG-4, PKG-8:** every program package comments its dependencies and runs
   its unit tests at build time.
 - **CODE-7:** no `shell=True`, no bare `except:` anywhere.

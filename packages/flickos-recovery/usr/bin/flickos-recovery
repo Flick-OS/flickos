@@ -26,8 +26,16 @@ Software and updates apps through PackageKit, automatic updates), and one
 change gets one restore point: automatic updates run dpkg once per package,
 so none is made while the newest restore point belongs to the same run of the
 same program (ADR-002, phase 0 item 2). Only KEEP are kept, the oldest go
-first, and none is made while less than MIN_FREE or MIN_FREE_SHARE of the
+first, except one marked "keep" in NAME.json (flickos-upgrade's "Before
+FlickOS 3.0": the way back stays until the user deletes it), and none is made while less than MIN_FREE or MIN_FREE_SHARE of the
 disk is free.
+
+debconf's answers live in /var/cache (FlickOS's @cache, outside @), so a
+restore point keeps a copy of them (KEPT_DEBCONF, in the snapshot), and
+putting it back puts them back too: a package's maintainer scripts then see
+the answers of the system they run on (flickos-upgrade's finding D: greetd
+removed the login screen after a second try). Older restore points have no
+copy; putting one back leaves debconf as it is.
 
 Nothing happens unless / is FlickOS's btrfs layout (ADR-001: / is the @
 subvolume, /.snapshots the @snapshots one), so on ext4 and in the live
@@ -118,6 +126,9 @@ LOG = "/var/log/flickos-recovery.log"   # in @log: it survives putting back a re
 LOCK = SNAPSHOTS + "/.flickos-recovery.lock"
 EXTENDED_STATES = "/var/lib/apt/extended_states"     # apt's "automatically installed" marks
 HISTORY = "/var/log/apt/history.log"    # what apt did, for `plan`
+DEBCONF = "/var/cache/debconf"          # debconf's answers: in @cache on FlickOS's layout
+DEBCONF_FILES = ("config.dat", "passwords.dat", "templates.dat")
+KEPT_DEBCONF = "var/lib/flickos-recovery/debconf"   # their copy in a restore point, under its /
 HELPER = "/usr/libexec/flickos/recovery-helper"
 WORK = "/run/flickos-recovery"          # the top level of the filesystem is mounted here to swap
 REFUSE_APT = 100                        # the hook's exit status that stops apt (80flickos-recovery)
@@ -524,6 +535,47 @@ def delete(name):
     log(f"deleted {name} in {time.monotonic() - started:.2f} s")
 
 
+def debconf_outside():
+    """debconf's folder is on a mount of its own (FlickOS's @cache), which a
+    snapshot of / leaves out."""
+    return any(findmnt(path) for path in (DEBCONF, os.path.dirname(DEBCONF)))
+
+
+def copy_debconf(source, target):
+    """debconf's files from SOURCE into TARGET, each one whole before it
+    replaces the old one (passwords.dat keeps its 0600). Returns how many."""
+    os.makedirs(target, mode=0o700, exist_ok=True)
+    copied = 0
+    for name in DEBCONF_FILES:
+        if not os.path.exists(os.path.join(source, name)):
+            continue
+        tmp = os.path.join(target, f".{name}.tmp")
+        shutil.copy2(os.path.join(source, name), tmp)
+        os.replace(tmp, os.path.join(target, name))
+        copied += 1
+    return copied
+
+
+def put_back_debconf(system, before):
+    """After the swap: debconf's answers as restore point SYSTEM kept them,
+    the ones in use now kept with BEFORE (so undoing it puts them back too).
+    A restore point without a copy leaves debconf as it is. A failure is
+    only logged: the system is put back already."""
+    kept = os.path.join(system, KEPT_DEBCONF)
+    if not os.path.isdir(kept) or not debconf_outside():
+        return
+    try:
+        copy_debconf(DEBCONF, os.path.join(before, KEPT_DEBCONF))
+        copy_debconf(kept, DEBCONF)
+        shutil.rmtree(kept)             # the system itself never holds the copy
+        with contextlib.suppress(OSError):
+            os.rmdir(os.path.dirname(kept))
+        commit(DEBCONF)
+        log("debconf's answers put back with the system")
+    except (OSError, subprocess.CalledProcessError) as error:
+        log(f"debconf's answers not put back, they stay as they were: {error!r}")
+
+
 def settle_if_due():
     """Finish a restore from before the last start, if the service didn't:
     the restored system may hold an older flickos-recovery without it."""
@@ -554,17 +606,28 @@ def create(reason, details=None, session=None):
                           "needed: no restore point")
         name = new_name()
         started = time.monotonic()
-        btrfs("subvolume", "snapshot", "-r", "/", os.path.join(SNAPSHOTS, name))
+        target = os.path.join(SNAPSHOTS, name)
+        debconf = debconf_outside()
+        if debconf:                     # writable until debconf's answers are in
+            btrfs("subvolume", "snapshot", "/", target)
+            try:
+                copy_debconf(DEBCONF, os.path.join(target, KEPT_DEBCONF))
+            except OSError as error:
+                debconf = False
+                log(f"debconf's answers not kept in {name}: {error!r}")
+            btrfs("property", "set", "-ts", target, "ro", "true")
+        else:
+            btrfs("subvolume", "snapshot", "-r", "/", target)
         took = time.monotonic() - started
         info = {"v": 1, "name": name, "reason": reason, "created": time.time(),
                 "seconds": round(took, 3), "session": session, "boot": boot_id(),
                 # Taken in a start that had already worked: a candidate for recovery.
-                "good": load_state().get("good_boot") == boot_id()}
+                "good": load_state().get("good_boot") == boot_id(), "debconf": debconf}
         info.update(details or {})
         write_json(os.path.join(SNAPSHOTS, name + ".json"), info)
         commit(SNAPSHOTS)
         log(f"created {name} in {time.monotonic() - started:.2f} s: {reason}")
-        for old, _ in restore_points()[:-KEEP]:
+        for old, _ in [point for point in restore_points() if not point[1].get("keep")][:-KEEP]:
             delete(old)
     update_menu()
     if info["good"]:
@@ -736,6 +799,7 @@ def restore(name):
                 commit(top)
             log(f"putting back {name} failed, nothing changed: {error!r}")
             raise Refused(f"putting back {name} failed, nothing was changed: {error}") from error
+        put_back_debconf(system, kept)
     return before
 
 
@@ -1039,7 +1103,8 @@ def state():
             "keep": KEEP, "free_bytes": free, "min_free_bytes": min_free(size) if size else None,
             "points": [{"name": name, "description": describe(info, auto), "created": info.get("created"),
                         "reason": info.get("reason"), "changes": info.get("changes"),
-                        "packages": info.get("packages"), "restored": info.get("restored")}
+                        "packages": info.get("packages"), "restored": info.get("restored"),
+                        "keep": bool(info.get("keep"))}
                        for name, info in points]}
 
 

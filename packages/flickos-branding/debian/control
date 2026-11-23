@@ -2,14 +2,13 @@ Source: flickos-branding
 Section: misc
 Priority: optional
 Maintainer: Jon <dvbondoy@gmail.com>
-Build-Depends: debhelper-compat (= 13)
+Build-Depends: debhelper-compat (= 13), python3
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 
 Package: flickos-branding
 Architecture: all
-Depends: base-files,
-         plymouth,
+Depends: plymouth,
          plymouth-themes,
          plymouth-label,
          fonts-dejavu-core,

@@ -1,0 +1,1537 @@
+#!/usr/bin/python3
+"""flickos-upgrade: moving a FlickOS 2.x computer to 3.0 (Debian 13 to 14).
+
+docs/design/flickos-upgrade.md. These need no root and change nothing:
+
+    flickos-upgrade offer [--json] [--force] whether Settings offers it (ADR-003)
+    flickos-upgrade check [--json]          can this computer take the upgrade
+    flickos-upgrade plan [--json] [--force] what apt would do, and whether
+                                            FlickOS would refuse it
+    flickos-upgrade status [--json]         where the upgrade is (see STEPS)
+    flickos-upgrade notify                  at login (flickos-settings' autostart):
+                                            say once how the install went
+
+these run as root, only through `control-helper upgrade` (pkexec):
+
+    prepare [--force]   plan again, then download the new release's lists and
+                        packages into STAGE (ADR-010); the system itself is
+                        not changed: its sources, packages and restore points
+                        stay as they are
+    install [--without-restore-point]
+                        install what is staged at the next restart (step 6):
+                        links TRIGGER to STAGE; the caller restarts. Without a
+                        restore point (ext4, or restore points off) only with
+                        the flag: the user has agreed there is no way back
+                        (ADR-005)
+    cancel              don't install at the next restart after all
+    discard             delete STAGE
+
+and this one only as flickos-upgrade.service, in systemd's system-update.target
+(systemd.offline-updates(7)), at the start after `install`:
+
+    flickos-upgrade offline   steps 7–10: the restore point, the sources
+                              switch, the install from STAGE, the check; then
+                              a restart, whatever happened
+
+`plan` copies the computer's apt sources into a scratch folder with the
+release names switched (ADR-008), fetches the new release's package lists
+there and asks apt to simulate the whole upgrade against the real dpkg status
+(ADR-006). It refuses when apt would remove FlickOS's desktop. --force plans
+even before FlickOS's 3.0 packages are published, by leaving FlickOS's own
+sources on 2.x (what a by-hand upgrade of Debian's sources does; for testing).
+
+Output for people is English; --json is what the Settings page reads and
+translates (its keys and codes stay stable). Exit status: 0 ready, 1 not
+ready or refused, 2 usage or a failure to find out.
+"""
+
+import argparse
+import contextlib
+import fcntl
+import importlib.machinery
+import importlib.util
+import json
+import os
+import pwd
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+
+# The move this version of the tool makes (design section 9: the next move
+# changes this table, not the mechanism).
+TARGET = {"name": "FlickOS", "version": "3.0", "from": "trixie", "to": "forky", "debian": "14"}
+
+# ADR-003: the upgrade is offered only once a 2.x flickos-control with True
+# here is published (docs/11 phase 6) and the new release's FlickOS suites
+# are online and signed. While False, `offer` uses no network.
+OPEN = False
+
+# ADR-007: old package -> its replacement, installed after the upgrade only
+# where the old one was installed (Recommends never arrive: 00recommends).
+RECOMMENDS_MAP = {
+    "evince": "papers",       # evince left Debian 14; papers replaces it (P1)
+}
+
+# ADR-006: a removal of any of these refuses the upgrade. flickos-desktop's
+# Depends (read from the dpkg status) join them.
+PROTECTED = ("flickos-desktop",)
+PROTECTED_PREFIXES = ("flickos-", "flick-")
+
+# FlickOS's repository, by address or by key (ADR-008).
+FLICKOS_URIS = ("https://dvbondoy.github.io/flickos-apt", "https://apt.flickos.org")
+FLICKOS_KEY = "flickos-archive-keyring"
+DEBIAN_KEY = "debian-archive-keyring"
+
+# Outside paths, moved by the tests (they run on the developer's desktop).
+ROOT = os.environ.get("FLICKOS_UPGRADE_ROOT", "")
+APT_ETC = ROOT + "/etc/apt"
+DPKG_STATUS = ROOT + "/var/lib/dpkg/status"
+PROC = ROOT + "/proc"
+SYS = ROOT + "/sys"
+APT_GET = os.environ.get("FLICKOS_UPGRADE_APT_GET", "apt-get")
+APT_CACHE = os.environ.get("FLICKOS_UPGRADE_APT_CACHE", "apt-cache")
+EXTENDED_STATES = ROOT + "/var/lib/apt/extended_states"   # apt's auto-installed marks
+STAGE = ROOT + "/var/lib/flickos/upgrade"    # ADR-010: lists, packages, state, backups
+LOG = ROOT + "/var/log/flickos/upgrade.log"
+DEBIAN_MARK = "base-files"   # a release upgrade always upgrades it (Debian's release files)
+MARGIN = 1024 ** 3   # free space kept beyond what apt says (logs, the kernel's initramfs)
+TRIGGER = ROOT + "/system-update"   # systemd starts system-update.target while it exists
+# The login screen's link, and the file Debian's display managers keep it by.
+# FlickOS installs have no such file, and greetd's postinst deletes the link
+# when it is missing (phase 5, finding D): the install writes it first.
+DISPLAY_MANAGER_LINK = ROOT + "/etc/systemd/system/display-manager.service"
+DEFAULT_DISPLAY_MANAGER = ROOT + "/etc/X11/default-display-manager"
+# flickos-branding's: grub-pc's debconf answer for GRUB's disk on BIOS (finding J).
+GRUB_INSTALL_DEVICE = ROOT + "/usr/libexec/flickos/grub-install-device"
+APT_LISTS = ROOT + "/var/lib/apt/lists"
+ETC = ROOT + "/etc"
+RECOVERY = os.environ.get("FLICKOS_UPGRADE_RECOVERY", "/usr/bin/flickos-recovery")
+DPKG = os.environ.get("FLICKOS_UPGRADE_DPKG", "dpkg")
+APT_CONFIG = os.environ.get("FLICKOS_UPGRADE_APT_CONFIG", "apt-config")
+PLYMOUTH = os.environ.get("FLICKOS_UPGRADE_PLYMOUTH", "/usr/bin/plymouth")
+# --no-block: systemctl returns, so the service ends on its own before the
+# restart stops it (which would log it as failed).
+SYSTEM_REBOOT = ("systemctl", "--no-block", "reboot")
+REBOOT = SYSTEM_REBOOT   # the tests put a stand-in here
+RESTORE_POINT_REASON = f"Before {TARGET['name']} {TARGET['version']}"
+# The restore point's "session": flickos-recovery makes none while the newest
+# has the same, so each install gets its own (a second try after Put Back,
+# phase 5 finding F), the start's boot id.
+SESSION = "flickos-upgrade"
+
+# The steps state.json records, and two that status works out:
+#   downloading, failed (nothing changed), staged, scheduled (TRIGGER is set),
+#   installing (the offline start is at work), installed;
+#   interrupted: "installing" from an earlier start, the system not put back:
+#     the install stopped halfway (power cut, an apt failure on ext4); install
+#     again goes on from where it was
+#   returned: "installing" from an earlier start, on a system put back from
+#     the upgrade's restore point (by the install itself when it failed, or
+#     by the user): the restore point holds the state of the moment it was taken
+# The install's apt runs carry this option, so History (control-helper's
+# packages-list) shows them as one upgrade, not as changes to undo.
+HISTORY_MARK = "FlickOS::Upgrade"
+# prepare's lines for the Settings page: PROGRESS + {"step": "planning"} or
+# {"step": "downloading", "percent": N}.
+PROGRESS = "flickos-upgrade-progress: "
+
+STEPS = ("downloading", "failed", "staged", "scheduled", "installing", "installed", "interrupted", "returned")
+
+
+def cache_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "flickos-upgrade")
+
+
+# --- The computer --------------------------------------------------------------------
+
+def read_status(path=None):
+    """{package: {field: value}} of the installed packages in dpkg's status file."""
+    packages, fields, last = {}, {}, None
+    with open(path or DPKG_STATUS, encoding="utf-8", errors="replace") as f:
+        for line in f.read().splitlines() + [""]:
+            if not line:
+                if fields.get("Package") and fields.get("Status", "").endswith(" installed"):
+                    packages[fields["Package"]] = fields
+                fields, last = {}, None
+            elif line[0] in " \t" and last:
+                fields[last] += "\n" + line.strip()
+            elif ":" in line:
+                last, _, value = line.partition(":")
+                fields[last] = value.strip()
+    return packages
+
+
+def depends_names(field):
+    """The package names in a Depends field (the first of each a | b)."""
+    names = []
+    for part in field.split(","):
+        name = part.split("|")[0].strip().split(" ")[0].split(":")[0]
+        if name:
+            names.append(name)
+    return names
+
+
+def protected_set(installed):
+    names = set(PROTECTED)
+    desktop = installed.get("flickos-desktop")
+    if desktop:
+        names.update(depends_names(desktop.get("Depends", "")))
+    return names
+
+
+def is_protected(name, protected):
+    return name in protected or name.startswith(PROTECTED_PREFIXES)
+
+
+def live_session():
+    with contextlib.suppress(OSError):
+        with open(os.path.join(PROC, "cmdline"), encoding="utf-8") as f:
+            return "boot=live" in f.read().split()
+    return False
+
+
+def on_battery():
+    """True when the computer has a battery and no mains power is connected."""
+    supplies = os.path.join(SYS, "class/power_supply")
+    battery, mains = False, False
+    with contextlib.suppress(OSError):
+        for name in os.listdir(supplies):
+            def read(field):
+                with contextlib.suppress(OSError):
+                    with open(os.path.join(supplies, name, field), encoding="utf-8") as f:
+                        return f.read().strip()
+                return ""
+            kind = read("type")
+            if kind == "Battery" and read("scope") != "Device":   # not a mouse's battery
+                battery = True
+            elif kind in ("Mains", "USB") and read("online") == "1":
+                mains = True
+    return battery and not mains
+
+
+def root_filesystem():
+    """The type of the filesystem mounted on / (the last mount there wins)."""
+    kind = ""
+    with contextlib.suppress(OSError):
+        with open(os.path.join(PROC, "self/mounts"), encoding="utf-8") as f:
+            for line in f:
+                fields = line.split()
+                if len(fields) > 2 and fields[1] == "/":
+                    kind = fields[2]
+    return kind
+
+
+# --- Sources (ADR-008) ------------------------------------------------------------------
+
+def parse_one_line(text, path):
+    """Entries of a sources.list-style file: deb [options] URI SUITE COMPONENTS."""
+    entries = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        options = {}
+        match = re.match(r"^(deb|deb-src)\s+\[([^\]]*)\]\s+(.*)$", line)
+        if match:
+            kind, raw, rest = match.groups()
+            for option in raw.split():
+                key, _, value = option.partition("=")
+                options[key.lower()] = value
+        else:
+            kind, _, rest = line.partition(" ")
+        words = rest.split()
+        if kind not in ("deb", "deb-src") or len(words) < 2:
+            continue
+        entries.append({"file": path, "types": [kind], "uris": [words[0]], "suites": [words[1]],
+                        "components": words[2:], "signed_by": options.get("signed-by", ""),
+                        "architectures": options.get("arch", "")})
+    return entries
+
+
+def parse_deb822(text, path):
+    entries = []
+    for stanza in re.split(r"\n\s*\n", text):
+        fields, last = {}, None
+        for line in stanza.splitlines():
+            if line.startswith("#"):
+                continue
+            if line[:1] in (" ", "\t") and last:
+                fields[last] += "\n" + line.strip()
+            elif ":" in line:
+                last, _, value = line.partition(":")
+                last = last.strip().lower()
+                fields[last] = value.strip()
+        if not fields.get("uris") or not fields.get("suites"):
+            continue
+        if fields.get("enabled", "yes").lower() == "no":
+            continue
+        entries.append({"file": path, "types": fields.get("types", "deb").split(),
+                        "uris": fields["uris"].split(), "suites": fields["suites"].split(),
+                        "components": fields.get("components", "").split(),
+                        "signed_by": fields.get("signed-by", ""),
+                        "architectures": fields.get("architectures", "")})
+    return entries
+
+
+def read_sources(etc=None):
+    etc = etc or APT_ETC
+    entries = []
+    paths = [os.path.join(etc, "sources.list")]
+    parts = os.path.join(etc, "sources.list.d")
+    with contextlib.suppress(OSError):
+        paths += [os.path.join(parts, name) for name in sorted(os.listdir(parts))]
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            continue
+        if path.endswith(".sources"):
+            entries += parse_deb822(text, path)
+        elif path.endswith(".list"):
+            entries += parse_one_line(text, path)
+    for entry in entries:
+        entry["kind"] = classify(entry)
+    return entries
+
+
+def classify(entry):
+    """flickos (FlickOS's repository), debian (Debian's archive, any release)
+    or other: only the first two move, and only their old release's suites."""
+    uris = [uri.rstrip("/") for uri in entry["uris"]]
+    if FLICKOS_KEY in entry["signed_by"] or any(uri in FLICKOS_URIS for uri in uris):
+        return "flickos"
+    debian_path = all(uri.endswith(("/debian", "/debian-security")) for uri in uris)
+    debian_key = not entry["signed_by"] or DEBIAN_KEY in entry["signed_by"]
+    return "debian" if debian_path and debian_key else "other"
+
+
+def on_old_release(entry):
+    return any(switch_suite(suite) != suite for suite in entry["suites"])
+
+
+def switch_suite(suite):
+    old, new = TARGET["from"], TARGET["to"]
+    if suite == old or suite.startswith(old + "-"):
+        return new + suite[len(old):]
+    return suite
+
+
+def stanza(entry, suites):
+    lines = [f"Types: {' '.join(entry['types'])}", f"URIs: {' '.join(entry['uris'])}",
+             f"Suites: {' '.join(suites)}"]
+    if entry["components"]:
+        lines.append(f"Components: {' '.join(entry['components'])}")
+    if entry["signed_by"]:
+        lines.append(f"Signed-By: {entry['signed_by']}")
+    if entry["architectures"]:
+        lines.append(f"Architectures: {entry['architectures']}")
+    return "\n".join(lines) + "\n"
+
+
+def switched_sources(entries, move_flickos=True):
+    """deb822 text of the sources after the switch: Debian's (and FlickOS's
+    unless move_flickos is False) on the new release, the rest unchanged."""
+    out = []
+    for entry in entries:
+        moves = entry["kind"] == "debian" or (entry["kind"] == "flickos" and move_flickos)
+        out.append(stanza(entry, [switch_suite(s) for s in entry["suites"]] if moves else entry["suites"]))
+    return "\n".join(out)
+
+
+# --- apt in a scratch folder (ADR-006) ----------------------------------------------------
+
+def scratch_apt(scratch, sources_text):
+    """apt-get's arguments for a scratch state that reads the real dpkg status
+    and the system's apt configuration, without its hooks."""
+    for sub in ("state/lists/partial", "cache/archives/partial", "parts"):
+        os.makedirs(os.path.join(scratch, sub), exist_ok=True)
+    parts = os.path.join(scratch, "parts")
+    for name in os.listdir(parts):
+        os.remove(os.path.join(parts, name))
+    with open(os.path.join(parts, "upgrade.sources"), "w", encoding="utf-8") as f:
+        f.write(sources_text)
+    empty = os.path.join(scratch, "sources.list")
+    open(empty, "w").close()
+    conf = os.path.join(scratch, "apt.conf")
+    with open(conf, "w", encoding="utf-8") as f:
+        # Only lists and simulations here: none of the system's hooks run.
+        for key in ("APT::Update::Pre-Invoke", "APT::Update::Post-Invoke",
+                    "APT::Update::Post-Invoke-Success", "DPkg::Pre-Invoke", "DPkg::Post-Invoke",
+                    "DPkg::Pre-Install-Pkgs"):
+            f.write(f"#clear {key};\n")
+    user = pwd.getpwuid(os.getuid()).pw_name
+    return [APT_GET, "-c", conf,
+            "-o", f"Dir::State={scratch}/state", "-o", f"Dir::State::status={DPKG_STATUS}",
+            "-o", f"Dir::State::extended_states={EXTENDED_STATES}",
+            "-o", f"Dir::Cache={scratch}/cache", "-o", f"Dir::Etc::sourcelist={empty}",
+            "-o", f"Dir::Etc::sourceparts={parts}", "-o", "Debug::NoLocking=1",
+            "-o", "Acquire::Languages=none"] + (
+        ["-o", f"APT::Sandbox::User={user}"] if os.getuid() else [])
+
+
+def run_apt(args):
+    env = dict(os.environ, LC_ALL="C", DEBIAN_FRONTEND="noninteractive")
+    result = subprocess.run(args, capture_output=True, text=True, env=env)
+    return result.returncode, result.stdout, result.stderr
+
+
+SIM_LINE = re.compile(r"^(Inst|Remv) (\S+)(?: \[([^\]]*)\])?(?: \((\S+) ([^\[\)]*?)(?: \[[^\]]*\])?\))?")
+
+
+def parse_simulation(text):
+    """apt-get -s output -> (upgraded, new, removed): lists of
+    {"name", "old", "new"}."""
+    upgraded, new, removed = [], [], []
+    for line in text.splitlines():
+        match = SIM_LINE.match(line)
+        if not match:
+            continue
+        action, name, old, version, _suite = match.groups()
+        item = {"name": name, "old": old or "", "new": version or ""}
+        if action == "Remv":
+            removed.append(item)
+        elif old:
+            upgraded.append(item)
+        else:
+            new.append(item)
+    return upgraded, new, removed
+
+
+def parse_sizes(text):
+    """apt's summary (LC_ALL=C) -> (download bytes, disk change bytes)."""
+    units = {"B": 1, "kB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3}
+
+    def amount(number, unit):
+        return int(float(number.replace(",", "")) * units.get(unit, 1))
+    download, disk = 0, 0
+    match = re.search(r"Need to get ([\d.,]+) (\w+)(?:/[\d.,]+ \w+)? of archives", text)
+    if match:
+        download = amount(*match.groups())
+    match = re.search(r"After this operation, ([\d.,]+) (\w+) (of additional disk space will be used|disk space will be freed)", text)
+    if match:
+        disk = amount(match.group(1), match.group(2)) * (1 if "additional" in match.group(3) else -1)
+    return download, disk
+
+
+def update_failed(code, text):
+    """apt-get update's result as a failure when any source failed: apt exits
+    0 when only some do (Err: and W: Failed to fetch, finding I), and a plan
+    without Debian's new lists would move FlickOS's packages alone."""
+    return code != 0 or any(line.startswith(("Err:", "W: Failed to fetch", "E: Failed to fetch",
+                                             "W: Some index files failed"))
+                            for line in text.splitlines())
+
+
+def apt_errors(text):
+    """apt's error lines (E: and the Err: of a failed fetch), for the user to read."""
+    return [line.strip() for line in text.splitlines()
+            if line.startswith(("E: ", "Err:", "W: Failed to fetch"))]
+
+
+# --- offer, check and plan -------------------------------------------------------------------
+
+def offer(force=False):
+    """Whether Settings offers the upgrade (ADR-003): {"offered", "why"}.
+    why: live, closed (OPEN is False), no-flickos-sources, not-published (the
+    new release's FlickOS suites aren't online or don't verify), force."""
+    if live_session():
+        return {"offered": False, "why": "live"}
+    if force:
+        return {"offered": True, "why": "force"}
+    if not OPEN:
+        return {"offered": False, "why": "closed"}
+    entries = [entry for entry in read_sources() if entry["kind"] == "flickos" and on_old_release(entry)]
+    if not entries:
+        return {"offered": False, "why": "no-flickos-sources"}
+    # apt fetches the new suites' InRelease and checks it against their key.
+    base = scratch_apt(os.path.join(cache_dir(), "offer"),
+                       "\n".join(stanza(entry, [switch_suite(s) for s in entry["suites"]]) for entry in entries))
+    code, _out, _err = run_apt(base + ["update"])
+    return {"offered": code == 0, "why": None if code == 0 else "not-published"}
+
+
+# --- check and plan -------------------------------------------------------------------------
+
+def check(installed=None):
+    """Things that stop the upgrade before apt is asked (design section 4, step 2)."""
+    installed = read_status() if installed is None else installed
+    problems = []
+    if live_session():
+        problems.append({"code": "live", "text": "This is the live session. Install FlickOS first."})
+    if on_battery():
+        problems.append({"code": "battery", "text": "Connect the power cable: the upgrade takes a while."})
+    testing = sorted(name for name, fields in installed.items() if "~test" in fields.get("Version", ""))
+    if testing:
+        problems.append({"code": "test-packages", "packages": testing,
+                         "text": "Test versions are installed: " + ", ".join(testing)
+                         + ". Install their released versions first."})
+    if "flickos-desktop" not in installed:
+        problems.append({"code": "no-desktop", "text": "flickos-desktop isn't installed."})
+    return problems
+
+
+def pending_updates():
+    """Packages apt would still upgrade on the current release, from the
+    computer's own lists (as fresh as its last update)."""
+    code, out, _err = run_apt([APT_GET, "-s", "-o", "Debug::NoLocking=1", "upgrade"])
+    if code != 0:
+        return None
+    return [item["name"] for item in parse_simulation(out)[0]]
+
+
+def plan(force=False, scratch=None):
+    """The whole upgrade simulated (design section 4, steps 2–3)."""
+    installed = read_status()
+    problems = check(installed)
+    # --force is for testing before the release, when the tool itself is a
+    # ~test flickos-control: test versions are told, not refused.
+    warnings = [p for p in problems if force and p["code"] == "test-packages"]
+    result = {"target": TARGET, "ready": False, "warnings": warnings,
+              "problems": [p for p in problems if p not in warnings]}
+    entries = read_sources()
+    result["third_party"] = sorted({entry["uris"][0] for entry in entries if entry["kind"] == "other"})
+    if not any(entry["kind"] == "debian" and on_old_release(entry) for entry in entries):
+        result["problems"].append({"code": "no-debian-sources",
+                                   "text": f"No Debian {TARGET['from']} sources were found in {APT_ETC}."})
+        return result
+    pending = pending_updates()
+    if pending:
+        result["problems"].append({"code": "updates-pending", "packages": pending,
+                                   "text": f"{len(pending)} updates are waiting. Install them first."})
+
+    scratch = scratch or cache_dir()
+    move_flickos = any(entry["kind"] == "flickos" for entry in entries)
+    base = scratch_apt(scratch, switched_sources(entries))
+    update = ["-o", "APT::Update::Error-Mode=any", "update"]
+    code, out, err = run_apt(base + update)
+    failed = update_failed(code, out + "\n" + err)
+    if failed and move_flickos and force:
+        result["flickos_kept"] = True
+        base = scratch_apt(scratch, switched_sources(entries, move_flickos=False))
+        code, out, err = run_apt(base + update)
+        failed = update_failed(code, out + "\n" + err)
+    if failed:
+        result["problems"].append({"code": "lists", "errors": apt_errors(out + "\n" + err),
+                                   "text": f"The package lists for {TARGET['name']} {TARGET['version']} "
+                                   "couldn't be fetched (not published yet, or no network)."})
+        return result
+
+    code, out, err = run_apt(base + ["-s", "full-upgrade"])
+    if code != 0:
+        result["problems"].append({"code": "unsolvable", "errors": apt_errors(out + "\n" + err),
+                                   "text": "apt can't work out the upgrade."})
+        return result
+    upgraded, new, removed = parse_simulation(out)
+    if not any(item["name"] == DEBIAN_MARK for item in upgraded):
+        # Debian itself doesn't move: its new lists are missing (finding I).
+        result["problems"].append({"code": "no-new-debian",
+                                   "text": f"The plan doesn't move Debian to {TARGET['to']}: its package lists "
+                                   "are missing. Check the connection, and try again later."})
+        return result
+    _code, summary, _err = run_apt(base + ["full-upgrade", "--assume-no"])
+    download, disk = parse_sizes(summary)
+    protected = protected_set(installed)
+    refused = sorted(item["name"] for item in removed if is_protected(item["name"], protected))
+    present = ({item["name"] for item in upgraded + new} | set(installed)) - {item["name"] for item in removed}
+    replacements = [{"old": old, "new": new_name} for old, new_name in sorted(RECOMMENDS_MAP.items())
+                    if old in installed and new_name not in present
+                    and run_apt(base + ["-s", "install", new_name])[0] == 0]
+    btrfs = root_filesystem() == "btrfs"
+    # On btrfs the restore point keeps every replaced file: about the old
+    # versions' installed size (Installed-Size is in KiB).
+    kept = sum(int(installed.get(item["name"], {}).get("Installed-Size", "0") or 0) * 1024
+               for item in upgraded + removed) if btrfs else 0
+    needed = download + max(disk, 0) + kept + MARGIN
+    free = shutil.disk_usage(ROOT or "/").free
+    result.update({"upgraded": len(upgraded), "new": len(new), "removed": removed,
+                   "refused": refused, "replacements": replacements,
+                   "download": download, "disk": disk, "restore_point": btrfs,
+                   "needed": needed, "free": free})
+    if refused:
+        result["problems"].append({"code": "removes-flickos", "packages": refused,
+                                   "text": "apt would remove FlickOS: " + ", ".join(refused) + "."})
+    if free < needed:
+        result["problems"].append(space_problem(needed, free))
+    result["ready"] = not result["problems"]
+    return result
+
+
+def space_problem(needed, free):
+    """The refusal for too little space, with the restore points that can go
+    (finding E): after going back from the upgrade, the newer system kept as
+    "before putting back" usually holds the most, and nothing shows it. Old
+    downloads aren't offered: a download left in the stage is used again."""
+    text = f"{gigabytes(needed)} of free space is needed and {gigabytes(free)} is free."
+    points = deletable_restore_points()
+    if points:
+        text += (f" Deleting restore points frees space ({len(points)} kept: flickos-recovery list, or "
+                 "Settings > Restore Points); the space shows a minute after.")
+        newer = [point["description"] for point in points if point["put_back"]]
+        if newer:
+            text += " The most is usually in " + ", ".join(f"\u201c{d}\u201d" for d in newer) + \
+                    ": the system you went back from."
+    return {"code": "space", "text": text, "restore_points": points}
+
+
+def deletable_restore_points():
+    """[{name, description, put_back}] of the restore points, oldest first;
+    put_back: the system as it was before a restore point was put back."""
+    rec = recovery()
+    with contextlib.suppress(Exception):
+        if rec is not None and rec.layout_problem() is None:
+            return [{"name": name, "description": rec.describe(info), "put_back": bool(info.get("restored"))}
+                    for name, info in rec.restore_points()]
+    return []
+
+
+# --- The sources switch (ADR-008), applied at the install (phase 3) ----------------------------
+
+MOVED = "# Moved to sources.list.d/debian.sources by flickos-upgrade: "
+
+
+def switch_text(text, path, move_flickos=True):
+    """A sources file's text after the switch, comments and layout kept:
+    FlickOS's file word for word (so it is byte for byte the new release's
+    flickos-archive-keyring file), Debian's entries with their suites
+    switched, everything else untouched."""
+    if path.endswith(".sources"):
+        stanzas = re.split(r"(\n\s*\n)", text)
+        out = []
+        for chunk in stanzas:
+            entries = parse_deb822(chunk, path)
+            kinds = {classify(entry) for entry in entries}
+            if "flickos" in kinds:
+                if move_flickos:
+                    chunk = re.sub(rf"\b{TARGET['from']}\b", TARGET["to"], chunk)
+            elif "debian" in kinds:
+                chunk = re.sub(r"(?im)^(Suites:)(.*)$",
+                               lambda m: m.group(1) + " " + " ".join(switch_suite(w) for w in m.group(2).split()),
+                               chunk)
+            out.append(chunk)
+        return "".join(out)
+    lines = []
+    for line in text.splitlines(keepends=True):
+        entries = parse_one_line(line, path)
+        if entries and classify(entries[0]) == "debian":
+            suite = entries[0]["suites"][0]
+            line = re.sub(rf"(\s){re.escape(suite)}(\s|$)", lambda m: m.group(1) + switch_suite(suite) + m.group(2),
+                          line, count=1)
+        lines.append(line)
+    return "".join(lines)
+
+
+def switch_changes(etc=None, move_flickos=True):
+    """[(path, old text or None, new text)]: every sources file the switch
+    changes. Debian's entries in sources.list move into a deb822
+    sources.list.d/debian.sources, as 3.0 installs have (forky e07a441);
+    their old lines stay as comments. move_flickos False leaves FlickOS's
+    own sources as they are (a --force stage, before 3.0 is published)."""
+    etc = etc or APT_ETC
+    changes = []
+    main_list = os.path.join(etc, "sources.list")
+    debian_sources = os.path.join(etc, "sources.list.d", "debian.sources")
+    paths = [main_list]
+    with contextlib.suppress(OSError):
+        paths += [os.path.join(etc, "sources.list.d", name)
+                  for name in sorted(os.listdir(os.path.join(etc, "sources.list.d")))
+                  if name.endswith((".list", ".sources"))]
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            continue
+        if path == main_list and not os.path.exists(debian_sources):
+            moved, kept = [], []
+            for line in text.splitlines(keepends=True):
+                entries = parse_one_line(line, path)
+                if entries and classify(entries[0]) == "debian" and on_old_release(entries[0]):
+                    moved += entries
+                    kept.append(MOVED + line)
+                else:
+                    kept.append(line)
+            if moved:
+                stanzas = "\n".join(stanza(entry, [switch_suite(s) for s in entry["suites"]]) for entry in moved)
+                changes.append((debian_sources, None,
+                                f"# Debian {TARGET['to']}: written by flickos-upgrade from sources.list.\n{stanzas}"))
+                changes.append((path, text, "".join(kept)))
+            continue
+        new = switch_text(text, path, move_flickos)
+        if new != text:
+            changes.append((path, text, new))
+    return changes
+
+
+def backup_path(path):
+    return os.path.join(STAGE, "backup", path.lstrip("/"))
+
+
+def apply_switch(changes):
+    """Write the changes, keeping each old file in STAGE/backup for undo_switch."""
+    for path, old, new in changes:
+        if old is not None:
+            backup = backup_path(path)
+            os.makedirs(os.path.dirname(backup), exist_ok=True)
+            shutil.copy2(path, backup)
+        write_atomic(path, new)
+
+
+def undo_switch(changes):
+    """Put the sources back as they were before apply_switch."""
+    for path, old, _new in changes:
+        if old is None:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(path)
+        else:
+            write_atomic(path, old)
+
+
+def write_atomic(path, text, mode=0o644):
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    tmp = os.path.join(folder, f".{os.path.basename(path)}.flickos-upgrade.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+# --- The stage (ADR-010, phase 2): root only, through control-helper --------------------------
+
+STATE = "state.json"
+
+
+def read_state():
+    try:
+        with open(os.path.join(STAGE, STATE), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(state):
+    os.makedirs(STAGE, mode=0o755, exist_ok=True)
+    write_atomic(os.path.join(STAGE, STATE), json.dumps(state, indent=1) + "\n")
+
+
+@contextlib.contextmanager
+def stage_lock():
+    os.makedirs(STAGE, mode=0o755, exist_ok=True)
+    with open(os.path.join(STAGE, "lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("another flickos-upgrade is running") from None
+        yield
+
+
+def log_line(text):
+    os.makedirs(os.path.dirname(LOG), exist_ok=True)
+    with open(LOG, "a", encoding="utf-8") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {text}\n")
+
+
+# apt and dpkg ask nothing at the install (ADR-004). ucf follows dpkg's
+# --force-confdef/--force-confold (DPKG_FORCE): a file nobody changed is
+# replaced, a changed one kept (P3; UCF_FORCE_CONFFOLD would keep both).
+APT_ENV = {"LC_ALL": "C", "DEBIAN_FRONTEND": "noninteractive", "APT_LISTCHANGES_FRONTEND": "none"}
+STATUS_LINE = re.compile(r"^(pmstatus|dlstatus):[^:]*:([\d.]+):")
+
+
+def read_status_lines(fd, progress):
+    """apt's status lines (APT::Status-Fd) -> PROGRESS(percent), until apt closes them."""
+    with open(fd, encoding="utf-8", errors="replace") as lines:
+        for line in lines:
+            match = STATUS_LINE.match(line)
+            if match:
+                with contextlib.suppress(Exception):
+                    progress(float(match.group(2)))
+
+
+def run_apt_logged(args, progress=None):
+    """apt-get with its output passed on (for the page, and the journal at the
+    install) and kept in LOG. With PROGRESS, apt's status lines go to it as a
+    percentage, through a pipe of their own: never APT::Status-Fd=1, apt marks
+    that descriptor close-on-exec, so dpkg and every maintainer script would
+    start without stdout (P3: their echo failed with I/O errors)."""
+    env = dict(os.environ, **APT_ENV)
+    log_line("$ " + " ".join(args))
+    reader = None
+    if progress:
+        status_read, status_write = os.pipe()
+        args = [args[0], "-o", f"APT::Status-Fd={status_write}"] + args[1:]
+        reader = threading.Thread(target=read_status_lines, args=(status_read, progress), daemon=True)
+        reader.start()
+    try:
+        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                   errors="replace", env=env, pass_fds=(status_write,) if progress else ())
+    finally:
+        if progress:
+            os.close(status_write)      # apt holds its own copy; the reader ends when apt does
+    with open(LOG, "a", encoding="utf-8") as log:
+        # Read to the end whatever goes wrong here: apt-get writing into a
+        # closed pipe would die halfway through dpkg.
+        for line in process.stdout:
+            try:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                log.write(line)
+            except Exception:           # noqa: BLE001
+                pass
+    process.stdout.close()
+    code = process.wait()
+    if reader:
+        reader.join(timeout=5)
+    return code
+
+
+def prepare(force=False):
+    """Plan as root, then download everything into STAGE. Changes nothing
+    else: a restore point and the sources switch come at the install."""
+    with stage_lock():
+        now = step_now()
+        if now in ("installing", "interrupted", "scheduled"):
+            raise RuntimeError(busy_text(now))
+        scratch = os.path.join(STAGE, "apt")
+        tell({"step": "planning"})
+        result = plan(force=force, scratch=scratch)
+        if not result["ready"]:
+            return result
+        write_state({"step": "downloading", "target": TARGET, "started": time.time(),
+                     "flickos_kept": bool(result.get("flickos_kept"))})
+        entries = read_sources()
+        base = scratch_apt(scratch, switched_sources(entries, move_flickos=not result.get("flickos_kept")))
+        code = run_apt_logged(base + ["--download-only", "--yes", "full-upgrade"], download_progress())
+        for item in result["replacements"] if code == 0 else []:
+            # Downloaded now, installed after the upgrade; a failure here only
+            # leaves the replacement for Software.
+            run_apt_logged(base + ["--download-only", "--yes", "install", item["new"]])
+        if code != 0:
+            write_state({"step": "failed", "target": TARGET, "error": f"the download stopped (apt-get {code})"})
+            result.update(ready=False)
+            result["problems"].append({"code": "download", "text": "The download stopped. Try again later."})
+            return result
+        write_state({"step": "staged", "target": TARGET, "staged": time.time(),
+                     "flickos_kept": bool(result.get("flickos_kept")),
+                     "replacements": result["replacements"], "download": result["download"],
+                     "upgraded": result["upgraded"], "new": result["new"],
+                     "removed": [item["name"] for item in result["removed"]],
+                     "restore_point": result["restore_point"]})
+        log_line(f"staged {TARGET['name']} {TARGET['version']}")
+        return result
+
+
+def tell(event):
+    """A line for the Settings page (PROGRESS); never stops the work."""
+    with contextlib.suppress(Exception):
+        print(PROGRESS + json.dumps(event), flush=True)
+
+
+def download_progress():
+    shown = [None]
+
+    def show(percent):
+        whole = int(min(max(percent, 0), 100))
+        if whole != shown[0]:
+            shown[0] = whole
+            tell({"step": "downloading", "percent": whole})
+    return show
+
+
+def busy_text(now):
+    return {"installing": "the upgrade is being installed",
+            "scheduled": "the upgrade is installed at the next restart: cancel that first",
+            "interrupted": "the install stopped halfway: install again to finish it, "
+                           "or put back the restore point taken before it"}.get(now, now)
+
+
+def clear_stage(keep=("lock",)):
+    for name in os.listdir(STAGE):
+        if name not in keep:
+            path = os.path.join(STAGE, name)
+            shutil.rmtree(path) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
+
+
+def remove_trigger():
+    """Remove TRIGGER if it is ours (another program's offline update stays)."""
+    with contextlib.suppress(OSError):
+        if os.readlink(TRIGGER) == STAGE:
+            os.unlink(TRIGGER)
+
+
+def discard():
+    with stage_lock():
+        now = step_now()
+        if now in ("installing", "interrupted"):
+            raise RuntimeError(busy_text(now))
+        remove_trigger()
+        clear_stage()
+    log_line("discarded")
+
+
+# --- Where the upgrade is ------------------------------------------------------------------
+
+_recovery = None
+
+
+def recovery():
+    """flickos-recovery's own code (its restore points), loaded from RECOVERY,
+    or None where it isn't installed. Loaded before the install replaces
+    anything, so the same code that took the restore point puts it back."""
+    global _recovery
+    if _recovery is None and os.path.exists(RECOVERY):
+        loader = importlib.machinery.SourceFileLoader("flickos_recovery", RECOVERY)
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        _recovery = module
+    return _recovery
+
+
+def boot_id():
+    with contextlib.suppress(OSError):
+        with open(os.path.join(PROC, "sys/kernel/random/boot_id"), encoding="utf-8") as f:
+            return f.read().strip()
+    return None
+
+
+def went_back():
+    """{"when", "failed"} when this system was put back from the upgrade's
+    restore point ("failed": why, when the install did it itself), else None."""
+    rec = recovery()
+    if rec is None:
+        return None
+    with contextlib.suppress(Exception):
+        points = rec.restore_points()
+        ours = {name for name, info in points if info.get("upgrade") == TARGET["version"]}
+        for _name, info in reversed(points):
+            if ours and info.get("restored") in ours:
+                return {"when": info.get("created"), "failed": info.get("upgrade_failed")}
+    return None
+
+
+def step_now(state=None):
+    """The step, with "installing" from an earlier start told apart (STEPS)."""
+    state = read_state() if state is None else state
+    step = state.get("step")
+    if step != "installing" or state.get("boot") == boot_id():
+        return step
+    return "returned" if went_back() else "interrupted"
+
+
+def status():
+    """state.json, with the step as it is now and, after a return, when and why."""
+    state = read_state()
+    now = step_now(state)
+    if now == "returned":
+        state["back"] = went_back()
+    if now:
+        state["step"] = now
+    return state
+
+
+def restore_point_possible():
+    rec = recovery()
+    with contextlib.suppress(Exception):
+        return rec is not None and rec.layout_problem() is None and rec.enabled()
+    return False
+
+
+def good_start():
+    """Whether this start had worked when the install was asked for (the
+    restore point is then a candidate for flickos-recovery's automatic
+    recovery: the offline start never reaches "this start worked")."""
+    rec = recovery()
+    with contextlib.suppress(Exception):
+        return rec is not None and rec.load_state().get("good_boot") == rec.boot_id()
+    return False
+
+
+# --- Step 6: the restart into the install ----------------------------------------------------
+
+def schedule(no_way_back=False):
+    """Install what is staged at the next start: link TRIGGER to STAGE."""
+    with stage_lock():
+        state = read_state()
+        now = step_now(state)
+        if now not in ("staged", "scheduled", "interrupted"):
+            raise RuntimeError("nothing is downloaded to install" if now in (None, "failed", "returned")
+                               else busy_text(now))
+        if now != "interrupted":        # an interrupted install goes on as it was started
+            possible = restore_point_possible()
+            if not possible and not no_way_back:
+                raise RuntimeError("no restore point can be taken on this computer, so there is no way "
+                                   "back: confirm that (--without-restore-point)")
+            state.update(step="scheduled", scheduled=time.time(), restore_point=possible,
+                         good_start=good_start())
+            write_state(state)
+            if not possible:            # read after a failure: there was no way back, and the user knew
+                log_line("no restore point can be taken here: installing without one, as the user confirmed")
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(TRIGGER)
+        os.symlink(STAGE, TRIGGER)
+    log_line("the install starts at the next restart" + (" (going on)" if now == "interrupted" else ""))
+
+
+def cancel():
+    with stage_lock():
+        remove_trigger()
+        state = read_state()
+        if state.get("step") == "scheduled":
+            state["step"] = "staged"
+            write_state(state)
+    log_line("the install at the next restart is cancelled")
+
+
+# --- Steps 7–10: the install, in the offline start (ADR-002 b) -----------------------------
+
+def splash(text, percent=None):
+    """A line for the journal, and on the boot splash (Plymouth) if it runs:
+    FlickOS's theme shows the message under its spinner (P3). Its
+    system-upgrade mode would hide it behind a fixed English title."""
+    print(text, flush=True)
+    if not os.path.exists(PLYMOUTH):
+        return
+    calls = [[PLYMOUTH, "display-message", f"--text={text}"]]
+    if percent is not None:
+        calls.append([PLYMOUTH, "system-update", f"--progress={int(percent)}"])
+    for argv in calls:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(argv, capture_output=True, timeout=5)
+
+
+def progress_to_splash(low, high):
+    """apt's percentage of one run -> the whole install's LOW..HIGH, on the splash."""
+    shown = [None]
+
+    def show(percent):
+        whole = int(low + (high - low) * min(max(percent, 0), 100) / 100)
+        if whole != shown[0]:
+            shown[0] = whole
+            splash(f"Installing {TARGET['name']} {TARGET['version']}: {whole} %. "
+                   "Don't turn off the computer.", whole)
+    return show
+
+
+def apt_install_conf():
+    """apt's configuration for the install, written now (each run: the new
+    release's packages can bring hooks): every DPkg::Pre-Install-Pkgs hook but
+    flickos-recovery's, which took a restore point per apt run, each one a
+    half-upgraded system (P4)."""
+    _code, out, _err = run_apt([APT_CONFIG, "dump", "DPkg::Pre-Install-Pkgs"])
+    lines = ["// flickos-upgrade: the install's hooks, without flickos-recovery's",
+             "#clear DPkg::Pre-Install-Pkgs;"]
+    for line in out.splitlines():
+        match = re.match(r'^DPkg::Pre-Install-Pkgs:: "(.*)";$', line)
+        if match and "flickos-recovery" not in match.group(1) and '"' not in match.group(1):
+            lines.append(f'DPkg::Pre-Install-Pkgs:: "{match.group(1)}";')
+    path = os.path.join(STAGE, "apt-install.conf")
+    write_atomic(path, "\n".join(lines) + "\n")
+    return path
+
+
+def install_argv():
+    return [APT_GET, "-c", apt_install_conf(), "-y", "--no-download", "-o", f"{HISTORY_MARK}={TARGET['version']}",
+            "-o", f"Dir::Cache::archives={STAGE}/apt/cache/archives/",
+            "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
+            "-o", "Dpkg::Use-Pty=0"]
+
+
+def use_staged_lists():
+    """The staged package lists become apt's; the old ones wait in backup/
+    (once: a resumed install has moved them already)."""
+    backup = os.path.join(STAGE, "backup", "lists")
+    if not os.path.isdir(backup):
+        os.makedirs(backup + ".partial", exist_ok=True)
+        for name in os.listdir(APT_LISTS):
+            path = os.path.join(APT_LISTS, name)
+            if name != "lock" and os.path.isfile(path):
+                shutil.move(path, os.path.join(backup + ".partial", name))
+        os.rename(backup + ".partial", backup)
+    staged = os.path.join(STAGE, "apt", "state", "lists")
+    for name in os.listdir(staged):
+        path = os.path.join(staged, name)
+        if name != "lock" and os.path.isfile(path):
+            shutil.copy2(path, os.path.join(APT_LISTS, name))
+
+
+def restore_lists():
+    backup = os.path.join(STAGE, "backup", "lists")
+    for folder in (backup + ".partial", backup):
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(APT_LISTS):
+            path = os.path.join(APT_LISTS, name)
+            if name != "lock" and os.path.isfile(path):
+                os.unlink(path)
+        for name in os.listdir(folder):
+            shutil.move(os.path.join(folder, name), os.path.join(APT_LISTS, name))
+        os.rmdir(folder)
+
+
+def obsolete(name):
+    """Installed, and no source of the new release has it (apt-cache policy
+    lists only dpkg's status): it will never be updated again."""
+    _code, out, _err = run_apt([APT_CACHE, "policy", name])
+    if "Version table:" not in out:
+        return False
+    # The table's source lines: "     500 http://deb.debian.org/debian forky/main …"
+    sources = [line.split(None, 1)[1].strip() for line in out.split("Version table:", 1)[1].splitlines()
+               if re.match(r"^\s+\d+ \S", line)]
+    return bool(sources) and all(source == "/var/lib/dpkg/status" for source in sources)
+
+
+def remove_obsolete(name):
+    """The old half of a replacement (ADR-007) goes when the new release
+    dropped it: apt keeps an obsolete package that still installs (P3: evince
+    stayed next to papers, though the plan said removed). Only when removing
+    it removes nothing else."""
+    if name not in read_status() or not obsolete(name):
+        return
+    _code, out, _err = run_apt([APT_GET, "-s", "remove", name])
+    if [item["name"] for item in parse_simulation(out)[2]] == [name]:
+        # Not install_argv(): a removal needs no archive (nor the stage's folder for it).
+        run_apt_logged([APT_GET, "-c", apt_install_conf(), "-y", "-o", f"{HISTORY_MARK}={TARGET['version']}",
+                        "-o", "Dpkg::Use-Pty=0", "remove", name])
+    else:
+        log_line(f"{name} kept: removing it would remove more")
+
+
+def autoremove():
+    """apt-get autoremove after the upgrade (Q8): the packages only the old
+    release needed (P3: 64, Python 3.13, Qt 5, old libraries), which get no
+    updates on the new one. apt marked them installed automatically, so none
+    is one the user chose. Not when FlickOS would go (ADR-006's rule), and a
+    failure is only logged. Returns the names removed."""
+    _code, out, _err = run_apt([APT_GET, "-c", apt_install_conf(), "-s", "autoremove"])
+    names = [item["name"] for item in parse_simulation(out)[2]]
+    protected = protected_set(read_status())
+    refused = [name for name in names if is_protected(name, protected)]
+    if refused:
+        log_line("autoremove left out: it would remove " + ", ".join(refused))
+        return []
+    if not names:
+        return []
+    code = run_apt_logged([APT_GET, "-c", apt_install_conf(), "-y", "-o", f"{HISTORY_MARK}={TARGET['version']}",
+                           "-o", "Dpkg::Use-Pty=0", "autoremove"],
+                          progress_to_splash(99, 100))
+    if code != 0:
+        log_line(f"autoremove stopped (apt-get {code})")
+    return [name for name in names if name not in read_status()]
+
+
+def keep_display_manager():
+    """Before the install: the login screen's service, from its link (None
+    without one), with /etc/X11/default-display-manager naming it where it is
+    missing. Debian's greetd keeps the link only by that file, unless debconf
+    sees its first configuration, which a second try after Put Back isn't
+    (debconf lives in /var/cache, outside restore points)."""
+    try:
+        service = os.path.basename(os.readlink(DISPLAY_MANAGER_LINK))
+    except OSError:
+        return None
+    if service.endswith(".service") and not os.path.exists(DEFAULT_DISPLAY_MANAGER):
+        write_atomic(DEFAULT_DISPLAY_MANAGER, f"/usr/sbin/{service[:-len('.service')]}\n")
+        log_line(f"wrote {DEFAULT_DISPLAY_MANAGER[len(ROOT):]} for {service}")
+    return service
+
+
+def keep_grub_install_device():
+    """Before the install, on BIOS: grub-pc told which disk GRUB is on, if it
+    doesn't know (FlickOS's installer never said): its upgrade otherwise stops
+    half configured and 2.x comes back (finding J). Never fails the install."""
+    if not os.access(GRUB_INSTALL_DEVICE, os.X_OK):
+        return
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        out = subprocess.run([GRUB_INSTALL_DEVICE], capture_output=True, text=True, timeout=60).stdout.strip()
+        if out:
+            log_line(out)
+
+
+def restore_display_manager(service):
+    """After the install: the login screen's link back if a package removed
+    it. Returns a problem, or None."""
+    if not service or os.path.lexists(DISPLAY_MANAGER_LINK):
+        return None
+    unit = f"/usr/lib/systemd/system/{service}"
+    if not os.path.exists(ROOT + unit):
+        return f"the login screen's service {service} is gone"
+    os.symlink(unit, DISPLAY_MANAGER_LINK)
+    log_line(f"the login screen's link was removed by the install: put back ({service})")
+    return None
+
+
+def result_problems():
+    """Step 10: what says the install didn't finish."""
+    problems = []
+    audit = subprocess.run([DPKG, "--audit"], capture_output=True, text=True)
+    if audit.returncode != 0 or audit.stdout.strip():
+        problems.append("dpkg --audit: " + (audit.stdout.strip().splitlines() or [f"exit {audit.returncode}"])[0])
+    if "flickos-desktop" not in read_status():
+        problems.append("flickos-desktop isn't installed")
+    return problems
+
+
+def kept_files(since):
+    """The settings files dpkg (and ucf) kept as the admin had changed them,
+    the new release's version saved next to them (ADR-004). By ctime: dpkg
+    gives an unpacked file the package's own mtime."""
+    found = []
+    for folder, _dirs, files in os.walk(ETC):
+        for name in files:
+            if name.endswith((".dpkg-dist", ".ucf-dist")):
+                path = os.path.join(folder, name)
+                with contextlib.suppress(OSError):
+                    if os.lstat(path).st_ctime >= since:
+                        found.append(path[len(ROOT):])
+    return sorted(found)
+
+
+def mark_restore_point(rec, name, **fields):
+    """Add FIELDS to restore point NAME's own file in @snapshots: it stays
+    when the system is put back, unlike anything in the system."""
+    info = dict(rec.restore_points()).get(name)
+    if info is None:
+        return
+    info.update(fields)
+    rec.write_json(os.path.join(rec.SNAPSHOTS, name + ".json"), info)
+    rec.commit(rec.SNAPSHOTS)
+
+
+def offline():
+    """Run by flickos-upgrade.service. Ours only when TRIGGER points at
+    STAGE; then it is removed first (a failure must not start the install
+    again and again), and the computer restarts at the end, whatever happened."""
+    if ROOT and REBOOT == SYSTEM_REBOOT:
+        raise RuntimeError("a test root with the real restart")
+    try:
+        if os.readlink(TRIGGER) != STAGE:
+            return 0                    # another program's offline update
+    except OSError:
+        return 0
+    os.unlink(TRIGGER)
+    try:
+        outcome = install()
+    except Exception as error:          # whatever it was: log it, and restart
+        outcome = "error"
+        with contextlib.suppress(Exception):
+            log_line(f"the install stopped: {error!r}")
+    with contextlib.suppress(Exception):
+        log_line(f"install: {outcome}; restarting")
+    os.sync()
+    subprocess.run(list(REBOOT))
+    return 0 if outcome in ("installed", "nothing") else 1
+
+
+def install():
+    """Steps 7–10. Returns installed, nothing, unchanged (stopped before
+    anything changed), undone (failed, and put back) or interrupted (failed,
+    no way back: the next try goes on from here)."""
+    with stage_lock():
+        state = read_state()
+        if state.get("step") not in ("scheduled", "installing"):
+            log_line(f"nothing to install (step {state.get('step')})")
+            return "nothing"
+        resume = state.get("step") == "installing"
+        rec = recovery() if state.get("restore_point") else None
+        state.update(step="installing", boot=boot_id())
+        state.setdefault("install_started", time.time())
+        # Written before the restore point, so a system put back from it knows (step_now).
+        write_state(state)
+        os.sync()
+        target = f"{TARGET['name']} {TARGET['version']}"
+        splash(f"Installing {target}. Don't turn off the computer.", 0)
+
+        point = state.get("restore_point_name")
+        if state.get("restore_point") and not point:
+            try:
+                if rec is None:
+                    raise RuntimeError("flickos-recovery isn't installed")
+                # keep: flickos-recovery's pruning skips it; good: its automatic
+                # recovery may use it (P6).
+                point = rec.create(RESTORE_POINT_REASON, {"upgrade": TARGET["version"], "keep": True,
+                                                          "good": bool(state.get("good_start"))},
+                                   f"{SESSION}:{boot_id() or time.time()}")
+            except Exception as error:
+                return unchanged(state, f"no restore point: {error}")
+            state["restore_point_name"] = point
+            write_state(state)
+            log_line(f"restore point {point}")
+
+        if "display_manager" not in state:
+            state["display_manager"] = keep_display_manager()
+            write_state(state)
+        keep_grub_install_device()
+        changes = switch_changes(move_flickos=not state.get("flickos_kept"))
+        if not resume:
+            try:
+                apply_switch(changes)
+                use_staged_lists()
+            except OSError as error:
+                with contextlib.suppress(Exception):
+                    undo_switch(changes)
+                    restore_lists()
+                return unchanged(state, f"the sources couldn't be switched: {error}", rec, point)
+            log_line("sources switched: " + ", ".join(path[len(ROOT):] for path, _old, _new in changes))
+        else:
+            apply_switch(changes)       # whatever the first try didn't get to
+            use_staged_lists()
+            subprocess.run([DPKG, "--configure", "-a"], capture_output=True, env=dict(os.environ, **APT_ENV))
+
+        # Debian's release notes: a minimal upgrade first, then the full one.
+        # The first stopping is no reason to stop: the full one often finishes it.
+        run_apt_logged(install_argv() + ["upgrade", "--without-new-pkgs"], progress_to_splash(0, 45))
+        code = run_apt_logged(install_argv() + ["full-upgrade"], progress_to_splash(45, 95))
+        if code != 0:
+            subprocess.run([DPKG, "--configure", "-a"], capture_output=True, env=dict(os.environ, **APT_ENV))
+            code = run_apt_logged(install_argv() + ["full-upgrade"], progress_to_splash(45, 95))
+        installed = read_status()
+        done = []
+        for item in state.get("replacements", []):     # ADR-007: staged, so they install offline
+            if item["new"] not in installed and \
+                    run_apt_logged(install_argv() + ["install", item["new"]], progress_to_splash(95, 99)):
+                continue
+            done.append(item)
+            remove_obsolete(item["old"])
+        # Q8: what only the old release needed goes too, when the upgrade went
+        # through; the check below covers it, so a broken removal puts 2.x back.
+        autoremoved = autoremove() if code == 0 else []
+        problems = result_problems() + ([f"apt-get full-upgrade stopped ({code})"] if code else [])
+        problems += [problem for problem in [restore_display_manager(state.get("display_manager"))] if problem]
+        if problems:
+            return failed(state, "; ".join(problems), rec, point)
+
+        kept = kept_files(state["install_started"])
+        clear_stage(keep=("lock", STATE))
+        write_state({"step": "installed", "target": TARGET, "finished": time.time(),
+                     "install_started": state["install_started"], "restore_point_name": point,
+                     "kept_files": kept, "removed": state.get("removed", []), "replacements": done,
+                     "autoremoved": autoremoved,
+                     "flickos_kept": bool(state.get("flickos_kept"))})
+        log_line(f"installed {target}; settings files kept: {', '.join(kept) or 'none'}")
+        splash(f"{target} is installed. Restarting…", 100)
+        return "installed"
+
+
+def unchanged(state, error, rec=None, point=None):
+    """Stopped before dpkg ran: the system is as it was; the restore point
+    taken for it (kept by its mark) is deleted again."""
+    log_line(f"the install stopped before changing anything: {error}")
+    if rec is not None and point:
+        with contextlib.suppress(Exception):
+            with rec.locked():
+                rec.delete(point)
+            rec.update_menu()
+    for key in ("boot", "install_started", "restore_point_name"):
+        state.pop(key, None)
+    state.update(step="failed", error=error)
+    write_state(state)
+    splash(f"{TARGET['name']} {TARGET['version']} couldn't be installed. Nothing was changed. Restarting…")
+    return "unchanged"
+
+
+def failed(state, error, rec=None, point=None):
+    """dpkg ran and the result isn't right: put the restore point back, so the
+    next start is 2.x as it was; without one, the next try goes on from here."""
+    log_line(f"the install failed: {error}")
+    state["error"] = error
+    write_state(state)                  # stays "installing": interrupted, after the restart
+    if rec is not None and point:
+        try:
+            before = rec.restore(point)
+            mark_restore_point(rec, before, upgrade_failed=error)
+            log_line(f"put back {point}; the failed system is kept as restore point {before}")
+            splash(f"{TARGET['name']} {TARGET['version']} couldn't be installed. "
+                   "The system is put back as it was. Restarting…")
+            return "undone"
+        except Exception as why:        # noqa: BLE001 - logged; the system stays as it is
+            log_line(f"putting back {point} failed: {why!r}")
+    splash(f"{TARGET['name']} {TARGET['version']} couldn't be installed completely. Restarting…")
+    return "interrupted"
+
+
+# --- Step 11: after the restart ----------------------------------------------------------------
+
+NOTED = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local/state"),
+                     "flickos", "upgrade-noted")
+NOTIFY_WAIT_SECONDS = 30
+
+
+def notify_text(state):
+    """(key, title, body, urgency) of the note at login, or None. KEY is
+    written to NOTED, so a note is shown once; an interrupted install has no
+    key: it is told at every login until it is finished or put back."""
+    target = f"{TARGET['name']} {TARGET['version']}"
+    step = state.get("step")
+    if step == "installed":
+        kept = len(state.get("kept_files", []))
+        body = f"This computer now runs {target}, on Debian {TARGET['debian']}."
+        if kept:
+            body += f" {kept} settings file{'s' if kept != 1 else ''} you had changed stayed as you had them."
+        return (f"installed {state.get('finished')}", f"{target} is installed", body, "normal")
+    if step == "returned" and (state.get("back") or {}).get("failed"):
+        return (f"returned {state['back'].get('when')}", f"The upgrade to {target} failed",
+                "Your computer was put back as it was before, and nothing of yours was lost. "
+                "Click for details.", "critical")
+    if step == "interrupted":
+        return (None, f"The upgrade to {target} didn't finish",
+                "Click to finish it, or to put back the restore point taken before it.", "critical")
+    return None
+
+
+def notifications_ready():
+    """FlickOS's mako owns org.freedesktop.Notifications (else D-Bus starts a plain one)."""
+    out = subprocess.run(["busctl", "--user", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                          "org.freedesktop.DBus", "NameHasOwner", "s", "org.freedesktop.Notifications"],
+                         capture_output=True, text=True).stdout
+    return out.strip() == "b true"
+
+
+def notify(sleep=time.sleep):
+    note = notify_text(status())
+    if note is None or not shutil.which("notify-send"):
+        return 0
+    key, title, body, urgency = note
+    with contextlib.suppress(OSError):
+        with open(NOTED, encoding="utf-8") as f:
+            if key is not None and f.read().strip() == key:
+                return 0
+    for _ in range(NOTIFY_WAIT_SECONDS):
+        if notifications_ready():
+            break
+        sleep(1)
+    if key is not None:
+        with contextlib.suppress(OSError):
+            os.makedirs(os.path.dirname(NOTED), exist_ok=True)
+            write_atomic(NOTED, key + "\n")
+    result = subprocess.run(["notify-send", "--app-name=Updates", f"--urgency={urgency}",
+                             "--icon=system-software-update", "--action=default=Open", title, body],
+                            capture_output=True, text=True)
+    if result.stdout.strip() == "default" and shutil.which("flickos-control"):
+        subprocess.Popen(["flickos-control", "--page", "updates"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    return 0
+
+
+def gigabytes(size):
+    return f"{size / 1000 ** 3:.1f} GB"
+
+
+def show_check(problems):
+    if not problems:
+        print(f"Nothing stops the upgrade to {TARGET['name']} {TARGET['version']}. "
+              "Run `flickos-upgrade plan` to see what it does.")
+    for problem in problems:
+        print(problem["text"])
+
+
+def show_plan(result):
+    target = f"{TARGET['name']} {TARGET['version']}"
+    if "upgraded" in result:
+        print(f"Moving to {target} (Debian {TARGET['to']}): {result['upgraded']} packages upgraded, "
+              f"{result['new']} new, {len(result['removed'])} removed.")
+        print(f"Download {gigabytes(result['download'])}; it takes {gigabytes(max(result['disk'], 0))} more "
+              f"space, {gigabytes(result['needed'])} free needed, {gigabytes(result['free'])} free.")
+        if result["removed"]:
+            print("Removed: " + ", ".join(item["name"] for item in result["removed"]))
+        for item in result["replacements"]:
+            print(f"Afterwards {item['new']} is installed in place of {item['old']}.")
+        print("Afterwards the packages only the old release needed are removed.")
+        print("A restore point is taken first." if result["restore_point"] else
+              "No restore point is possible on this computer: there is no way back. Back up your files first.")
+    if result.get("flickos_kept"):
+        print(f"(--force: {target}'s packages aren't published; FlickOS's own sources stayed on "
+              f"{TARGET['from']} for this plan.)")
+    if result.get("third_party"):
+        print("Other sources, left as they are: " + ", ".join(result["third_party"]))
+    for warning in result.get("warnings", []):
+        print("(--force) " + warning["text"])
+    for problem in result["problems"]:
+        print(problem["text"])
+        for error in problem.get("errors", [])[:5]:
+            print("  " + error)
+    print("Ready." if result["ready"] else "Not ready.")
+
+
+def show_status(state):
+    target = f"{TARGET['name']} {TARGET['version']}"
+    step = state.get("step")
+    when = (lambda t: time.strftime("%-d %B %H:%M", time.localtime(t)) if t else "?")
+    if not step:
+        print("No upgrade is staged.")
+    elif step in ("staged", "scheduled"):
+        print(f"{target} is downloaded and ready to install "
+              f"({state.get('upgraded', 0)} packages upgraded, {state.get('new', 0)} new).")
+        if step == "scheduled":
+            print("It is installed at the next restart.")
+    elif step == "downloading":
+        print(f"{target} is being downloaded.")
+    elif step == "installing":
+        print(f"{target} is being installed.")
+    elif step == "installed":
+        print(f"{target} was installed on {when(state.get('finished'))}.")
+        if state.get("autoremoved"):
+            print(f"  {len(state['autoremoved'])} packages only the old release needed were removed.")
+        for path in state.get("kept_files", []):
+            print(f"  kept as you had it: {path} (the new version is next to it)")
+    elif step == "interrupted":
+        print(f"Installing {target} stopped halfway{': ' + state['error'] if state.get('error') else ''}. "
+              "Install again to finish it, or put back the restore point taken before it.")
+    elif step == "returned":
+        back = state.get("back") or {}
+        print(f"The computer was put back to before {target} on {when(back.get('when'))}"
+              + (f", because the install failed: {back['failed']}." if back.get("failed") else ".")
+              + " Download it again to try again.")
+    elif step == "failed":
+        print(f"The last try failed: {state.get('error', 'unknown')}.")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="flickos-upgrade",
+                                     description=f"Move FlickOS to {TARGET['version']}.")
+    sub = parser.add_subparsers(dest="action", required=True)
+    for name in ("offer", "check", "plan", "status"):
+        command = sub.add_parser(name)
+        command.add_argument("--json", action="store_true")
+        if name in ("offer", "plan"):
+            command.add_argument("--force", action="store_true",
+                                 help="plan even before FlickOS's new packages are published")
+    sub.add_parser("notify", help="at login: say once how the install went")
+    sub.add_parser("offline", help="flickos-upgrade.service only: the install")
+    opts = parser.parse_args(argv)
+    try:
+        if opts.action == "offline":
+            if os.geteuid() != 0 and not ROOT:
+                print("flickos-upgrade: offline runs as flickos-upgrade.service", file=sys.stderr)
+                return 2
+            return offline()
+        if opts.action == "notify":
+            return notify()
+        if opts.action == "offer":
+            result = offer(force=opts.force)
+            print(json.dumps(dict(result, target=TARGET)) if opts.json else
+                  f"{TARGET['name']} {TARGET['version']} is " + ("offered." if result["offered"] else
+                                                                 f"not offered ({result['why']})."))
+            return 0 if result["offered"] else 1
+        if opts.action == "check":
+            problems = check()
+            print(json.dumps({"target": TARGET, "problems": problems})) if opts.json else show_check(problems)
+            return 1 if problems else 0
+        if opts.action == "status":
+            state = status()
+            print(json.dumps(state)) if opts.json else show_status(state)
+            return 0
+        result = plan(force=opts.force)
+    except OSError as error:
+        print(f"flickos-upgrade: {error}", file=sys.stderr)
+        return 2
+    print(json.dumps(result)) if opts.json else show_plan(result)
+    return 0 if result["ready"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

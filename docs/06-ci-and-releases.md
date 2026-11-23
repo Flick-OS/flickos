@@ -176,6 +176,57 @@ To post commits from before the workflow existed, run
 `DISCORD_WEBHOOK=URL tools/discord-post-commits.py -n 20 main` (or
 `--webhook-file FILE`). `--dry-run` prints the messages instead.
 
+## 2.x feature freeze
+
+Since 2026-11-22, FlickOS 2.x (Debian 13) takes no new features: new work goes
+into 3.0, on the `forky` branch ([11](11-new-debian-release.md)). `main` still
+builds 2.x and publishes it to `trixie` until the cut-over (docs/11 phase 4),
+but only these changes:
+
+- bug fixes and regressions,
+- security fixes,
+- translations and text fixes,
+- whatever a Debian 13 point release or security update breaks,
+- docs, tests, CI and build tools.
+
+Not on main: a new package, kit, layout, style, setting, keybinding or Settings
+page, a new option on an existing feature, or a changed default that users
+would notice. These go on `forky`, which, until phase 4, means no changelog
+entry (its merged branches keep their `~test` versions). A feature already merged
+to main before the freeze may still be finished (the checks it was waiting
+for, and fixes for what they find) but not extended. An exception has to be
+decided on purpose and written down here. The exceptions so far:
+
+- the 2.x → 3.0 upgrade tool (docs/11 phase 5, `docs/design/flickos-upgrade.md`),
+  built on a branch with `~test` versions and published at phase 5,
+- the end-of-support notice (below).
+
+Fix on main, then merge main into forky (`tools/sync-release.sh`) as before.
+A fix that is only needed on forky stays there.
+
+**Last 2.x ISO:** 2.4 is the snapshot of main at the freeze, so that new
+installs start from what the apt repo already has instead of upgrading 2.3.
+After it, a 2.4.N ISO only when the ISO itself is broken (it won't install,
+boot or upgrade); package fixes reach users through the apt repo alone.
+
+**Support after 3.0:** 2.x fixes continue on a `trixie` branch, following
+docs/11's *After the release* (security, data loss, broken upgrades), for
+**12 months after 3.0's release**, and never past the end of Debian 13's
+regular security support, whichever comes first. Twelve months gives schools
+and organizations a full school year's break to upgrade in. The clock starts at
+3.0's release, not at the cut-over, and only once the tested upgrade path
+(docs/11 phase 5) is out: if that comes later, the end date moves back with it.
+
+- 3.0's release notes give the end as a month, and explain what it means:
+  FlickOS stops publishing to `trixie`, but the suites stay online and
+  Debian's own security updates keep arriving until Debian stops them, so a
+  2.x system keeps working; it just gets no more FlickOS fixes.
+- About 3 months before the end, 2.x shows a notice on the desktop (Welcome
+  or Software) pointing to the upgrade. This one is an allowed exception to the
+  freeze.
+- On the end date, follow docs/11's *At the end of trixie's security
+  support*: announce it, stop publishing, never delete the suites.
+
 ## Release checklist
 
 Use this for every FlickOS release. The examples use `2.0`.

@@ -1,3 +1,107 @@
+flickos-control (1.87) trixie; urgency=medium
+
+  * Security audit F-3 to F-6: the password every time (auth_admin) for
+    user-add, user-admin, user-password, autologin-on, firewall-off,
+    updates, packages-undo, upstream and packet-capture; the account
+    verbs hold a lock, so two removals at once can't remove the last
+    administrator; packages-undo takes only Debian package names from
+    apt's log, puts -- before them and installs with --no-remove;
+    numbers are ASCII digits only (packages-list ² no longer crashes).
+  * tests: test_upgrade.py no longer fails at the package build, where
+    flickos-branding isn't next to the package.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 13:05:59 +0800
+
+flickos-control (1.86) trixie; urgency=medium
+
+  * Release of 1.86~test1-test6: the upgrade to the next FlickOS release
+    (flickos-upgrade: plan, download, the offline install with a restore
+    point, Settings > Updates, Not Now), Delete... per restore point.
+    Breaks flickos-recovery << 1.8 (the upgrade's kept restore point).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 12:01:13 +0800
+
+flickos-control (1.86~test6) trixie; urgency=medium
+
+  * Upgrade finding J: before the install, grub-pc is told GRUB's disk
+    on BIOS (flickos-branding's grub-install-device); its upgrade
+    otherwise stopped and 2.x came back.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 11:35:22 +0800
+
+flickos-control (1.86~test5) trixie; urgency=medium
+
+  * Upgrade finding I: the plan fails when any source fails to update
+    (apt exits 0 then) and when Debian itself doesn't move (base-files),
+    instead of staging FlickOS's packages alone.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 10:13:21 +0800
+
+flickos-control (1.86~test4) trixie; urgency=medium
+
+  * The plan dialog's Restore Points button stays hidden until a plan
+    refused for space needs it (add_button showed it while the plan
+    loaded).
+  * flickos-upgrade logs that an install goes ahead without a restore
+    point, as the user confirmed.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 08:30:38 +0800
+
+flickos-control (1.86~test3) trixie; urgency=medium
+
+  * Upgrade finding E: refused for space, the plan names the restore
+    points that can go (the system left after going back holds the most)
+    and has a Restore Points button; Restore Points deletes one at a
+    time, and says which is kept until deleted.
+  * Upgrade Q7: Not Now on the offer hides it for 30 days, for that
+    release.
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 07:40:08 +0800
+
+flickos-control (1.86~test2) trixie; urgency=medium
+
+  * flickos-upgrade phase 3: the install. 'upgrade install|cancel'
+    (helper) sets the restart into it; flickos-upgrade.service (system-
+    update.target) takes the restore point (marked keep, good and
+    upgrade), switches the sources, installs from the stage without
+    flickos-recovery's hook, with progress on the splash, checks the
+    result and puts the restore point back when it fails; status tells
+    an interrupted or put-back install; notify says once at login how it
+    went.
+  * The old half of a replacement (evince) is removed when the new
+    release dropped it and removing it takes nothing else, as the plan
+    said. apt's status lines come on a pipe of their own, never stdout.
+  * The install ends with apt-get autoremove (Q8), never when it would
+    remove FlickOS, before the result check.
+  * Settings > Updates offers the next release (flickos-upgrade offer,
+    closed until a 2.x update opens it): the plan, the download with its
+    progress, Restart and Install, and what happened after; History
+    shows the upgrade as one row without Undo.
+  * The install keeps the login screen: it writes /etc/X11/default-
+    display-manager for the linked service, which greetd's postinst
+    needs to keep the link, and puts the link back if a package removed
+    it anyway.
+  * Each install's restore point has its own run (a second try after Put
+    Back was refused), and the restart doesn't block.
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 22 Nov 2026 20:40:44 +0800
+
+flickos-control (1.86~test1) trixie; urgency=medium
+
+  * flickos-upgrade, the read-only half of the 2.x to 3.0 upgrade
+    (docs/design/flickos-upgrade.md, phase 1): check and plan, which
+    simulates the whole upgrade in a scratch apt folder and refuses one
+    that would remove FlickOS.
+  * Upgrade phase 2 (ADR-010): control-helper upgrade prepare [--
+    force]|discard stages the new release's lists and packages in
+    /var/lib/flickos/upgrade without changing anything else (polkit
+    action org.flickos.control.upgrade); flickos-upgrade status; the
+    sources switch and its undo, for the install.
+  * flickos-upgrade plan --force only warns about test versions: the
+    tool under test is one (found in the P4 run).
+
+ -- Jon <dvbondoy@gmail.com>  Sun, 22 Nov 2026 16:14:39 +0800
+
 flickos-control (1.85) trixie; urgency=medium
 
   * Startup Applications: Add Command… starts a program, script or

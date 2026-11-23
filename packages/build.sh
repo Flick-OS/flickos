@@ -49,7 +49,8 @@ fi
 # main published meanwhile (docs/06, "Package versions on branches"). Only a
 # warning: a compiled package (sfwbar) can differ between two builds of the
 # same source, and CI has no pool.
-POOL="$ROOT/repo/public/pool"
+. "$ROOT/repo/data-dir.sh"
+POOL="$REPO_DATA/public/pool"
 if [ -d "$POOL" ]; then
     for deb in "$WORK"/*.deb; do
         published="$(find "$POOL" -name "$(basename "$deb")" -print -quit)"

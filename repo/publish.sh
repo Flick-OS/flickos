@@ -23,6 +23,8 @@ set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$ROOT/repo"
+# REPO_DATA: db/ and public/, shared by every checkout (repo/data-dir.sh).
+. "$REPO/data-dir.sh"
 # Folder names, looked for in EXTRAS_DIR. Empty by default: EXTRAS="flickos-notes"
 # publishes one by hand. flickos-notes, -write and -phone-screen were taken out
 # on 2026-11-11 (store ADR-008's amendment); flickos-trail is private, sold
@@ -59,6 +61,8 @@ for name in $EXTRAS; do
     fi
 done
 
+[ "$REPO_DATA" = "$REPO" ] || echo "==> Repository data: $REPO_DATA (the main worktree's)"
+
 sh "$ROOT/packages/build.sh"
 
 rm -rf "$WORK"
@@ -80,12 +84,12 @@ if [ -n "$TESTING" ]; then
     for deb in "$ROOT"/config/packages.chroot/*.deb "$ROOT"/config/packages.opt-in/*.deb; do
         [ -e "$deb" ] || continue
         for_testers "$deb" || continue
-        reprepro -b "$REPO" includedeb "$TESTING_SUITE" "$deb"
+        reprepro -b "$REPO_DATA" --confdir "$REPO/conf" includedeb "$TESTING_SUITE" "$deb"
         found=yes
     done
     [ -n "$found" ] || echo "==> No package has a ~test version: nothing added to $TESTING_SUITE."
     echo "==> $TESTING_SUITE contents:"
-    reprepro -b "$REPO" list "$TESTING_SUITE"
+    reprepro -b "$REPO_DATA" --confdir "$REPO/conf" list "$TESTING_SUITE"
     echo "==> Next: repo/upload.sh"
     exit 0
 fi
@@ -96,12 +100,12 @@ for deb in "$ROOT"/config/packages.chroot/*.deb "$ROOT"/config/packages.opt-in/*
         echo "==> Not in $SUITE: $(basename "$deb") is for testers (repo/publish.sh --testing)"
         continue
     fi
-    reprepro -b "$REPO" includedeb "$SUITE" "$deb"
+    reprepro -b "$REPO_DATA" --confdir "$REPO/conf" includedeb "$SUITE" "$deb"
 done
 
 # Convenience copy for manual setup on non-FlickOS machines.
-cp "$ROOT/packages/flickos-archive-keyring/keyrings/flickos-archive-keyring.asc" "$REPO/public/"
+cp "$ROOT/packages/flickos-archive-keyring/keyrings/flickos-archive-keyring.asc" "$REPO_DATA/public/"
 
 echo "==> Repository contents:"
-reprepro -b "$REPO" list "$SUITE"
+reprepro -b "$REPO_DATA" --confdir "$REPO/conf" list "$SUITE"
 echo "==> Next: repo/upload.sh"

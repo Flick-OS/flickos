@@ -135,6 +135,11 @@ paths a/src/...) and a line to series, as well as an entry here.
     gives it (not the inner grid's, which halign start keeps as narrow as
     its items). Upstream's grid grew
     with every item and pushed the rest of the bar off the screen.
+  - src/gui/tray.c: tray_init() no longer adds the existing tray items
+    after sni_listener_register(), which adds them already. Upstream added
+    them twice, so a tray made after its items (a mirrored bar's copy on a
+    second screen) showed each one twice, such as two nm-applet icons on
+    Redmond+'s panel on a laptop's own screen.
 
 Why a git commit and not a release: the latest release, 1.0_beta17, lacks
 taskbar pins (documented but only implemented for the pager) and its

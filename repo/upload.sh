@@ -12,12 +12,14 @@ set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REMOTE="git@github.com:dvbondoy/flickos-apt.git"
-CLONE="$ROOT/repo/.gh-pages"
+# REPO_DATA: public/ and .gh-pages/, shared by every checkout (repo/data-dir.sh).
+. "$ROOT/repo/data-dir.sh"
+CLONE="$REPO_DATA/.gh-pages"
 BASE="https://dvbondoy.github.io/flickos-apt"
 # FLICKOS_DEBIAN: the suite names.
 . "$ROOT/packages/flickos-branding/usr/lib/flickos-release"
 
-if [ ! -f "$ROOT/repo/public/dists/$FLICKOS_DEBIAN/InRelease" ]; then
+if [ ! -f "$REPO_DATA/public/dists/$FLICKOS_DEBIAN/InRelease" ]; then
     echo "No signed repository in repo/public/. Run repo/publish.sh first." >&2
     exit 1
 fi
@@ -31,8 +33,20 @@ fi
 echo "==> Syncing repo/public/ into $CLONE"
 git -C "$CLONE" fetch origin gh-pages
 git -C "$CLONE" reset --hard origin/gh-pages
+# --delete below would remove a suite the site has and repo/public/ lacks:
+# every installed system of that release would lose its updates. Suites are
+# never deleted (docs/11), so a missing one means the wrong repo/public/.
+for dir in "$CLONE"/dists/*/; do
+    [ -d "$dir" ] || continue
+    suite="$(basename "$dir")"
+    if [ ! -d "$REPO_DATA/public/dists/$suite" ]; then
+        echo "Refusing to upload: the site has dists/$suite and $REPO_DATA/public/ doesn't." >&2
+        echo "Uploading would delete it. Publish from the checkout whose repo/ holds every suite (docs/11, \"The 2.x worktree\")." >&2
+        exit 1
+    fi
+done
 # --delete keeps the branch identical to repo/public/, except .git itself.
-rsync -rt --delete --exclude=.git "$ROOT/repo/public/" "$CLONE/"
+rsync -rt --delete --exclude=.git "$REPO_DATA/public/" "$CLONE/"
 # The style packages' screenshots (tools/make-style-shots.sh), at the
 # addresses in their metainfo: $BASE/screenshots/NAME/N.png.
 rsync -rt --delete "$ROOT/repo/screenshots/" "$CLONE/screenshots/"
@@ -49,6 +63,6 @@ git -C "$CLONE" commit -q -m "Publish apt repo $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 git -C "$CLONE" push origin gh-pages
 
 echo "==> Check: curl -fsSI $BASE/dists/$FLICKOS_DEBIAN/InRelease"
-[ -d "$ROOT/repo/public/dists/$FLICKOS_DEBIAN-testing" ] &&
+[ -d "$REPO_DATA/public/dists/$FLICKOS_DEBIAN-testing" ] &&
     echo "==>        curl -fsSI $BASE/dists/$FLICKOS_DEBIAN-testing/InRelease"
 exit 0

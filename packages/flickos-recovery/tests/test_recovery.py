@@ -76,6 +76,8 @@ class Tree(unittest.TestCase):
                             ("STATE_CFG", os.path.join(self.snapshots, ".flickos-start.cfg")),
                             ("GRUB_ACCESS", os.path.join(self.snapshots, ".flickos-grub.json")),
                             ("BOOTED_FILE", os.path.join(root, "restore-point-boot")),
+                            # On a mount of its own only where a test says so (debconf_mount).
+                            ("DEBCONF", os.path.join(root, "cache/debconf")),
                             # Never the installed helper: run by a user, need_root()
                             # would exec pkexec on the build host and ask for a password.
                             ("HELPER", os.path.join(root, "no-recovery-helper")),
@@ -99,13 +101,35 @@ class Tree(unittest.TestCase):
             return
         if argv[:3] == ("subvolume", "snapshot", "-r"):
             os.mkdir(argv[4])
+        elif argv[:2] == ("subvolume", "snapshot") and argv[2] == "/":
+            os.mkdir(argv[3])           # writable, of the running system: empty here
+        elif argv[:2] == ("property", "set"):
+            return
         elif argv[:2] == ("subvolume", "delete"):
-            os.rmdir(argv[2])
+            shutil.rmtree(argv[2])
         else:
             raise AssertionError(f"unexpected btrfs {argv}")
 
     def names(self):
         return [name for name, _ in rp.restore_points()]
+
+    def debconf_mount(self, answers="answers now"):
+        """debconf's folder on a mount of its own (FlickOS's @cache), with its files."""
+        self.mounts(BTRFS_LAYOUT + f"25 22 0:25 /@cache {os.path.dirname(rp.DEBCONF)} rw - btrfs /dev/vda2 rw\n")
+        os.makedirs(rp.DEBCONF, exist_ok=True)
+        self.write_debconf(rp.DEBCONF, answers)
+
+    @staticmethod
+    def write_debconf(folder, answers):
+        for name in rp.DEBCONF_FILES:
+            with open(os.path.join(folder, name), "w") as f:
+                f.write(f"{name}: {answers}\n")
+        os.chmod(os.path.join(folder, "passwords.dat"), 0o600)
+
+    @staticmethod
+    def read_debconf(folder):
+        with open(os.path.join(folder, "config.dat")) as f:
+            return f.read()
 
     def log_text(self):
         with open(rp.LOG) as f:
@@ -229,6 +253,29 @@ class Create(Tree):
         self.assertEqual((info["reason"], info["session"], info["boot"]), ("apt install sl", "100:5", "boot-1"))
         self.assertIn("created " + name, self.log_text())
 
+    def test_keeps_debconfs_answers_when_they_are_outside_the_system(self):
+        self.debconf_mount()
+        name = rp.create("apt install sl")
+        target = os.path.join(self.snapshots, name)
+        # Writable only until the copy is in.
+        self.assertEqual(self.btrfs_calls[:2], [("subvolume", "snapshot", "/", target),
+                                                ("property", "set", "-ts", target, "ro", "true")])
+        kept = os.path.join(target, rp.KEPT_DEBCONF)
+        self.assertEqual(sorted(os.listdir(kept)), sorted(rp.DEBCONF_FILES))
+        self.assertEqual(self.read_debconf(kept), "config.dat: answers now\n")
+        self.assertEqual(os.stat(os.path.join(kept, "passwords.dat")).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(kept).st_mode & 0o777, 0o700)
+        self.assertTrue(dict(rp.restore_points())[name]["debconf"])
+
+    def test_a_failed_copy_still_makes_a_read_only_restore_point(self):
+        self.debconf_mount()
+        with mock.patch.object(rp.shutil, "copy2", side_effect=PermissionError("no")):
+            name = rp.create("apt install sl")
+        target = os.path.join(self.snapshots, name)
+        self.assertIn(("property", "set", "-ts", target, "ro", "true"), self.btrfs_calls)
+        self.assertFalse(dict(rp.restore_points())[name]["debconf"])
+        self.assertIn("debconf's answers not kept", self.log_text())
+
     def test_one_restore_point_per_run_of_a_program(self):
         rp.create("automatic updates", session="7:9")
         with self.assertRaises(rp.Refused):
@@ -252,6 +299,18 @@ class Create(Tree):
         self.assertEqual(self.names()[-1], new)
         self.assertNotIn("2026-01-01_00-00-00", self.names())
         self.assertNotIn("2026-01-03_00-00-00", self.names())
+
+    def test_a_kept_restore_point_is_never_pruned(self):
+        # flickos-upgrade's "Before FlickOS 3.0" (keep) is the oldest; it stays
+        # and doesn't count among the KEEP.
+        for i in range(rp.KEEP + 2):
+            os.mkdir(os.path.join(self.snapshots, f"2026-01-0{i + 1}_00-00-00"))
+            with open(os.path.join(self.snapshots, f"2026-01-0{i + 1}_00-00-00.json"), "w") as f:
+                json.dump({"reason": "old", "created": 0, "keep": i == 0}, f)
+        rp.create("by hand")
+        self.assertIn("2026-01-01_00-00-00", self.names())
+        self.assertNotIn("2026-01-02_00-00-00", self.names())
+        self.assertEqual(len(self.names()), rp.KEEP + 1)
 
     def test_never_touches_snapshots_that_are_not_restore_points(self):
         os.mkdir(os.path.join(self.snapshots, "2000-01-01_my-own"))
@@ -500,9 +559,9 @@ class PutBack(Tree):
         self.point = rp.create("apt install sl")
 
     def fake_btrfs(self, *argv):
-        if argv[:2] == ("subvolume", "snapshot") and argv[2] != "-r":
+        if argv[:2] == ("subvolume", "snapshot") and argv[2] not in ("-r", "/"):
             self.btrfs_calls.append(argv)
-            os.mkdir(argv[3])
+            shutil.copytree(argv[2], argv[3], symlinks=True)
         elif argv[:2] == ("property", "set") or argv[:2] == ("filesystem", "sync"):
             self.btrfs_calls.append(argv)
         else:
@@ -587,6 +646,27 @@ class PutBack(Tree):
         self.boot("boot-2")
         self.assertIsNone(rp.restart_pending())
 
+    def test_puts_debconfs_answers_back_with_the_system(self):
+        self.debconf_mount("answers then")
+        point = rp.create("apt install greetd")
+        self.write_debconf(rp.DEBCONF, "answers now")
+        before = rp.restore(point)
+        self.assertEqual(self.read_debconf(rp.DEBCONF), "config.dat: answers then\n")
+        self.assertEqual(os.stat(os.path.join(rp.DEBCONF, "passwords.dat")).st_mode & 0o777, 0o600)
+        # The answers in use until now go with the system before, for undoing it.
+        self.assertEqual(self.read_debconf(os.path.join(self.snapshots, before, rp.KEPT_DEBCONF)),
+                         "config.dat: answers now\n")
+        # The restored system doesn't hold the copy itself.
+        self.assertFalse(os.path.exists(os.path.join(self.top, "@", os.path.dirname(rp.KEPT_DEBCONF))))
+        self.assertIn(("filesystem", "sync", rp.DEBCONF), self.btrfs_calls)
+        self.assertIn("debconf's answers put back", self.log_text())
+
+    def test_a_restore_point_without_debconfs_answers_leaves_them(self):
+        self.debconf_mount("answers now")       # self.point was made before: no copy
+        before = rp.restore(self.point)
+        self.assertEqual(self.read_debconf(rp.DEBCONF), "config.dat: answers now\n")
+        self.assertFalse(os.path.exists(os.path.join(self.snapshots, before, rp.KEPT_DEBCONF)))
+
 
 class Plan(Tree):
     HISTORY = """
@@ -658,6 +738,22 @@ class Helper(unittest.TestCase):
                      ["delete", "my-own"], ["enabled", "maybe"], ["create", "--all"],
                      ["create", "a\nb"], ["create", "x" * 101], ["list"]):
             self.assertIsNone(helper.command(argv), argv)
+
+    def test_the_policy_asks_every_time_for_what_puts_back_accounts(self):
+        """restore, keep and try-again put back passwords and accounts too:
+        no kept password lets another program repeat them (HIG SET-10)."""
+        import xml.etree.ElementTree as ET
+        top = ET.parse(os.path.join(PACKAGE, "usr/share/polkit-1/actions/org.flickos.recovery.policy")).getroot()
+        found = {}
+        for action in top.iter("action"):
+            verb = action.get("id").rpartition(".")[2]
+            found[verb] = action.find("defaults/allow_active").text
+            self.assertEqual((action.find("defaults/allow_any").text, action.find("defaults/allow_inactive").text),
+                             ("auth_admin", "auth_admin"), verb)
+        self.assertEqual({verb for verb, value in found.items() if value == "auth_admin"},
+                         {"restore", "keep", "try-again"})
+        self.assertEqual({value for verb, value in found.items() if verb not in ("restore", "keep", "try-again")},
+                         {"auth_admin_keep"})
 
     def test_runs_the_program_as_root(self):
         with mock.patch.object(helper.os, "geteuid", lambda: 0), \

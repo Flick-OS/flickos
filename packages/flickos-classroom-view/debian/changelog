@@ -1,3 +1,11 @@
+flickos-classroom-view (1.1) trixie; urgency=medium
+
+  * Setting up a lab computer (lab on, off, pair, forget) asks for the
+    password every time (auth_admin): it decides which teacher sees
+    every account's screen (HIG SET-10, security audit F-3).
+
+ -- Jon <dvbondoy@gmail.com>  Mon, 23 Nov 2026 13:43:05 +0800
+
 flickos-classroom-view (1.0) trixie; urgency=medium
 
   * Release: flickos-classroom-view and flickos-classroom-teacher are

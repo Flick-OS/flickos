@@ -1,0 +1,55 @@
+#!/bin/sh
+# grub-install-device: on a BIOS computer, tell Debian's grub-pc which disk
+# GRUB is installed on, when it doesn't know.
+#
+# grub-pc keeps that disk in its debconf answer grub-pc/install_devices and
+# runs grub-install there at every upgrade. FlickOS's installer (Calamares)
+# installs GRUB itself and never answered it, so an upgrade of grub-pc
+# without anyone to ask stops ("You must correct your GRUB install devices")
+# and leaves it half configured: every Debian update of grub-pc, and the
+# upgrade to 3.0 (docs/design/flickos-upgrade.md, finding J).
+#
+# Does nothing on UEFI, without grub-pc, or when the answer is already given.
+# The disk is the one holding /boot (or /), through LUKS and partitions, by
+# its /dev/disk/by-id name when it has one (stable when disks are added).
+# Run by flickos-branding's postinst, the installer's bootloader-config and
+# flickos-upgrade before the install. Prints what it did; never fails.
+#
+# GRUB_DEVICE_SYS, GRUB_DEVICE_BY_ID: /sys and /dev/disk/by-id for the tests.
+
+SYS="${GRUB_DEVICE_SYS:-/sys}"
+BY_ID="${GRUB_DEVICE_BY_ID:-/dev/disk/by-id}"
+QUESTION=grub-pc/install_devices
+
+[ -d "$SYS/firmware/efi" ] && exit 0
+# Present, configured or not: a half-configured grub-pc is the one stuck on it.
+dpkg-query -W -f='${Status}' grub-pc 2>/dev/null \
+    | grep -qE " (installed|half-configured|unpacked|triggers-awaited|triggers-pending)$" || exit 0
+
+# debconf-show prints "* grub-pc/install_devices: VALUE" ("  …:" while empty).
+current=$(debconf-show grub-pc 2>/dev/null | sed -n "s|^[* ] $QUESTION: *||p")
+[ -n "$current" ] && exit 0
+
+source=$(findmnt -no SOURCE /boot 2>/dev/null || findmnt -no SOURCE / 2>/dev/null)
+source=${source%%\[*}               # btrfs adds [/@]
+[ -n "$source" ] || exit 0
+# The device's ancestors, itself first: partition, LUKS mapping, disk.
+disk=$(lsblk -nsrpo NAME,TYPE "$source" 2>/dev/null | awk '$2 == "disk" { print $1 }' | tail -n 1)
+[ -n "$disk" ] || exit 0
+
+answer=$disk
+for link in "$BY_ID"/*; do
+    [ -L "$link" ] || continue
+    case "$link" in *-part[0-9]*) continue ;; esac
+    if [ "$(readlink -f "$link")" = "$disk" ]; then
+        answer=$link
+        break
+    fi
+done
+
+if echo "grub-pc $QUESTION multiselect $answer" | debconf-set-selections 2>/dev/null; then
+    echo "grub-install-device: grub-pc installs GRUB on $answer"
+else
+    echo "grub-install-device: grub-pc's install device not set" >&2
+fi
+exit 0

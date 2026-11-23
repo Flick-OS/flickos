@@ -1,4 +1,5 @@
 usr/lib/flickos-release         usr/lib/
+usr/libexec/flickos/*           usr/libexec/flickos/
 usr/share/plymouth/themes/*     usr/share/plymouth/themes/
 usr/share/icons/hicolor/*       usr/share/icons/hicolor/
 usr/share/flickos/grub/*        usr/share/flickos/grub/

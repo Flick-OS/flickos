@@ -224,6 +224,19 @@ Only these verbs exist, and every value is checked before anything changes:
       every update (flickos-control's 61flickos-purchases), only while a key
       is on the computer; not through pkexec.
 
+  upgrade prepare [--force] | install [--without-restore-point] | cancel | discard
+      The 2.x to 3.0 upgrade (docs/design/flickos-upgrade.md): prepare plans
+      it again as root and downloads the new release's lists and packages into
+      flickos-upgrade's stage, /var/lib/flickos/upgrade; nothing else on the
+      system changes (ADR-010). Its last line is "flickos-upgrade-result: "
+      and the plan as JSON. --force plans before FlickOS's new suites are
+      published (testing). install makes the next start install what is
+      staged (/system-update, flickos-upgrade.service); the caller restarts.
+      Where no restore point can be taken it needs --without-restore-point:
+      the user agreed there is no way back (ADR-005). cancel undoes install
+      before the restart; discard deletes the stage. The work is
+      /usr/bin/flickos-upgrade's, loaded from there (UPGRADE_PROGRAM).
+
 Two verbs only read, and run without root (and without pkexec), so that the
 Settings window shows the same list and plan the undo will use:
 
@@ -243,6 +256,7 @@ Exit codes: 0 ok, 1 error, 2 usage error.
 import base64
 import contextlib
 import datetime
+import fcntl
 import glob
 import grp
 import gzip
@@ -277,6 +291,10 @@ LOGIN_POSITIONS = ("left", "center", "right")
 PICTURES = "/var/lib/AccountsService/icons"     # accountsservice's, one file per user name
 PROC = "/proc"
 ADMIN_GROUP = "sudo"                # polkit's administrators (Debian) and sudo's
+# Held by every account verb, so that keep_an_administrator's check and the
+# change after it never interleave with another call's (audit F-6).
+ACCOUNTS_LOCK = "/run/flickos-control-accounts.lock"
+ACCOUNT_VERBS = ("user-add", "user-remove", "user-admin", "user-password")
 # The installer's groups for the first account without sudo (flickos-installer's
 # users.conf defaultGroups); ones that don't exist here are left out.
 DEFAULT_GROUPS = ("cdrom", "floppy", "audio", "dip", "video", "plugdev", "netdev", "lpadmin", "scanner",
@@ -313,7 +331,7 @@ LOCAL_PORTS_MARK = "# Servers you run yourself: Settings > Firewall (flickos-con
 LOCAL_PORTS_APP = "FlickOS Local Ports"
 LOCAL_PORTS_MAX = 15
 FIRST_PORT = 1024
-LOCAL_PORT = re.compile(r"^(\d{1,5})(?::(\d{1,5}))?/(tcp|udp)$")
+LOCAL_PORT = re.compile(r"^([0-9]{1,5})(?::([0-9]{1,5}))?/(tcp|udp)$")
 # podman's netavark: flickos-kit-containers' drop-ins keep its units off until
 # this file exists (flickos-dev.md, ADR-001 and Q7); mark is its first line.
 NETAVARK_FLAG = "/etc/flickos/kits/netavark-on"
@@ -417,8 +435,11 @@ APT_LOG = "/var/log/apt/history.log"            # and history.log.N.gz, rotated 
 APT_GET = "/usr/bin/apt-get"
 CMDLINE = "/proc/cmdline"
 PROC_UPTIME = "/proc/uptime"
-TRANSACTION_ID = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$")
-PACKAGE_ITEM = re.compile(r"([^\s,()]+):([A-Za-z0-9-]+) \(([^)]*)\)")
+TRANSACTION_ID = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$")
+# A Debian package name (Policy 5.6.7) and architecture, at the start of an
+# item: anything else in the log, an option-like word for one, is no package
+# (audit F-4).
+PACKAGE_ITEM = re.compile(r"(?<![^\s,])([a-z0-9][a-z0-9+.-]+):([a-z0-9-]+) \(([^)]*)\)")
 LIST_FIELDS = ("Install", "Reinstall", "Upgrade", "Downgrade", "Remove", "Purge")
 # The installer removes these last: a transaction that removes one ends the
 # installation, and it and everything before it (the image's own build, the
@@ -429,12 +450,19 @@ INSTALL_SECONDS = 120
 LIVE_PACKAGES = ("live-boot", "live-config", "live-config-systemd", "live-tools", "flickos-installer", "calamares")
 DESKTOP_PACKAGE = "flickos-desktop"             # it and its Depends are never removed
 UNDO_OPTION = "FlickOS::Undo"                   # apt keeps it in the Commandline: of the undo's transaction
+UPGRADE_OPTION = "FlickOS::Upgrade"             # the same for flickos-upgrade's install (its HISTORY_MARK)
 HISTORY_DAYS = 90
 APT_SECONDS = 1800
 DPKG = "/usr/bin/dpkg"
 DPKG_QUERY = "/usr/bin/dpkg-query"
 APT_MARK = "/usr/bin/apt-mark"
 FOREIGN_ARCH = "i386"                           # i386-on/off: the only architecture added
+
+
+def number(text, most=9):
+    """Whether text is an ASCII number of 1..most digits. str's isdigit() also
+    accepts digits int() refuses ("²"), and int() then raises (audit F-5)."""
+    return re.fullmatch(f"[0-9]{{1,{most}}}", text) is not None
 
 
 class HelperError(Exception):
@@ -535,7 +563,7 @@ def uid_range():
     with contextlib.suppress(OSError), open(LOGIN_DEFS, encoding="utf-8") as f:
         for line in f:
             parts = line.split()
-            if len(parts) == 2 and parts[0] in limits and parts[1].isdigit():
+            if len(parts) == 2 and parts[0] in limits and number(parts[1]):
                 limits[parts[0]] = int(parts[1])
     return limits["UID_MIN"], limits["UID_MAX"]
 
@@ -543,7 +571,7 @@ def uid_range():
 def calling_user():
     """The user who ran pkexec: only they can be logged in automatically."""
     uid = os.environ.get("PKEXEC_UID", "")
-    if not uid.isdigit():
+    if not number(uid):
         raise HelperError("run through pkexec (PKEXEC_UID is not set)")
     low, high = uid_range()
     try:
@@ -766,6 +794,19 @@ def administrators():
     return found
 
 
+@contextlib.contextmanager
+def accounts_lock():
+    """One account verb at a time (ACCOUNT_VERBS): two removals at once could
+    otherwise both pass keep_an_administrator and leave none (audit F-6).
+    /run is root's, and O_NOFOLLOW refuses a link anyway."""
+    fd = os.open(ACCOUNTS_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
 def keep_an_administrator(name):
     if administrators() == [name]:
         raise HelperError(f"{name} is the only administrator; make someone else an administrator first")
@@ -775,7 +816,7 @@ def logged_in(uid):
     """Whether any process runs as uid (a session, or anything left running)."""
     with contextlib.suppress(OSError):
         for pid in os.listdir(PROC):
-            if pid.isdigit():
+            if number(pid):
                 with contextlib.suppress(OSError):
                     if os.stat(os.path.join(PROC, pid)).st_uid == uid:
                         return True
@@ -1151,7 +1192,7 @@ def wifi_devices():
         except (ValueError, KeyError, TypeError, AttributeError):
             address = ""
         found.append({"device": device.get("GENERAL.DEVICE", ""),
-                      "state": int(state) if state.isdigit() else 0, "address": address})
+                      "state": int(state) if number(state) else 0, "address": address})
     return found
 
 
@@ -1517,6 +1558,49 @@ def cmd_updates(args):
     return 0
 
 
+# --- The upgrade to 3.0 -----------------------------------------------------------------
+
+UPGRADE_PROGRAM = "/usr/bin/flickos-upgrade"
+UPGRADE_RESULT = "flickos-upgrade-result: "
+
+
+def upgrade_module():
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("flickos_upgrade", UPGRADE_PROGRAM)
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    return module
+
+
+UPGRADE_ARGS = (["prepare"], ["prepare", "--force"], ["install"], ["install", "--without-restore-point"],
+                ["cancel"], ["discard"])
+
+
+def cmd_upgrade(args):
+    if args not in UPGRADE_ARGS:
+        raise HelperError("upgrade: give prepare [--force], install [--without-restore-point], cancel or discard")
+    upgrade = upgrade_module()
+    try:
+        if args[0] == "discard":
+            upgrade.discard()
+            print("Discarded.")
+            return 0
+        if args[0] == "cancel":
+            upgrade.cancel()
+            print("The upgrade isn't installed at the next restart.")
+            return 0
+        if args[0] == "install":
+            upgrade.schedule(no_way_back=args[1:] == ["--without-restore-point"])
+            print("The upgrade is installed at the next restart.")
+            return 0
+        result = upgrade.prepare(force=args[1:] == ["--force"])
+    except RuntimeError as error:
+        raise HelperError(f"upgrade: {error}") from None
+    print(UPGRADE_RESULT + json.dumps(result))
+    return 0 if result["ready"] else 1
+
+
 # --- Firefox ----------------------------------------------------------------------------
 
 def firefox_memory_text():
@@ -1738,9 +1822,9 @@ def apt_log_paths():
     """apt's log files, oldest first."""
     rotated = []
     for path in glob.glob(APT_LOG + ".*.gz"):
-        number = path[len(APT_LOG) + 1:-3]
-        if number.isdigit():
-            rotated.append((int(number), path))
+        suffix = path[len(APT_LOG) + 1:-3]
+        if number(suffix):
+            rotated.append((int(suffix), path))
     return [path for _, path in sorted(rotated, reverse=True)] + [APT_LOG]
 
 
@@ -1838,9 +1922,10 @@ def undo_marker(command):
 
 def describe_transaction(transaction, native):
     """What a transaction did, and whether it can be undone:
-    {"id", "kind": install|remove|update|mixed, "packages": asked for,
+    {"id", "kind": install|remove|update|mixed|upgrade, "packages": asked for,
     "automatic": brought in, "upgraded": count, "purged", "autoremove",
-    "undo_of": the ID this transaction undid (or None), "undoable", "why": why not}."""
+    "undo_of": the ID this transaction undid (or None), "undoable", "why": why not,
+    "release": the FlickOS version an upgrade's run moved to (kind upgrade), else None}."""
     lists = transaction["lists"]
     installs = [(package_name(n, a, native), "automatic" in v) for n, a, v in lists.get("Install", [])]
     asked = [name for name, auto in installs if not auto]
@@ -1856,8 +1941,14 @@ def describe_transaction(transaction, native):
         kind, packages = "update", automatic
     else:
         kind, packages = "mixed", asked + removed
+    release = re.search(re.escape(UPGRADE_OPTION) + r"=(\S+)", transaction["command"])
+    if release:     # one of flickos-upgrade's apt runs: the restore point before it is the way back
+        kind, packages, automatic = "upgrade", [], []
+        upgraded += len(installs) + len(removed)
     why = None
-    if kind == "update":
+    if kind == "upgrade":
+        why = "Part of the upgrade to a new FlickOS release: put back the restore point taken before it instead."
+    elif kind == "update":
         why = "Updates can't be undone: Debian keeps only the newest version of a package."
     elif kind == "mixed":
         why = "This change both installed and removed packages. Undo it in a terminal with apt."
@@ -1865,7 +1956,8 @@ def describe_transaction(transaction, native):
         why = "These packages were no longer needed; install again the ones you want."
     return {"id": transaction["id"], "kind": kind, "packages": packages, "automatic": automatic,
             "upgraded": upgraded, "purged": bool(lists.get("Purge")), "autoremove": autoremove,
-            "undo_of": undo_marker(transaction["command"]), "undoable": why is None, "why": why}
+            "undo_of": undo_marker(transaction["command"]), "undoable": why is None, "why": why,
+            "release": release.group(1) if release else None}
 
 
 def software_changes(days=HISTORY_DAYS, transactions=None, live=None, now=None):
@@ -1993,7 +2085,7 @@ def undo_plan(transaction, simulate=simulate, installed=installed_packages, prot
             if names == previous:
                 continue
             previous = names
-            args = ["remove", *names]
+            args = ["remove", "--", *names]
             removed, _ = simulate(args)
             if removed <= set(names):
                 break
@@ -2014,16 +2106,17 @@ def undo_plan(transaction, simulate=simulate, installed=installed_packages, prot
     if live_only:
         raise HelperError(f"Undoing this would install {', '.join(live_only)}, which only the live session uses, "
                           "so nothing was changed.")
-    args = ["install", *missing]
-    removed, new = simulate(args)
+    removed, new = simulate(["install", "--", *missing])
     if removed:
         raise HelperError(f"Undoing this would remove {', '.join(sorted(removed))}, so nothing was changed.")
-    return {"id": change["id"], "action": "install", "args": args, "remove": [], "install": sorted(new),
+    # --no-remove: had the system changed since the simulation, apt-get stops
+    # instead of removing what the plan never showed (audit F-4).
+    return {"id": change["id"], "action": "install", "args": ["install", "--no-remove", "--", *missing], "remove": [], "install": sorted(new),
             "upgraded": change["upgraded"], "purged": change["purged"]}
 
 
 def cmd_packages_list(args):
-    if len(args) > 1 or (args and not args[0].isdigit()):
+    if len(args) > 1 or (args and not number(args[0], 5)):
         raise HelperError("usage: packages-list [DAYS]")
     print(json.dumps(software_changes(int(args[0]) if args else HISTORY_DAYS), indent=1))
     return 0
@@ -2397,7 +2490,7 @@ VERBS = {"keyboard": cmd_keyboard, "autologin-on": cmd_autologin_on, "autologin-
          "firefox-memory": cmd_firefox_memory, "i386-on": cmd_i386_on, "i386-off": cmd_i386_off,
          "packages-undo": cmd_packages_undo, "packages-list": cmd_packages_list, "packages-plan": cmd_packages_plan,
          "purchases-add": cmd_purchases_add, "purchases-remove": cmd_purchases_remove,
-         "purchases-check": cmd_purchases_check}
+         "purchases-check": cmd_purchases_check, "upgrade": cmd_upgrade}
 # These only read (apt's log, and apt-get -s): no root needed.
 READ_ONLY = ("packages-list", "packages-plan")
 # Run as root by apt (61flickos-purchases), never through pkexec: no polkit action.
@@ -2413,7 +2506,8 @@ def main(argv=None):
         print("control-helper: must run as root (through pkexec)", file=sys.stderr)
         return 1
     try:
-        return VERBS[argv[0]](argv[1:])
+        with accounts_lock() if argv[0] in ACCOUNT_VERBS else contextlib.nullcontext():
+            return VERBS[argv[0]](argv[1:])
     except (HelperError, OSError, subprocess.SubprocessError) as error:
         print(f"control-helper: {error}", file=sys.stderr)
         return 1

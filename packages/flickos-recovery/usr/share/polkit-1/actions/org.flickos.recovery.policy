@@ -3,7 +3,9 @@
   "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!-- Restore points (flickos-recovery, Settings -> Restore Points) through
      pkexec /usr/libexec/flickos/recovery-helper VERB: one action per verb
-     (HIG SET-10). -->
+     (HIG SET-10). restore, keep and try-again put back passwords and
+     accounts too, so they ask for the password every time (auth_admin);
+     the others keep it 5 minutes. -->
 <policyconfig>
   <vendor>FlickOS</vendor>
   <vendor_url>https://github.com/Flick-OS/flickos</vendor_url>
@@ -28,7 +30,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">restore</annotate>
@@ -79,7 +81,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">keep</annotate>
@@ -92,7 +94,7 @@
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/flickos/recovery-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">try-again</annotate>
